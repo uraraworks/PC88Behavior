@@ -202,6 +202,187 @@ def independent_semigraphic(code):
     return bytes(row_bytes)
 
 
+# --------------------------------------------------------------------------
+# グラフィック文字45コード(0x80-0x8F, 0x90-0x9F, 0xE4-0xEF, 0xF0) — 独立実装
+# --------------------------------------------------------------------------
+# 生成器側(make_font_rom.py 3c節)は「8x8の文字グリッド(rows)を作ってから
+# rows_to_bytes で変換する」という一貫した経路を通る。ここではその経路を使わず、
+# 各グリフのバイト値を直接ビット演算で組み立てる（文字グリッドを経由しない）。
+# トランプ柄(スペード等)だけは幾何規則に落とせない自作データなので、
+# データそのものは生成器の SPADE_ART 等を再利用しつつ(理由は本ファイル冒頭の
+# docstring と同じ。データの再入力に検査力は無い)、バイト列への変換は
+# 既存の independent_pack_glyph（ビット順を反転させて壊せる別経路）を使う。
+
+def independent_bar_meter(code):
+    if 0x80 <= code <= 0x87:
+        filled_rows = code - 0x80 + 1
+        return bytes(
+            0xFF if y >= CELL_BYTES - filled_rows else 0x00
+            for y in range(CELL_BYTES)
+        )
+    width = code - 0x88 + 1
+    mask = (0xFF << (8 - width)) & 0xFF
+    return bytes([mask] * CELL_BYTES)
+
+
+def independent_plus_mark():
+    horiz = 0x7E  # cols1-6
+    col3_bit = 0x80 >> 3
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = horiz if y == 3 else 0
+        if 1 <= y <= 6:
+            b |= col3_bit
+        out[y] = b
+    return bytes(out)
+
+
+def independent_box_line(up, down, left, right):
+    c = 3
+    col_bit = 0x80 >> c
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = 0
+        if (up and y <= c) or (down and y >= c):
+            b |= col_bit
+        if y == c:
+            for x in range(CELL_BYTES):
+                if (left and x <= c) or (right and x >= c):
+                    b |= 0x80 >> x
+        out[y] = b
+    return bytes(out)
+
+
+def independent_rounded_corner(vdir, hdir):
+    c = 3
+    dy = -1 if vdir == "up" else 1
+    dx = -1 if hdir == "left" else 1
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = 0
+        if (vdir == "up" and y < c) or (vdir == "down" and y > c):
+            b |= 0x80 >> c
+        out[y] = b
+    row = out[c]
+    for x in range(CELL_BYTES):
+        if (hdir == "left" and x < c) or (hdir == "right" and x > c):
+            row |= 0x80 >> x
+    out[c] = row
+    out[c + dy] |= 0x80 >> (c + dx)
+    return bytes(out)
+
+
+def independent_diagonal_triangle(diag, upper):
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = 0
+        for x in range(CELL_BYTES):
+            if diag == "back":
+                cond = (x - y) >= 0 if upper else (x - y) < 0
+            else:
+                cond = (x + y) <= CELL_BYTES - 1 if upper else (x + y) > CELL_BYTES - 1
+            if cond:
+                b |= 0x80 >> x
+        out[y] = b
+    return bytes(out)
+
+
+def independent_diagonal_line(direction):
+    out = bytearray(CELL_BYTES)
+    for i in range(CELL_BYTES):
+        x = i if direction == "back" else (CELL_BYTES - 1 - i)
+        out[i] = 0x80 >> x
+    return bytes(out)
+
+
+def independent_hatch():
+    a = independent_diagonal_line("fwd")
+    b = independent_diagonal_line("back")
+    return bytes(x | y for x, y in zip(a, b))
+
+
+def independent_circle(filled):
+    cx = cy = (CELL_BYTES - 1) / 2
+    r_in_sq, r_out_sq = 2.6 ** 2, 3.6 ** 2
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = 0
+        for x in range(CELL_BYTES):
+            dsq = (x - cx) ** 2 + (y - cy) ** 2
+            on = dsq <= r_out_sq if filled else (r_in_sq <= dsq <= r_out_sq)
+            if on:
+                b |= 0x80 >> x
+        out[y] = b
+    return bytes(out)
+
+
+_BOX_LINE_DIRS = {
+    0x90: dict(up=False, down=True, left=True, right=True),
+    0x91: dict(up=True, down=False, left=True, right=True),
+    0x92: dict(up=True, down=True, left=True, right=False),
+    0x93: dict(up=True, down=True, left=False, right=True),
+    0x94: dict(up=False, down=False, left=True, right=False),
+    0x95: dict(up=False, down=False, left=False, right=True),
+    0x96: dict(up=True, down=False, left=False, right=False),
+    0x97: dict(up=False, down=True, left=False, right=False),
+    0x98: dict(up=False, down=True, left=False, right=True),
+    0x99: dict(up=False, down=True, left=True, right=False),
+    0x9A: dict(up=True, down=False, left=False, right=True),
+    0x9B: dict(up=True, down=False, left=True, right=False),
+}
+_ROUNDED_CORNER_DIRS = {
+    0x9C: ("down", "right"),
+    0x9D: ("down", "left"),
+    0x9E: ("up", "right"),
+    0x9F: ("up", "left"),
+}
+_TRIANGLE_DIRS = {
+    0xE4: ("back", True),
+    0xE5: ("back", False),
+    0xE6: ("fwd", True),
+    0xE7: ("fwd", False),
+}
+_SUIT_ART = {0xE8: "SPADE_ART", 0xE9: "HEART_ART", 0xEA: "DIAMOND_ART", 0xEB: "CLUB_ART"}
+
+
+def independent_graphic_bytes(code, break_it=False):
+    """グラフィック文字1コードぶんのバイト列を独立実装で組み立てる。
+    対象コードでなければ None を返す。
+
+    break_it=True のときは、行の並びを上下反転させて意図的に壊す
+    （トランプ柄の independent_pack_glyph 側は左右対称な図形が多く
+    ビット順反転だけでは壊れない絵柄があったため、ここでは別の壊し方を
+    重ねて確実に不一致にする）。"""
+    if 0x80 <= code <= 0x8E:
+        result = independent_bar_meter(code)
+    elif code == 0x8F:
+        result = independent_plus_mark()
+    elif code in _BOX_LINE_DIRS:
+        result = independent_box_line(**_BOX_LINE_DIRS[code])
+    elif code in _ROUNDED_CORNER_DIRS:
+        result = independent_rounded_corner(*_ROUNDED_CORNER_DIRS[code])
+    elif code in _TRIANGLE_DIRS:
+        result = independent_diagonal_triangle(*_TRIANGLE_DIRS[code])
+    elif code in _SUIT_ART:
+        art = getattr(gen, _SUIT_ART[code])
+        result = independent_pack_glyph(art, break_it=break_it)
+    elif code == 0xEC:
+        result = independent_circle(True)
+    elif code == 0xED:
+        result = independent_circle(False)
+    elif code == 0xEE:
+        result = independent_diagonal_line("fwd")
+    elif code == 0xEF:
+        result = independent_diagonal_line("back")
+    elif code == 0xF0:
+        result = independent_hatch()
+    else:
+        return None
+    if break_it:
+        result = bytes(reversed(result))
+    return result
+
+
 def independent_overline():
     """0x7E（オーバーライン、U+203E）を独立実装で組み立てる。
 
@@ -235,6 +416,8 @@ def build_independent_rom(unscii_hex_path, misaki_bdf_path, break_it=False):
             if data is None:
                 raise ValueError(f"U+{cp:04X} が無い")
             glyph = data
+        elif independent_graphic_bytes(code) is not None:
+            glyph = independent_graphic_bytes(code, break_it=break_it)
         else:
             glyph = bytes(CELL_BYTES)
         ank[code * CELL_BYTES:(code + 1) * CELL_BYTES] = glyph

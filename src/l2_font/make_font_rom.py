@@ -31,8 +31,14 @@ make_font_rom.py — L2 フォント（半角ANK + セミグラフィック）�
        `KANA_ART` はビルドには使わず、消さずに残してある
           （このリポジトリのコミット規律。CLAUDE.md）。
     3. セミグラフィック（後半2048バイト） → ルールから生成（4節）。
-  0x00-0x1F・0x7F は制御コードのため空白グリフ。0x80-0xA0・0xE0-0xFF は
-  資料から確定できなかったため空白グリフ（`docs/notes/l2-code-assignment.md` 3節）。
+  0x00-0x1F・0x7F は制御コードのため空白グリフ。
+  グラフィック文字 0x80-0xA0・0xE0-0xFF（65コード）のうち45コードは、
+  NEC純正マニュアルの文字コード表（PDF p.234）から読んだ「どんな図形か」の
+  記述だけをもとにルール生成した（棒メータ・罫線・対角三角形・トランプ柄・
+  円・斜線。`docs/notes/l2-graphic-codes.md`）。残り20コード
+  （0xA0, 0xE0-0xE3, 0xF1-0xFF）は資料から確信を持って判別できなかった、
+  または資料上そもそも空欄だったため、空白グリフのまま残す
+  （同ノート3節に理由の内訳）。
 
   なぜ Python でバイト列を組むのか:
   `src/l1_ipl/make_ipl_rom.py` と同じ理由。外部依存ゼロなら第三者が
@@ -915,6 +921,264 @@ def overline_glyph():
 
 
 # --------------------------------------------------------------------------
+# 3c. グラフィック文字 45コード — マニュアル資料4の図形名からルール生成
+# --------------------------------------------------------------------------
+# 根拠: docs/notes/l2-graphic-codes.md（PDF p.234 資料4 2節「キャラクタコード表」）。
+# 採ったのは「そのコードが何の図形か」という記述だけで、ドットの配置は
+# 一切見ていない。ここで定義する形は、その記述から**このセッションが新規に
+# 決めた**ルール（線の太さ・中心位置・円の半径など）であり、公式ROM・
+# 公式フォント・他社フォントのいずれも参照していない
+# （0x9C-0x9F の丸角の回転、0xE4-0xE7 の三角形の向きの割当は、
+# 資料からは「4種類ある」という構成しか読めなかったため実装側で決めた。
+# docs/notes/l2-graphic-codes.md 2節に明記）。
+
+def bar_meter_glyph(level, axis):
+    """棒メータ(0x80-0x8E)。axis="v"はセル下辺基準で高さlevel/8、
+    axis="h"はセル左辺基準で幅level/8を黒く塗る。"""
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    if axis == "v":
+        for y in range(CELL_BYTES - level, CELL_BYTES):
+            for x in range(CELL_BYTES):
+                rows[y][x] = "#"
+    else:
+        for y in range(CELL_BYTES):
+            for x in range(level):
+                rows[y][x] = "#"
+    return tuple("".join(r) for r in rows)
+
+
+def plus_mark_glyph():
+    """0x8F。中央で交差する短い十字("+")。"""
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    for x in range(1, 7):
+        rows[3][x] = "#"
+    for y in range(1, 7):
+        rows[y][3] = "#"
+    return tuple("".join(r) for r in rows)
+
+
+_LINE_CENTER = 3  # 8x8セルの中心とみなす行・列インデックス(0始まり)
+
+
+def box_line_glyph(up=False, down=False, left=False, right=False):
+    """罫線(0x90-0x9B)。中心(_LINE_CENTER)から指定方向へ1px幅の線分を引く。
+    T字は3方向、半分の線は1方向、直角コーナーは2方向(上下いずれか+左右いずれか)
+    を立てて呼び出す。"""
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    c = _LINE_CENTER
+    if up:
+        for y in range(0, c + 1):
+            rows[y][c] = "#"
+    if down:
+        for y in range(c, CELL_BYTES):
+            rows[y][c] = "#"
+    if left:
+        for x in range(0, c + 1):
+            rows[c][x] = "#"
+    if right:
+        for x in range(c, CELL_BYTES):
+            rows[c][x] = "#"
+    return tuple("".join(r) for r in rows)
+
+
+def rounded_corner_glyph(vdir, hdir):
+    """丸角コーナー(0x9C-0x9F)。vdirは"up"/"down"、hdirは"left"/"right"。
+    直角コーナーと同じ2本の線分を中心の手前で止め、斜め1pxで継ぐことで
+    丸みを表現する（円弧の厳密な計算ではなく、直角と区別がつく程度の
+    簡易な角丸めルール）。"""
+    c = _LINE_CENTER
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    if vdir == "up":
+        for y in range(0, c):
+            rows[y][c] = "#"
+    else:
+        for y in range(c + 1, CELL_BYTES):
+            rows[y][c] = "#"
+    if hdir == "left":
+        for x in range(0, c):
+            rows[c][x] = "#"
+    else:
+        for x in range(c + 1, CELL_BYTES):
+            rows[c][x] = "#"
+    dy = -1 if vdir == "up" else 1
+    dx = -1 if hdir == "left" else 1
+    rows[c + dy][c + dx] = "#"
+    return tuple("".join(r) for r in rows)
+
+
+def diagonal_triangle_glyph(diag, upper):
+    """対角三角形(0xE4-0xE7)。diag="back"は左上-右下の対角線("\\")、
+    diag="fwd"は右上-左下の対角線("/")。upperで塗る側を選ぶ。"""
+    rows = []
+    for y in range(CELL_BYTES):
+        row = []
+        for x in range(CELL_BYTES):
+            if diag == "back":
+                on = (x >= y) if upper else (x < y)
+            else:
+                on = (x + y <= CELL_BYTES - 1) if upper else (x + y > CELL_BYTES - 1)
+            row.append("#" if on else ".")
+        rows.append("".join(row))
+    return tuple(rows)
+
+
+def diagonal_line_glyph(direction):
+    """斜線1本(0xEE/0xEF)。direction="fwd"は"/"(左下から右上)、
+    "back"は"\\"(左上から右下)。"""
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    for i in range(CELL_BYTES):
+        x = i if direction == "back" else (CELL_BYTES - 1 - i)
+        rows[i][x] = "#"
+    return tuple("".join(r) for r in rows)
+
+
+def hatch_glyph():
+    """0xF0。0xEE("/")と0xEF("\\")を重ねた×印。"""
+    a = diagonal_line_glyph("fwd")
+    b = diagonal_line_glyph("back")
+    rows = []
+    for ra, rb in zip(a, b):
+        rows.append("".join("#" if (ca == "#" or cb == "#") else "." for ca, cb in zip(ra, rb)))
+    return tuple(rows)
+
+
+def filled_circle_glyph():
+    """0xEC。塗りつぶした円(中心(3.5,3.5)、半径約3.6)。"""
+    cx = cy = (CELL_BYTES - 1) / 2
+    rows = []
+    for y in range(CELL_BYTES):
+        row = []
+        for x in range(CELL_BYTES):
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            row.append("#" if d <= 3.6 else ".")
+        rows.append("".join(row))
+    return tuple(rows)
+
+
+def open_circle_glyph():
+    """0xED。輪郭だけの円（塗りつぶし円から内側の円をくり抜く）。"""
+    cx = cy = (CELL_BYTES - 1) / 2
+    rows = []
+    for y in range(CELL_BYTES):
+        row = []
+        for x in range(CELL_BYTES):
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            row.append("#" if 2.6 <= d <= 3.6 else ".")
+        rows.append("".join(row))
+    return tuple(rows)
+
+
+# トランプ柄(0xE8-0xEB)は幾何規則に落とせないため、KANA_ARTと同じやり方
+# （8x8のASCIIアートとして直書き）で自分で新規に描いた。公式ROM・他社フォント・
+# 他社のトランプ柄フォントはいずれも見ていない（一般名称「スペード」等からの
+# 新規作図。docs/notes/l2-graphic-codes.md 2節）。
+SPADE_ART = (
+    "...##...",
+    "..####..",
+    ".######.",
+    "########",
+    ".######.",
+    "...##...",
+    "...##...",
+    "..####..",
+)
+HEART_ART = (
+    ".##.##..",
+    "########",
+    "########",
+    ".######.",
+    "..####..",
+    "...##...",
+    "........",
+    "........",
+)
+DIAMOND_ART = (
+    "...##...",
+    "..####..",
+    ".######.",
+    "########",
+    ".######.",
+    "..####..",
+    "...##...",
+    "........",
+)
+CLUB_ART = (
+    "...##...",
+    "..####..",
+    "...##...",
+    ".##.##..",
+    "########",
+    "...##...",
+    "...##...",
+    "..####..",
+)
+for _art in (SPADE_ART, HEART_ART, DIAMOND_ART, CLUB_ART):
+    assert len(_art) == CELL_BYTES
+    for _r in _art:
+        assert len(_r) == CELL_BYTES and set(_r) <= {"#", "."}
+
+# コード → グリフ(8行のASCIIアート行タプル) の対応。
+# docs/notes/l2-graphic-codes.md 3節の内訳（45コード）と一致する。
+GRAPHIC_CODE_GLYPHS = {}
+for _lvl in range(1, 9):
+    GRAPHIC_CODE_GLYPHS[0x80 + _lvl - 1] = bar_meter_glyph(_lvl, "v")
+for _lvl in range(1, 8):
+    GRAPHIC_CODE_GLYPHS[0x88 + _lvl - 1] = bar_meter_glyph(_lvl, "h")
+GRAPHIC_CODE_GLYPHS[0x8F] = plus_mark_glyph()
+
+GRAPHIC_CODE_GLYPHS[0x90] = box_line_glyph(down=True, left=True, right=True)
+GRAPHIC_CODE_GLYPHS[0x91] = box_line_glyph(up=True, left=True, right=True)
+GRAPHIC_CODE_GLYPHS[0x92] = box_line_glyph(up=True, down=True, left=True)
+GRAPHIC_CODE_GLYPHS[0x93] = box_line_glyph(up=True, down=True, right=True)
+GRAPHIC_CODE_GLYPHS[0x94] = box_line_glyph(left=True)
+GRAPHIC_CODE_GLYPHS[0x95] = box_line_glyph(right=True)
+GRAPHIC_CODE_GLYPHS[0x96] = box_line_glyph(up=True)
+GRAPHIC_CODE_GLYPHS[0x97] = box_line_glyph(down=True)
+GRAPHIC_CODE_GLYPHS[0x98] = box_line_glyph(down=True, right=True)
+GRAPHIC_CODE_GLYPHS[0x99] = box_line_glyph(down=True, left=True)
+GRAPHIC_CODE_GLYPHS[0x9A] = box_line_glyph(up=True, right=True)
+GRAPHIC_CODE_GLYPHS[0x9B] = box_line_glyph(up=True, left=True)
+GRAPHIC_CODE_GLYPHS[0x9C] = rounded_corner_glyph("down", "right")
+GRAPHIC_CODE_GLYPHS[0x9D] = rounded_corner_glyph("down", "left")
+GRAPHIC_CODE_GLYPHS[0x9E] = rounded_corner_glyph("up", "right")
+GRAPHIC_CODE_GLYPHS[0x9F] = rounded_corner_glyph("up", "left")
+
+GRAPHIC_CODE_GLYPHS[0xE4] = diagonal_triangle_glyph("back", True)
+GRAPHIC_CODE_GLYPHS[0xE5] = diagonal_triangle_glyph("back", False)
+GRAPHIC_CODE_GLYPHS[0xE6] = diagonal_triangle_glyph("fwd", True)
+GRAPHIC_CODE_GLYPHS[0xE7] = diagonal_triangle_glyph("fwd", False)
+
+GRAPHIC_CODE_GLYPHS[0xE8] = SPADE_ART
+GRAPHIC_CODE_GLYPHS[0xE9] = HEART_ART
+GRAPHIC_CODE_GLYPHS[0xEA] = DIAMOND_ART
+GRAPHIC_CODE_GLYPHS[0xEB] = CLUB_ART
+GRAPHIC_CODE_GLYPHS[0xEC] = filled_circle_glyph()
+GRAPHIC_CODE_GLYPHS[0xED] = open_circle_glyph()
+GRAPHIC_CODE_GLYPHS[0xEE] = diagonal_line_glyph("fwd")
+GRAPHIC_CODE_GLYPHS[0xEF] = diagonal_line_glyph("back")
+
+GRAPHIC_CODE_GLYPHS[0xF0] = hatch_glyph()
+
+assert len(GRAPHIC_CODE_GLYPHS) == 45, f"グラフィック文字は45コードのはずが {len(GRAPHIC_CODE_GLYPHS)}"
+for _code, _rows in GRAPHIC_CODE_GLYPHS.items():
+    assert len(_rows) == CELL_BYTES, f"0x{_code:02X} の行数が8でない"
+    for _r in _rows:
+        assert len(_r) == 8 and set(_r) <= {"#", "."}, f"0x{_code:02X} の行が不正: {_r!r}"
+
+# 資料からは判別できず、あえて空欄のまま残すコード
+# (docs/notes/l2-graphic-codes.md 3節)。
+#   0xA0            : 図形の種別を確信を持って特定できなかった(1個)
+#   0xE0-0xE3       : 太字罫線らしき図形だが接続パターンを特定できなかった(4個)
+#   0xF1-0xF7       : 漢字1文字(円年月日時分秒)。8x8でのルール生成手段がない(7個)
+#   0xF8-0xFF       : 資料の表そのものが空欄(確認できた事実。8個)
+UNRESOLVED_GRAPHIC_CODES = frozenset(
+    {0xA0, 0xE0, 0xE1, 0xE2, 0xE3, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+     0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF}
+)
+assert len(GRAPHIC_CODE_GLYPHS) + len(UNRESOLVED_GRAPHIC_CODES) == 65
+
+
+# --------------------------------------------------------------------------
 # 4. 組み立て
 # --------------------------------------------------------------------------
 def rows_to_bytes(rows):
@@ -955,8 +1219,11 @@ def build_ank_plane(unscii_table, misaki):
             glyph = data
         elif code <= 0x1F or code == 0x7F:
             glyph = bytes(CELL_BYTES)  # 制御コード。可視グリフ無し
+        elif code in GRAPHIC_CODE_GLYPHS:
+            glyph = rows_to_bytes(GRAPHIC_CODE_GLYPHS[code])
         else:
-            # 0x80-0xA0, 0xE0-0xFF: 資料から確定できなかった未決定コード
+            # 0xA0, 0xE0-0xE3, 0xF1-0xFF: 資料から確定できなかった/資料上空欄の
+            # 未決定コード(docs/notes/l2-graphic-codes.md 3節)
             glyph = bytes(CELL_BYTES)
             undetermined.append(code)
         plane[code * CELL_BYTES:(code + 1) * CELL_BYTES] = glyph
