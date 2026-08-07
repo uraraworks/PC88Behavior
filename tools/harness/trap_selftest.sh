@@ -66,6 +66,23 @@ if ! grep -E '^ +2000 ' "$OUT" | grep -q 'BC=1234 DE=5678 HL=9ABC'; then
 fi
 echo "OK: 2000 入口 BC=1234 DE=5678 HL=9ABC"
 
+say "0x2000 入口の prev_fetch が、ブートストラップ範囲内の非ゼロな番地であることを確認"
+# prev_fetch は「直前に fetch() で要求された番地」。CPU の PC_prev は
+# z80.c で 0 初期化された後、ブレークポイント経路でしか更新されず、
+# 通常実行では常に 0000 のまま——だから prev_fetch は自前の static 変数
+# から作り直した（詳細は q88h_trap.h / docs/notes/m2-trap-rom.md）。
+# 期待値は make_trap_rom.py --selftest が組む「CALL 2000h」命令
+# （0000-00FF のブートストラップ内、CD 00 20 の3バイト）そのものの
+# オペコード番地 0x000F。CALL のオペランド2バイトは M_RDMEM（mem_read）
+# 経由で読まれ fetch() を通らない（z80.c の M_CALL マクロで実測・確認済み）
+# ため、prev_fetch はオペランドの末尾ではなくオペコードの番地を指す。
+if ! grep -E '^ +2000 ' "$OUT" | grep -q 'prev_fetch=000F'; then
+  echo "NG: 0x2000 入口の prev_fetch が期待値(000F)と違う。以下は該当行:" >&2
+  grep '2000' "$OUT" >&2 || true
+  exit 1
+fi
+echo "OK: 2000 入口 prev_fetch=000F"
+
 say "合格"
 echo "トラップROM足場（exec 2件・data 1件・入口レジスタ・回数）が末端まで届いている。"
 

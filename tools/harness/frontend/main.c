@@ -425,8 +425,15 @@ static void write_cpu(FILE *fp, const char *who, const q88h_trace_t *t)
 }
 
 /* トラップ発火の結果を書く。1件目のイベントを「代表」として使う —
- * 同じ番地への2回目以降の呼び出しは caller/pc_prev が違うことがあるが、
- * まず「一度でも来たときの様子」が分かれば足場としては十分なため。 */
+ * 同じ番地への2回目以降の呼び出しは caller/prev_fetch が違うことがあるが、
+ * まず「一度でも来たときの様子」が分かれば足場としては十分なため。
+ *
+ * prev_fetch は直前に fetch() で要求された番地であって、CPU の PC_prev
+ * ではない（PC_prev は常に 0000 のまま更新されず使えなかった。実測で
+ * 判明したのでパッチ側で自前に維持する値へ置き換えた）。また
+ * 「直前に実行された命令の先頭番地」でもない点に注意 — プレフィクスや
+ * オペランドのフェッチも同じ fetch() を通るので、直前命令の途中を
+ * 指すことがある。 */
 static void write_trap_cpu(FILE *fp, const char *who, const q88h_trap_t *t)
 {
     unsigned i;
@@ -448,9 +455,9 @@ static void write_trap_cpu(FILE *fp, const char *who, const q88h_trap_t *t)
         if (!t->exec_hits[i]) continue;
         n_exec_addr++;
         if (rep_exec[i])
-            fprintf(fp, "  %04X  回数=%u  caller=%04X pc_prev=%04X"
+            fprintf(fp, "  %04X  回数=%u  caller=%04X prev_fetch=%04X"
                         " AF=%04X BC=%04X DE=%04X HL=%04X\n",
-                    i, t->exec_hits[i], rep_exec[i]->caller, rep_exec[i]->pc_prev,
+                    i, t->exec_hits[i], rep_exec[i]->caller, rep_exec[i]->prev_fetch,
                     rep_exec[i]->af, rep_exec[i]->bc, rep_exec[i]->de, rep_exec[i]->hl);
         else
             fprintf(fp, "  %04X  回数=%u  （イベント取りこぼしで詳細無し）\n",
@@ -470,10 +477,10 @@ static void write_trap_cpu(FILE *fp, const char *who, const q88h_trap_t *t)
     if (!t->n_events) fprintf(fp, "  (なし)\n");
     for (i = 0; i < t->n_events && i < g_trap_dump_events; i++) {
         const q88h_trap_ev_t *e = &t->ev[i];
-        fprintf(fp, "  seq=%-4u %-4s addr=%04X caller=%04X pc_prev=%04X sp=%04X"
+        fprintf(fp, "  seq=%-4u %-4s addr=%04X caller=%04X prev_fetch=%04X sp=%04X"
                     " AF=%04X BC=%04X DE=%04X HL=%04X\n",
                 e->seq, e->kind == Q88H_TRAP_EXEC ? "EXEC" : "DATA",
-                e->addr, e->caller, e->pc_prev, e->sp, e->af, e->bc, e->de, e->hl);
+                e->addr, e->caller, e->prev_fetch, e->sp, e->af, e->bc, e->de, e->hl);
     }
 
     fprintf(fp, "[トラップ %s] 取りこぼし: %u件 / 総イベント数: %u件\n",

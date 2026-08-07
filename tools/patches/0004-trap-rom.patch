@@ -11,10 +11,10 @@ index 84ba0a9..e7c02ff 100644
     $(CORE_DIR)/screen-16bpp.c \
     $(CORE_DIR)/screen-snapshot.c \
 diff --git a/src/pc88main.c b/src/pc88main.c
-index e6a2374..d8ff9f1 100644
+index e6a2374..8af1e85 100644
 --- a/src/pc88main.c
 +++ b/src/pc88main.c
-@@ -2957,23 +2957,86 @@ void	main_io_out_with_BP( byte port, byte data )
+@@ -2957,23 +2957,103 @@ void	main_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -32,18 +32,31 @@ index e6a2374..d8ff9f1 100644
 + * caller（戻り番地）はスタック先頭2バイトから組む。ここで q88h_mem_read
 + * を呼ぶと trace 側の read カウンタまで動いてしまうので、必ず一段下の
 + * main_mem_read を直接呼ぶ。
++ *
++ * prev_fetch（直前に fetch() で要求された番地）は Z80 コアの PC_prev
++ * では作れない。z80.h のコメントどおり PC_prev は「モニタ用のダミー」で、
++ * CPU セットアップ時に一度 PC を写すだけで以後は z80.c 側で更新されず、
++ * 通常実行では常に 0000 のままだと実測で判明した（ブレークポイント経路
++ * 限定の更新のため）。そこでここでは fetch() を通るたびに自前の
++ * static 変数へ次の値を控え、末尾まで届く全経路（トラップで早期
++ * return する経路も含む）で更新する。更新を早期 return 経路から
++ * 外すと「トラップが続く間だけ値が凍る」壊れ方をするので注意。
 + * ---------------------------------------------------------------------- */
  
  static byte (*q88h_inner_fetch)( word );
++static word  q88h_prev_fetch;   /* 直前に fetch() で要求された番地 */
  
  static byte q88h_fetch( word addr )
  {
 -  q88h_trace_t *t = retro_q88h_trace();
 +  q88h_trace_t *t  = retro_q88h_trace();
 +  q88h_trap_t  *tp = retro_q88h_trap();
++  word          prev_fetch = q88h_prev_fetch;   /* トラップ判定より前に控える */
++  byte          ret;
 +
    t->mem_exec[addr] = 1;
    t->n_exec++;
+-  return q88h_inner_fetch( addr );
 +
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
 +    /* STOPモードで既に stopped が立っているなら、この fetch は
@@ -52,6 +65,7 @@ index e6a2374..d8ff9f1 100644
 +     * （q88h_trap_record は「起きた事実を書く」関数なので、
 +     * 「起きたかどうか」の判断はここ＝呼び手の責任で済ませる） */
 +    if( tp->mode == Q88H_TRAP_STOP && tp->stopped ){
++      q88h_prev_fetch = addr;
 +      return 0x76;
 +    }
 +
@@ -60,11 +74,12 @@ index e6a2374..d8ff9f1 100644
 +                  | (main_mem_read( (word)(z80main_cpu.SP.W + 1) ) << 8);
 +
 +      q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
-+                         caller, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
++                         caller, prev_fetch, z80main_cpu.SP.W,
 +                         z80main_cpu.AF.W, z80main_cpu.BC.W,
 +                         z80main_cpu.DE.W, z80main_cpu.HL.W );
 +    }
 +
++    q88h_prev_fetch = addr;
 +    if( tp->mode == Q88H_TRAP_RET ){
 +      return 0xC9;                     /* RET  — 呼び元へ即座に返す */
 +    }else{                             /* Q88H_TRAP_STOP */
@@ -74,7 +89,9 @@ index e6a2374..d8ff9f1 100644
 +    }
 +  }
 +
-   return q88h_inner_fetch( addr );
++  ret = q88h_inner_fetch( addr );
++  q88h_prev_fetch = addr;
++  return ret;
  }
  
  static byte q88h_mem_read( word addr )
@@ -91,11 +108,12 @@ index e6a2374..d8ff9f1 100644
 +
 +  /* データアクセスは値を差し替えない。挙動を変えるのは実行アクセスだけ。
 +   * STOPモードで既に停止済みのあとのデータ読みも exec と同じ理由で
-+   * 意味が無いので、記録しない扱いに揃える。 */
++   * 意味が無いので、記録しない扱いに揃える。データアクセスは fetch では
++   * ないので q88h_prev_fetch は更新しない（直前の fetch を指したまま）。 */
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr]
 +      && !(tp->mode == Q88H_TRAP_STOP && tp->stopped) ){
 +    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
-+                       0, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
++                       0, q88h_prev_fetch, z80main_cpu.SP.W,
 +                       z80main_cpu.AF.W, z80main_cpu.BC.W,
 +                       z80main_cpu.DE.W, z80main_cpu.HL.W );
 +  }
@@ -105,10 +123,10 @@ index e6a2374..d8ff9f1 100644
  
  static void q88h_mem_write( word addr, byte data )
 diff --git a/src/pc88sub.c b/src/pc88sub.c
-index 1688cd6..9d2f2a0 100644
+index 1688cd6..3c4ebe8 100644
 --- a/src/pc88sub.c
 +++ b/src/pc88sub.c
-@@ -392,23 +392,72 @@ void	sub_io_out_with_BP( byte port, byte data )
+@@ -392,23 +392,83 @@ void	sub_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -116,23 +134,31 @@ index 1688cd6..9d2f2a0 100644
 +
 +/* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
 + * サブROMの範囲は 0x0000-0x07FF なので、trap.map もその範囲だけを使う想定。 */
++
++/* prev_fetch も pc88main.c と同じ理由で自前の static 変数から作る
++ * （z80sub_cpu.PC_prev は常に 0000 のまま更新されず使えない）。 */
  
  static byte (*q88h_sub_inner_fetch)( word );
++static word  q88h_sub_prev_fetch;   /* 直前に fetch() で要求された番地 */
  
  static byte q88h_sub_fetch( word addr )
  {
 -  q88h_trace_t *t = retro_q88h_trace_sub();
 +  q88h_trace_t *t  = retro_q88h_trace_sub();
 +  q88h_trap_t  *tp = retro_q88h_trap_sub();
++  word          prev_fetch = q88h_sub_prev_fetch;   /* トラップ判定より前に控える */
++  byte          ret;
 +
    t->mem_exec[addr] = 1;
    t->n_exec++;
+-  return q88h_sub_inner_fetch( addr );
 +
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
 +    /* STOPモードで既に stopped が立っているなら、この fetch は
 +     * HALT が同じPCを舐めているだけで新しい要求ではない。記録も
 +     * 回数加算もせず、そのまま同じ 0x76 を返して停止状態を保つ。 */
 +    if( tp->mode == Q88H_TRAP_STOP && tp->stopped ){
++      q88h_sub_prev_fetch = addr;
 +      return 0x76;
 +    }
 +
@@ -141,11 +167,12 @@ index 1688cd6..9d2f2a0 100644
 +                  | (sub_mem_read( (word)(z80sub_cpu.SP.W + 1) ) << 8);
 +
 +      q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
-+                         caller, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
++                         caller, prev_fetch, z80sub_cpu.SP.W,
 +                         z80sub_cpu.AF.W, z80sub_cpu.BC.W,
 +                         z80sub_cpu.DE.W, z80sub_cpu.HL.W );
 +    }
 +
++    q88h_sub_prev_fetch = addr;
 +    if( tp->mode == Q88H_TRAP_RET ){
 +      return 0xC9;                     /* RET */
 +    }else{                             /* Q88H_TRAP_STOP */
@@ -155,7 +182,9 @@ index 1688cd6..9d2f2a0 100644
 +    }
 +  }
 +
-   return q88h_sub_inner_fetch( addr );
++  ret = q88h_sub_inner_fetch( addr );
++  q88h_sub_prev_fetch = addr;
++  return ret;
  }
  
  static byte q88h_sub_mem_read( word addr )
@@ -171,11 +200,12 @@ index 1688cd6..9d2f2a0 100644
 +  v = sub_mem_read( addr );
 +
 +  /* STOPモードで既に停止済みのあとのデータ読みも exec と同じ理由で
-+   * 意味が無いので、記録しない扱いに揃える。 */
++   * 意味が無いので、記録しない扱いに揃える。データアクセスは fetch では
++   * ないので q88h_sub_prev_fetch は更新しない。 */
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr]
 +      && !(tp->mode == Q88H_TRAP_STOP && tp->stopped) ){
 +    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
-+                       0, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
++                       0, q88h_sub_prev_fetch, z80sub_cpu.SP.W,
 +                       z80sub_cpu.AF.W, z80sub_cpu.BC.W,
 +                       z80sub_cpu.DE.W, z80sub_cpu.HL.W );
 +  }

@@ -33,7 +33,16 @@ typedef struct {
     uint32_t seq;        /* 発生順（記録できたイベントの中での通し番号、1始まり） */
     uint16_t addr;        /* 要求された番地 */
     uint16_t caller;      /* スタック先頭から読んだ戻り番地（CALLで来た場合の呼び元の次） */
-    uint16_t pc_prev;     /* 直前のPC。JP/JRで来た場合の手掛かり */
+    uint16_t prev_fetch;  /* 直前に fetch() で要求された番地（＝直前の命令バイトの取得元）。
+                            * パッチ側が自前で維持する値であって Z80 コアの PC_prev では
+                            * ない（PC_prev は z80.h のコメントどおり「モニタ用のダミー」で、
+                            * 通常実行では常に 0000 のまま更新されず使い物にならないと実測で
+                            * 判明した）。
+                            * 「直前に実行された命令の先頭番地」ではない点にも注意：
+                            * CB/ED/DD/FD 等のプレフィクスやオペランドのフェッチも同じ
+                            * fetch() を通るので、直前命令の途中（プレフィクスやオペランド
+                            * の一部）を指すことがある。JP/JR で来た場合の手掛かりとして
+                            * 使うときは、この限界を踏まえて読むこと。 */
     uint16_t sp;
     uint16_t af, bc, de, hl;   /* 入口のレジスタ = 引数の観測 */
     uint8_t  kind;        /* Q88H_TRAP_EXEC / Q88H_TRAP_DATA */
@@ -75,7 +84,7 @@ void retro_q88h_trap_reset(void);
  * パッチのコード自体は「どの値を渡すか」だけに専念できるようにする。
  * バッファが満杯なら n_dropped を増やすだけで上書きはしない。 */
 void q88h_trap_record(q88h_trap_t *t, uint16_t addr, uint8_t kind,
-                       uint16_t caller, uint16_t pc_prev, uint16_t sp,
+                       uint16_t caller, uint16_t prev_fetch, uint16_t sp,
                        uint16_t af, uint16_t bc, uint16_t de, uint16_t hl);
 
 #ifdef __cplusplus

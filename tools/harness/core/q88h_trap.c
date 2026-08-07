@@ -50,7 +50,7 @@ void retro_q88h_trap_reset(void)
 }
 
 void q88h_trap_record(q88h_trap_t *t, uint16_t addr, uint8_t kind,
-                       uint16_t caller, uint16_t pc_prev, uint16_t sp,
+                       uint16_t caller, uint16_t prev_fetch, uint16_t sp,
                        uint16_t af, uint16_t bc, uint16_t de, uint16_t hl)
 {
     q88h_trap_ev_t *e;
@@ -66,11 +66,11 @@ void q88h_trap_record(q88h_trap_t *t, uint16_t addr, uint8_t kind,
     e = &t->ev[t->n_events];
     t->n_events++;
 
-    e->seq     = t->n_events;   /* 1始まりの通し番号 */
-    e->addr    = addr;
-    e->caller  = caller;
-    e->pc_prev = pc_prev;
-    e->sp      = sp;
+    e->seq        = t->n_events;   /* 1始まりの通し番号 */
+    e->addr       = addr;
+    e->caller     = caller;
+    e->prev_fetch = prev_fetch;
+    e->sp         = sp;
     e->af      = af;
     e->bc      = bc;
     e->de      = de;
