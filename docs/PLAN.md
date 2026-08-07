@@ -277,6 +277,13 @@ deny ルールではなく別の仕組み（auto mode classifier）に止めら�
 M8 は M7 の後ではなく、**M4 の頃から並行して育てる**。テストスイートは成果物の主役であり、
 最後のおまけではない。
 
+**M2 は完了（2026-08-07）。** `q88h_trap.c/h`（`tools/harness/core/`）と
+パッチ `tools/patches/0004-trap-rom.patch` で、任意番地への実行/データアクセスを
+RET または HALT で捕まえ、入口レジスタと戻り番地込みで記録できるようにした。
+自己検証は `tools/harness/trap_selftest.sh`、全域トラップ ROM の実走結果は
+`measurements/t0-trap-all-{stop,ret}.txt`。詳細は
+[docs/notes/m2-trap-rom.md](notes/m2-trap-rom.md)。
+
 ---
 
 ## 9. 当面のタスク（M0 → M1）
@@ -293,6 +300,12 @@ M8 は M7 の後ではなく、**M4 の頃から並行して育てる**。テス
 - [ ] 初回コミット → GitHub public リポジトリへ push（本日中）
 - [ ] QUASI88-libretro のライセンスと構造を確認し、フックを入れる箇所の当たりを付ける
 - [ ] 手元でビルドが通るところまで（M1 の入口）
+
+（M1 完了後の追記）
+
+- [x] M2: トラップ ROM 足場（`q88h_trap.c/h` + `0004-trap-rom.patch` +
+      `make_trap_rom.py` + `q88measure --trap-map/--trap-mode`）。
+      自己検証は `trap_selftest.sh`、実走結果は `docs/notes/m2-trap-rom.md` を参照。
 
 ---
 
