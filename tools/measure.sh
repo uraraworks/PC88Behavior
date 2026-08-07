@@ -20,7 +20,7 @@
 #
 # 例:
 #   tools/measure.sh boot-idle --frames 600
-#   tools/measure.sh boot-disk --frames 1800 --disk "$PC88_REF_DISK_DIR/foo.d88"
+#   tools/measure.sh boot-disk --frames 1800 --disk-name foo.d88
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,6 +60,26 @@ if [ ! -d "$PC88_REF_ROM_DIR" ]; then
   echo "PC88_REF_ROM_DIR がディレクトリではない: $PC88_REF_ROM_DIR" >&2; exit 1
 fi
 
+# ディスクも私物なので、パスではなくファイル名で受け取る。
+# --disk-name foo.d88  →  $PC88_REF_DISK_DIR/foo.d88
+# こうしておけば測定コマンドにも測定結果にも私物のパスが現れない。
+if [ -z "${PC88_REF_DISK_DIR:-}" ] && [ -d "$REPO/private/disk" ]; then
+  PC88_REF_DISK_DIR="$REPO/private/disk"
+fi
+DISK_ARGS=()
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --disk-name)
+      [ -n "${PC88_REF_DISK_DIR:-}" ] || { echo "PC88_REF_DISK_DIR が未設定" >&2; exit 1; }
+      d="$PC88_REF_DISK_DIR/$2"
+      [ -f "$d" ] || { echo "ディスクイメージが無い: (PC88_REF_DISK_DIR)/$2" >&2; exit 1; }
+      DISK_ARGS=(--disk "$d"); shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+set -- ${args[@]+"${args[@]}"}
+
 CORE="$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
 [ -n "$CORE" ] || { echo "コアが無い。tools/setup_harness.sh を実行すること" >&2; exit 1; }
 [ -x "$FRONTEND" ] || make -s -C "$REPO/tools/harness/frontend"
@@ -71,6 +91,7 @@ OUT="$OUTDIR/$NAME.txt"
   --core "$CORE" \
   --rom-dir "$PC88_REF_ROM_DIR" \
   --out "$OUT" \
+  ${DISK_ARGS[@]+"${DISK_ARGS[@]}"} \
   "$@"
 status=$?
 
@@ -80,6 +101,7 @@ status=$?
 if [ -f "$OUT" ]; then
   tmp="$OUT.tmp"
   sed -e "s|$PC88_REF_ROM_DIR|\$PC88_REF_ROM_DIR|g" \
+      -e "s|${PC88_REF_DISK_DIR:-__none__}|\$PC88_REF_DISK_DIR|g" \
       -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
       -e "s|$HOME|~|g" "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 fi

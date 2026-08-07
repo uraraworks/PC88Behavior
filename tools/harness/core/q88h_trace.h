@@ -38,6 +38,12 @@ typedef struct {
     uint64_t n_exec, n_read, n_write, n_in, n_out;
 } q88h_trace_t;
 
+/* テキスト画面（既定のレイアウト） */
+#define Q88H_TEXT_BASE   0xF3C8
+#define Q88H_TEXT_ROWS   25
+#define Q88H_TEXT_COLS   80
+#define Q88H_TEXT_STRIDE 120
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,6 +53,10 @@ q88h_trace_t *retro_q88h_trace(void);
 
 /* 採取内容を全消去する。測定区間を切りたいときに呼ぶ */
 void retro_q88h_trace_reset(void);
+
+/* テキスト画面を読み出す。打鍵やコマンドが実際に効いたかの確認用。
+ * 画面に出た文字は ROM の実行結果であって ROM のバイト列ではない。 */
+void retro_q88h_text(uint8_t *dst, uint32_t rows, uint32_t cols, uint32_t stride);
 
 #ifdef __cplusplus
 }
