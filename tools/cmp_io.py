@@ -6,9 +6,26 @@ docs/spec/l1-ipl.md 第6節「実装要件（適合条件）」・第7節「検�
 
 使い方:
     tools/cmp_io.py <基準.iolog.txt> <対象.iolog.txt> [--cpu main|sub] [--with-in]
+    tools/cmp_io.py <基準> <対象> --init N --cycle M     ← 2 段階の適合条件
 
-既定（OUT のみ）が適合条件そのもの。--with-in は構造比較の参考情報であり、
-適合条件ではない（第6節「比較しないもの」）。
+--with-in は構造比較の参考情報であり、適合条件ではない（第6節「比較しないもの」）。
+
+## --init / --cycle を足した理由
+
+第6節の適合条件は 2 段階である。
+
+  ① 初期化区間: 先頭 N 件（L1 では 350）が順序・ポート・値まで完全一致
+  ② 定常状態:   N+1 件目以降が M 件（L1 では 7）の周期の繰り返し。
+                **繰り返しの回数は問わない**
+
+列全体を突き合わせる既定モードでは ② が扱えない。自作 IPL は BASIC の
+初期化を行わないぶん早く定常状態に入るので、同じ 60 フレームでも周回数が
+増える。**回数を条件に入れると「速い実装が速い」というだけで不合格になる。**
+IN の回数を適合条件から外したのとまったく同じ理由である。
+
+実際、L1 の自作 IPL は 728 件（初期化 350 + 7×54 周）を出し、公式版の
+560 件（350 + 7×30 周）と先頭 560 件まで一致したうえで
+「対象側が長い（余分）」と報告された。物差しのほうが条件に追いついていない。
 
 終了コード: 一致 0 / 不一致 1 / 使い方の誤り 2
 """
@@ -190,6 +207,70 @@ def report_mismatch(base: list[Event], target: list[Event], mode_label: str) -> 
     return 1
 
 
+def check_cycle(seq: list[Event], n_init: int, cycle: list[tuple[str, str]],
+                side: str) -> tuple[str | None, int, int]:
+    """n_init 件目以降が cycle の繰り返しかを見る。
+
+    末尾は周期の途中で切れてよい（測定はフレーム数で打ち切られるため）。
+    ただし **1 周も回っていなければ不合格** にする。そうしないと
+    「定常状態に入る前に落ちた記録」が黙って通ってしまう。
+
+    返り値: (エラー文字列 or None, 周回数, 端数)
+    """
+    tail = seq[n_init:]
+    m = len(cycle)
+    if len(tail) < m:
+        return (f"{side}: 定常状態が 1 周も回っていない"
+                f"（{n_init} 件目以降が {len(tail)} 件、周期は {m} 件）", 0, len(tail))
+    for i, e in enumerate(tail):
+        want = cycle[i % m]
+        if (e.port, e.value) != want:
+            return (f"{side}: {n_init + i + 1} 件目が周期から外れる"
+                    f"（周期の {i % m + 1} 番目: 期待 port={want[0]} value={want[1]} ／ "
+                    f"実際 port={e.port} value={e.value}）", 0, 0)
+    return None, len(tail) // m, len(tail) % m
+
+
+def run_two_stage(base_seq: list[Event], target_seq: list[Event],
+                  n_init: int, m_cycle: int) -> int:
+    """第6節の 2 段階の適合条件で判定する。"""
+    label = f"2段階（初期化 {n_init} 件の完全一致 ／ 以降 {m_cycle} 件周期）"
+
+    need = n_init + m_cycle
+    if len(base_seq) < need:
+        print(f"[{label}] エラー: 基準側が短すぎる"
+              f"（{len(base_seq)} 件。周期を取り出すのに {need} 件必要）", file=sys.stderr)
+        return 2
+
+    # ① 初期化区間
+    rc = report_mismatch(base_seq[:n_init], target_seq[:n_init],
+                         f"{label} ① 初期化区間")
+    if rc != 0:
+        return rc
+
+    # ② 定常状態。周期は基準側から取り出す
+    cycle = [(e.port, e.value) for e in base_seq[n_init:need]]
+    cycle_txt = " / ".join(f"{p}<-{v}" for p, v in cycle)
+
+    err_b, laps_b, rest_b = check_cycle(base_seq, n_init, cycle, "基準側")
+    err_t, laps_t, rest_t = check_cycle(target_seq, n_init, cycle, "対象側")
+    if err_b or err_t:
+        print(f"[{label}] 不一致: ② 定常状態が周期になっていない")
+        print(f"  周期: {cycle_txt}")
+        for e in (err_b, err_t):
+            if e:
+                print(f"  {e}")
+        return 1
+
+    print(f"[{label}] 一致")
+    print(f"  ① 初期化区間 {n_init} 件が完全一致")
+    print(f"  ② 定常状態の周期: {cycle_txt}")
+    print(f"     基準側 {laps_b} 周（端数 {rest_b} 件） ／ "
+          f"対象側 {laps_t} 周（端数 {rest_t} 件）")
+    print("     周回数は適合条件ではない（第6節「比較しないもの」）")
+    return 0
+
+
 def run_compare(base_events: list[Event], target_events: list[Event], with_in: bool) -> int:
     if with_in:
         base_seq = fold_in_runs(base_events)
@@ -219,7 +300,22 @@ def main() -> int:
     parser.add_argument("target", help="対象の .iolog.txt")
     parser.add_argument("--cpu", choices=["main", "sub"], default="main", help="比較する CPU（既定: main）")
     parser.add_argument("--with-in", action="store_true", help="畳んだ IN も含めて構造を比較する（参考。適合条件ではない）")
+    parser.add_argument("--init", type=int, default=None, metavar="N",
+                        help="2段階判定: 先頭 N 件を完全一致で比べる（L1 は 350）")
+    parser.add_argument("--cycle", type=int, default=None, metavar="M",
+                        help="2段階判定: N 件目以降を M 件の周期とみなす（L1 は 7）")
     args = parser.parse_args()
+
+    if (args.init is None) != (args.cycle is None):
+        print("エラー: --init と --cycle は両方指定する", file=sys.stderr)
+        return 2
+    if args.init is not None:
+        if args.init < 0 or args.cycle < 1:
+            print("エラー: --init は 0 以上、--cycle は 1 以上", file=sys.stderr)
+            return 2
+        if args.with_in:
+            print("エラー: --with-in は参考情報なので 2段階判定と併用しない", file=sys.stderr)
+            return 2
 
     try:
         base_events = parse_iolog(args.base, args.cpu)
@@ -230,6 +326,14 @@ def main() -> int:
     except OSError as e:
         print(f"エラー: ファイルを読めない: {e}", file=sys.stderr)
         return 2
+
+    if args.init is not None:
+        base_seq = filter_out_only(base_events)
+        target_seq = filter_out_only(target_events)
+        if len(base_seq) == 0 and len(target_seq) == 0:
+            print("エラー: 両側とも OUT が0件。比較になっていない。", file=sys.stderr)
+            return 2
+        return run_two_stage(base_seq, target_seq, args.init, args.cycle)
 
     return run_compare(base_events, target_events, args.with_in)
 

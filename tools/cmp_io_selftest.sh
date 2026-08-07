@@ -200,6 +200,117 @@ else
     cat "$WORK/t9.out"
 fi
 
+# =====================================================================
+# 2段階判定（--init / --cycle）の検査
+#
+# 第6節の適合条件は「初期化 350 件の完全一致 ／ 以降 7 件周期・回数は問わない」
+# の2段階。列全体を突き合わせる既定モードでは ② が扱えないので足した機能。
+#
+# **物差しの誤りは実装の誤りより見つけにくい**（仕様書 第6節の但し書き）。
+# 以下は全て「わざと壊して落ちること」を確かめる形にしてある。
+# =====================================================================
+INIT_N=350
+CYCLE_M=7
+
+# 定常状態の 7 件（第3節・付録A 末尾）。挿入テストで使う。
+CYCLE_LINES=(
+    "999999 999 main OUT 0031 19 FFFF"
+    "999999 999 main OUT 00E4 01 FFFF"
+    "999999 999 main OUT 0051 81 FFFF"
+    "999999 999 main OUT 0050 16 FFFF"
+    "999999 999 main OUT 0050 01 FFFF"
+    "999999 999 main OUT 00E4 FF FFFF"
+    "999999 999 main OUT 0031 19 FFFF"
+)
+
+# --- テスト10: 種ファイル同士を2段階判定 → 一致 -----------------------
+python3 "$CMP" "$SEED" "$WORK/t1.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t10.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "① 初期化区間 $INIT_N 件が完全一致" "$WORK/t10.out"; then
+    pass "10. 2段階判定で同一ファイル同士 → 一致"
+else
+    fail "10. 2段階判定で同一ファイル同士 → 一致 rc=$rc"
+    cat "$WORK/t10.out"
+fi
+
+# --- テスト11: 定常状態を1周ぶん延ばす → 一致（周回数を問わない）------
+# これが通らないと、速い実装が「速いというだけで」不合格になる。
+# 既定モードでは同じ入力が「余分」で不一致になることも併せて確かめる。
+{
+    awk -v n="$OUT_COUNT" 'BEGIN{c=0}
+        { print
+          if ($3=="main" && $4=="OUT") { c++; if (c==n) exit } }' "$SEED"
+    printf '%s\n' "${CYCLE_LINES[@]}"
+    awk -v n="$OUT_COUNT" 'BEGIN{c=0;p=0}
+        { if (p) print
+          if ($3=="main" && $4=="OUT") { c++; if (c==n) p=1 } }' "$SEED"
+} > "$WORK/t11.txt"
+python3 "$CMP" "$SEED" "$WORK/t11.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t11.out" 2>&1
+rc=$?
+python3 "$CMP" "$SEED" "$WORK/t11.txt" >"$WORK/t11b.out" 2>&1
+rc_default=$?
+if [[ $rc -eq 0 ]] && [[ $rc_default -eq 1 ]] && grep -q "余分" "$WORK/t11b.out"; then
+    pass "11. 定常状態を1周延ばす → 2段階では一致（既定モードでは「余分」で不一致）"
+else
+    fail "11. 定常状態を1周延ばす → 2段階では一致 rc=$rc / 既定 rc=$rc_default"
+    cat "$WORK/t11.out"; cat "$WORK/t11b.out"
+fi
+
+# --- テスト12: 定常区間の値を1件書き換える → 不一致 -------------------
+BREAK12=400   # 350 件目より後ろ = 定常区間
+awk -v n="$BREAK12" 'BEGIN{c=0}
+    { if ($3=="main" && $4=="OUT") { c++; if (c==n) $6="ZZ" } ; print }' \
+    OFS=' ' "$SEED" > "$WORK/t12.txt"
+python3 "$CMP" "$SEED" "$WORK/t12.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t12.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "対象側: $BREAK12 件目が周期から外れる" "$WORK/t12.out"; then
+    pass "12. 定常区間の値を1件書き換える → 不一致（$BREAK12 件目を正しく指す）"
+else
+    fail "12. 定常区間の値を1件書き換える → 不一致（$BREAK12 件目） rc=$rc"
+    cat "$WORK/t12.out"
+fi
+
+# --- テスト13: 初期化区間の値を1件書き換える → ① で不一致 ------------
+BREAK13=200   # 350 件目より前 = 初期化区間
+awk -v n="$BREAK13" 'BEGIN{c=0}
+    { if ($3=="main" && $4=="OUT") { c++; if (c==n) $6="ZZ" } ; print }' \
+    OFS=' ' "$SEED" > "$WORK/t13.txt"
+python3 "$CMP" "$SEED" "$WORK/t13.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t13.out" 2>&1
+rc=$?
+reported13="$(grep -oE '[0-9]+ 件目で食い違い' "$WORK/t13.out" | grep -oE '^[0-9]+')"
+if [[ $rc -eq 1 ]] && [[ "$reported13" == "$BREAK13" ]] && grep -q "① 初期化区間" "$WORK/t13.out"; then
+    pass "13. 初期化区間の値を1件書き換える → ① で不一致（$BREAK13 件目）"
+else
+    fail "13. 初期化区間の値を1件書き換える → ① で不一致（報告位置=$reported13, rc=$rc）"
+    cat "$WORK/t13.out"
+fi
+
+# --- テスト14: 定常状態が1周も無い → 不一致 ---------------------------
+# 「初期化までは合っているが定常状態に入る前に落ちた」記録を
+# 黙って通さないこと。周期の端数を許す実装なので、ここは明示的に検査する。
+TRUNC=$((INIT_N + CYCLE_M - 1))
+awk -v n="$TRUNC" 'BEGIN{c=0}
+    { if ($3=="main" && $4=="OUT") { c++; if (c>n) next } ; print }' \
+    OFS=' ' "$SEED" > "$WORK/t14.txt"
+python3 "$CMP" "$SEED" "$WORK/t14.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t14.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "対象側: 定常状態が 1 周も回っていない" "$WORK/t14.out"; then
+    pass "14. 定常状態が1周も無い（$TRUNC 件で打ち切り）→ 不一致"
+else
+    fail "14. 定常状態が1周も無い（$TRUNC 件で打ち切り）→ 不一致 rc=$rc"
+    cat "$WORK/t14.out"
+fi
+
+# --- テスト15: --init と --cycle の片方だけ → 使い方の誤り ------------
+python3 "$CMP" "$SEED" "$WORK/t1.txt" --init $INIT_N >"$WORK/t15.out" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]]; then
+    pass "15. --init だけ指定 → 使い方の誤り（終了コード2）"
+else
+    fail "15. --init だけ指定 → 使い方の誤り（終了コード2） rc=$rc"
+    cat "$WORK/t15.out"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
     echo "全項目 OK"
