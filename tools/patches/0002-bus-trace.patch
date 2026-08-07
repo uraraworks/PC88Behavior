@@ -1,0 +1,89 @@
+diff --git a/src/pc88main.c b/src/pc88main.c
+index d4f5524..e6a2374 100644
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2943,17 +2943,78 @@ void	main_io_out_with_BP( byte port, byte data )
+ /************************************************************************/
+ /*									*/
+ /************************************************************************/
++/* ======================================================================
++ * PC88Behavior 計測ハーネス — バスアクセスの採取
++ *
++ * 上流の実装をそのまま呼びつつ、触れたアドレスを記録するだけのラッパ。
++ * 挙動は変えない。記録するのはアドレスとアクセス種別であって、
++ * 読み書きした内容ではない。
++ *
++ * 要点は fetch を必ず自前のものにすること。上流は memory_wait も
++ * highspeed_mode も無効なとき fetch を main_mem_read に別名化するので、
++ * そのままでは「実行された番地」と「データとして読まれた番地」の区別が
++ * 消える。docs/PLAN.md 開発ループ ① はこの区別を前提にしている。
++ * ====================================================================== */
++
++#include "q88h_trace.h"
++
++static byte (*q88h_inner_fetch)( word );
++
++static byte q88h_fetch( word addr )
++{
++  q88h_trace_t *t = retro_q88h_trace();
++  t->mem_exec[addr] = 1;
++  t->n_exec++;
++  return q88h_inner_fetch( addr );
++}
++
++static byte q88h_mem_read( word addr )
++{
++  q88h_trace_t *t = retro_q88h_trace();
++  t->mem_read[addr] = 1;
++  t->n_read++;
++  return main_mem_read( addr );
++}
++
++static void q88h_mem_write( word addr, byte data )
++{
++  q88h_trace_t *t = retro_q88h_trace();
++  t->mem_write[addr] = 1;
++  t->n_write++;
++  main_mem_write( addr, data );
++}
++
++static byte q88h_io_in( byte port )
++{
++  q88h_trace_t *t = retro_q88h_trace();
++  t->io_in[port] = 1;
++  t->n_in++;
++  return main_io_in( port );
++}
++
++static void q88h_io_out( byte port, byte data )
++{
++  q88h_trace_t *t = retro_q88h_trace();
++  t->io_out[port] = 1;
++  t->n_out++;
++  main_io_out( port, data );
++}
++
+ void	pc88main_bus_setup( void )
+ {
++  /* 上流が選ぶはずだったフェッチ関数を内側に置き、外側は常に自前のラッパ。
++   * こうすればウェイトの有無という時間的な挙動は保ったまま、
++   * 実行アクセスを取りこぼさない。 */
+   if( memory_wait || highspeed_mode ){
+-    z80main_cpu.fetch   = main_fetch;
++    q88h_inner_fetch    = main_fetch;
+   }else{
+-    z80main_cpu.fetch   = main_mem_read;
++    q88h_inner_fetch    = main_mem_read;
+   }
+-  z80main_cpu.mem_read  = main_mem_read;
+-  z80main_cpu.mem_write = main_mem_write;
+-  z80main_cpu.io_read   = main_io_in;
+-  z80main_cpu.io_write  = main_io_out;
++  z80main_cpu.fetch     = q88h_fetch;
++  z80main_cpu.mem_read  = q88h_mem_read;
++  z80main_cpu.mem_write = q88h_mem_write;
++  z80main_cpu.io_read   = q88h_io_in;
++  z80main_cpu.io_write  = q88h_io_out;
+ }
+ 
+ 

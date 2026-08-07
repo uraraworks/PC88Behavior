@@ -76,8 +76,17 @@ if [ -d "$harness" ]; then
   done
   lib="$(ls "$harness"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
   if [ -n "$lib" ]; then
-    if nm "$lib" 2>/dev/null | grep -qi 'pbios'; then ng "ビルド成果物に疑似BIOSのシンボルがある"
-    else ok "ビルド成果物に疑似BIOSのシンボルなし"; fi
+    # `nm | grep -q` は使わない。pipefail 下では grep -q の早期終了が
+    # nm を SIGPIPE で殺し、判定が反転する（setup_harness.sh の注記参照）。
+    syms="$(nm "$lib" 2>/dev/null || true)"
+    case "$syms" in
+      *pbios*) ng "ビルド成果物に疑似BIOSのシンボルがある" ;;
+      *)       ok "ビルド成果物に疑似BIOSのシンボルなし" ;;
+    esac
+    case "$syms" in
+      *retro_q88h_trace*) ok "ビルド成果物に計測フックのシンボルあり" ;;
+      *)                  ng "ビルド成果物に計測フックのシンボルが無い" ;;
+    esac
   fi
 else
   info "ハーネス未取得のためスキップ（tools/setup_harness.sh）"

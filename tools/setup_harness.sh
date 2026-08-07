@@ -50,6 +50,14 @@ for f in src/z80-debug.c src/LIBRETRO/pseudo_bios.h; do
   if [ -e "$SRC/$f" ]; then echo "削除できていない: $f" >&2; exit 1; fi
 done
 
+say "自前コードをコアツリーへ配置"
+# 私たちが書いたファイルはこのリポジトリで管理し、コピーで持ち込む。
+# パッチに埋め込むと、自分のコードが diff の中でしか読めなくなる。
+for f in "$REPO"/tools/harness/core/*; do
+  echo "  $(basename "$f")"
+  cp "$f" "$SRC/src/"
+done
+
 say "パッチを適用"
 for p in "$REPO"/tools/patches/*.patch; do
   echo "  $(basename "$p")"
@@ -69,10 +77,26 @@ say "検証"
 LIB="$(ls "$SRC"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
 if [ -z "$LIB" ]; then echo "成果物が見つからない" >&2; exit 1; fi
 echo "  成果物: $LIB"
-if nm "$LIB" 2>/dev/null | grep -qi 'pbios'; then
-  echo "  NG: 疑似BIOSのシンボルが残っている" >&2; exit 1
-fi
-echo "  OK: 疑似BIOSのシンボルなし"
+
+# シンボル表は一度だけ変数に取る。
+# `nm | grep -q` は set -o pipefail と噛み合わない: grep -q が最初の一致で
+# 終了すると nm が SIGPIPE で死に、パイプライン全体が失敗扱いになる。
+# 「シンボルが有るときだけ検査が失敗する」という反転した挙動になり、
+# しかも無い側の検査は素通りするので気づきにくい。
+SYMS="$(nm "$LIB" 2>/dev/null || true)"
+
+case "$SYMS" in
+  *pbios*) echo "  NG: 疑似BIOSのシンボルが残っている" >&2; exit 1 ;;
+  *)       echo "  OK: 疑似BIOSのシンボルなし" ;;
+esac
 echo "  OK: 逆アセンブラのソースは存在しない（スタブのみ）"
+case "$SYMS" in
+  *retro_q88h_trace*) echo "  OK: 計測フックのシンボルあり" ;;
+  *) echo "  NG: 計測フックのシンボルが無い" >&2; exit 1 ;;
+esac
+
+say "疎通試験"
+# ここまでで「ビルドできた」だけ。フックが末端まで生きているかは別問題なので測る。
+"$REPO/tools/harness/selftest.sh"
 
 say "完了"

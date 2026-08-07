@@ -35,3 +35,6 @@ dist/
 # OS/エディタ
 .DS_Store
 *.swp
+
+# ハーネスのビルド成果物
+tools/harness/frontend/q88measure

@@ -1,13 +1,14 @@
 diff --git a/Makefile.common b/Makefile.common
-index e1b611f..7543b4c 100644
+index e1b611f..84ba0a9 100644
 --- a/Makefile.common
 +++ b/Makefile.common
-@@ -53,7 +53,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+@@ -53,7 +53,8 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
     $(CORE_DIR)/romaji.c \
     $(CORE_DIR)/pause.c \
     $(CORE_DIR)/z80.c \
 -   $(CORE_DIR)/z80-debug.c \
 +   $(CORE_DIR)/z80-debug-stub.c \
++   $(CORE_DIR)/q88h_trace.c \
     $(CORE_DIR)/snapshot.c \
     $(CORE_DIR)/screen-16bpp.c \
     $(CORE_DIR)/screen-snapshot.c \
@@ -113,41 +114,3 @@ index f77a7a5..31bfc69 100644
     init_variables();
     quasi88_start();
     quasi88_disk_eject_all();
-diff --git a/src/z80-debug-stub.c b/src/z80-debug-stub.c
-new file mode 100644
-index 0000000..c50f0b6
---- /dev/null
-+++ b/src/z80-debug-stub.c
-@@ -0,0 +1,32 @@
-+/*
-+ * z80-debug-stub.c — PC88Behavior 計測ハーネス用
-+ *
-+ * 上流の src/z80-debug.c（Z80 逆アセンブラ）を置き換えるスタブ。
-+ *
-+ * 本プロジェクトはクリーンルーム規律により、公式 ROM の逆アセンブルを禁じている
-+ * （PC88Behavior/CLAUDE.md 禁止事項 2）。運用で「使わない」と決めるだけでは、
-+ * ハーネスのバイナリ自体が公式 ROM に向けられる逆アセンブラを内蔵したままになる。
-+ * 能力そのものを持たない状態にするため、命令テーブルとデコード処理を丸ごと落とす。
-+ *
-+ * z80.h が両関数を extern 宣言しているのでシンボルだけ残す。
-+ * 実際の呼び出し元は上流にも存在しない（z80_debug から z80_line_disasm を呼ぶ
-+ * 自己参照のみ）ため、これで機能欠落は起きない。
-+ */
-+
-+#include "quasi88.h"
-+#include "z80.h"
-+
-+int z80_line_disasm(z80arch *z80, word pc)
-+{
-+    (void)z80;
-+    (void)pc;
-+    /* 逆アセンブラは意図的に存在しない。1 命令ぶん進んだことにして返す。 */
-+    return 1;
-+}
-+
-+void z80_debug(z80arch *z80, char *mes)
-+{
-+    (void)z80;
-+    (void)mes;
-+    /* 何もしない */
-+}
