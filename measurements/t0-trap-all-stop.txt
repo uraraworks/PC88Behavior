@@ -2,7 +2,7 @@
 # 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。
 
 core      : $WORKDIR/vendor/quasi88-libretro/quasi88_libretro.dylib
-rom-dir   : /var/folders/qt/9075m6g57y54zmmgl82vb25h0000gn/T//pc88h-trap-run.68384/rom
+rom-dir   : /var/folders/qt/9075m6g57y54zmmgl82vb25h0000gn/T//pc88h-trap-run.78289/rom
 disk      : (なし)
 frames    : 60
 type      : (なし)
@@ -36,11 +36,11 @@ type      : (なし)
   (なし)
 
 [トラップ メインCPU] 要求された入口（実行）
-  0000  回数=1  caller=0000 pc_prev=0000 AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  0000  回数=1  caller=0000 prev_fetch=0000 AF=FFFF BC=FFFF DE=FFFF HL=FFFF
 [トラップ メインCPU] 要求された番地（データ）
   (なし)
 [トラップ メインCPU] 発生順（先頭20件）
-  seq=1    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=1    EXEC addr=0000 caller=0000 prev_fetch=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
 [トラップ メインCPU] 取りこぼし: 0件 / 総イベント数: 1件
 [トラップ メインCPU] 停止: した (番地=0000)
 
