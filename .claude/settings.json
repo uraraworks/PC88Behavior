@@ -1,0 +1,43 @@
+{
+  "$comment": [
+    "PC88Behavior クリーンルーム規律の機構的強制。",
+    "docs/PLAN.md 第3節のとおり、このファイルは設定であると同時に証拠でもある。",
+    "文章の規律(CLAUDE.md)は破れるが、deny は破れない。両方を置く意味がここにある。",
+    "",
+    "重要: これは砂場ではなく防御の一層目である。Bash の deny は接頭辞照合なので、",
+    "パイプや別名で迂回しようと思えばできる。目的は『うっかり』を止めることと、",
+    "『規律を機構として持っていた』ことを記録に残すことであって、悪意の遮断ではない。",
+    "",
+    "配置: 実体はこの公開リポジトリに置き、実効側 (_emulator/PC88/.claude/settings.json) は",
+    "ここへの symlink にしてある。cwd が PC88 なので実体だけでは読まれない。",
+    "整合は tools/check_cleanroom.sh で検査する。"
+  ],
+  "permissions": {
+    "deny": [
+      "Read(./private/**)",
+      "Read(./PC88Behavior/private/**)",
+      "Read(**/private/**)",
+
+      "Bash(xxd:*)",
+      "Bash(od:*)",
+      "Bash(hexdump:*)",
+      "Bash(strings:*)",
+      "Bash(xd:*)",
+
+      "Bash(z80dasm:*)",
+      "Bash(dz80:*)",
+      "Bash(z80disasm:*)",
+      "Bash(ndisasm:*)",
+      "Bash(objdump:*)",
+      "Bash(llvm-objdump:*)",
+      "Bash(radare2:*)",
+      "Bash(r2:*)",
+      "Bash(rabin2:*)",
+      "Bash(rasm2:*)",
+      "Bash(ghidra:*)",
+      "Bash(analyzeHeadless:*)",
+      "Bash(capstone:*)",
+      "Bash(cstool:*)"
+    ]
+  }
+}
