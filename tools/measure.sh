@@ -67,6 +67,10 @@ if [ -z "${PC88_REF_DISK_DIR:-}" ] && [ -d "$REPO/private/disk" ]; then
   PC88_REF_DISK_DIR="$REPO/private/disk"
 fi
 DISK_ARGS=()
+DISK_WRITABLE=0
+SCRATCH=""
+cleanup() { [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"; }
+trap cleanup EXIT
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -74,11 +78,31 @@ while [ $# -gt 0 ]; do
       [ -n "${PC88_REF_DISK_DIR:-}" ] || { echo "PC88_REF_DISK_DIR が未設定" >&2; exit 1; }
       d="$PC88_REF_DISK_DIR/$2"
       [ -f "$d" ] || { echo "ディスクイメージが無い: (PC88_REF_DISK_DIR)/$2" >&2; exit 1; }
-      DISK_ARGS=(--disk "$d"); shift 2 ;;
+      # 原本には絶対に書かせない。必ず使い捨ての複製を渡す。
+      #
+      # 理由は2つある。
+      #   1. 測定は原本を変えてはいけない。SAVE や KILL を測った瞬間に
+      #      27年物のディスクが書き換わるのでは測定にならない
+      #   2. 原本が書き換わると以後の測定条件が変わり、再現性が壊れる。
+      #      「同じ条件で同じ結果」が差分実行の前提なので、ここは譲れない
+      SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/pc88h-disk.XXXXXX")"
+      cp "$d" "$SCRATCH/$2"
+      DISK_COPY="$SCRATCH/$2"
+      DISK_ARGS=(--disk "$DISK_COPY"); shift 2 ;;
+    --disk-writable) DISK_WRITABLE=1; shift ;;
     *) args+=("$1"); shift ;;
   esac
 done
 set -- ${args[@]+"${args[@]}"}
+
+# 書き込み経路を測るには、複製側のライトプロテクトを外す必要がある。
+# D88 ヘッダのオフセット 0x1A がライトプロテクト（0x10 で保護）。
+# 原本は触らない。外すのはあくまで使い捨ての複製だけ。
+if [ "$DISK_WRITABLE" = 1 ]; then
+  [ -n "${DISK_COPY:-}" ] || { echo "--disk-writable には --disk-name が要る" >&2; exit 1; }
+  printf '\x00' | dd of="$DISK_COPY" bs=1 seek=26 count=1 conv=notrunc status=none
+  echo "[measure] 複製のライトプロテクトを解除した（原本は変更していない）" >&2
+fi
 
 CORE="$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
 [ -n "$CORE" ] || { echo "コアが無い。tools/setup_harness.sh を実行すること" >&2; exit 1; }
@@ -102,6 +126,7 @@ if [ -f "$OUT" ]; then
   tmp="$OUT.tmp"
   sed -e "s|$PC88_REF_ROM_DIR|\$PC88_REF_ROM_DIR|g" \
       -e "s|${PC88_REF_DISK_DIR:-__none__}|\$PC88_REF_DISK_DIR|g" \
+      -e "s|${SCRATCH:-__none__}|\$PC88_REF_DISK_DIR|g" \
       -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
       -e "s|$HOME|~|g" "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 fi

@@ -7,8 +7,6 @@ disk      : (なし)
 frames    : 3000
 type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
 
-総アクセス回数: exec=25237800 read=24655848 write=7793477 in=43421 out=22317
-
 [測定終了時のテキスト画面]
    0| How many files(0-15)?
    1| NEC N-88 BASIC Version 2.3
@@ -30,7 +28,9 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   17| Ok
   19|       load "        auto          go to         list          run
 
-[実行された番地 (fetch)]
+[メインCPU] 総アクセス回数: exec=25237800 read=24655848 write=7793477 in=43421 out=22317
+
+[[メインCPU] 実行された番地 (fetch)]
   0000-0001  (2)
   0004-0004  (1)
   0008-000D  (6)
@@ -2697,7 +2697,7 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   EDE7-EDE7  (1)
   EDF3-EDF3  (1)
   EDF9-EDF9  (1)
-[データとして読まれた番地]
+[[メインCPU] データとして読まれた番地]
   0002-0003  (2)
   0005-0006  (2)
   0013-0013  (1)
@@ -4984,7 +4984,7 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   860D-860D  (1)
   8718-871F  (8)
   C000-FFF7  (16376)
-[書き込まれた番地]
+[[メインCPU] 書き込まれた番地]
   0000-0002  (3)
   000F-0011  (3)
   001D-001F  (3)
@@ -5005,7 +5005,7 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   8614-8614  (1)
   8718-8720  (9)
   C000-FFF8  (16377)
-[入力された I/O ポート]
+[[メインCPU] 入力された I/O ポート]
   0000-000B  (12)
   0030-0032  (3)
   0040-0040  (1)
@@ -5013,7 +5013,7 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   0070-0071  (2)
   00F4-00F4  (1)
   00F8-00F8  (1)
-[出力された I/O ポート]
+[[メインCPU] 出力された I/O ポート]
   0030-0032  (3)
   0040-0040  (1)
   0050-0051  (2)
@@ -5029,3 +5029,17 @@ type      : \n | 10 FOR J=1 TO 3\n20 PRINT J*J;"!"\n30 NEXT\nLIST\nRUN\n
   00E6-00E6  (1)
   00EB-00EB  (1)
   00F8-00F8  (1)
+
+[サブCPU] 総アクセス回数: exec=0 read=0 write=0 in=0 out=0
+
+[[サブCPU] 実行された番地 (fetch)]
+  (なし)
+[[サブCPU] データとして読まれた番地]
+  (なし)
+[[サブCPU] 書き込まれた番地]
+  (なし)
+[[サブCPU] 入力された I/O ポート]
+  (なし)
+[[サブCPU] 出力された I/O ポート]
+  (なし)
+

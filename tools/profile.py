@@ -22,13 +22,15 @@ import pathlib
 import re
 import sys
 
-SECTIONS = {
-    "実行された番地 (fetch)": "exec",
-    "データとして読まれた番地": "read",
-    "書き込まれた番地": "write",
-    "入力された I/O ポート": "io_in",
-    "出力された I/O ポート": "io_out",
-}
+# 測定結果は CPU ごとに節が分かれている（PC-88 は Z80 が 2 個）
+SECTIONS = {}
+for _cpu, _tag in (("[メインCPU]", "main"), ("[サブCPU]", "sub")):
+    for _jp, _en in (("実行された番地 (fetch)", "exec"),
+                     ("データとして読まれた番地", "read"),
+                     ("書き込まれた番地", "write"),
+                     ("入力された I/O ポート", "io_in"),
+                     ("出力された I/O ポート", "io_out")):
+        SECTIONS[f"{_cpu} {_jp}"] = f"{_tag}_{_en}"
 
 ROM_END = 0x8000   # メイン ROM は 0000-7FFF に見える
 
@@ -54,6 +56,13 @@ def parse(path):
 
 def rom_part(addrs):
     return {a for a in addrs if a < ROM_END}
+
+
+SUB_ROM_END = 0x2000   # サブ ROM (DISK.ROM) は 2KB だが余裕をみる
+
+
+def sub_rom_part(addrs):
+    return {a for a in addrs if a < SUB_ROM_END}
 
 
 def fmt_ranges(addrs, limit=None):
@@ -87,20 +96,24 @@ def main():
 
     print("=== 条件ごとの実行番地（ROM 領域 0000-7FFF のみ） ===")
     for name, (meta, m) in data:
-        r = rom_part(m["exec"])
-        print(f"  {name:24s} {len(r):6d} バイト  ({len(r)/ROM_END*100:5.1f}%)"
-              f"  frames={meta.get('frames','?')}")
+        r = rom_part(m["main_exec"])
+        sr = sub_rom_part(m["sub_exec"])
+        print(f"  {name:24s} main {len(r):6d} ({len(r)/ROM_END*100:5.1f}%)"
+              f"   sub {len(sr):5d}"
+              f"   frames={meta.get('frames','?')}")
 
-    union = set()
+    union = set(); union_sub = set()
     for _, (_, m) in data:
-        union |= rom_part(m["exec"])
-    print(f"\n  {'和集合':24s} {len(union):6d} バイト  ({len(union)/ROM_END*100:5.1f}%)")
+        union |= rom_part(m["main_exec"])
+        union_sub |= sub_rom_part(m["sub_exec"])
+    print(f"\n  {'和集合':24s} main {len(union):6d} ({len(union)/ROM_END*100:5.1f}%)"
+          f"   sub {len(union_sub):5d}")
 
     if args.growth:
         print("\n=== 条件を足したときの増分 ===")
         acc = set()
         for name, (_, m) in data:
-            r = rom_part(m["exec"])
+            r = rom_part(m["main_exec"])
             new = r - acc
             acc |= r
             print(f"  {name:24s} 累計 {len(acc):6d}  新規 {len(new):5d}"
@@ -109,11 +122,13 @@ def main():
 
     # I/O は数が少ないので全部出す。実装の手掛かりとして密度が高い。
     print("\n=== 触れられた I/O ポート（和集合） ===")
-    for k, label in (("io_in", "入力"), ("io_out", "出力")):
-        ports = set()
-        for _, (_, m) in data:
-            ports |= m[k]
-        print(f"  {label}: " + " ".join(f"{p:02X}" for p in sorted(ports)))
+    for cpu in ("main", "sub"):
+        for k, label in (("io_in", "入力"), ("io_out", "出力")):
+            ports = set()
+            for _, (_, m) in data:
+                ports |= m[f"{cpu}_{k}"]
+            if ports:
+                print(f"  {cpu:4s} {label}: " + " ".join(f"{p:02X}" for p in sorted(ports)))
 
 
 if __name__ == "__main__":

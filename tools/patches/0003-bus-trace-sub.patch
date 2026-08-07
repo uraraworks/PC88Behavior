@@ -1,0 +1,82 @@
+diff --git a/src/pc88sub.c b/src/pc88sub.c
+index 2cc5124..1688cd6 100644
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -382,17 +382,71 @@ void	sub_io_out_with_BP( byte port, byte data )
+ /************************************************************************/
+ /*									*/
+ /************************************************************************/
++/* ======================================================================
++ * PC88Behavior 計測ハーネス — サブ CPU のバスアクセス採取
++ *
++ * PC-88 は Z80 を 2 個持ち、ディスク側はこのサブ CPU が担当する。
++ * サブ ROM (DISK.ROM) も再実装の対象なので、メインと同じように測る。
++ * メインと同じく、fetch は memory_wait の設定に関わらず常に自前にする
++ * （既定では sub_mem_read に別名化され、実行とデータの区別が消えるため）。
++ * ====================================================================== */
++
++#include "q88h_trace.h"
++
++static byte (*q88h_sub_inner_fetch)( word );
++
++static byte q88h_sub_fetch( word addr )
++{
++  q88h_trace_t *t = retro_q88h_trace_sub();
++  t->mem_exec[addr] = 1;
++  t->n_exec++;
++  return q88h_sub_inner_fetch( addr );
++}
++
++static byte q88h_sub_mem_read( word addr )
++{
++  q88h_trace_t *t = retro_q88h_trace_sub();
++  t->mem_read[addr] = 1;
++  t->n_read++;
++  return sub_mem_read( addr );
++}
++
++static void q88h_sub_mem_write( word addr, byte data )
++{
++  q88h_trace_t *t = retro_q88h_trace_sub();
++  t->mem_write[addr] = 1;
++  t->n_write++;
++  sub_mem_write( addr, data );
++}
++
++static byte q88h_sub_io_in( byte port )
++{
++  q88h_trace_t *t = retro_q88h_trace_sub();
++  t->io_in[port] = 1;
++  t->n_in++;
++  return sub_io_in( port );
++}
++
++static void q88h_sub_io_out( byte port, byte data )
++{
++  q88h_trace_t *t = retro_q88h_trace_sub();
++  t->io_out[port] = 1;
++  t->n_out++;
++  sub_io_out( port, data );
++}
++
+ void	pc88sub_bus_setup( void )
+ {
+   if( memory_wait ){
+-    z80sub_cpu.fetch   = sub_fetch;
++    q88h_sub_inner_fetch = sub_fetch;
+   }else{
+-    z80sub_cpu.fetch   = sub_mem_read;
++    q88h_sub_inner_fetch = sub_mem_read;
+   }
+-  z80sub_cpu.mem_read  = sub_mem_read;
+-  z80sub_cpu.mem_write = sub_mem_write;
+-  z80sub_cpu.io_read   = sub_io_in;
+-  z80sub_cpu.io_write  = sub_io_out;
++  z80sub_cpu.fetch     = q88h_sub_fetch;
++  z80sub_cpu.mem_read  = q88h_sub_mem_read;
++  z80sub_cpu.mem_write = q88h_sub_mem_write;
++  z80sub_cpu.io_read   = q88h_sub_io_in;
++  z80sub_cpu.io_write  = q88h_sub_io_out;
+ }
+ 
+ 

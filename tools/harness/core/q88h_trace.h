@@ -48,8 +48,13 @@ typedef struct {
 extern "C" {
 #endif
 
-/* 採取バッファへのポインタ。コア内からもフロントエンドからも同じ物を見る */
+/* 採取バッファへのポインタ。コア内からもフロントエンドからも同じ物を見る。
+ *
+ * PC-88 は Z80 を 2 個持つ。メイン CPU が N88-BASIC を、
+ * サブ CPU がディスク側（DISK.ROM）を動かす。
+ * サブ ROM も再実装の対象なので、別のバッファに分けて採る。 */
 q88h_trace_t *retro_q88h_trace(void);
+q88h_trace_t *retro_q88h_trace_sub(void);
 
 /* 採取内容を全消去する。測定区間を切りたいときに呼ぶ */
 void retro_q88h_trace_reset(void);

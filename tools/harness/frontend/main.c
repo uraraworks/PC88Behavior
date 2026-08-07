@@ -45,6 +45,7 @@ static void (*p_run)(void);
 static void (*p_get_system_av_info)(struct retro_system_av_info *);
 
 static q88h_trace_t *(*p_trace)(void);
+static q88h_trace_t *(*p_trace_sub)(void);
 static void          (*p_trace_reset)(void);
 static void          (*p_text)(uint8_t *, uint32_t, uint32_t, uint32_t);
 
@@ -243,6 +244,7 @@ static bool load_core(const char *path)
     /* 計測フックが入っていないコアを黙って使うと、
      * 「アクセスが無かった」と「観測していない」の区別がつかなくなる。 */
     SYM(p_trace,       "retro_q88h_trace");
+    SYM(p_trace_sub,   "retro_q88h_trace_sub");
     SYM(p_trace_reset, "retro_q88h_trace_reset");
     SYM(p_text,        "retro_q88h_text");
     return true;
@@ -297,7 +299,29 @@ static void write_screen(FILE *fp)
     fprintf(fp, "\n");
 }
 
-static void write_report(FILE *fp, const q88h_trace_t *t,
+/* CPU 1 個分の採取結果を書く */
+static void write_cpu(FILE *fp, const char *who, const q88h_trace_t *t)
+{
+    char label[64];
+    fprintf(fp, "%s 総アクセス回数: exec=%llu read=%llu write=%llu in=%llu out=%llu\n\n",
+            who,
+            (unsigned long long)t->n_exec,  (unsigned long long)t->n_read,
+            (unsigned long long)t->n_write, (unsigned long long)t->n_in,
+            (unsigned long long)t->n_out);
+    snprintf(label, sizeof(label), "%s 実行された番地 (fetch)", who);
+    dump_ranges(fp, label, t->mem_exec, Q88H_MEM_SIZE);
+    snprintf(label, sizeof(label), "%s データとして読まれた番地", who);
+    dump_ranges(fp, label, t->mem_read, Q88H_MEM_SIZE);
+    snprintf(label, sizeof(label), "%s 書き込まれた番地", who);
+    dump_ranges(fp, label, t->mem_write, Q88H_MEM_SIZE);
+    snprintf(label, sizeof(label), "%s 入力された I/O ポート", who);
+    dump_ranges(fp, label, t->io_in, Q88H_IO_SIZE);
+    snprintf(label, sizeof(label), "%s 出力された I/O ポート", who);
+    dump_ranges(fp, label, t->io_out, Q88H_IO_SIZE);
+    fprintf(fp, "\n");
+}
+
+static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const char *core, const char *romdir,
                          const char *disk, unsigned frames)
 {
@@ -308,18 +332,11 @@ static void write_report(FILE *fp, const q88h_trace_t *t,
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
-    fprintf(fp, "総アクセス回数: exec=%llu read=%llu write=%llu in=%llu out=%llu\n\n",
-            (unsigned long long)t->n_exec,  (unsigned long long)t->n_read,
-            (unsigned long long)t->n_write, (unsigned long long)t->n_in,
-            (unsigned long long)t->n_out);
-
     write_screen(fp);
 
-    dump_ranges(fp, "実行された番地 (fetch)",       t->mem_exec,  Q88H_MEM_SIZE);
-    dump_ranges(fp, "データとして読まれた番地",     t->mem_read,  Q88H_MEM_SIZE);
-    dump_ranges(fp, "書き込まれた番地",             t->mem_write, Q88H_MEM_SIZE);
-    dump_ranges(fp, "入力された I/O ポート",        t->io_in,     Q88H_IO_SIZE);
-    dump_ranges(fp, "出力された I/O ポート",        t->io_out,    Q88H_IO_SIZE);
+    /* PC-88 は Z80 が 2 個。サブ ROM も再実装対象なので別々に出す。 */
+    write_cpu(fp, "[メインCPU]", t);
+    write_cpu(fp, "[サブCPU]",   ts);
 }
 
 /* ---- main -------------------------------------------------------------- */
@@ -458,11 +475,11 @@ int main(int argc, char **argv)
         p_text_fn = p_text;
         if (dump_text) write_screen(stderr);
 
-        write_report(stdout, t, core, g_rom_dir, disk, frames);
+        write_report(stdout, t, p_trace_sub(), core, g_rom_dir, disk, frames);
         if (out) {
             FILE *fp = fopen(out, "w");
             if (!fp) { perror(out); return 1; }
-            write_report(fp, t, core, g_rom_dir, disk, frames);
+            write_report(fp, t, p_trace_sub(), core, g_rom_dir, disk, frames);
             fclose(fp);
             fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
         }

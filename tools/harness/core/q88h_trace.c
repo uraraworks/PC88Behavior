@@ -8,24 +8,29 @@
 #include "memory.h"
 #include "q88h_trace.h"
 
-static q88h_trace_t g_trace;
+static q88h_trace_t g_trace;      /* メイン CPU */
+static q88h_trace_t g_trace_sub;  /* サブ CPU（ディスク側） */
 
-q88h_trace_t *retro_q88h_trace(void)
+static q88h_trace_t *ensure(q88h_trace_t *t)
 {
-    if (g_trace.magic != Q88H_TRACE_MAGIC) {
+    if (t->magic != Q88H_TRACE_MAGIC) {
         /* 初回アクセス時に初期化する。コア側の初期化順に依存したくないため */
-        memset(&g_trace, 0, sizeof(g_trace));
-        g_trace.magic   = Q88H_TRACE_MAGIC;
-        g_trace.version = Q88H_TRACE_VERSION;
+        memset(t, 0, sizeof(*t));
+        t->magic   = Q88H_TRACE_MAGIC;
+        t->version = Q88H_TRACE_VERSION;
     }
-    return &g_trace;
+    return t;
 }
+
+q88h_trace_t *retro_q88h_trace(void)     { return ensure(&g_trace); }
+q88h_trace_t *retro_q88h_trace_sub(void) { return ensure(&g_trace_sub); }
 
 void retro_q88h_trace_reset(void)
 {
-    memset(&g_trace, 0, sizeof(g_trace));
-    g_trace.magic   = Q88H_TRACE_MAGIC;
-    g_trace.version = Q88H_TRACE_VERSION;
+    memset(&g_trace,     0, sizeof(g_trace));
+    memset(&g_trace_sub, 0, sizeof(g_trace_sub));
+    ensure(&g_trace);
+    ensure(&g_trace_sub);
 }
 
 /*
