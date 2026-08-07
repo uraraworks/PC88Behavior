@@ -66,6 +66,23 @@ else
   ng "実効側に permission 設定が無い: $eff（cwd が PC88 だと実体だけでは読まれない）"
 fi
 
+# --- 6. 計測ハーネスが禁止された能力を持っていないか ----------------------
+# 「使わない」ではなく「持っていない」を検査する。
+harness="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
+if [ -d "$harness" ]; then
+  for f in src/z80-debug.c src/LIBRETRO/pseudo_bios.h; do
+    if [ -e "$harness/$f" ]; then ng "ハーネスに $f が存在する（setup_harness.sh が消すはず）"
+    else ok "ハーネスに $f は存在しない"; fi
+  done
+  lib="$(ls "$harness"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
+  if [ -n "$lib" ]; then
+    if nm "$lib" 2>/dev/null | grep -qi 'pbios'; then ng "ビルド成果物に疑似BIOSのシンボルがある"
+    else ok "ビルド成果物に疑似BIOSのシンボルなし"; fi
+  fi
+else
+  info "ハーネス未取得のためスキップ（tools/setup_harness.sh）"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then echo "全項目 OK"; else echo "$fail 件 NG"; fi
 exit "$fail"

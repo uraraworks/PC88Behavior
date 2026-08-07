@@ -1,0 +1,153 @@
+diff --git a/Makefile.common b/Makefile.common
+index e1b611f..7543b4c 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -53,7 +53,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/romaji.c \
+    $(CORE_DIR)/pause.c \
+    $(CORE_DIR)/z80.c \
+-   $(CORE_DIR)/z80-debug.c \
++   $(CORE_DIR)/z80-debug-stub.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/LIBRETRO/libretro.c b/src/LIBRETRO/libretro.c
+index f77a7a5..31bfc69 100644
+--- a/src/LIBRETRO/libretro.c
++++ b/src/LIBRETRO/libretro.c
+@@ -27,7 +27,10 @@
+ #include "fdc.h"
+ #include "soundbd.h"
+ #include "pc88cpu.h"
+-#include "pseudo_bios.h"
++/* #include "pseudo_bios.h"  — PC88Behavior: 疑似BIOSは使わない。
++ * 出自とライセンスの調査結果は docs/notes/m1-quasi88-survey.md 4.1/4.2 を参照。
++ * ヘッダ自体も tools/setup_harness.sh が削除するので、include すればビルドが壊れる。
++ */
+ #include "disks.h"
+ #include "libretro_core_options.h"
+ static bool libretro_supports_option_categories = false;
+@@ -124,6 +127,8 @@ static uint32_t  frames                         = 0;
+ static bool     *key_buffer                     = NULL;
+ static bool     *pad_buffer                     = NULL;
+ static bool      rumble_enabled                 = true;
++/* PC88Behavior: 必須 ROM が揃ったか。揃わなければ retro_load_game を失敗させる */
++static bool      q88h_rom_ok                    = false;
+ static char      download_dir[OSD_MAX_FILENAME] = { '\0' };
+ static char      system_dir[OSD_MAX_FILENAME]   = { '\0' };
+ 
+@@ -454,12 +459,19 @@ static bool load_system_file(uint8_t bios_index, byte *rom_data, uint32_t rom_si
+ 
+       strncpy(filename, bios_filenames[bios_index][i], sizeof(filename) - 1);
+ 
++      /* PC88Behavior: 上流はここで rom_filename を未初期化のまま
++       * filestream_exists() に渡しており、さらに次の system_dir 分岐が
++       * 無条件に上書きするため、download_dir が事実上決して選ばれない。
++       * どのファイルを測ったのかが探索順で揺れるのは測定として致命的なので、
++       * 「先に見つかったものを使う」という素直な順序に直す。 */
++      rom_filename[0] = '\0';
++
+       /* Look in the download directory first... */
+-      if (!filestream_exists(rom_filename) && !string_is_empty(download_dir))
++      if (!string_is_empty(download_dir))
+          snprintf(rom_filename, sizeof(rom_filename), "%s%c%s", download_dir, SLASH, filename);
+ 
+       /* ...then try system/quasi88... */
+-      if (!string_is_empty(system_dir))
++      if (!filestream_exists(rom_filename) && !string_is_empty(system_dir))
+          snprintf(rom_filename, sizeof(rom_filename), "%s%cquasi88%c%s", system_dir, SLASH, SLASH, filename);
+ 
+       /* ...then the system folder itself. */
+@@ -546,11 +558,32 @@ void retro_init(void)
+ 
+    memory_allocate();
+ 
+-   /* Fallback on pseudo BIOS if needed */
++   /* PC88Behavior 計測ハーネス:
++    *
++    * 上流はここで、公式 ROM が見つからないと黙って疑似 BIOS を流し込む。
++    * 測定用途ではこれが致命的になる。ROM のパスを間違えたときに、
++    * 公式 ROM を測っているつもりで第三者の実装を測ってしまい、
++    * その汚染された観測から仕様書を起こしてしまう。
++    *
++    * フォールバックは廃止し、ROM が揃わなければ起動を失敗させる。
++    * 「黙って別のものが動く」より「動かない」のほうが常に安全である。
++    */
++   q88h_rom_ok = TRUE;
+    if (!load_system_file(N88_ROM, main_rom,   0x08000))
+-      memcpy(main_rom, &pbios_n88, 0x08000);
++   {
++      if (log_cb)
++         log_cb(RETRO_LOG_ERROR,
++                "[PC88Behavior]: N88 ROM が見つからない。疑似BIOSへのフォールバックは"
++                " 計測結果を汚染するため無効化されている。起動を中止する。\n");
++      q88h_rom_ok = FALSE;
++   }
+    if (!load_system_file(SUB_ROM, sub_romram, 0x00800))
+-      memcpy(sub_romram, &pbios_disk, 0x00800);
++   {
++      if (log_cb)
++         log_cb(RETRO_LOG_ERROR,
++                "[PC88Behavior]: SUB(DISK) ROM が見つからない。起動を中止する。\n");
++      q88h_rom_ok = FALSE;
++   }
+    rom_version = ROM_VERSION;
+    load_system_file(EXT0_ROM,  main_rom_ext[0], 0x02000);
+    load_system_file(EXT1_ROM,  main_rom_ext[1], 0x02000);
+@@ -671,6 +704,18 @@ static bool load_m3u(const char *filename)
+ 
+ bool retro_load_game(const struct retro_game_info *info)
+ {
++   /* PC88Behavior: 公式 ROM が揃っていなければ、ここで確実に止める。
++    * 疑似BIOSによる代替は無効化してあるので、続行すると空の ROM 領域を
++    * 実行することになる。測定対象が不定のまま走るのが一番まずい。 */
++   if (!q88h_rom_ok)
++   {
++      if (log_cb)
++         log_cb(RETRO_LOG_ERROR,
++                "[PC88Behavior]: 必須ROMが揃っていないため起動しない。"
++                " PC88_REF_ROM_DIR の指す先を確認すること。\n");
++      return false;
++   }
++
+    init_variables();
+    quasi88_start();
+    quasi88_disk_eject_all();
+diff --git a/src/z80-debug-stub.c b/src/z80-debug-stub.c
+new file mode 100644
+index 0000000..c50f0b6
+--- /dev/null
++++ b/src/z80-debug-stub.c
+@@ -0,0 +1,32 @@
++/*
++ * z80-debug-stub.c — PC88Behavior 計測ハーネス用
++ *
++ * 上流の src/z80-debug.c（Z80 逆アセンブラ）を置き換えるスタブ。
++ *
++ * 本プロジェクトはクリーンルーム規律により、公式 ROM の逆アセンブルを禁じている
++ * （PC88Behavior/CLAUDE.md 禁止事項 2）。運用で「使わない」と決めるだけでは、
++ * ハーネスのバイナリ自体が公式 ROM に向けられる逆アセンブラを内蔵したままになる。
++ * 能力そのものを持たない状態にするため、命令テーブルとデコード処理を丸ごと落とす。
++ *
++ * z80.h が両関数を extern 宣言しているのでシンボルだけ残す。
++ * 実際の呼び出し元は上流にも存在しない（z80_debug から z80_line_disasm を呼ぶ
++ * 自己参照のみ）ため、これで機能欠落は起きない。
++ */
++
++#include "quasi88.h"
++#include "z80.h"
++
++int z80_line_disasm(z80arch *z80, word pc)
++{
++    (void)z80;
++    (void)pc;
++    /* 逆アセンブラは意図的に存在しない。1 命令ぶん進んだことにして返す。 */
++    return 1;
++}
++
++void z80_debug(z80arch *z80, char *mes)
++{
++    (void)z80;
++    (void)mes;
++    /* 何もしない */
++}
