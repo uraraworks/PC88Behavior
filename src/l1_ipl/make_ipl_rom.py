@@ -283,6 +283,16 @@ class Asm:
         """IN A,(port)。IN は適合条件に入らない（第6節）ので記録しない。"""
         self.db(0xDB, port)
 
+    def xor_a(self):
+        """XOR A（A を 0 にする）。フォント見本のアトリビュートクリア用。"""
+        self.db(0xAF)
+
+    def st_a(self, addr):
+        """LD (addr),A。番地は固定のハード定数（テキストVRAM等）で、ラベル
+        解決を経由しない即値アドレス。OUT ではないので record() は呼ばない
+        ——付録Aの適合条件（OUT列比較。第6節）には一切影響しない。"""
+        self.db(0x32, addr & 0xFF, (addr >> 8) & 0xFF)
+
     # ---- OUT（記録つき）----
     def out(self, port, value):
         self.ld_a(value)
@@ -523,10 +533,49 @@ def sub_vsync_handler(a):
 
 
 # --------------------------------------------------------------------------
+# フォント見本（--font-sample。L2 検証専用。L1 の適合条件には無関係）
+# --------------------------------------------------------------------------
+
+TEXT_BASE   = 0xF3C8   # テキストVRAM先頭（docs/spec/l1-ipl.md 第5d節「F3C8である理由」）
+TEXT_COLS   = 80       # 1行の文字数（同 第0節）
+TEXT_STRIDE = 120      # 1行の間隔 = 80桁 + 40アトリビュート（同 第0節・第2節）
+
+
+ATTR_BYTES = 40   # 1行あたりのアトリビュートバイト数（docs/spec/l1-ipl.md 第0節・第2節）
+
+
+def emit_font_sample(a, base=TEXT_BASE, cols=TEXT_COLS, stride=TEXT_STRIDE):
+    """テキストVRAMへ文字コード 0x20-0xFF (224種) を並べて書き込む。
+
+    L2（docs/spec/l2-font.md）で作った FONT.ROM の字形が「font_mem に届いた」
+    だけでなく「画面のピクセルまで出た」ことを、実際にハーネスで走らせて
+    確認するための土台。OUT を一切使わない（LD (nn),A のみ）ので、
+    付録Aの適合条件（第6節、OUT列の比較）には影響しない——L1の検証と
+    このフォント見本は無関係に両立する。
+
+    アトリビュートバイト（1行あたり ATTR_BYTES バイト、文字域の直後）は
+    明示的に0クリアする。RAM初期値に依存させない。
+    """
+    codes = list(range(0x20, 0x100))          # 224種
+    rows = -(-len(codes) // cols)              # ceil(224/80) = 3
+    a.xor_a()                                   # A=0（アトリビュートクリア用）
+    idx = 0
+    for r in range(rows):
+        row_base = base + r * stride
+        for i in range(ATTR_BYTES):
+            a.st_a(row_base + cols + i)
+        for c in range(cols):
+            code = codes[idx] if idx < len(codes) else 0x20   # 使い切ったら空白で埋める
+            a.ld_a(code)
+            a.st_a(row_base + c)
+            idx += 1
+
+
+# --------------------------------------------------------------------------
 # 本体
 # --------------------------------------------------------------------------
 
-def build_n88(stop_after=None):
+def build_n88(stop_after=None, font_sample=False):
     """N88.ROM を組み立てる。
 
     stop_after: 途中段階の ROM を作るための指定（"P0"/"P2"/"P3"/"P4"/None）。
@@ -672,6 +721,13 @@ def build_n88(stop_after=None):
     # ---- 315-343. 残りの初期化 ----
     a.out_range(315, 343)
 
+    # ---- フォント見本（--font-sample。L2の画面ピクセル検証専用）----
+    # 画面ハードウェアの初期化が終わった直後、割り込みを有効にする前に
+    # テキストVRAMへ書き込む。OUTを一切使わないので付録Aの適合条件には
+    # 影響しない（emit_font_sample のdocstring参照）。
+    if font_sample:
+        emit_font_sample(a)
+
     # ---- 定常状態は VSYNC 割り込み駆動（仕様書 第3版 第3節・第6節③）----
     # 第3節: 公式版はフレーム27（この直後）から毎フレームちょうど1回、
     # IM 2 / level 1（VSYNC）の割り込みを受理している。`IN 40`（VRTC の
@@ -746,9 +802,12 @@ def main():
     ap.add_argument("outdir", help="ROM を書き出すディレクトリ")
     ap.add_argument("--stop-after", choices=["P0", "P2", "P3", "P4"], default=None,
                     help="途中段階まで出して止める（第6節「実装の順序」の段階比較用）")
+    ap.add_argument("--font-sample", action="store_true",
+                    help="テキストVRAMへ文字コード0x20-0xFFを並べて書き込む"
+                         "（L2 のフォント検証用。L1 の適合条件には影響しない）")
     args = ap.parse_args()
 
-    rom, used, n_out = build_n88(args.stop_after)
+    rom, used, n_out = build_n88(args.stop_after, font_sample=args.font_sample)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "N88.ROM").write_bytes(rom)

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tools/verify_l2.sh — 自作 L2 フォント(半角ANK+セミグラフィック)の検証。**公式 ROM は要らない。**
 #
-# docs/spec/l2-font.md 第2版 5節（適合条件）②の2項目を実行する:
+# docs/spec/l2-font.md 第2版 5節（適合条件）②の2項目に加え、
+# 「バッファに届いた ≠ 画面に出た」を埋めるための4節目を実行する:
 #   1. 生成器(src/l2_font/make_font_rom.py)が出したビットパターンと、
 #      独立実装(tools/l2_verify_independent.py)で組み直したビットパターンが
 #      一致すること（「意図した字形が入っていること」の検査）
@@ -9,6 +10,11 @@
 #      唯一のバッファ、l2-font.md 1節）まで欠落・混入なく届くことを CRC32 で
 #      確認すること（tools/harness/fontsrc_selftest.sh と同じ仕組みを、
 #      合成パターンではなく実際に使う FONT.ROM で行う）
+#   3. （新規）自作IPL「フォント見本」（src/l1_ipl/make_ipl_rom.py --font-sample）
+#      を実際に走らせ、画面ピクセルのスナップショットを取り、FONT.ROM から
+#      独立に組み立てた期待ビットマップと突き合わせる
+#      （tools/l2_verify_pixels.py。font_memより先の末端＝実際に描画された
+#      ピクセルまで見る）
 #
 # 使い方: tools/verify_l2.sh
 set -euo pipefail
@@ -103,7 +109,40 @@ if [ "$GOT_GRAPH" != "$EXP_GRAPH" ]; then
 fi
 echo "OK: font_mem GRAPH の CRC32 が一致（$GOT_GRAPH） ＝ FONT.ROMのGRAPH面が欠落・混入なく届いている"
 
+say "4. 画面ピクセルまでの到達確認（font_memより先の末端）"
+mkdir -p "$WORK/pxrom"
+python3 "$REPO/src/l1_ipl/make_ipl_rom.py" "$WORK/pxrom" --font-sample > "$WORK/iplgen.txt"
+cp "$FONT_ROM" "$WORK/pxrom/FONT.ROM"
+
+SHOT="$WORK/shot.ppm"
+"$REPO/tools/harness/frontend/q88measure" \
+  --core "$CORE" --rom-dir "$WORK/pxrom" --frames 60 \
+  --screenshot "$SHOT" \
+  2> "$WORK/shot_stderr.txt" || { echo "q88measure(スクリーンショット) 失敗:"; cat "$WORK/shot_stderr.txt"; exit 1; }
+grep -q 'スクリーンショットを書き出した' "$WORK/shot_stderr.txt" || {
+  echo "NG: スクリーンショットが書き出されなかった（コアに機能が無い可能性）" >&2
+  cat "$WORK/shot_stderr.txt" >&2
+  exit 1
+}
+
+python3 "$REPO/tools/l2_verify_pixels.py" --font-rom "$FONT_ROM" --screenshot "$SHOT"
+
+say "4b. わざと壊して不一致になることを確認（画面比較の検出力の実測）"
+if python3 "$REPO/tools/l2_verify_pixels.py" --font-rom "$FONT_ROM" --screenshot "$SHOT" \
+     --break-expected > "$WORK/pxbreak.txt" 2>&1; then
+  echo "NG: わざと壊したのに一致してしまった（画面比較に検出力が無い）" >&2
+  cat "$WORK/pxbreak.txt" >&2
+  exit 1
+fi
+echo "OK: わざと1文字ぶん潰した期待ビットマップは、実際の画面と不一致で検出された"
+cat "$WORK/pxbreak.txt"
+
 say "合格"
 echo "1) 生成器と独立実装の再構成が完全一致（かつ、わざと壊すと不一致で検出できることを確認）"
 echo "2) 実際に生成した FONT.ROM の内容が font_mem（画面へ出る唯一のバッファ）まで"
 echo "   欠落・混入なく届くことを CRC32 で実測確認した"
+echo "3) 自作IPLのフォント見本を実際に走らせ、画面ピクセルが FONT.ROM から独立に"
+echo "   組み立てた期待どおりであることを確認した（縦2倍・下4ラインの空白を含む）"
+echo "   （わざと1文字潰すと不一致で検出できることも確認済み）"
+echo "   スクリーンショット: $SHOT （このスクリプト終了時に削除される。手元で見たい場合は"
+echo "   --screenshot 付きで q88measure を直接実行すること）"
