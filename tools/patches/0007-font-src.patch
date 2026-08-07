@@ -1,0 +1,224 @@
+diff --git a/Makefile.common b/Makefile.common
+index 533dc86..22d07f3 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -58,6 +58,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_trap.c \
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_intlog.c \
++   $(CORE_DIR)/q88h_fontsrc.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/LIBRETRO/libretro.c b/src/LIBRETRO/libretro.c
+index 31bfc69..ab9bc38 100644
+--- a/src/LIBRETRO/libretro.c
++++ b/src/LIBRETRO/libretro.c
+@@ -16,6 +16,7 @@
+ #include "pc88sub.h"
+ #include "memory.h"
+ #include "font.h"
++#include "q88h_fontsrc.h"
+ #include "emu.h"
+ #include "drive.h"
+ #include "event.h"
+@@ -594,37 +595,68 @@ void retro_init(void)
+    load_system_file(KNJ2_ROM,  kanji_rom[1][0], 0x20000);
+    load_system_file(JISHO_ROM, jisho_rom[0],    0x80000);
+ 
+-   /* == Font files == */
+-   /* Font 1 */
++   /* == Font files ==
++    * PC88Behavior 計測ハーネス: フォント供給源の可視化（M5下ごしらえ、第1段階）。
++    * memory_allocate() が直前（559行）で font_mem 系を一度埋めているが、
++    * ここから下がそれを無条件に上書きする「二重ロード」になっている
++    * （docs/spec/l2-font.md 3節）。この段階では挙動そのものはまだ変えず、
++    * どの分岐が実際に通ったかをタグと件数だけで可視化する。
++    * font.h 削除・挙動修正は次のコミットで行う。 */
++
++   /* Font 1（実際に画面へ出る唯一のフォント。l2-font.md 1節） */
+    if (load_system_file(FONT_ROM, font_mem, 0x01000))
+    {
+       font_loaded |= 1;
+       memcpy(&font_mem[0x000], &kanji_rom[0][(1<<11)][0], 0x800);
+       memcpy(&font_mem[0x800], &built_in_font_graph[0],   0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK,   Q88H_FONTSRC_KANJI_DERIVED,
++                        &font_mem[0x000], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem[0x800], 0x800);
+    }
+    else
++   {
+       memcpy(&font_mem[0x000], &built_in_font_ANK[0],     0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem[0x000], 0x800);
++   }
+ 
+-   /* Font 2 */
++   /* Font 2（描画には使われない死んだ経路。l2-font.md 1節） */
+    if (load_system_file(FONT2_ROM, font_mem2, 0x01000))
+    {
+       font_loaded |= 2;
+       memcpy(&font_mem2[0x000], &built_in_font_ANH[0],    0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem2[0x000], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_ROM_FILE,
++                        &font_mem2[0x800], 0x800);
+    }
+    else
+    {
+       memcpy(&font_mem2[0x000], &built_in_font_ANH[0],    0x800);
+       memcpy(&font_mem2[0x800], &built_in_font_graph[0],  0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem2[0x000], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem2[0x800], 0x800);
+    }
+ 
+-   /* Font 3 */
++   /* Font 3（描画には使われない死んだ経路。l2-font.md 1節） */
+    if (load_system_file(FONT3_ROM, font_mem3, 0x01000))
+    {
+       font_loaded |= 4;
+       memcpy(&font_mem3[0x800], &built_in_font_graph[0],  0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_ROM_FILE,
++                        &font_mem3[0x000], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                        &font_mem3[0x800], 0x800);
+    }
+    else
++   {
+       memset(&font_mem3[0], 0, 0x1000);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
++   }
+ 
+    /* Assume false if the path exists, this is updated after */
+    if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &save_path) && !string_is_empty(save_path))
+diff --git a/src/memory.c b/src/memory.c
+index 1422bc6..dda8119 100644
+--- a/src/memory.c
++++ b/src/memory.c
+@@ -45,6 +45,14 @@ int	linear_ext_ram = TRUE;			/* 拡張RAMを連続させる	*/
+ /*----------------------------------------------------------------------*/
+ #include "font.h"
+ 
++/* PC88Behavior 計測ハーネス: フォント供給源の可視化（M5 下ごしらえ、第1段階）。
++ * どの font_mem 系領域が、どの供給源で埋まったかをタグと件数だけで記録する
++ * （グリフのバイト列は出力しない。q88h_fontsrc.h 参照）。
++ * この段階では built_in_font_* の使用そのものはまだ変更しない
++ * ——「可視化」と「font.h 削除・挙動修正」を別コミットに分ける方針
++ *   （docs/notes/m5-font-survey.md、CLAUDE.md コミット規律）。 */
++#include "q88h_fontsrc.h"
++
+ 
+ /*----------------------------------------------------------------------*/
+ /* 漢字ダミーROM (漢字ROMが無い時のダミー)				*/
+@@ -421,6 +429,8 @@ int	memory_allocate( void )
+   if( use_built_in_font ){
+ 
+     memcpy( &font_mem[0], &built_in_font_ANK[0], 0x100*8 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                       &font_mem[0], 0x100*8 );
+ 
+   }else{
+ 
+@@ -440,14 +450,23 @@ int	memory_allocate( void )
+     if( size != FONT_SZ ){	/* 異常時は、漢字ROMか内蔵フォントを使用 */
+       if( has_kanji_rom ){
+ 	memcpy( &font_mem[0], &kanji_rom[0][(1<<11)][0], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_KANJI_DERIVED,
++	                   &font_mem[0], 0x100*8 );
+       }else{
+ 	memcpy( &font_mem[0], &built_in_font_ANK[0], 0x100*8 );
+ 	font_loaded &= ~1;
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++	                   &font_mem[0], 0x100*8 );
+       }
++    }else{
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_ROM_FILE,
++                         &font_mem[0], 0x100*8 );
+     }
+   }
+ 
+   memcpy( &font_mem[0x100*8], &built_in_font_graph[0], 0x100*8 );
++  q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                     &font_mem[0x100*8], 0x100*8 );
+ 
+ 
+ 
+@@ -457,6 +476,10 @@ int	memory_allocate( void )
+ 
+     memcpy( &font_mem2[0],       &built_in_font_ANH[0],   0x100*8 );
+     memcpy( &font_mem2[0x100*8], &built_in_font_graph[0], 0x100*8 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                       &font_mem2[0],       0x100*8 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                       &font_mem2[0x100*8], 0x100*8 );
+ 
+   }else{
+ 
+@@ -471,15 +494,23 @@ int	memory_allocate( void )
+     }
+ 
+     if( size == FONT_SZ*2 ){
+-      ;
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_ROM_FILE,
++                         &font_mem2[0],       0x100*8 );
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_ROM_FILE,
++                         &font_mem2[0x100*8], 0x100*8 );
+     }else{
+       if( size == FONT_SZ ){
+-	;
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK, Q88H_FONTSRC_ROM_FILE,
++	                   &font_mem2[0], 0x100*8 );
+       }else{			/* 存在しない場合は、内蔵フォントを使用 */
+ 	memcpy( &font_mem2[0],     &built_in_font_ANH[0],   0x100*8 );
+ 	font_loaded &= ~2;
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++	                   &font_mem2[0], 0x100*8 );
+       }
+       memcpy( &font_mem2[0x100*8], &built_in_font_graph[0], 0x100*8 );
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++                         &font_mem2[0x100*8], 0x100*8 );
+     }
+ 
+   }
+@@ -490,6 +521,10 @@ int	memory_allocate( void )
+   if( use_built_in_font ){
+ 
+     memset( &font_mem3[0], 0, FONT_SZ*2 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_UNAVAILABLE,
++                       NULL, 0 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++                       NULL, 0 );
+ 
+   }else{
+ 
+@@ -504,14 +539,25 @@ int	memory_allocate( void )
+     }
+ 
+     if( size == FONT_SZ*2 ){
+-      ;
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_ROM_FILE,
++                         &font_mem3[0],       0x100*8 );
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_ROM_FILE,
++                         &font_mem3[0x100*8], 0x100*8 );
+     }else{
+       if( size == FONT_SZ ){
+ 	memcpy( &font_mem3[0x100*8], &built_in_font_graph[0], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_ROM_FILE,
++	                   &font_mem3[0], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++	                   &font_mem3[0x100*8], 0x100*8 );
+ 
+       }else{			/* 存在しない場合は、透明フォントを使用 */
+ 	memset( &font_mem3[0], 0, FONT_SZ*2 );
+ 	font_loaded &= ~4;
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_UNAVAILABLE,
++	                   NULL, 0 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++	                   NULL, 0 );
+       }
+     }
+ 

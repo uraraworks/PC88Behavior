@@ -37,6 +37,13 @@ make_test_rom.py — 計測フックの疎通確認用の合成 ROM を作る
 
 DISK.ROM (2KB) はサブ CPU 用。何もせず止まるだけのものを置く。
 
+--enable-font を指定すると、FONT.ROM (4096 バイト) も追加で生成する
+（fontsrc_selftest.sh 用）。中身は既知の式 byte[i] = (i*137 + 59) & 0xFF
+で生成した**完全に自作の**パターンであり、公式 ROM・実在するフォントの
+いずれとも無関係。目的は「このファイルの内容が font_mem までそのまま
+届くか」を CRC32 で照合することだけなので、文字として意味のある形で
+ある必要はない。
+
 --enable-int を指定すると、末尾の無限ループ (123E: JR $) の代わりに
 以下を置く（intlog_selftest.sh 用）:
 
@@ -86,6 +93,7 @@ HALT_ADDR      = 0x1249 # --enable-int 時、HALT 命令そのものの番地
 
 N88_SIZE   = 0x8000
 DISK_SIZE  = 0x0800
+FONT_SIZE  = 0x1000   # font_mem 全体（ANK 2048 + グラフィック 2048）
 
 FILL       = 0x00      # 未使用領域は NOP で埋める
 
@@ -151,6 +159,14 @@ def build_n88(enable_int: bool = False) -> bytearray:
     return rom
 
 
+def build_font() -> bytearray:
+    """完全に自作のバイト列。式 byte[i] = (i*137 + 59) & 0xFF で生成する。
+    公式 ROM や実在するフォントのデータとは一切関係が無い
+    ——fontsrc_selftest.sh が「このファイルの中身が font_mem までそのまま
+    届くか」を CRC32 で照合するためだけに使う合成データ。"""
+    return bytearray(((i * 137 + 59) & 0xFF for i in range(FONT_SIZE)))
+
+
 def build_disk() -> bytearray:
     # サブ CPU は測定対象に含めない。暴走せず止まっていればよい。
     rom = bytearray([FILL] * DISK_SIZE)
@@ -165,6 +181,9 @@ def main():
     ap.add_argument("--enable-int", action="store_true",
                      help="末尾を無限ループの代わりに IM1+EI+HALT の割り込み待ちにする"
                           "（intlog_selftest.sh 用）")
+    ap.add_argument("--enable-font", action="store_true",
+                     help="自作パターンの FONT.ROM (4096 bytes) も生成する"
+                          "（fontsrc_selftest.sh 用）")
     args = ap.parse_args()
 
     d = pathlib.Path(args.outdir)
@@ -175,6 +194,15 @@ def main():
 
     print(f"生成した: {d/'N88.ROM'} ({N88_SIZE} bytes)")
     print(f"生成した: {d/'DISK.ROM'} ({DISK_SIZE} bytes)")
+
+    if args.enable_font:
+        font = build_font()
+        (d / "FONT.ROM").write_bytes(font)
+        print(f"生成した: {d/'FONT.ROM'} ({FONT_SIZE} bytes)")
+        import zlib
+        print(f"  CRC32(全体)        = {zlib.crc32(bytes(font)) & 0xFFFFFFFF:08X}")
+        print(f"  CRC32(先頭2048=ANK) = {zlib.crc32(bytes(font[:0x800])) & 0xFFFFFFFF:08X}")
+        print(f"  CRC32(後半2048=GRAPH)= {zlib.crc32(bytes(font[0x800:])) & 0xFFFFFFFF:08X}")
     print()
     print("検査に使う値:")
     print(f"  --expect-exec   0x0000  --expect-exec 0x{ENTRY:04X}")

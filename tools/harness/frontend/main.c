@@ -32,6 +32,7 @@
 #include "q88h_trap.h"
 #include "q88h_iolog.h"
 #include "q88h_intlog.h"
+#include "q88h_fontsrc.h"
 
 /* ---- コアの関数ポインタ ------------------------------------------------ */
 static void (*p_set_environment)(retro_environment_t);
@@ -76,6 +77,12 @@ static void           (*p_intlog_reset)(void);
 static void           (*p_intlog_set_enabled)(int);
 static void           (*p_intlog_set_frame)(uint32_t);
 static bool            g_intlog_available = false;
+
+/* フォント供給源の可視化（M5下ごしらえ）。他の計測フックと同じ理由で
+ * 失敗を許す枠で dlsym する。「見つからなければ従来どおり動く」を守る。 */
+static q88h_fontsrc_t *(*p_fontsrc)(void);
+static void            (*p_fontsrc_reset)(void);
+static bool             g_fontsrc_available = false;
 
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
@@ -370,6 +377,14 @@ static bool load_core(const char *path)
     if (!g_intlog_available)
         fprintf(stderr, "[q88measure] 注記: このコアに割り込み受理ログが無い。"
                         "--int-log は無効化される\n");
+
+    /* フォント供給源の可視化（M5下ごしらえ）も同様に、無いコアでは黙って機能を落とす。 */
+    *(void **)(&p_fontsrc)       = dlsym(h, "retro_q88h_fontsrc");
+    *(void **)(&p_fontsrc_reset) = dlsym(h, "retro_q88h_fontsrc_reset");
+    g_fontsrc_available = p_fontsrc && p_fontsrc_reset;
+    if (!g_fontsrc_available)
+        fprintf(stderr, "[q88measure] 注記: このコアにフォント供給源記録が無い。"
+                        "--font-log は無効化される\n");
     return true;
 }
 
@@ -599,6 +614,62 @@ static void write_intlog_report(FILE *fp, const char *core, const char *romdir,
     write_intlog_cpu(fp, "sub",  ls);
 }
 
+/* ---- フォント供給源の可視化（M5下ごしらえ）の書き出し ---------------------
+ * q88h_fontsrc は main/sub のようなCPU単位ではなく、font_mem 系6領域単位。
+ * 出すのは領域名・供給源タグ・書き込み回数・CRC32 のみ——グリフのバイト列は
+ * 一切出さない（q88h_fontsrc.h 冒頭のコメント参照）。 */
+static const char *fontsrc_region_name(int region)
+{
+    switch (region) {
+    case Q88H_FONTSRC_REGION_FONT1_ANK:   return "font_mem  ANK  (画面へ出る)";
+    case Q88H_FONTSRC_REGION_FONT1_GRAPH: return "font_mem  GRAPH(画面へ出る)";
+    case Q88H_FONTSRC_REGION_FONT2_ANK:   return "font_mem2 ANK  (死んだ経路)";
+    case Q88H_FONTSRC_REGION_FONT2_GRAPH: return "font_mem2 GRAPH(死んだ経路)";
+    case Q88H_FONTSRC_REGION_FONT3_ANK:   return "font_mem3 ANK  (死んだ経路)";
+    case Q88H_FONTSRC_REGION_FONT3_GRAPH: return "font_mem3 GRAPH(死んだ経路)";
+    default:                              return "?";
+    }
+}
+
+static const char *fontsrc_tag_name(uint8_t src)
+{
+    switch (src) {
+    case Q88H_FONTSRC_NONE:            return "NONE(未設定)";
+    case Q88H_FONTSRC_ROM_FILE:        return "ROM_FILE(外部ファイルの内容そのまま)";
+    case Q88H_FONTSRC_KANJI_DERIVED:   return "KANJI_DERIVED(漢字ROM由来)";
+    case Q88H_FONTSRC_UNAVAILABLE:     return "UNAVAILABLE(代替データ無し・0埋め)";
+    case Q88H_FONTSRC_BUILTIN_UNKNOWN: return "BUILTIN_UNKNOWN(出所不明の内蔵データ)";
+    default:                           return "?";
+    }
+}
+
+static void write_fontsrc_report(FILE *fp, const char *core, const char *romdir,
+                                 const char *disk, unsigned frames,
+                                 const q88h_fontsrc_t *f)
+{
+    int i;
+    fprintf(fp, "# PC88Behavior フォント供給源記録\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 記録しているのは font_mem/font_mem2/font_mem3 の各領域が、\n");
+    fprintf(fp, "# どの供給源で・何回書き込まれたかというタグと件数、そして\n");
+    fprintf(fp, "# 内容の CRC32 のみ。グリフのバイト列は一切出力しない。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 書き込み回数が2以上の領域は、複数の経路が同じ領域を上書きした\n");
+    fprintf(fp, "# ことを示す（docs/spec/l2-font.md 3節が問題にした二重ロードの兆候）。\n\n");
+    fprintf(fp, "core      : %s\n", core);
+    fprintf(fp, "rom-dir   : %s\n", romdir);
+    fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    fprintf(fp, "frames    : %u\n\n", frames);
+
+    fprintf(fp, "# region                          source                                    writes  crc32\n");
+    for (i = 0; i < Q88H_FONTSRC_REGION_COUNT; i++) {
+        fprintf(fp, "  %-32s %-42s %6u  %08X\n",
+                fontsrc_region_name(i), fontsrc_tag_name(f->region_src[i]),
+                f->region_writes[i], f->region_crc32[i]);
+    }
+    fprintf(fp, "\n");
+}
+
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
@@ -638,7 +709,7 @@ static void usage(void)
         "                   [--trap-map FILE] [--trap-mode ret|stop]\n"
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
-        "                   [--io-log FILE] [--int-log FILE]\n");
+        "                   [--io-log FILE] [--int-log FILE] [--font-log FILE]\n");
 }
 
 int main(int argc, char **argv)
@@ -662,6 +733,7 @@ int main(int argc, char **argv)
     unsigned expect_trap_data[16]; int n_expect_trap_data = 0;
     const char *io_log_path = NULL;
     const char *int_log_path = NULL;
+    const char *font_log_path = NULL;
     const char *env;
     int i, k;
 
@@ -715,6 +787,8 @@ int main(int argc, char **argv)
             io_log_path = argv[++i];
         else if (!strcmp(argv[i], "--int-log") && i + 1 < argc)
             int_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--font-log") && i + 1 < argc)
+            font_log_path = argv[++i];
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -906,6 +980,20 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] 割り込み受理ログを書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
                         int_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
+            }
+
+            /* フォント供給源の可視化（M5下ごしらえ）も同じく別ファイルに書く。
+             * iolog/intlogと違い、記録はフレームループではなく retro_init() の
+             * 中（フォント読み込み）で起きるので、有効化/リセットの操作は
+             * 要らない——プロセス起動ごとに毎回きれいな状態から始まる。 */
+            if (font_log_path && g_fontsrc_available) {
+                q88h_fontsrc_t *f = p_fontsrc();
+                FILE *fp = fopen(font_log_path, "w");
+                if (!fp) { perror(font_log_path); return 1; }
+                write_fontsrc_report(fp, core, g_rom_dir, disk, frames, f);
+                fclose(fp);
+                fprintf(stderr, "[q88measure] フォント供給源記録を書き出した: %s\n",
+                        font_log_path);
             }
 
             /* --expect-trap-exec / --expect-trap-data の検査。
