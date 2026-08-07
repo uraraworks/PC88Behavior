@@ -1,0 +1,22 @@
+# PC88Behavior フォント供給源記録
+#
+# 記録しているのは font_mem/font_mem2/font_mem3 の各領域が、
+# どの供給源で・何回書き込まれたかというタグと件数、そして
+# 内容の CRC32 のみ。グリフのバイト列は一切出力しない。
+#
+# 書き込み回数が2以上の領域は、複数の経路が同じ領域を上書きした
+# ことを示す（docs/spec/l2-font.md 3節が問題にした二重ロードの兆候）。
+
+core      : $WORKDIR/vendor/quasi88-libretro/quasi88_libretro.dylib
+rom-dir   : $PC88_REF_ROM_DIR
+disk      : (なし)
+frames    : 30
+
+# region                          source                                    writes  crc32
+  font_mem  ANK  (画面へ出る) KANJI_DERIVED(漢字ROM由来)                  2  56653188
+  font_mem  GRAPH(画面へ出る) UNAVAILABLE(代替データ無し・0埋め)      2  00000000
+  font_mem2 ANK  (死んだ経路) UNAVAILABLE(代替データ無し・0埋め)      2  00000000
+  font_mem2 GRAPH(死んだ経路) UNAVAILABLE(代替データ無し・0埋め)      2  00000000
+  font_mem3 ANK  (死んだ経路) UNAVAILABLE(代替データ無し・0埋め)      2  00000000
+  font_mem3 GRAPH(死んだ経路) UNAVAILABLE(代替データ無し・0埋め)      2  00000000
+
