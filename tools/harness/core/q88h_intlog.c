@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include "q88h_intlog.h"
+#include "q88h_clock.h"
 
 static q88h_intlog_t g_intlog;      /* メイン CPU */
 static q88h_intlog_t g_intlog_sub;  /* サブ CPU（ディスク側） */
@@ -43,6 +44,10 @@ void retro_q88h_intlog_reset(void)
 
     g_intlog.enabled     = en;
     g_intlog_sub.enabled = en_sub;
+
+    /* M6c: 共通クロックもここでゼロに戻す。q88h_iolog_reset と同じ理由・
+     * 同じ安全条件（q88h_iolog.c の retro_q88h_iolog_reset 参照）。 */
+    retro_q88h_clock_reset();
 }
 
 void retro_q88h_intlog_set_enabled(int enabled)
@@ -75,6 +80,7 @@ void q88h_intlog_record(q88h_intlog_t *l, uint8_t im, uint8_t level,
     l->n_events++;
 
     e->seq        = l->n_events;   /* 1始まりの通し番号 */
+    e->clock      = q88h_clock_tick();   /* M6c: main/sub 共通の通し番号 */
     e->frame      = l->frame;
     e->ret_pc     = ret_pc;
     e->handler_pc = handler_pc;

@@ -86,7 +86,7 @@ fi
 echo "OK: OUT(seq=$OUT_SEQ) → IN(seq=$IN_SEQ) の順"
 
 say "OUT の value が既知の値 0x$KNOWN_VALUE と一致することを確認"
-OUT_VALUE="$(printf '%s\n' "$OUT_LINE" | awk '{print $6}')"
+OUT_VALUE="$(printf '%s\n' "$OUT_LINE" | awk '{print $7}')"
 if [ "$OUT_VALUE" != "$KNOWN_VALUE" ]; then
   echo "NG: OUT の value が $OUT_VALUE 。期待値は $KNOWN_VALUE 。該当行:" >&2
   printf '%s\n' "$OUT_LINE" >&2
@@ -95,8 +95,8 @@ fi
 echo "OK: OUT value=$OUT_VALUE"
 
 say "発行元 pc が 0x1234 近傍であることを確認"
-OUT_PC="$(printf '%s\n' "$OUT_LINE" | awk '{print $7}')"
-IN_PC="$(printf '%s\n' "$IN_LINE"  | awk '{print $7}')"
+OUT_PC="$(printf '%s\n' "$OUT_LINE" | awk '{print $8}')"
+IN_PC="$(printf '%s\n' "$IN_LINE"  | awk '{print $8}')"
 # OUT=0x1237, IN=0x1239（make_test_rom.py 参照）。1230-123F の範囲にあれば良しとする。
 for pc in "$OUT_PC" "$IN_PC"; do
   case "$pc" in

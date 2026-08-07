@@ -19,7 +19,7 @@
 #include <stdint.h>
 
 #define Q88H_IOLOG_MAGIC   0x4C423838u   /* "88BL" (LE) */
-#define Q88H_IOLOG_VERSION 1u
+#define Q88H_IOLOG_VERSION 2u   /* v2 (M6c): q88h_iolog_ev_t に clock を追加 */
 
 /* 起動シーケンスで何件出るか事前に分からないので、まず取りこぼさないことを
  * 優先して大きめに取る。1CPUあたり 1<<20 件。 */
@@ -30,6 +30,11 @@ enum { Q88H_IOLOG_OUT = 0, Q88H_IOLOG_IN = 1 };
 
 typedef struct {
     uint32_t seq;      /* 1始まりの通し番号（記録できたイベントの中での順） */
+    uint32_t clock;    /* M6c: main/sub・iolog/intlog を横断する共通の
+                          * 単調増加通し番号（q88h_clock.h）。frame は
+                          * 1フレームに数千件のイベントが起きるため
+                          * main/sub の真の前後関係を表せないが、これは
+                          * 表す——q88h_clock.h の説明参照。 */
     uint32_t frame;    /* フロントエンドが毎フレーム設定した値のスナップショット */
     uint16_t pc;        /* 発行元（OUT/IN 命令の先頭番地）。
                           * z80.h の PC_prev は「モニタ用のダミー」で

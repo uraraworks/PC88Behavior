@@ -1,0 +1,12 @@
+diff --git a/Makefile.common b/Makefile.common
+index 3f1e3d2..57d357c 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -56,6 +56,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/z80-debug-stub.c \
+    $(CORE_DIR)/q88h_trace.c \
+    $(CORE_DIR)/q88h_trap.c \
++   $(CORE_DIR)/q88h_clock.c \
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_intlog.c \
+    $(CORE_DIR)/q88h_fontsrc.c \

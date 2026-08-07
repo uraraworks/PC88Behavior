@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include "q88h_iolog.h"
+#include "q88h_clock.h"
 
 static q88h_iolog_t g_iolog;      /* メイン CPU */
 static q88h_iolog_t g_iolog_sub;  /* サブ CPU（ディスク側） */
@@ -45,6 +46,11 @@ void retro_q88h_iolog_reset(void)
 
     g_iolog.enabled     = en;
     g_iolog_sub.enabled = en_sub;
+
+    /* M6c: 共通クロックもここでゼロに戻す。q88h_intlog_reset からも同じ
+     * 呼び出しがあるが、どちらが先でもまだイベントが記録されていない
+     * タイミングで呼ばれる限り安全（q88h_clock.h 参照）。 */
+    retro_q88h_clock_reset();
 }
 
 void retro_q88h_iolog_set_enabled(int enabled)
@@ -77,6 +83,7 @@ void q88h_iolog_record(q88h_iolog_t *l, uint8_t kind, uint8_t port,
     l->n_events++;
 
     e->seq   = l->n_events;   /* 1始まりの通し番号 */
+    e->clock = q88h_clock_tick();   /* M6c: main/sub 共通の通し番号 */
     e->frame = l->frame;
     e->pc    = pc;
     e->kind  = kind;

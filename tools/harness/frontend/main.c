@@ -553,12 +553,13 @@ static void write_iolog_cpu(FILE *fp, const char *who, const q88h_iolog_t *l)
 {
     uint32_t i;
     fprintf(fp, "# %s\n", who);
-    fprintf(fp, "# seq  frame  cpu   kind  port  value  pc\n");
+    fprintf(fp, "# seq    clock   frame  cpu   kind  port  value  pc\n");
     if (!l->n_events) fprintf(fp, "# (記録されたイベントなし)\n");
     for (i = 0; i < l->n_events; i++) {
         const q88h_iolog_ev_t *e = &l->ev[i];
-        fprintf(fp, "%6u %6u  %-4s  %-4s  %04X   %02X   %04X\n",
-                e->seq, e->frame, who, e->kind == Q88H_IOLOG_OUT ? "OUT" : "IN",
+        fprintf(fp, "%6u %7u %6u  %-4s  %-4s  %04X   %02X   %04X\n",
+                e->seq, e->clock, e->frame, who,
+                e->kind == Q88H_IOLOG_OUT ? "OUT" : "IN",
                 e->port, e->value, e->pc);
     }
     /* 0件でも必ず出す。無言で欠けるのが一番まずい */
@@ -577,7 +578,12 @@ static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "# メインCPUとサブCPUは別々のZ80として並行に走っており、互いの\n");
     fprintf(fp, "# seq/frame を比較しても実際の前後関係にはならない。そのため\n");
     fprintf(fp, "# 1本の列に混ぜず、CPUごとに節を分けて出す（メイン→サブの順）。\n");
-    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n\n");
+    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# clock 列（M6c）は main/sub・iolog/intlog を横断する共通の\n");
+    fprintf(fp, "# 単調増加通し番号。frame と違い、これは他CPUの clock 値・\n");
+    fprintf(fp, "# 他ログ種別の clock 値と比較して真の前後関係を判定してよい\n");
+    fprintf(fp, "# （小さいほうが先に起きた）。詳細は q88h_clock.h を参照。\n\n");
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
@@ -594,12 +600,13 @@ static void write_intlog_cpu(FILE *fp, const char *who, const q88h_intlog_t *l)
 {
     uint32_t i;
     fprintf(fp, "# %s\n", who);
-    fprintf(fp, "# seq  frame  cpu   im  level  ret_pc  handler_pc\n");
+    fprintf(fp, "# seq    clock   frame  cpu   im  level  ret_pc  handler_pc\n");
     if (!l->n_events) fprintf(fp, "# (記録されたイベントなし)\n");
     for (i = 0; i < l->n_events; i++) {
         const q88h_intlog_ev_t *e = &l->ev[i];
-        fprintf(fp, "%6u %6u  %-4s  %2u   %3u   %04X    %04X\n",
-                e->seq, e->frame, who, e->im, e->level, e->ret_pc, e->handler_pc);
+        fprintf(fp, "%6u %7u %6u  %-4s  %2u   %3u   %04X    %04X\n",
+                e->seq, e->clock, e->frame, who, e->im, e->level,
+                e->ret_pc, e->handler_pc);
     }
     /* 0件でも必ず出す。無言で欠けるのが一番まずい（write_iolog_cpu と同じ理由） */
     fprintf(fp, "# 取りこぼし: %u件 / 総イベント数: %u件\n\n", l->n_dropped, l->n_events);
@@ -619,7 +626,12 @@ static void write_intlog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "# メインCPUとサブCPUは別々のZ80として並行に走っており、互いの\n");
     fprintf(fp, "# seq/frame を比較しても実際の前後関係にはならない。そのため\n");
     fprintf(fp, "# 1本の列に混ぜず、CPUごとに節を分けて出す（メイン→サブの順）。\n");
-    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n\n");
+    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# clock 列（M6c）は main/sub・iolog/intlog を横断する共通の\n");
+    fprintf(fp, "# 単調増加通し番号。iolog の clock 列と同じ番号空間を共有して\n");
+    fprintf(fp, "# いるので、割り込み受理と I/O イベントの前後関係も判定できる\n");
+    fprintf(fp, "# （小さいほうが先に起きた）。詳細は q88h_clock.h を参照。\n\n");
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");

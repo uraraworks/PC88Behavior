@@ -24,7 +24,7 @@
 #define Q88H_INTLOG_MAGIC   0x4C423838u   /* "88BL" (LE)。q88h_iolog と同じ値でよい
                                             * ——バッファの取り違え検出用の合言葉であって、
                                             * ファイル種別の判別には使っていないため。 */
-#define Q88H_INTLOG_VERSION 1u
+#define Q88H_INTLOG_VERSION 2u   /* v2 (M6c): q88h_intlog_ev_t に clock を追加 */
 
 /* 起動シーケンスで何件出るか事前に分からないので、まず取りこぼさないことを
  * 優先して大きめに取る。1CPUあたり 1<<16 件
@@ -33,6 +33,11 @@
 
 typedef struct {
     uint32_t seq;        /* 1始まりの通し番号（記録できたイベントの中での順） */
+    uint32_t clock;      /* M6c: main/sub・iolog/intlog を横断する共通の
+                           * 単調増加通し番号（q88h_clock.h）。q88h_iolog.h の
+                           * clock フィールドと同じ通し番号を共有しており、
+                           * 割り込み受理イベントと I/O イベントを同じ
+                           * ものさしで前後比較できる。 */
     uint32_t frame;      /* フロントエンドが毎フレーム設定した値のスナップショット */
     uint16_t ret_pc;     /* 受理直前のPC（＝スタックに積まれる戻り番地）。
                            * HALT 中に受理した場合は HALT 解除で PC が +1 された

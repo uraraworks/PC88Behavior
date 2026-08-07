@@ -75,7 +75,7 @@ fi
 say "main 節にイベントが記録されていることを確認"
 # main 節だけを取り出す（sub 節と混同しないため）
 MAIN_SECTION="$(awk '/^# main$/{f=1} /^# sub$/{f=0} f' "$INTLOG")"
-EVENT_LINES="$(printf '%s\n' "$MAIN_SECTION" | grep -E '^\s*[0-9]+\s+[0-9]+\s+main' || true)"
+EVENT_LINES="$(printf '%s\n' "$MAIN_SECTION" | grep -E '^\s*[0-9]+\s+[0-9]+\s+[0-9]+\s+main' || true)"
 N_EVENTS="$(printf '%s\n' "$EVENT_LINES" | grep -c . || true)"
 if [ -z "$EVENT_LINES" ] || [ "$N_EVENTS" -eq 0 ]; then
   echo "NG: main 節に割り込み受理イベントが1件も無い。以下は main 節:" >&2
@@ -87,7 +87,7 @@ echo "OK: main 節に $N_EVENTS 件の割り込み受理イベント"
 FIRST_LINE="$(printf '%s\n' "$EVENT_LINES" | head -1)"
 
 say "im=1（IM1）であることを確認"
-IM_VAL="$(printf '%s\n' "$FIRST_LINE" | awk '{print $4}')"
+IM_VAL="$(printf '%s\n' "$FIRST_LINE" | awk '{print $5}')"
 if [ "$IM_VAL" != "1" ]; then
   echo "NG: im が $IM_VAL 。期待値は 1 。該当行: $FIRST_LINE" >&2
   exit 1
@@ -95,7 +95,7 @@ fi
 echo "OK: im=1"
 
 say "handler_pc=0038（IM1の固定ベクタ）であることを確認"
-HANDLER_PC="$(printf '%s\n' "$FIRST_LINE" | awk '{print $7}')"
+HANDLER_PC="$(printf '%s\n' "$FIRST_LINE" | awk '{print $8}')"
 if [ "$HANDLER_PC" != "0038" ]; then
   echo "NG: handler_pc が $HANDLER_PC 。期待値は 0038 。該当行: $FIRST_LINE" >&2
   exit 1
@@ -103,7 +103,7 @@ fi
 echo "OK: handler_pc=0038"
 
 say "ret_pc が HALT の次の番地（0x$RET_PC_EXPECT）であることを確認"
-RET_PC="$(printf '%s\n' "$FIRST_LINE" | awk '{print $6}')"
+RET_PC="$(printf '%s\n' "$FIRST_LINE" | awk '{print $7}')"
 if [ "$RET_PC" != "$RET_PC_EXPECT" ]; then
   echo "NG: ret_pc が $RET_PC 。期待値は $RET_PC_EXPECT 。該当行: $FIRST_LINE" >&2
   exit 1
