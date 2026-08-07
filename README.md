@@ -1,5 +1,38 @@
 # PC88Behavior
 
+> **In English**
+>
+> A clean-room reimplementation of the NEC PC-8801 ROM, written **without ever reading
+> the original ROM's code**. The name refers to the method: the only permitted source of
+> information is externally observed *behaviour*.
+>
+> The PC-88 cannot boot without its ROM — even the code that reads a floppy lives there —
+> so running one without the original means writing a replacement.
+>
+> **What this repository does not contain:** no original ROM bytes, no disassembly of the
+> original ROM, no dumped disk images, no commercial software. Those stay in `private/`,
+> which is excluded from git and has never appeared in the commit history. Everything
+> published here — documents, source, build scripts, conformance tests — is independently
+> re-derivable by a third party.
+>
+> **Method:** instead of reading a disassembly, measurement hooks are added to an emulator
+> and the ROM's entry points are exercised to record what goes in and what comes out.
+> What that yields is *facts* (given this input, this output follows), not expression.
+> A side effect is that no copy of the original code exists on the machine at all, so
+> there is nothing to copy from. The discipline is structural, not a promise.
+>
+> **Language:** the documentation, notes and commit messages are in Japanese. The subject
+> matter, the hardware references and the contemporaneous working notes are all Japanese,
+> and maintaining two live copies of a document that is still changing would invite drift.
+> **An English translation of the design documents is planned once the project reaches a
+> usable state.** If you need something specific before then, please open an issue.
+>
+> Start with [docs/PLAN.md](docs/PLAN.md) (design and method) and
+> [CLAUDE.md](CLAUDE.md) (the clean-room rules, enforced by the permission settings in
+> `.claude/settings.json` and checked by `tools/check_cleanroom.sh`).
+
+---
+
 PC-8801 の ROM を、公式 ROM のコードを**一切読まずに**、外部から観測した振る舞いだけを
 根拠に書き起こすプロジェクト。名前の "Behavior" はその手法そのものを指す。
 
