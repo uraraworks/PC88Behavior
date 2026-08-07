@@ -53,6 +53,7 @@ class Event:
     port: str
     value: str
     pc: str
+    clock: int | None = None  # 共通クロック（0010-shared-clock.patch）。旧形式(7列)では None
 
 
 class FormatError(Exception):
@@ -98,11 +99,22 @@ def parse_iolog(path: str, cpu: str) -> list[Event]:
 
             saw_any_line_in_section = True
             fields = stripped.split()
-            if len(fields) != 7:
+            # 2形式ある。
+            #   旧形式(7列): seq frame cpu kind port value pc
+            #   新形式(8列): seq clock frame cpu kind port value pc
+            #                （0010-shared-clock.patch 導入後。m6c以降で使用）
+            # 新形式を「列数が7でない」で弾いていたのが未検証の穴だった
+            # （docs/notes/m6-conformance.md 参照）。両方読めるようにする。
+            clock: int | None
+            if len(fields) == 7:
+                seq_s, frame_s, ev_cpu, kind, port, value, pc = fields
+                clock_s = None
+            elif len(fields) == 8:
+                seq_s, clock_s, frame_s, ev_cpu, kind, port, value, pc = fields
+            else:
                 raise FormatError(
-                    f"{path}:{lineno}: 列数が7でない({len(fields)}列): {stripped!r}"
+                    f"{path}:{lineno}: 列数が7でも8でもない({len(fields)}列): {stripped!r}"
                 )
-            seq_s, frame_s, ev_cpu, kind, port, value, pc = fields
             if kind not in ("IN", "OUT"):
                 raise FormatError(
                     f"{path}:{lineno}: kind が IN/OUT でない: {stripped!r}"
@@ -110,10 +122,11 @@ def parse_iolog(path: str, cpu: str) -> list[Event]:
             try:
                 seq = int(seq_s)
                 frame = int(frame_s)
+                clock = int(clock_s) if clock_s is not None else None
             except ValueError as e:
-                raise FormatError(f"{path}:{lineno}: seq/frame が整数でない: {stripped!r}") from e
+                raise FormatError(f"{path}:{lineno}: seq/frame/clock が整数でない: {stripped!r}") from e
 
-            events.append(Event(seq, frame, ev_cpu, kind, port, value, pc))
+            events.append(Event(seq, frame, ev_cpu, kind, port, value, pc, clock))
 
     if not section_found:
         raise FormatError(f"{path}: '# {cpu}' 節が見つからない")
@@ -124,6 +137,29 @@ def parse_iolog(path: str, cpu: str) -> list[Event]:
 
 def filter_out_only(events: list[Event]) -> list[Event]:
     return [e for e in events if e.kind == "OUT"]
+
+
+def normalize_port(port: str) -> str:
+    """'FD' / '0xfd' / '00FD' などを、ログの表記(4桁16進・大文字)に揃える。"""
+    p = port.strip()
+    if p.lower().startswith("0x"):
+        p = p[2:]
+    if len(p) > 4 or not all(c in "0123456789abcdefABCDEF" for c in p):
+        raise FormatError(f"--port の値が16進数として不正: {port!r}")
+    return p.upper().zfill(4)
+
+
+def filter_port_kind(events: list[Event], kind: str, port: str) -> list[Event]:
+    """指定 kind・port の列だけを、発生順そのままで取り出す。
+
+    docs/spec/l3-subrom.md 5.1節「メインCPUが最終的に受け取るデータ列」を
+    機械的に見るためのフィルタ。M6 のバースト（1回限り・非周期）は
+    L1型の --init/--cycle が当てはまらないため、「特定ポートの列を
+    丸ごと完全一致で見る」という、この既定モード寄りの単純な比較のほうが
+    向いている（docs/notes/m6-conformance.md）。
+    """
+    p = normalize_port(port)
+    return [e for e in events if e.kind == kind and e.port == p]
 
 
 def fold_in_runs(events: list[Event]) -> list[Event]:
@@ -375,10 +411,19 @@ def main() -> int:
                         help="2段階判定: 先頭 N 件を完全一致で比べる（L1 は 350）")
     parser.add_argument("--cycle", type=int, default=None, metavar="M",
                         help="2段階判定: N 件目以降を M 件の周期とみなす（L1 は 7）")
+    parser.add_argument("--port", type=str, default=None, metavar="PORT",
+                        help="特定ポート判定: 指定ポート(例 FD, 00FD)に絞り、"
+                             "発生順のまま完全一致で比べる（--kind と併用必須）。"
+                             "M6のような非周期の一括転送向け（docs/notes/m6-conformance.md）")
+    parser.add_argument("--kind", choices=["IN", "OUT"], default=None,
+                        help="特定ポート判定: 見る方向（--port と併用必須）")
     args = parser.parse_args()
 
     if (args.init is None) != (args.cycle is None):
         print("エラー: --init と --cycle は両方指定する", file=sys.stderr)
+        return 2
+    if (args.port is None) != (args.kind is None):
+        print("エラー: --port と --kind は両方指定する", file=sys.stderr)
         return 2
     if args.init is not None:
         if args.init < 0 or args.cycle < 1:
@@ -387,6 +432,12 @@ def main() -> int:
         if args.with_in:
             print("エラー: --with-in は参考情報なので 2段階判定と併用しない", file=sys.stderr)
             return 2
+        if args.port is not None:
+            print("エラー: --init/--cycle と --port/--kind は併用しない", file=sys.stderr)
+            return 2
+    if args.port is not None and args.with_in:
+        print("エラー: --with-in と --port/--kind は併用しない", file=sys.stderr)
+        return 2
 
     try:
         base_events = parse_iolog(args.base, args.cpu)
@@ -405,6 +456,23 @@ def main() -> int:
             print("エラー: 両側とも OUT が0件。比較になっていない。", file=sys.stderr)
             return 2
         return run_two_stage(base_events, target_events, args.init, args.cycle)
+
+    if args.port is not None:
+        try:
+            base_seq = filter_port_kind(base_events, args.kind, args.port)
+            target_seq = filter_port_kind(target_events, args.kind, args.port)
+        except FormatError as e:
+            print(f"エラー: {e}", file=sys.stderr)
+            return 2
+        if len(base_seq) == 0 and len(target_seq) == 0:
+            print(f"エラー: 両側とも {args.kind} {normalize_port(args.port)} が0件。比較になっていない。",
+                  file=sys.stderr)
+            return 2
+        label = f"{args.kind} {normalize_port(args.port)} のみ（完全一致・非周期）"
+        rc = report_mismatch(base_seq, target_seq, label)
+        if rc == 0:
+            print(f"[{label}] 一致（{len(base_seq)}件）")
+        return rc
 
     return run_compare(base_events, target_events, args.with_in)
 

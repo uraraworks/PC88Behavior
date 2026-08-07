@@ -367,6 +367,131 @@ else
     cat "$WORK/t18.out"
 fi
 
+# =====================================================================
+# 8列形式（共通クロック列つき）のパース検査
+#
+# docs/notes/m6-conformance.md の経緯: 0010-shared-clock.patch 導入後の
+# ログは「seq clock frame cpu kind port value pc」の8列だが、当初の
+# cmp_io.py は7列決め打ちで、m6c以降のログを一度も読めていなかった
+# （未検出のまま放置されていた）。8列対応を足したので、そのことを
+# わざと壊して検出する形で確かめる。
+# =====================================================================
+SEED2="$REPO_ROOT/measurements/m6g-d0-boot-run1.iolog.txt"
+if [[ ! -f "$SEED2" ]]; then
+    echo "エラー: 8列形式の種ファイルが無い: $SEED2" >&2
+    exit 2
+fi
+# main節・OUT行の総数（8列形式は $4=cpu $5=kind）
+OUT_COUNT2="$(awk '$4=="main" && $5=="OUT" {c++} END{print c+0}' "$SEED2")"
+if [[ "$OUT_COUNT2" -lt 3 ]]; then
+    echo "エラー: 8列形式の種ファイルのOUT件数が少なすぎる（$OUT_COUNT2）" >&2
+    exit 2
+fi
+
+# --- テスト19: 8列形式の同一ファイル同士（既定モード） → 一致 --------
+cp "$SEED2" "$WORK/t19.txt"
+python3 "$CMP" "$SEED2" "$WORK/t19.txt" --cpu main >"$WORK/t19.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]]; then
+    pass "19. 8列形式(clock列つき)の同一ファイル同士 → 一致"
+else
+    fail "19. 8列形式(clock列つき)の同一ファイル同士 → 一致 rc=$rc"
+    cat "$WORK/t19.out"
+fi
+
+# --- テスト20: clock列だけを全行ずらす → 比較には影響しない（一致のまま）
+# clock は比較（port/value/kind）に使っていないので、値がずれていても
+# 一致と判定されるはずである。ここが逆に落ちたら「clockを誤って
+# 比較に使ってしまっている」というバグの検出になる。
+awk 'BEGIN{OFS=" "}
+    /^[0-9]/ && NF==8 { $2 = $2+999999 }
+    { print }' "$SEED2" > "$WORK/t20.txt"
+python3 "$CMP" "$SEED2" "$WORK/t20.txt" --cpu main >"$WORK/t20.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]]; then
+    pass "20. clock列だけをずらす → 比較には無関係なので一致のまま"
+else
+    fail "20. clock列だけをずらす → 比較には無関係なので一致のまま rc=$rc"
+    cat "$WORK/t20.out"
+fi
+
+# --- テスト21: 列数が9（壊れた行）→ 使い方の誤り（パースエラー） -----
+awk 'NR==30 && NF==8 { print $0, "EXTRA"; next } { print }' "$SEED2" > "$WORK/t21.txt"
+python3 "$CMP" "$SEED2" "$WORK/t21.txt" --cpu main >"$WORK/t21.out" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]] && grep -q "列数が7でも8でもない" "$WORK/t21.out"; then
+    pass "21. 列数が9の壊れた行 → パースエラー（終了コード2）"
+else
+    fail "21. 列数が9の壊れた行 → パースエラー（終了コード2） rc=$rc"
+    cat "$WORK/t21.out"
+fi
+
+# =====================================================================
+# --port/--kind（M6用の非周期・完全一致モード）の検査
+#
+# docs/spec/l3-subrom.md 5.3節: L1の「初期化N件＋周期M件」という型は
+# M6のsub側バースト（一回限り・非周期）には当てはまらない。
+# 「特定ポート・特定方向の列を丸ごと完全一致で見る」という条件を
+# tools/cmp_io.py --port/--kind として足したので、わざと壊して検査する。
+# =====================================================================
+
+# --- テスト22: main の IN 00FD 列、同一ファイル同士 → 一致 -----------
+python3 "$CMP" "$SEED2" "$WORK/t19.txt" --cpu main --port FD --kind IN >"$WORK/t22.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "一致" "$WORK/t22.out"; then
+    pass "22. --port FD --kind IN、同一ファイル同士 → 一致"
+else
+    fail "22. --port FD --kind IN、同一ファイル同士 → 一致 rc=$rc"
+    cat "$WORK/t22.out"
+fi
+
+# --- テスト23: IN 00FD の値を1件書き換える → 不一致 -------------------
+# 8列形式: $4=cpu $5=kind $6=port $7=value
+awk 'BEGIN{OFS=" "; c=0}
+    { if ($4=="main" && $5=="IN" && $6=="00FD") { c++; if (c==3) $7="ZZ" }
+      print }' "$SEED2" > "$WORK/t23.txt"
+python3 "$CMP" "$SEED2" "$WORK/t23.txt" --cpu main --port FD --kind IN >"$WORK/t23.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "値が違う" "$WORK/t23.out"; then
+    pass "23. IN 00FD の値を1件書き換える → --port/--kind で不一致検出"
+else
+    fail "23. IN 00FD の値を1件書き換える → --port/--kind で不一致検出 rc=$rc"
+    cat "$WORK/t23.out"
+fi
+
+# --- テスト24: IN 00FD を1件削除する → 不一致「対象に足りない」 ------
+awk -v n="9999999" 'BEGIN{OFS=" "; c=0; skip=-1}
+    { if ($4=="main" && $5=="IN" && $6=="00FD") { c++ } }
+    { if ($4=="main" && $5=="IN" && $6=="00FD" && c==3) next; print }' "$SEED2" > "$WORK/t24.txt"
+python3 "$CMP" "$SEED2" "$WORK/t24.txt" --cpu main --port FD --kind IN >"$WORK/t24.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "対象に足りない\|値が違う" "$WORK/t24.out"; then
+    pass "24. IN 00FD を1件削除する → --port/--kind で不一致検出"
+else
+    fail "24. IN 00FD を1件削除する → --port/--kind で不一致検出 rc=$rc"
+    cat "$WORK/t24.out"
+fi
+
+# --- テスト25: --port だけ指定（--kind なし）→ 使い方の誤り ----------
+python3 "$CMP" "$SEED2" "$WORK/t19.txt" --port FD >"$WORK/t25.out" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]]; then
+    pass "25. --port だけ指定 → 使い方の誤り（終了コード2）"
+else
+    fail "25. --port だけ指定 → 使い方の誤り（終了コード2） rc=$rc"
+    cat "$WORK/t25.out"
+fi
+
+# --- テスト26: --port/--kind と --init/--cycle の併用 → 使い方の誤り --
+python3 "$CMP" "$SEED2" "$WORK/t19.txt" --port FD --kind IN --init 10 --cycle 2 >"$WORK/t26.out" 2>&1
+rc=$?
+if [[ $rc -eq 2 ]]; then
+    pass "26. --port/--kind と --init/--cycle の併用 → 使い方の誤り（終了コード2）"
+else
+    fail "26. --port/--kind と --init/--cycle の併用 → 使い方の誤り（終了コード2） rc=$rc"
+    cat "$WORK/t26.out"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
     echo "全項目 OK"
