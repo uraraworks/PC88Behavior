@@ -206,6 +206,8 @@ class Asm:
             if kind == "abs":
                 self.code[pos] = addr & 0xFF
                 self.code[pos + 1] = (addr >> 8) & 0xFF
+            elif kind == "hi8":
+                self.code[pos] = (addr >> 8) & 0xFF
             else:
                 delta = addr - (self.org + pos + 1)
                 if not -128 <= delta <= 127:
@@ -260,6 +262,22 @@ class Asm:
     def jr_nz(self, name):  self.db(0x20); self._rel(name)
     def jr_z(self, name):   self.db(0x28); self._rel(name)
     def djnz(self, name):   self.db(0x10); self._rel(name)
+    def halt(self):      self.db(0x76)
+    def im2(self):        self.db(0xED, 0x5E)
+    def ld_i_a(self):     self.db(0xED, 0x47)
+
+    def dw(self, name):
+        """label のアドレスを 2 バイト（下位・上位）でそのまま置く。
+
+        IM 2 のベクタテーブル用。命令ではなく生データなので op コード無し。
+        """
+        self._abs(name)
+
+    def ld_a_hi(self, name):
+        """LD A, <label の上位バイト>。ベクタテーブルのページを I に積むために使う。"""
+        self.db(0x3E)
+        self.fixups.append((len(self.code), name, "hi8"))
+        self.db(0x00)
 
     def in_port(self, port):
         """IN A,(port)。IN は適合条件に入らない（第6節）ので記録しない。"""
@@ -274,6 +292,15 @@ class Asm:
     def out_seq(self, pairs):
         for port, value in pairs:
             self.out(port, value)
+
+    def align_page(self):
+        """次のラベルが 256 バイト境界（下位バイト 0）に来るまで埋める。
+
+        IM 2 のベクタテーブルは `(I<<8) | (level<<1)` で参照されるため、
+        テーブルの先頭アドレスの下位バイトが 0 でなければならない。
+        """
+        while self.pc & 0xFF:
+            self.db(FILL)
 
     def out_range(self, lo, hi):
         """付録A の lo 番から hi 番（1始まり・両端含む）をそのまま並べる。
@@ -451,6 +478,50 @@ def sub_keyscan(a):
     a.ret()
 
 
+def sub_safe_vector(a):
+    """使わないベクタ（RS232C/RTC）の受け皿。
+
+    仕様書は VSYNC（level=1）だけを使う。IM 2 のベクタテーブルは
+    level=0（RS232C）と level=2（RTC）のぶんも埋めておかないと、
+    万一それらが立ったときに未定義領域へ飛んで暴走する。
+    何もせず割り込みを再許可して戻るだけにしておく。
+    """
+    a.label("SAFE_VEC")
+    a.ei()
+    a.reti()
+
+
+def sub_vsync_handler(a):
+    """VSYNC 割り込みハンドラ。仕様書 第3節・付録A 344-350 の 7 件の OUT。
+
+    第3版第3節: 割り込み受理のたびに `intr_level` が 0 に落ちる
+    （ハーネスのコア `src/intr.c` の仕様。ROM とは無関係）ので、
+    末尾で `E4 ← FF` を出さないと次の VSYNC を受け取れない。
+    受理時に IFF（Z80 の割り込み許可フラグ）も落ちるので、
+    `EI` も末尾で出し直す。
+
+    VRTC（`IN 40`）は待たない——待つ理由が無い。割り込みそのものが
+    「次のフレームが来た」の合図なので、ポーリングは不要。
+    これが適合条件③（定常状態に `IN 40` が現れないこと）の実装側の理由。
+    """
+    a.label("VSYNC_HANDLER")
+    a.out_seq([
+        (P_SYSCTRL2, 0x19),
+        (P_INTSTAT,  0x01),                  # ハンドラ実行中はレベルを1に下げる
+        (P_CRTC_CMD, 0x81),                  # LOAD CURSOR POSITION（表示）
+        (P_CRTC_DAT, 0x16),                  # X = 22 桁目
+        (P_CRTC_DAT, 0x01),                  # Y = 1 行目
+    ])
+    a.in_port(P_CRTC_CMD)                    # READ STATUS（IN 51）
+    a.call("KEYSCAN")                        # IN 0B..00
+    a.out_seq([
+        (P_INTSTAT,  0xFF),                  # 次の VSYNC を受け取れる状態に戻す
+        (P_SYSCTRL2, 0x19),
+    ])
+    a.ei()
+    a.ret()
+
+
 # --------------------------------------------------------------------------
 # 本体
 # --------------------------------------------------------------------------
@@ -469,8 +540,9 @@ def build_n88(stop_after=None):
     a.ld_sp(STACK)
     a.jp("MAIN")
 
-    # 0038h / 0066h。割り込みは使わない設計だが、飛び込んだときに
-    # 暴走しないよう戻れるようにしておく。
+    # 0038h / 0066h。RST 38h（IM1固定ベクタ）と NMI は使わない設計だが、
+    # 飛び込んだときに暴走しないよう戻れるようにしておく。
+    # （定常状態の駆動には IM 2 を使う。ベクタテーブルは別に置く——下記）
     while a.pc < 0x0038:
         a.db(FILL)
     a.ei(); a.reti()
@@ -484,12 +556,16 @@ def build_n88(stop_after=None):
     sub_usart(a)
     sub_extrom_scan(a)
     sub_keyscan(a)
+    sub_safe_vector(a)
     with a.capture() as cap:
         sub_screen_init(a)
     screen_outs = list(cap.taken)
     with a.capture() as cap:
         sub_group(a)
     group_outs = list(cap.taken)
+    with a.capture() as cap:
+        sub_vsync_handler(a)
+    vsync_outs = list(cap.taken)
 
     # ---- テーブル ----
     a.label("T_USART");  a.db(*T_USART)
@@ -501,6 +577,16 @@ def build_n88(stop_after=None):
                 0x00,0x47, 0x07,0x47, 0x38,0x47, 0x3F,0x47)
     a.label("T_PAL_P0"); a.db(*T_PAL_P0)
     a.label("T_PAL_P3"); a.db(*T_PAL_P3)
+
+    # ---- IM 2 ベクタテーブル ----
+    # `(I<<8) | (level<<1)` で参照される（level: 0=RS232C, 1=VSYNC, 2=RTC。
+    # ハーネスのコア `src/intr.c` の割り当て。ROM の内容とは無関係）。
+    # 参照される側の下位バイトが 0 でなければならないので 256 バイト境界に置く。
+    a.align_page()
+    a.label("VEC_TABLE")
+    a.dw("SAFE_VEC")        # level 0 (RS232C) — 使わない
+    a.dw("VSYNC_HANDLER")   # level 1 (VSYNC)  — これだけ使う
+    a.dw("SAFE_VEC")        # level 2 (RTC)    — 使わない
 
     # ======================================================================
     a.label("MAIN")
@@ -586,29 +672,25 @@ def build_n88(stop_after=None):
     # ---- 315-343. 残りの初期化 ----
     a.out_range(315, 343)
 
-    # ---- 定常状態（付録A 344-350 が 1 周目）----
-    # 公式版の周期がどう作られているかは仕様書に無い。
-    # 第3節の 20 イベントに `IN 40` が無いので割り込み駆動だと思われるが、
-    # **仕様書に書かれていないので推測で割り込みを組まない。**
-    # ここでは VRTC の立ち上がりを待って 1 周させる（第5a節①の待ちと同じ形）。
-    # 周回数は適合条件ではない（第6節「比較しないもの」）。
-    a.label("STEADY")
-    a.call("WAIT_VRTC_LOW")
-    a.call("WAIT_VRTC_HIGH")
-    a.out_seq([
-        (P_SYSCTRL2, 0x19),
-        (P_INTSTAT,  0x01),
-        (P_CRTC_CMD, 0x81),
-        (P_CRTC_DAT, 0x16),
-        (P_CRTC_DAT, 0x01),
-    ])
-    a.in_port(P_CRTC_CMD)                    # IN 51 → 10（第3節）
-    a.call("KEYSCAN")                        # IN 0B..00
-    a.out_seq([
-        (P_INTSTAT,  0xFF),
-        (P_SYSCTRL2, 0x19),
-    ])
-    a.jp("STEADY")
+    # ---- 定常状態は VSYNC 割り込み駆動（仕様書 第3版 第3節・第6節③）----
+    # 第3節: 公式版はフレーム27（この直後）から毎フレームちょうど1回、
+    # IM 2 / level 1（VSYNC）の割り込みを受理している。`IN 40`（VRTC の
+    # ポーリング）は定常状態に一切現れない——これが適合条件③。
+    # IM 2 を有効にし、ベクタテーブルのページを I に積んでから EI する。
+    # 実際の 7 件の OUT は VSYNC_HANDLER（割り込みハンドラ）が出す。
+    a.ld_a_hi("VEC_TABLE")
+    a.ld_i_a()
+    a.im2()
+    a.ei()
+    # 付録A 344-350（＝定常状態の1周目）は、EI 直後に実際に届く最初の
+    # VSYNC 割り込みでハンドラが出す。組み立て時検査（このリストが
+    # SPEC_INIT と一致するかの検査）のためにここで1回ぶん記録する——
+    # 実行時にはハーネスの `--io-log` が本物の受理・発行を記録する
+    # （第7節。二重の検査の「1」と「2」の役割分担どおり）。
+    a.record_all(vsync_outs)
+    a.label("STEADY_WAIT")
+    a.halt()                                 # 次の VSYNC まで待つ
+    a.jp("STEADY_WAIT")
 
     return _finish(a, len(SPEC_INIT))
 
