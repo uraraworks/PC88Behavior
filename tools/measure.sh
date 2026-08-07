@@ -99,6 +99,10 @@ while [ $# -gt 0 ]; do
       # sed/redact を later で当てられるよう、パスをここで覚えておく。
       IO_LOG_OUT="$2"
       args+=("$1" "$2"); shift 2 ;;
+    --int-log)
+      # --io-log と同じ理由（IO_LOG_OUT のコメント参照）。
+      INT_LOG_OUT="$2"
+      args+=("$1" "$2"); shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -153,6 +157,17 @@ if [ -n "${IO_LOG_OUT:-}" ] && [ -f "$IO_LOG_OUT" ]; then
       -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
       -e "s|$HOME|~|g" "$IO_LOG_OUT" > "$tmp" && mv "$tmp" "$IO_LOG_OUT"
   python3 "$REPO/tools/redact.py" "$IO_LOG_OUT" >/dev/null
+fi
+
+# --int-log の出力ファイルにも同じ sed/redact を当てる（IO_LOG_OUT と同じ理由）。
+if [ -n "${INT_LOG_OUT:-}" ] && [ -f "$INT_LOG_OUT" ]; then
+  tmp="$INT_LOG_OUT.tmp"
+  sed -e "s|$PC88_REF_ROM_DIR|\$PC88_REF_ROM_DIR|g" \
+      -e "s|${PC88_REF_DISK_DIR:-__none__}|\$PC88_REF_DISK_DIR|g" \
+      -e "s|${SCRATCH:-__none__}|\$PC88_REF_DISK_DIR|g" \
+      -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
+      -e "s|$HOME|~|g" "$INT_LOG_OUT" > "$tmp" && mv "$tmp" "$INT_LOG_OUT"
+  python3 "$REPO/tools/redact.py" "$INT_LOG_OUT" >/dev/null
 fi
 
 exit $status

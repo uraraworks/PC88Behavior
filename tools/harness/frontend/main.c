@@ -31,6 +31,7 @@
 #include "q88h_trace.h"
 #include "q88h_trap.h"
 #include "q88h_iolog.h"
+#include "q88h_intlog.h"
 
 /* ---- コアの関数ポインタ ------------------------------------------------ */
 static void (*p_set_environment)(retro_environment_t);
@@ -67,6 +68,14 @@ static void          (*p_iolog_reset)(void);
 static void          (*p_iolog_set_enabled)(int);
 static void          (*p_iolog_set_frame)(uint32_t);
 static bool           g_iolog_available = false;
+
+/* 割り込み受理ログ（M4c）。q88h_iolog と同じ理由で失敗を許す枠で dlsym する。 */
+static q88h_intlog_t *(*p_intlog)(void);
+static q88h_intlog_t *(*p_intlog_sub)(void);
+static void           (*p_intlog_reset)(void);
+static void           (*p_intlog_set_enabled)(int);
+static void           (*p_intlog_set_frame)(uint32_t);
+static bool            g_intlog_available = false;
 
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
@@ -349,6 +358,18 @@ static bool load_core(const char *path)
     if (!g_iolog_available)
         fprintf(stderr, "[q88measure] 注記: このコアに順序付きI/O記録が無い。"
                         "--io-log は無効化される\n");
+
+    /* 割り込み受理ログ（M4c）も同様に、無いコアでは黙って機能を落とす。 */
+    *(void **)(&p_intlog)             = dlsym(h, "retro_q88h_intlog");
+    *(void **)(&p_intlog_sub)         = dlsym(h, "retro_q88h_intlog_sub");
+    *(void **)(&p_intlog_reset)       = dlsym(h, "retro_q88h_intlog_reset");
+    *(void **)(&p_intlog_set_enabled) = dlsym(h, "retro_q88h_intlog_set_enabled");
+    *(void **)(&p_intlog_set_frame)   = dlsym(h, "retro_q88h_intlog_set_frame");
+    g_intlog_available = p_intlog && p_intlog_sub && p_intlog_reset
+                       && p_intlog_set_enabled && p_intlog_set_frame;
+    if (!g_intlog_available)
+        fprintf(stderr, "[q88measure] 注記: このコアに割り込み受理ログが無い。"
+                        "--int-log は無効化される\n");
     return true;
 }
 
@@ -536,6 +557,48 @@ static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
     write_iolog_cpu(fp, "sub",  ls);
 }
 
+/* ---- 割り込み受理ログ（M4c）の書き出し ----------------------------------
+ * 考え方は write_iolog_* と同じ。main/sub は別々に走る Z80 なので、
+ * 混ぜて出すと前後関係を誤解させる。CPUごとに節を分ける。 */
+static void write_intlog_cpu(FILE *fp, const char *who, const q88h_intlog_t *l)
+{
+    uint32_t i;
+    fprintf(fp, "# %s\n", who);
+    fprintf(fp, "# seq  frame  cpu   im  level  ret_pc  handler_pc\n");
+    if (!l->n_events) fprintf(fp, "# (記録されたイベントなし)\n");
+    for (i = 0; i < l->n_events; i++) {
+        const q88h_intlog_ev_t *e = &l->ev[i];
+        fprintf(fp, "%6u %6u  %-4s  %2u   %3u   %04X    %04X\n",
+                e->seq, e->frame, who, e->im, e->level, e->ret_pc, e->handler_pc);
+    }
+    /* 0件でも必ず出す。無言で欠けるのが一番まずい（write_iolog_cpu と同じ理由） */
+    fprintf(fp, "# 取りこぼし: %u件 / 総イベント数: %u件\n\n", l->n_dropped, l->n_events);
+}
+
+static void write_intlog_report(FILE *fp, const char *core, const char *romdir,
+                                const char *disk, unsigned frames,
+                                const q88h_intlog_t *l, const q88h_intlog_t *ls)
+{
+    fprintf(fp, "# PC88Behavior 割り込み受理ログ\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 記録しているのは Z80 が割り込みを受理した事実そのもの——\n");
+    fprintf(fp, "# 受理時の割り込みモード(im)・intr_ack()が返したレベル(level)・\n");
+    fprintf(fp, "# 受理直前PC(ret_pc、スタックに積まれる戻り番地)・分岐後の\n");
+    fprintf(fp, "# ハンドラ入口(handler_pc)・フレーム番号のみ。ROM の内容は含まない。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# メインCPUとサブCPUは別々のZ80として並行に走っており、互いの\n");
+    fprintf(fp, "# seq/frame を比較しても実際の前後関係にはならない。そのため\n");
+    fprintf(fp, "# 1本の列に混ぜず、CPUごとに節を分けて出す（メイン→サブの順）。\n");
+    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n\n");
+    fprintf(fp, "core      : %s\n", core);
+    fprintf(fp, "rom-dir   : %s\n", romdir);
+    fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    fprintf(fp, "frames    : %u\n\n", frames);
+
+    write_intlog_cpu(fp, "main", l);
+    write_intlog_cpu(fp, "sub",  ls);
+}
+
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
@@ -575,7 +638,7 @@ static void usage(void)
         "                   [--trap-map FILE] [--trap-mode ret|stop]\n"
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
-        "                   [--io-log FILE]\n");
+        "                   [--io-log FILE] [--int-log FILE]\n");
 }
 
 int main(int argc, char **argv)
@@ -598,6 +661,7 @@ int main(int argc, char **argv)
     unsigned expect_trap_exec[16]; int n_expect_trap_exec = 0;
     unsigned expect_trap_data[16]; int n_expect_trap_data = 0;
     const char *io_log_path = NULL;
+    const char *int_log_path = NULL;
     const char *env;
     int i, k;
 
@@ -649,6 +713,8 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--io-log") && i + 1 < argc)
             io_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--int-log") && i + 1 < argc)
+            int_log_path = argv[++i];
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -731,6 +797,18 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 割り込み受理ログ（M4c）も iolog と同じ位置・同じ理由で有効化する。 */
+    if (int_log_path) {
+        if (!g_intlog_available) {
+            fprintf(stderr, "[q88measure] 注記: --int-log が指定されたが、"
+                            "このコアに割り込み受理ログが無いので無視する\n");
+        } else {
+            p_intlog_reset();
+            p_intlog_set_enabled(1);
+            fprintf(stderr, "[q88measure] 割り込み受理ログ 有効: out=%s\n", int_log_path);
+        }
+    }
+
     if (g_n_keyev) {
         unsigned last = g_keyev[g_n_keyev - 1].end;
         g_typed = typed;
@@ -748,6 +826,7 @@ int main(int argc, char **argv)
         /* イベントに frame を載せるため、走らせる前に必ず今のフレーム番号を
          * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
         if (g_iolog_available) p_iolog_set_frame(g_frame);
+        if (g_intlog_available) p_intlog_set_frame(g_frame);
 
         p_run();
 
@@ -813,6 +892,20 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
+            }
+
+            /* 割り込み受理ログ（M4c）も --io-log と同じく別ファイルに書く。
+             * 性格が違う記録を混ぜないという方針を踏襲する。 */
+            if (int_log_path && g_intlog_available) {
+                q88h_intlog_t *l  = p_intlog();
+                q88h_intlog_t *ls = p_intlog_sub();
+                FILE *fp = fopen(int_log_path, "w");
+                if (!fp) { perror(int_log_path); return 1; }
+                write_intlog_report(fp, core, g_rom_dir, disk, frames, l, ls);
+                fclose(fp);
+                fprintf(stderr, "[q88measure] 割り込み受理ログを書き出した: %s"
+                                " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
+                        int_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
             /* --expect-trap-exec / --expect-trap-data の検査。

@@ -1,0 +1,84 @@
+diff --git a/Makefile.common b/Makefile.common
+index 1eaaea3..533dc86 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -57,6 +57,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_trace.c \
+    $(CORE_DIR)/q88h_trap.c \
+    $(CORE_DIR)/q88h_iolog.c \
++   $(CORE_DIR)/q88h_intlog.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/z80.c b/src/z80.c
+index 3369131..d9cbfd8 100644
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -83,6 +83,20 @@
+ #include "quasi88.h"
+ #include "z80.h"
+ 
++/* ----------------------------------------------------------------------
++ * 割り込み受理ログ（M4c）
++ *
++ * z80.c は z80arch* を受け取るだけの汎用コアで、このファイルの既存の
++ * #include には PC88 固有の z80main_cpu/z80sub_cpu を宣言するヘッダが
++ * 含まれていない（実測済み）。当初はこれを理由に「z80arch にmain/sub識別子
++ * を足す」でも「呼び手側からポインタを登録してもらう」でもない第三の案を
++ * 検討したが、pc88cpu.h の中身を確認したところ z80.h だけを要求する
++ * 薄い extern 宣言ヘッダ（z80main_cpu / z80sub_cpu の2行のみ）だったため、
++ * ここで直接 #include して `z80 == &z80main_cpu` で比較するだけで足りると
++ * 判断した。z80arch 構造体自体は変更していない（識別子は足していない）。 */
++#include "pc88cpu.h"
++#include "q88h_intlog.h"
++
+ 
+ #define S_FLAG      (0x80)
+ #define Z_FLAG      (0x40)
+@@ -717,6 +731,18 @@ static	void	z80_interrupt( z80arch *z80 )
+ 
+   level = (z80->intr_ack)();
+   if( level >= 0 ){
++    /* 割り込み受理ログ（M4c）用に、record 呼び出し前後で使う値を控えておく。
++     * enabled のチェックは呼び手（ここ）の責任——q88h_iolog と同じ役割分担。
++     * main/sub の判別は pc88cpu.h（ファイル冒頭で #include 済み）の
++     * z80main_cpu/z80sub_cpu と直接ポインタ比較するだけで足りる
++     * （判断理由はファイル冒頭のコメント参照）。 */
++    q88h_intlog_t *q88h_il = (z80 == &z80main_cpu) ? retro_q88h_intlog()
++                                                    : retro_q88h_intlog_sub();
++    word q88h_ret_pc;
++    int  q88h_level = level;	/* IM2 の分岐で level はベクタ読み出しの
++                                 * ポインタとして書き換えられるため、記録用に
++                                 * 受理直後の値を別変数へ退避しておく。 */
++
+     z80->IFF = INT_DISABLE;			/* 割り込み禁止 */
+     z80->R ++;					/* 割り込み応答サイクル */
+     z80->state0 += 2;
+@@ -726,6 +752,12 @@ static	void	z80_interrupt( z80arch *z80 )
+       z80->PC.W ++;
+     }
+ 
++    /* ret_pc（受理直前のPC＝スタックに積まれる戻り番地）はここで控える。
++     * HALT 状態からの受理なら、直前の "HALT 状態解除" ブロックで既に
++     * PC が +1 されたあとの値になる——実機の Z80 も同じで、HALT
++     * そのものを戻り先にはしない（HALT の再実行では意味がない）。 */
++    q88h_ret_pc = z80->PC.W;
++
+     switch( z80->IM ){				/* 割り込み分岐処理 */
+     case 0:					/*		IM 0 の時 */
+       z80->state0 += z80_im0_interrupt( z80, level );
+@@ -742,6 +774,14 @@ static	void	z80_interrupt( z80arch *z80 )
+       z80->state0 += 17;
+       break;
+     }
++
++    /* handler_pc（分岐後のPC＝ハンドラ入口）はここで確定する。
++     * level は case 2 (IM2) の中でベクタ読み出し位置として書き換えられて
++     * いるため、記録には switch 前に退避した q88h_level を使う。 */
++    if( q88h_il && q88h_il->enabled ){
++      q88h_intlog_record( q88h_il, (uint8_t)z80->IM, (uint8_t)q88h_level,
++                           (uint16_t)q88h_ret_pc, (uint16_t)z80->PC.W );
++    }
+   }
+ }
+ 
