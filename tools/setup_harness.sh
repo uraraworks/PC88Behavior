@@ -98,5 +98,6 @@ esac
 say "疎通試験"
 # ここまでで「ビルドできた」だけ。フックが末端まで生きているかは別問題なので測る。
 "$REPO/tools/harness/selftest.sh"
+"$REPO/tools/harness/trap_selftest.sh"
 
 say "完了"

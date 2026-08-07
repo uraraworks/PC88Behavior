@@ -1,0 +1,160 @@
+diff --git a/Makefile.common b/Makefile.common
+index 84ba0a9..e7c02ff 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -55,6 +55,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/z80.c \
+    $(CORE_DIR)/z80-debug-stub.c \
+    $(CORE_DIR)/q88h_trace.c \
++   $(CORE_DIR)/q88h_trap.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/pc88main.c b/src/pc88main.c
+index e6a2374..259f7a6 100644
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2957,23 +2957,72 @@ void	main_io_out_with_BP( byte port, byte data )
+  * ====================================================================== */
+ 
+ #include "q88h_trace.h"
++#include "q88h_trap.h"
++
++/* ----------------------------------------------------------------------
++ * トラップROM足場（M2）
++ *
++ * trap->map[addr] が立っている番地が要求されたら、実 ROM が無くても
++ * 先へ進めるように RET（0xC9）を返すか、その場で HALT（0x76）にして
++ * 止める。どちらのモードでも「何番地が、どんな入口状態で要求されたか」
++ * を q88h_trap_record に残す。RET/HALT は Z80 の公開された命令コードで
++ * あって、ROM の内容とは無関係。
++ *
++ * caller（戻り番地）はスタック先頭2バイトから組む。ここで q88h_mem_read
++ * を呼ぶと trace 側の read カウンタまで動いてしまうので、必ず一段下の
++ * main_mem_read を直接呼ぶ。
++ * ---------------------------------------------------------------------- */
+ 
+ static byte (*q88h_inner_fetch)( word );
+ 
+ static byte q88h_fetch( word addr )
+ {
+-  q88h_trace_t *t = retro_q88h_trace();
++  q88h_trace_t *t  = retro_q88h_trace();
++  q88h_trap_t  *tp = retro_q88h_trap();
++
+   t->mem_exec[addr] = 1;
+   t->n_exec++;
++
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++    word caller = main_mem_read( z80main_cpu.SP.W )
++                | (main_mem_read( (word)(z80main_cpu.SP.W + 1) ) << 8);
++
++    q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
++                       caller, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
++                       z80main_cpu.AF.W, z80main_cpu.BC.W,
++                       z80main_cpu.DE.W, z80main_cpu.HL.W );
++
++    if( tp->mode == Q88H_TRAP_RET ){
++      return 0xC9;                     /* RET  — 呼び元へ即座に返す */
++    }else{                             /* Q88H_TRAP_STOP */
++      tp->stopped   = 1;
++      tp->stop_addr = addr;
++      return 0x76;                     /* HALT — その場で止める */
++    }
++  }
++
+   return q88h_inner_fetch( addr );
+ }
+ 
+ static byte q88h_mem_read( word addr )
+ {
+-  q88h_trace_t *t = retro_q88h_trace();
++  q88h_trace_t *t  = retro_q88h_trace();
++  q88h_trap_t  *tp = retro_q88h_trap();
++  byte          v;
++
+   t->mem_read[addr] = 1;
+   t->n_read++;
+-  return main_mem_read( addr );
++  v = main_mem_read( addr );
++
++  /* データアクセスは値を差し替えない。挙動を変えるのは実行アクセスだけ。 */
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
++                       0, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
++                       z80main_cpu.AF.W, z80main_cpu.BC.W,
++                       z80main_cpu.DE.W, z80main_cpu.HL.W );
++  }
++
++  return v;
+ }
+ 
+ static void q88h_mem_write( word addr, byte data )
+diff --git a/src/pc88sub.c b/src/pc88sub.c
+index 1688cd6..dcdf865 100644
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -392,23 +392,60 @@ void	sub_io_out_with_BP( byte port, byte data )
+  * ====================================================================== */
+ 
+ #include "q88h_trace.h"
++#include "q88h_trap.h"
++
++/* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
++ * サブROMの範囲は 0x0000-0x07FF なので、trap.map もその範囲だけを使う想定。 */
+ 
+ static byte (*q88h_sub_inner_fetch)( word );
+ 
+ static byte q88h_sub_fetch( word addr )
+ {
+-  q88h_trace_t *t = retro_q88h_trace_sub();
++  q88h_trace_t *t  = retro_q88h_trace_sub();
++  q88h_trap_t  *tp = retro_q88h_trap_sub();
++
+   t->mem_exec[addr] = 1;
+   t->n_exec++;
++
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++    word caller = sub_mem_read( z80sub_cpu.SP.W )
++                | (sub_mem_read( (word)(z80sub_cpu.SP.W + 1) ) << 8);
++
++    q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
++                       caller, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
++                       z80sub_cpu.AF.W, z80sub_cpu.BC.W,
++                       z80sub_cpu.DE.W, z80sub_cpu.HL.W );
++
++    if( tp->mode == Q88H_TRAP_RET ){
++      return 0xC9;                     /* RET */
++    }else{                             /* Q88H_TRAP_STOP */
++      tp->stopped   = 1;
++      tp->stop_addr = addr;
++      return 0x76;                     /* HALT */
++    }
++  }
++
+   return q88h_sub_inner_fetch( addr );
+ }
+ 
+ static byte q88h_sub_mem_read( word addr )
+ {
+-  q88h_trace_t *t = retro_q88h_trace_sub();
++  q88h_trace_t *t  = retro_q88h_trace_sub();
++  q88h_trap_t  *tp = retro_q88h_trap_sub();
++  byte          v;
++
+   t->mem_read[addr] = 1;
+   t->n_read++;
+-  return sub_mem_read( addr );
++  v = sub_mem_read( addr );
++
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
++                       0, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
++                       z80sub_cpu.AF.W, z80sub_cpu.BC.W,
++                       z80sub_cpu.DE.W, z80sub_cpu.HL.W );
++  }
++
++  return v;
+ }
+ 
+ static void q88h_sub_mem_write( word addr, byte data )
