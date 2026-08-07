@@ -1,0 +1,24 @@
+# 破壊テスト結果: m6c-sub-d5-seqfile.iolog.txt
+# 生成: tools/verify_analyzer_corruption.py --iolog measurements/m6c-sub-d5-seqfile.iolog.txt \
+#       --intlog measurements/m6c-sub-d5-seqfile.intlog.txt --workdir <任意の作業ディレクトリ>
+# 破壊した合成iolog自体(shuffled.iolog.txt/offset.iolog.txt、各16MB)は再生成可能なため
+# コミットしない。ここに残すのは解析器の出力(*-report.txt)と要約のみ。
+
+## main->sub OUT $FD -> IN $FC
+  baseline (無加工)        : raw 100.00% (2294/2294) / collapsed 100.00% (1568/1568)
+  (a) shuffle-clock (順序破壊): raw 5.06% (116/2293) / collapsed 4.85% (105/2165)
+  (b) offset-value (値+1)    : raw 0.00% (0/2294) / collapsed 0.00% (0/1568)
+
+## sub->main OUT $FC -> IN $FD
+  baseline (無加工)        : raw 99.98% (5634/5635) / collapsed 100.00% (5433/5433)
+  (a) shuffle-clock (順序破壊): raw 1.07% (60/5632) / collapsed 1.04% (58/5570)
+  (b) offset-value (値+1)    : raw 0.00% (0/5635) / collapsed 0.00% (0/5433)
+
+判定:
+  (a) shuffle-clockで一致率は100%から1〜5%まで崩れた。理論上の偶然一致率(0.39%)
+      よりはやや高いが(同一値が連続するポーリング区間の残存による局所的な自己相関と
+      考えられる)、100%から2〜3桁落ちており、解析器がclock順の真の前後関係に
+      依存していることを示す。
+  (b) offset-valueで一致率は厳密に0.00%まで崩れた。解析器がOUT値とIN値を
+      独立に比較していること(自己参照でないこと)の直接的な証拠。
+  → 解析器(tools/analyze_sub_proto.py)の検出力は健全と判断する。
