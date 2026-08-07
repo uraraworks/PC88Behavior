@@ -1,0 +1,74 @@
+# PC88Behavior バスアクセス採取結果
+# 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。
+
+core      : $WORKDIR/vendor/quasi88-libretro/quasi88_libretro.dylib
+rom-dir   : /var/folders/qt/9075m6g57y54zmmgl82vb25h0000gn/T//pc88h-trap-run.66303/rom
+disk      : (なし)
+frames    : 60
+type      : (なし)
+
+[測定終了時のテキスト画面]
+
+[メインCPU] 総アクセス回数: exec=1923 read=0 write=0 in=0 out=0
+
+[メインCPU 実行された番地 (fetch)]
+  0000-0000  (1)
+[メインCPU データとして読まれた番地]
+  (なし)
+[メインCPU 書き込まれた番地]
+  (なし)
+[メインCPU 入力された I/O ポート]
+  (なし)
+[メインCPU 出力された I/O ポート]
+  (なし)
+
+[サブCPU] 総アクセス回数: exec=0 read=0 write=0 in=0 out=0
+
+[サブCPU 実行された番地 (fetch)]
+  (なし)
+[サブCPU データとして読まれた番地]
+  (なし)
+[サブCPU 書き込まれた番地]
+  (なし)
+[サブCPU 入力された I/O ポート]
+  (なし)
+[サブCPU 出力された I/O ポート]
+  (なし)
+
+[トラップ メインCPU] 要求された入口（実行）
+  0000  回数=1923  caller=0000 pc_prev=0000 AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+[トラップ メインCPU] 要求された番地（データ）
+  (なし)
+[トラップ メインCPU] 発生順（先頭20件）
+  seq=1    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=2    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=3    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=4    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=5    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=6    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=7    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=8    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=9    EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=10   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=11   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=12   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=13   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=14   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=15   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=16   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=17   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=18   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=19   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+  seq=20   EXEC addr=0000 caller=0000 pc_prev=0000 sp=FFFF AF=FFFF BC=FFFF DE=FFFF HL=FFFF
+[トラップ メインCPU] 取りこぼし: 0件 / 総イベント数: 1923件
+[トラップ メインCPU] 停止: した (番地=0000)
+
+[トラップ サブCPU] 要求された入口（実行）
+  (なし)
+[トラップ サブCPU] 要求された番地（データ）
+  (なし)
+[トラップ サブCPU] 発生順（先頭20件）
+  (なし)
+[トラップ サブCPU] 取りこぼし: 0件 / 総イベント数: 0件
+[トラップ サブCPU] 停止: していない
+
