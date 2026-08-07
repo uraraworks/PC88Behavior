@@ -311,6 +311,62 @@ else
     cat "$WORK/t15.out"
 fi
 
+# =====================================================================
+# 条件③（第3版・第6節）の検査
+#
+# 「定常状態（初期化 N 件目より後）に IN 40 が現れないこと」。
+# VRTC ポーリングで組んだ実装は①②を満たしたまま③で落ちる、というのが
+# 仕様書の狙いなので、③ を検出できない物差しを足しても意味がない。
+# **わざと壊して落ちることを確認する。**
+# =====================================================================
+
+# --- テスト16: 定常状態に IN 40 を1件挿入する → ③ で不一致 ------------
+# 350件目の OUT の直後（定常状態の入口）に IN 0040 を割り込ませる。
+awk -v n="$INIT_N" 'BEGIN{c=0}
+    { print
+      if ($3=="main" && $4=="OUT") {
+          c++
+          if (c==n) print "999999 999 main IN 0040 CC FFFF"
+      } }' "$SEED" > "$WORK/t16.txt"
+python3 "$CMP" "$SEED" "$WORK/t16.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t16.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] && grep -q "IN 40 が現れる" "$WORK/t16.out"; then
+    pass "16. 定常状態に IN 40 を挿入 → ③ で不一致"
+else
+    fail "16. 定常状態に IN 40 を挿入 → ③ で不一致 rc=$rc"
+    cat "$WORK/t16.out"
+fi
+
+# --- テスト17: 初期化区間（350件目より前）に IN 40 を挿入 → 一致のまま -
+# P2 の VRTC ポーリングは初期化区間の話であり、③ の対象外
+# （境目より前は検査しない）。①②に影響しないことも併せて確認する。
+awk 'BEGIN{c=0}
+    { print
+      if ($3=="main" && $4=="OUT") {
+          c++
+          if (c==200) print "999999 999 main IN 0040 CC FFFF"
+      } }' "$SEED" > "$WORK/t17.txt"
+python3 "$CMP" "$SEED" "$WORK/t17.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t17.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]]; then
+    pass "17. 初期化区間に IN 40 を挿入 → ③ の対象外なので一致のまま"
+else
+    fail "17. 初期化区間に IN 40 を挿入 → ③ の対象外なので一致のまま rc=$rc"
+    cat "$WORK/t17.out"
+fi
+
+# --- テスト18: 定常状態に IN 40 が無ければ ③ も含めて一致すると明示する -
+# 種ファイル同士（t1.txt）は VSYNC 割り込み駆動の公式版そのものなので、
+# ③ の一致メッセージが出ることを確認する（10番の再確認だが③の文言を見る）。
+python3 "$CMP" "$SEED" "$WORK/t1.txt" --init $INIT_N --cycle $CYCLE_M >"$WORK/t18.out" 2>&1
+rc=$?
+if [[ $rc -eq 0 ]] && grep -q "IN 40 なし" "$WORK/t18.out"; then
+    pass "18. 種ファイル同士 → ③ も含めて一致（IN 40 なしのメッセージが出る）"
+else
+    fail "18. 種ファイル同士 → ③ も含めて一致（IN 40 なしのメッセージが出る） rc=$rc"
+    cat "$WORK/t18.out"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
     echo "全項目 OK"

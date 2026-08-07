@@ -12,11 +12,15 @@ docs/spec/l1-ipl.md 第6節「実装要件（適合条件）」・第7節「検�
 
 ## --init / --cycle を足した理由
 
-第6節の適合条件は 2 段階である。
+第6節の適合条件は 2 段階（第3版で3段階になった）である。
 
   ① 初期化区間: 先頭 N 件（L1 では 350）が順序・ポート・値まで完全一致
   ② 定常状態:   N+1 件目以降が M 件（L1 では 7）の周期の繰り返し。
                 **繰り返しの回数は問わない**
+  ③ 定常状態に `IN 40`（VRTC ポーリング）が現れないこと（第3版・第6節③）。
+                定常状態は VSYNC 割り込み駆動であり、垂直帰線を
+                ポーリングで待ってはいない。VRTC ポーリングで組んだ
+                実装は①②を満たしたまま③で落ちる——それが狙いである。
 
 列全体を突き合わせる既定モードでは ② が扱えない。自作 IPL は BASIC の
 初期化を行わないぶん早く定常状態に入るので、同じ 60 フレームでも周回数が
@@ -26,6 +30,11 @@ IN の回数を適合条件から外したのとまったく同じ理由であ�
 実際、L1 の自作 IPL は 728 件（初期化 350 + 7×54 周）を出し、公式版の
 560 件（350 + 7×30 周）と先頭 560 件まで一致したうえで
 「対象側が長い（余分）」と報告された。物差しのほうが条件に追いついていない。
+
+③ は IN も見る必要があるので、OUT だけを抜き出した列（① ② が使う列）とは
+別に、CPU 節の全イベント（IN + OUT、発生順そのまま）も使う。
+「① の N 件目の OUT が全体の何番目に当たるか」を境目として、それより後ろに
+`IN 40` が無いかを見る。
 
 終了コード: 一致 0 / 不一致 1 / 使い方の誤り 2
 """
@@ -231,10 +240,56 @@ def check_cycle(seq: list[Event], n_init: int, cycle: list[tuple[str, str]],
     return None, len(tail) // m, len(tail) % m
 
 
-def run_two_stage(base_seq: list[Event], target_seq: list[Event],
+STEADY_FORBIDDEN_IN_PORT = 0x40  # 仕様書 第6節③。VRTC ポーリング（第5a節①）
+
+
+def out_boundary_index(events: list[Event], n_out: int) -> int:
+    """全イベント列（IN+OUT、発生順）の中で、OUT が n_out 件目に達した
+    直後のインデックスを返す。
+
+    n_out 件に満たなければ len(events) を返す（定常状態がまだ無いので、
+    その側については③の検査対象が空になる＝検査を素通りする）。
+    """
+    count = 0
+    for i, e in enumerate(events):
+        if e.kind == "OUT":
+            count += 1
+            if count == n_out:
+                return i + 1
+    return len(events)
+
+
+def check_no_steady_in_port(events: list[Event], boundary: int, port: int,
+                             side: str) -> str | None:
+    """境目（boundary）より後ろに、指定ポートへの IN が無いことを見る。
+
+    仕様書 第6節③「定常状態に `IN 40` が現れないこと」の実行部分。
+    """
+    for e in events[boundary:]:
+        if e.kind != "IN":
+            continue
+        try:
+            p = int(e.port, 16)
+        except ValueError:
+            continue
+        if p == port:
+            return (f"{side}: 定常状態に IN {port:02X} が現れる"
+                    f"（seq={e.seq} frame={e.frame} pc={e.pc}）")
+    return None
+
+
+def run_two_stage(base_events: list[Event], target_events: list[Event],
                   n_init: int, m_cycle: int) -> int:
-    """第6節の 2 段階の適合条件で判定する。"""
-    label = f"2段階（初期化 {n_init} 件の完全一致 ／ 以降 {m_cycle} 件周期）"
+    """第6節の 3 段階の適合条件で判定する（① ② ③。③ は第3版で追加）。
+
+    base_events / target_events は CPU 節の全イベント（IN + OUT、発生順）。
+    ① ② は OUT だけを取り出した列で見る。③ は IN も見る必要があるので、
+    全イベント列のほうを使う。
+    """
+    label = f"3段階（初期化 {n_init} 件の完全一致 ／ 以降 {m_cycle} 件周期 ／ ③IN40無し）"
+
+    base_seq = filter_out_only(base_events)
+    target_seq = filter_out_only(target_events)
 
     need = n_init + m_cycle
     if len(base_seq) < need:
@@ -262,12 +317,28 @@ def run_two_stage(base_seq: list[Event], target_seq: list[Event],
                 print(f"  {e}")
         return 1
 
+    # ③ 定常状態に IN 40 が現れないこと（第3版・第6節③）
+    base_boundary = out_boundary_index(base_events, n_init)
+    target_boundary = out_boundary_index(target_events, n_init)
+    err_b3 = check_no_steady_in_port(base_events, base_boundary,
+                                      STEADY_FORBIDDEN_IN_PORT, "基準側")
+    err_t3 = check_no_steady_in_port(target_events, target_boundary,
+                                      STEADY_FORBIDDEN_IN_PORT, "対象側")
+    if err_b3 or err_t3:
+        print(f"[{label}] 不一致: ③ 定常状態に IN {STEADY_FORBIDDEN_IN_PORT:02X} が現れる"
+              "（VRTC ポーリング駆動の疑い。第3版・第6節③）")
+        for e in (err_b3, err_t3):
+            if e:
+                print(f"  {e}")
+        return 1
+
     print(f"[{label}] 一致")
     print(f"  ① 初期化区間 {n_init} 件が完全一致")
     print(f"  ② 定常状態の周期: {cycle_txt}")
     print(f"     基準側 {laps_b} 周（端数 {rest_b} 件） ／ "
           f"対象側 {laps_t} 周（端数 {rest_t} 件）")
     print("     周回数は適合条件ではない（第6節「比較しないもの」）")
+    print(f"  ③ 定常状態に IN {STEADY_FORBIDDEN_IN_PORT:02X} なし（VSYNC 割り込み駆動）")
     return 0
 
 
@@ -333,7 +404,7 @@ def main() -> int:
         if len(base_seq) == 0 and len(target_seq) == 0:
             print("エラー: 両側とも OUT が0件。比較になっていない。", file=sys.stderr)
             return 2
-        return run_two_stage(base_seq, target_seq, args.init, args.cycle)
+        return run_two_stage(base_events, target_events, args.init, args.cycle)
 
     return run_compare(base_events, target_events, args.with_in)
 
