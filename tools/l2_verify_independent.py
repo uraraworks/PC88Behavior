@@ -345,6 +345,31 @@ _TRIANGLE_DIRS = {
 _SUIT_ART = {0xE8: "SPADE_ART", 0xE9: "HEART_ART", 0xEA: "DIAMOND_ART", 0xEB: "CLUB_ART"}
 
 
+def independent_bold_line(strokes, vfrom, vto):
+    """0xE0-0xE3（太字罫線）の独立実装。生成器(bold_line_glyph)は文字グリッドの
+    for文で組むが、ここでは行ごとにビットORで直接バイト値を組む。"""
+    c = 3
+    col_bit = 0x80 >> c
+    horiz_mask = 0x7E  # cols1-6
+    out = bytearray(CELL_BYTES)
+    for y in range(CELL_BYTES):
+        b = 0
+        if vfrom <= y < vto:
+            b |= col_bit
+        if y in strokes:
+            b |= horiz_mask
+        out[y] = b
+    return bytes(out)
+
+
+_BOLD_LINE_ARGS = {
+    0xE0: dict(strokes=(2, 5), vfrom=0, vto=0),
+    0xE1: dict(strokes=(1,), vfrom=0, vto=CELL_BYTES),
+    0xE2: dict(strokes=(2, 5), vfrom=0, vto=CELL_BYTES),
+    0xE3: dict(strokes=(6,), vfrom=4, vto=CELL_BYTES),
+}
+
+
 def independent_graphic_bytes(code, break_it=False):
     """グラフィック文字1コードぶんのバイト列を独立実装で組み立てる。
     対象コードでなければ None を返す。
@@ -376,6 +401,8 @@ def independent_graphic_bytes(code, break_it=False):
         result = independent_diagonal_line("back")
     elif code == 0xF0:
         result = independent_hatch()
+    elif code in _BOLD_LINE_ARGS:
+        result = independent_bold_line(**_BOLD_LINE_ARGS[code])
     else:
         return None
     if break_it:
@@ -408,6 +435,13 @@ def build_independent_rom(unscii_hex_path, misaki_bdf_path, break_it=False):
             info = misaki_glyphs.get(cp)
             if info is None:
                 raise ValueError(f"美咲BDFにU+{cp:04X}が無い（独立実装側）")
+            glyph = independent_misaki_glyph_bytes(
+                misaki_ascent, misaki_descent, info, break_it=break_it)
+        elif code in gen.KANJI_CODE_TO_UNICODE:
+            cp = gen.KANJI_CODE_TO_UNICODE[code]
+            info = misaki_glyphs.get(cp)
+            if info is None:
+                raise ValueError(f"美咲BDFにU+{cp:04X}が無い（独立実装側、円年月日時分秒）")
             glyph = independent_misaki_glyph_bytes(
                 misaki_ascent, misaki_descent, info, break_it=break_it)
         elif 0x21 <= code <= 0x7D:

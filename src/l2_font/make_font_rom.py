@@ -32,13 +32,16 @@ make_font_rom.py — L2 フォント（半角ANK + セミグラフィック）�
           （このリポジトリのコミット規律。CLAUDE.md）。
     3. セミグラフィック（後半2048バイト） → ルールから生成（4節）。
   0x00-0x1F・0x7F は制御コードのため空白グリフ。
-  グラフィック文字 0x80-0xA0・0xE0-0xFF（65コード）のうち45コードは、
-  NEC純正マニュアルの文字コード表（PDF p.234）から読んだ「どんな図形か」の
-  記述だけをもとにルール生成した（棒メータ・罫線・対角三角形・トランプ柄・
-  円・斜線。`docs/notes/l2-graphic-codes.md`）。残り20コード
-  （0xA0, 0xE0-0xE3, 0xF1-0xFF）は資料から確信を持って判別できなかった、
-  または資料上そもそも空欄だったため、空白グリフのまま残す
-  （同ノート3節に理由の内訳）。
+  グラフィック文字 0x80-0xA0・0xE0-0xFF（65コード）のうち56コードは、
+  NEC純正マニュアルの文字コード表（PDF p.234。600dpiで再読した分を含む）
+  から読んだ「どんな図形か」の記述だけをもとに用意した:
+    - 49コードはルール生成（棒メータ・罫線・太字罫線・対角三角形・
+      トランプ柄・円・斜線。`docs/notes/l2-graphic-codes.md`）
+    - 7コード（0xF1-0xF7、円年月日時分秒）は美咲BDF（8x8の漢字を持つ）
+      から取得（半角カナと同じ経路。KANJI_CODE_TO_UNICODE）
+  残り9コードは、600dpiで読み直しても確信が持てなかったもの（0xA0、1個）と、
+  資料の表そのものが空欄だったもの（0xF8-0xFF、8個。空白が正しいと確認済み）
+  に分けて空白グリフのまま残す（同ノート3節に理由の内訳）。
 
   なぜ Python でバイト列を組むのか:
   `src/l1_ipl/make_ipl_rom.py` と同じ理由。外部依存ゼロなら第三者が
@@ -728,6 +731,21 @@ def kana_code_map():
 
 KANA_CODE_TO_UNICODE = kana_code_map()
 
+# 0xF1-0xF7（円年月日時分秒。docs/notes/l2-graphic-codes.md 2節）と
+# 美咲BDFのUnicodeコードポイントの対応。美咲は8x8の漢字フォントであり、
+# この7字はいずれも DWIDTH 8 で収録されている（半角カナと同じ理由で使える。
+# 「半角/全角という呼び名」ではなく「8x8で描かれているか」で判定する、という
+# docs/spec/l2-font.md 4.2節の教訓をそのままここにも適用した）。
+KANJI_CODE_TO_UNICODE = {
+    0xF1: 0x5186,  # 円
+    0xF2: 0x5E74,  # 年
+    0xF3: 0x6708,  # 月
+    0xF4: 0x65E5,  # 日
+    0xF5: 0x6642,  # 時
+    0xF6: 0x5206,  # 分
+    0xF7: 0x79D2,  # 秒
+}
+
 # --------------------------------------------------------------------------
 # 1b. 半角カタカナ 63字（現行） — 美咲フォント(BDF)から取得
 # --------------------------------------------------------------------------
@@ -1117,8 +1135,28 @@ for _art in (SPADE_ART, HEART_ART, DIAMOND_ART, CLUB_ART):
     for _r in _art:
         assert len(_r) == CELL_BYTES and set(_r) <= {"#", "."}
 
+
+def bold_line_glyph(strokes=(), vfrom=0, vto=CELL_BYTES):
+    """0xE0-0xE3（太字/二重線罫線）。列9の罫線(box_line_glyph)とは別系統で、
+    600dpiで読み直した結果、中心で対称に交わるのではなく上寄り/下寄りに
+    偏って接続していることが分かった(docs/notes/l2-graphic-codes.md 2節)。
+
+    strokes: 水平線を引く行インデックスのタプル(1本または2本)。
+    vfrom/vto: 縦線を引く行の範囲[vfrom, vto)。縦線を引かないコード(0xE0)は
+    vfrom==vtoにする。"""
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    c = _LINE_CENTER
+    for y in range(vfrom, vto):
+        rows[y][c] = "#"
+    for y in strokes:
+        for x in range(1, 7):
+            rows[y][x] = "#"
+    return tuple("".join(r) for r in rows)
+
+
 # コード → グリフ(8行のASCIIアート行タプル) の対応。
-# docs/notes/l2-graphic-codes.md 3節の内訳（45コード）と一致する。
+# docs/notes/l2-graphic-codes.md 3節の内訳（49コード。グラフィック規則生成45
+# ＋太字罫線4）と一致する。
 GRAPHIC_CODE_GLYPHS = {}
 for _lvl in range(1, 9):
     GRAPHIC_CODE_GLYPHS[0x80 + _lvl - 1] = bar_meter_glyph(_lvl, "v")
@@ -1159,23 +1197,34 @@ GRAPHIC_CODE_GLYPHS[0xEF] = diagonal_line_glyph("back")
 
 GRAPHIC_CODE_GLYPHS[0xF0] = hatch_glyph()
 
-assert len(GRAPHIC_CODE_GLYPHS) == 45, f"グラフィック文字は45コードのはずが {len(GRAPHIC_CODE_GLYPHS)}"
+# 0xE0-0xE3: 600dpiで読み直して構造を特定した太字罫線(docs/notes/l2-graphic-codes.md
+# 2節「再読で判明した内容」)。列9の罫線と違い、接続が中心対称ではなく
+# 上寄り/下寄りに偏っている。
+GRAPHIC_CODE_GLYPHS[0xE0] = bold_line_glyph(strokes=(2, 5), vfrom=0, vto=0)
+GRAPHIC_CODE_GLYPHS[0xE1] = bold_line_glyph(strokes=(1,), vfrom=0, vto=CELL_BYTES)
+GRAPHIC_CODE_GLYPHS[0xE2] = bold_line_glyph(strokes=(2, 5), vfrom=0, vto=CELL_BYTES)
+GRAPHIC_CODE_GLYPHS[0xE3] = bold_line_glyph(strokes=(6,), vfrom=4, vto=CELL_BYTES)
+
+assert len(GRAPHIC_CODE_GLYPHS) == 49, f"グラフィック文字は49コードのはずが {len(GRAPHIC_CODE_GLYPHS)}"
 for _code, _rows in GRAPHIC_CODE_GLYPHS.items():
     assert len(_rows) == CELL_BYTES, f"0x{_code:02X} の行数が8でない"
     for _r in _rows:
         assert len(_r) == 8 and set(_r) <= {"#", "."}, f"0x{_code:02X} の行が不正: {_r!r}"
 
+# 漢字1文字(0xF1-0xF7)は美咲BDFから取得するため、build_ank_plane側で
+# KANJI_CODE_TO_UNICODE を直接参照する(GRAPHIC_CODE_GLYPHSには含めない。
+# misaki_glyphsという実行時データが必要なため、モジュール読み込み時には作れない)。
+
 # 資料からは判別できず、あえて空欄のまま残すコード
-# (docs/notes/l2-graphic-codes.md 3節)。
-#   0xA0            : 図形の種別を確信を持って特定できなかった(1個)
-#   0xE0-0xE3       : 太字罫線らしき図形だが接続パターンを特定できなかった(4個)
-#   0xF1-0xF7       : 漢字1文字(円年月日時分秒)。8x8でのルール生成手段がない(7個)
-#   0xF8-0xFF       : 資料の表そのものが空欄(確認できた事実。8個)
-UNRESOLVED_GRAPHIC_CODES = frozenset(
-    {0xA0, 0xE0, 0xE1, 0xE2, 0xE3, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
-     0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF}
-)
-assert len(GRAPHIC_CODE_GLYPHS) + len(UNRESOLVED_GRAPHIC_CODES) == 65
+# (docs/notes/l2-graphic-codes.md 3節)。空欄の理由は一様ではないので、
+# 「判読できなかった」と「資料上そもそも空欄だった」を分けて記録する。
+#   0xA0            : 図形の種別を確信を持って特定できなかった(1個。読めなかった)
+UNREADABLE_GRAPHIC_CODES = frozenset({0xA0})
+#   0xF8-0xFF       : 資料の表そのものが空欄(確認できた事実。8個。空白が正しい)
+CONFIRMED_BLANK_GRAPHIC_CODES = frozenset({0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF})
+UNRESOLVED_GRAPHIC_CODES = UNREADABLE_GRAPHIC_CODES | CONFIRMED_BLANK_GRAPHIC_CODES
+assert (len(GRAPHIC_CODE_GLYPHS) + len(KANJI_CODE_TO_UNICODE)
+        + len(UNRESOLVED_GRAPHIC_CODES)) == 65
 
 
 # --------------------------------------------------------------------------
@@ -1193,16 +1242,27 @@ def rows_to_bytes(rows):
 
 
 def build_ank_plane(unscii_table, misaki):
-    """ANK面(2048バイト)を組み立てる。戻り値: (plane_bytes, undetermined_codes)"""
+    """ANK面(2048バイト)を組み立てる。戻り値: (plane_bytes, unresolved)。
+    unresolved は {"unreadable": [...], "confirmed_blank": [...]} の形で、
+    「読めなかった」と「資料上そもそも空欄だった」を区別して返す
+    （docs/notes/l2-graphic-codes.md 3節）。"""
     misaki_ascent, misaki_descent, misaki_glyphs = misaki
     plane = bytearray(PLANE_BYTES)
-    undetermined = []
+    unresolved = {"unreadable": [], "confirmed_blank": []}
     for code in range(256):
         glyph = None
         if code == 0x7E:
             glyph = rows_to_bytes(overline_glyph())
         elif code in KANA_CODE_TO_UNICODE:
             cp = misaki_code_to_unicode(code)
+            info = misaki_glyphs.get(cp)
+            if info is None:
+                raise ValueError(
+                    f"美咲BDFにコードポイント U+{cp:04X}（PC-88コード0x{code:02X}用）が無い"
+                )
+            glyph = rows_to_bytes(misaki_glyph_to_rows(misaki_ascent, misaki_descent, info))
+        elif code in KANJI_CODE_TO_UNICODE:
+            cp = KANJI_CODE_TO_UNICODE[code]
             info = misaki_glyphs.get(cp)
             if info is None:
                 raise ValueError(
@@ -1221,13 +1281,18 @@ def build_ank_plane(unscii_table, misaki):
             glyph = bytes(CELL_BYTES)  # 制御コード。可視グリフ無し
         elif code in GRAPHIC_CODE_GLYPHS:
             glyph = rows_to_bytes(GRAPHIC_CODE_GLYPHS[code])
-        else:
-            # 0xA0, 0xE0-0xE3, 0xF1-0xFF: 資料から確定できなかった/資料上空欄の
-            # 未決定コード(docs/notes/l2-graphic-codes.md 3節)
+        elif code in CONFIRMED_BLANK_GRAPHIC_CODES:
+            # 0xF8-0xFF: 資料の表そのものが空欄。読めなかったのではなく、
+            # 「空白が正しい」ことを確認できたコード。
             glyph = bytes(CELL_BYTES)
-            undetermined.append(code)
+            unresolved["confirmed_blank"].append(code)
+        else:
+            # 0xA0: 600dpiで読み直しても図形の種別を特定できなかった
+            # (docs/notes/l2-graphic-codes.md 2節)。
+            glyph = bytes(CELL_BYTES)
+            unresolved["unreadable"].append(code)
         plane[code * CELL_BYTES:(code + 1) * CELL_BYTES] = glyph
-    return bytes(plane), undetermined
+    return bytes(plane), unresolved
 
 
 def build_graph_plane():
@@ -1241,17 +1306,17 @@ def build_graph_plane():
 def build_font_rom(unscii_hex_path, misaki_bdf_path):
     unscii_table = parse_unscii_hex(unscii_hex_path)
     misaki = parse_misaki_bdf(misaki_bdf_path)
-    ank, undetermined = build_ank_plane(unscii_table, misaki)
+    ank, unresolved = build_ank_plane(unscii_table, misaki)
     graph = build_graph_plane()
     rom = ank + graph
     assert len(rom) == ROM_SIZE
-    return rom, undetermined
+    return rom, unresolved
 
 
 # --------------------------------------------------------------------------
 # 5. 自己検査（--selftest）
 # --------------------------------------------------------------------------
-def selftest(rom, undetermined):
+def selftest(rom, unresolved):
     ok = True
     print("=== make_font_rom.py --selftest ===")
 
@@ -1278,8 +1343,13 @@ def selftest(rom, undetermined):
     else:
         print("OK: 英数記号(0x20-0x7E)・半角カナ(0xA1-0xDF)はすべて非ゼロ")
 
-    print(f"-- 未決定（空欄）コード: {len(undetermined)} 個")
-    print("   " + ", ".join(f"0x{c:02X}" for c in undetermined))
+    unreadable = unresolved["unreadable"]
+    confirmed_blank = unresolved["confirmed_blank"]
+    print(f"-- 生成したグラフィック文字: {len(GRAPHIC_CODE_GLYPHS) + len(KANJI_CODE_TO_UNICODE)} 個")
+    print(f"-- 読めずに空欄のまま残したコード: {len(unreadable)} 個")
+    print("   " + (", ".join(f"0x{c:02X}" for c in unreadable) or "(なし)"))
+    print(f"-- 資料上そもそも空欄だった（空白が正しいと確認済み）コード: {len(confirmed_blank)} 個")
+    print("   " + ", ".join(f"0x{c:02X}" for c in confirmed_blank))
 
     # GRAPH面の簡易検査: code=0x00は全消灯、code=0xFFは全点灯であること
     graph_off = PLANE_BYTES
@@ -1313,17 +1383,18 @@ def main():
                      help="生成物の自己検査（サイズ・未決定コード一覧など）を行う")
     args = ap.parse_args()
 
-    rom, undetermined = build_font_rom(args.unscii_hex, args.misaki_bdf)
+    rom, unresolved = build_font_rom(args.unscii_hex, args.misaki_bdf)
 
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     out = d / "FONT.ROM"
     out.write_bytes(rom)
     print(f"生成した: {out} ({len(rom)} bytes)")
-    print(f"未決定（空欄）コード: {len(undetermined)} 個")
+    print(f"読めずに空欄のまま残したコード: {len(unresolved['unreadable'])} 個")
+    print(f"資料上そもそも空欄だったコード: {len(unresolved['confirmed_blank'])} 個")
 
     if args.selftest:
-        ok = selftest(rom, undetermined)
+        ok = selftest(rom, unresolved)
         return 0 if ok else 1
     return 0
 
