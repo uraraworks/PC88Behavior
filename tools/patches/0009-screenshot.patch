@@ -1,0 +1,46 @@
+diff --git a/Makefile.common b/Makefile.common
+index 22d07f3..3f1e3d2 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -59,6 +59,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_intlog.c \
+    $(CORE_DIR)/q88h_fontsrc.c \
++   $(CORE_DIR)/q88h_screenshot.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/snapshot.c b/src/snapshot.c
+index 92fbd19..d1037d3 100644
+--- a/src/snapshot.c
++++ b/src/snapshot.c
+@@ -136,6 +136,29 @@ static	void	make_snapshot( void )
+ }
+ 
+ 
++/* PC88Behavior 計測ハーネス: 画面ピクセルスナップショットの取得。
++ *
++ * make_snapshot() は本ファイル内の static 関数なので、外部（フロント
++ * エンド側の q88h_screenshot.c）からは直接呼べない。ロジックを複製せず
++ * そのまま使うため、ごく薄いラッパーを1つだけここに足す。
++ *
++ * make_snapshot() が埋める screen_snapshot[640*400]（パレット番号の
++ * インデックス画像）と pal[]（適用後のパレット、17色）を、そのまま
++ * R,G,B バイト列へ展開するだけで、変換ロジックそのものは上流のまま。 */
++void	q88h_snapshot_capture( unsigned char *rgb_out )
++{
++  int i;
++  unsigned char idx;
++
++  make_snapshot();
++
++  for( i=0; i<640*400; i++ ){
++    idx = (unsigned char)screen_snapshot[i];
++    rgb_out[ i*3 + 0 ] = pal[ idx ].red;
++    rgb_out[ i*3 + 1 ] = pal[ idx ].green;
++    rgb_out[ i*3 + 2 ] = pal[ idx ].blue;
++  }
++}
+ 
+ 
+ 

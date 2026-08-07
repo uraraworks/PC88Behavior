@@ -33,6 +33,7 @@
 #include "q88h_iolog.h"
 #include "q88h_intlog.h"
 #include "q88h_fontsrc.h"
+#include "q88h_screenshot.h"
 
 /* ---- コアの関数ポインタ ------------------------------------------------ */
 static void (*p_set_environment)(retro_environment_t);
@@ -83,6 +84,12 @@ static bool            g_intlog_available = false;
 static q88h_fontsrc_t *(*p_fontsrc)(void);
 static void            (*p_fontsrc_reset)(void);
 static bool             g_fontsrc_available = false;
+
+/* 画面ピクセルスナップショット（M5本題）。他の計測フックと同じ理由で
+ * 失敗を許す枠で dlsym する。「見つからなければ従来どおり動く」を守る。 */
+static q88h_screenshot_t *(*p_screenshot)(void);
+static void               (*p_screenshot_capture)(void);
+static bool                g_screenshot_available = false;
 
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
@@ -385,6 +392,14 @@ static bool load_core(const char *path)
     if (!g_fontsrc_available)
         fprintf(stderr, "[q88measure] 注記: このコアにフォント供給源記録が無い。"
                         "--font-log は無効化される\n");
+
+    /* 画面ピクセルスナップショット（M5本題）も同様に、無いコアでは黙って機能を落とす。 */
+    *(void **)(&p_screenshot)         = dlsym(h, "retro_q88h_screenshot");
+    *(void **)(&p_screenshot_capture) = dlsym(h, "retro_q88h_screenshot_capture");
+    g_screenshot_available = p_screenshot && p_screenshot_capture;
+    if (!g_screenshot_available)
+        fprintf(stderr, "[q88measure] 注記: このコアに画面スナップショットが無い。"
+                        "--screenshot は無効化される\n");
     return true;
 }
 
@@ -670,6 +685,22 @@ static void write_fontsrc_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "\n");
 }
 
+/* ---- 画面ピクセルスナップショット（M5本題）の書き出し --------------------
+ * q88h_screenshot は「バッファに届いた」ではなく「実際に描画されたピクセル」
+ * を持つ唯一のフック——font_mem までの到達確認（--font-log）とは見ている
+ * 末端が違う。PPM(P6, バイナリ)で書く。外部ライブラリを増やさない形式を
+ * 選んだ理由はここ。640x400・R,G,Bインターリーブはコア側
+ * （q88h_screenshot.h）の約束どおり。 */
+static int write_screenshot_ppm(const char *path, const q88h_screenshot_t *s)
+{
+    FILE *fp = fopen(path, "wb");
+    if (!fp) { perror(path); return 0; }
+    fprintf(fp, "P6\n%u %u\n255\n", (unsigned)Q88H_SCREENSHOT_W, (unsigned)Q88H_SCREENSHOT_H);
+    fwrite(s->rgb, 1, sizeof(s->rgb), fp);
+    fclose(fp);
+    return 1;
+}
+
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
@@ -709,7 +740,8 @@ static void usage(void)
         "                   [--trap-map FILE] [--trap-mode ret|stop]\n"
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
-        "                   [--io-log FILE] [--int-log FILE] [--font-log FILE]\n");
+        "                   [--io-log FILE] [--int-log FILE] [--font-log FILE]\n"
+        "                   [--screenshot FILE.ppm]\n");
 }
 
 int main(int argc, char **argv)
@@ -734,6 +766,7 @@ int main(int argc, char **argv)
     const char *io_log_path = NULL;
     const char *int_log_path = NULL;
     const char *font_log_path = NULL;
+    const char *screenshot_path = NULL;
     const char *env;
     int i, k;
 
@@ -789,6 +822,8 @@ int main(int argc, char **argv)
             int_log_path = argv[++i];
         else if (!strcmp(argv[i], "--font-log") && i + 1 < argc)
             font_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
+            screenshot_path = argv[++i];
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -994,6 +1029,31 @@ int main(int argc, char **argv)
                 fclose(fp);
                 fprintf(stderr, "[q88measure] フォント供給源記録を書き出した: %s\n",
                         font_log_path);
+            }
+
+            /* 画面ピクセルスナップショット（M5本題）。フレームループが終わった
+             * 今の状態（＝最後に走ったフレームの結果）を1枚キャプチャする。
+             * font_mem に届いた、ではなく実際に描画されたピクセルを見るための
+             * フックなので、他のログとは見ている末端が違う。 */
+            if (screenshot_path) {
+                if (!g_screenshot_available) {
+                    fprintf(stderr, "[q88measure] 注記: --screenshot が指定されたが、"
+                                    "このコアに画面スナップショットが無いので無視する\n");
+                } else {
+                    q88h_screenshot_t *s = p_screenshot();
+                    p_screenshot_capture();
+                    if (s->magic != Q88H_SCREENSHOT_MAGIC || !s->captured) {
+                        fprintf(stderr, "[q88measure] NG: 画面スナップショットの採取に失敗した\n");
+                        failed = 1;
+                    } else if (!write_screenshot_ppm(screenshot_path, s)) {
+                        failed = 1;
+                    } else {
+                        fprintf(stderr, "[q88measure] スクリーンショットを書き出した: %s"
+                                        " (%ux%u, PPM/P6)\n",
+                                screenshot_path,
+                                (unsigned)Q88H_SCREENSHOT_W, (unsigned)Q88H_SCREENSHOT_H);
+                    }
+                }
             }
 
             /* --expect-trap-exec / --expect-trap-data の検査。
