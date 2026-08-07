@@ -1,0 +1,229 @@
+# N88-BASIC 言語表面（測定条件の生成元）
+#
+# 出典: PC-8801FA/MA N88-BASIC / N88日本語BASIC リファレンスマニュアル の索引。
+#       第2章 基本命令 166 項目、第3章 拡張命令 16 項目。
+#       ここに書いてあるのは「命令名」という事実と、こちらで書いたテストコードだけで、
+#       マニュアルの本文は転記していない。
+#
+# 目的は網羅性の根拠を「思いついた条件」から「公開されたリファレンス」に移すこと。
+# ただし判定基準は表を消化したかではなく、新規バイトが 0 に張り付いたかである。
+# 表を全部叩いてもまだ増えるなら、正常系だけでは足りないということ。
+#
+# 1 命令 = 1 条件にしてある。まとめると帰属（どの番地がどの命令の実装か）が消えるため。
+# それが L3/L4 の実装単位を切る材料であり、後で差分実行するときの手がかりになる。
+#
+# 列: name<TAB>category<TAB>needs<TAB>code<TAB>note
+#   needs: -      ディスク不要
+#          disk   ディスクを入れる（読むだけ）
+#          diskw  ディスクに書く（複製のプロテクトを外す）
+#          input  実行中に追加の打鍵が要る
+#          skip   測らない（note に理由）
+#   code:  \n で改行。プログラムを組む場合は行番号を付けて末尾に RUN
+#          末尾の改行は gen_suite.py が補う
+#   expect: ok(既定) 実行後に Ok で終わるはず
+#           err      エラーが出るのが正しい条件（ERROR 文など）
+#           any      画面が崩れるので最終行では判定しない（画面制御命令）
+#
+# --- 数値関数 ---
+ABS	numfunc	-	PRINT ABS(-3.5);ABS(7)
+ATN	numfunc	-	PRINT ATN(1)
+COS	numfunc	-	PRINT COS(0.5)
+SIN	numfunc	-	PRINT SIN(0.5)
+TAN	numfunc	-	PRINT TAN(0.5)
+EXP	numfunc	-	PRINT EXP(1)
+LOG	numfunc	-	PRINT LOG(10)
+SQR	numfunc	-	PRINT SQR(2)	索引では SOR と読めるが SQR
+INT	numfunc	-	PRINT INT(-2.7);INT(2.7)
+FIX	numfunc	-	PRINT FIX(-2.7);FIX(2.7)
+SGN	numfunc	-	PRINT SGN(-9);SGN(0);SGN(9)
+RND	numfunc	-	PRINT RND(1);RND(1)
+RANDOMIZE	numfunc	-	RANDOMIZE 7:PRINT RND(1)
+CINT	convert	-	PRINT CINT(2.7)
+CSNG	convert	-	PRINT CSNG(1)/3
+CDBL	convert	-	PRINT CDBL(1)/3
+# --- 文字列関数 ---
+ASC	strfunc	-	PRINT ASC("A")
+CHR$	strfunc	-	PRINT CHR$(65);CHR$(66)
+HEX$	strfunc	-	PRINT HEX$(255)
+OCT$	strfunc	-	PRINT OCT$(64)
+STR$	strfunc	-	PRINT STR$(12.5)
+VAL	strfunc	-	PRINT VAL("12.5")
+LEFT$	strfunc	-	PRINT LEFT$("ABCDE",2)
+RIGHT$	strfunc	-	PRINT RIGHT$("ABCDE",2)
+MID$	strfunc	-	PRINT MID$("ABCDE",2,3)
+LEN	strfunc	-	PRINT LEN("ABCDE")
+INSTR	strfunc	-	PRINT INSTR("ABCDE","CD")
+SPACE$	strfunc	-	PRINT "<";SPACE$(5);">"
+STRING$	strfunc	-	PRINT STRING$(5,"*")
+SPC	strfunc	-	PRINT "A";SPC(5);"B"
+TAB	strfunc	-	PRINT "A";TAB(10);"B"
+SWAP	strfunc	-	A$="X":B$="Y":SWAP A$,B$:PRINT A$;B$
+# --- 日本語・かな漢字 ---
+AKCNV$	kanji	-	PRINT AKCNV$("AB")
+KACNV$	kanji	-	PRINT KACNV$("AB")
+KLEN	kanji	-	PRINT KLEN("AB")
+KPOS	kanji	-	PRINT KPOS("ABC","B")
+KPLOAD	kanji	skip		かな漢字変換辞書の読み込み。辞書ROMが無い
+# --- 変数・型・配列 ---
+LET	var	-	LET A=1:PRINT A
+DIM	var	-	DIM Q(3,3):Q(1,1)=5:PRINT Q(1,1)
+ERASE	var	-	DIM E(2):ERASE E:DIM E(3):PRINT 1
+OPTIONBASE	var	-	OPTION BASE 1:DIM O(2):PRINT 1	OPTION BASE
+DEFINT	var	-	DEFINT I:I=2.7:PRINT I	DEFINT/SNG/DBL/STR
+DEFSNG	var	-	DEFSNG S:S=1/3:PRINT S
+DEFDBL	var	-	DEFDBL D:D=1/3:PRINT D
+DEFSTR	var	-	DEFSTR T:T="X":PRINT T
+DEFFN	var	-	10 DEF FNA(X)=X*X\n20 PRINT FNA(4)\nRUN	DEF FN
+VARPTR	var	-	A=1:PRINT VARPTR(A)
+FRE	var	-	PRINT FRE(0);FRE("")
+CLEAR	var	-	CLEAR:PRINT 1
+COMMON	var	-	10 COMMON A\n20 PRINT 1\nRUN	CHAIN 用の宣言のみ
+# --- 制御構造 ---
+FORNEXT	flow	-	FOR I=1 TO 3 STEP 1:PRINT I:NEXT	FOR...TO...STEP-NEXT
+WHILEWEND	flow	-	10 W=0\n20 WHILE W<3\n30 W=W+1\n40 WEND\n50 PRINT W\nRUN	WHILE-WEND
+IFTHEN	flow	-	IF 1=1 THEN PRINT "T" ELSE PRINT "F"	IF...THEN...ELSE
+IFGOTO	flow	-	10 IF 1=1 GOTO 30 ELSE 40\n30 PRINT "T":END\n40 PRINT "F"\nRUN	IF...GOTO...ELSE
+GOTO	flow	-	10 GOTO 30\n20 PRINT "NO"\n30 PRINT "YES"\nRUN
+GOSUB	flow	-	10 GOSUB 100\n20 END\n100 PRINT "S":RETURN\nRUN	GOSUB-RETURN
+ONGOSUB	flow	-	10 K=2\n20 ON K GOSUB 100,200\n30 END\n100 PRINT "A":RETURN\n200 PRINT "B":RETURN\nRUN	ON...GOSUB
+ONGOTO	flow	-	10 K=2\n20 ON K GOTO 100,200\n100 PRINT "A":END\n200 PRINT "B"\nRUN	ON...GOTO
+END	flow	-	10 PRINT "E"\n20 END\nRUN
+STOP	flow	-	10 PRINT "S"\n20 STOP\nRUN
+CONT	flow	-	10 PRINT "S"\n20 STOP\n30 PRINT "C"\nRUN\nCONT	STOP のあとに継続
+REM	flow	-	10 REM COMMENT\n20 PRINT 1\nRUN
+# --- エラー処理 ---
+ONERRORGOTO	error	-	10 ON ERROR GOTO 100\n20 ERROR 5\n30 END\n100 PRINT ERR;ERL:RESUME 30\nRUN	
+ERROR	error	-	10 ON ERROR GOTO 100\n20 ERROR 11\n30 END\n100 RESUME 30\nRUN	
+RESUME	error	-	10 ON ERROR GOTO 100\n20 ERROR 6\n30 PRINT "R":END\n100 RESUME NEXT\nRUN	
+ERLERR	error	-	10 ON ERROR GOTO 100\n20 ERROR 7\n100 PRINT ERL;ERR:END\nRUN	ERL/ERR
+SYNTAXERR	error	-	FOOBAR 999	表には無いが構文エラー経路の測定用	err
+# --- 画面・テキスト ---
+PRINT	screen	-	PRINT 1;"A",2	PRINT/LPRINT
+PRINTUSING	screen	-	PRINT USING "###.##";3.14159
+CLS	screen	-	CLS:PRINT 1		any
+LOCATE	screen	-	LOCATE 5,5:PRINT "X"		any
+CSRLIN	screen	-	LOCATE 3,4:PRINT CSRLIN;POS(0)		any
+POS	screen	-	PRINT POS(0)
+WIDTH	screen	-	WIDTH 40:PRINT 1:WIDTH 80		any
+CONSOLE	screen	-	CONSOLE 0,25,0,1:PRINT 1		any
+COLOR	screen	-	COLOR 2:PRINT "C":COLOR 7
+COLOREQ	screen	-	SCREEN 1:COLOR=(1,7):PRINT 1	COLOR=
+COLORAT	screen	-	COLOR@ 2:PRINT 1	COLOR@	any
+ATTR$	disk	disk	PRINT ATTR$(1)	書式は ATTR$(<ドライブ番号>) 等。ディスクが要る
+SCREEN	screen	-	SCREEN 1,0:PRINT 1:SCREEN 0,1		any
+ROLL	screen	-	ROLL 0,1:PRINT 1		any
+WRITE	screen	-	WRITE 1,"A"
+# --- グラフィック ---
+LINE	graphics	-	SCREEN 1:CLS:LINE(0,0)-(100,100)
+CIRCLE	graphics	-	SCREEN 1:CLS:CIRCLE(100,60),40
+PAINT	graphics	-	SCREEN 1:CLS:CIRCLE(100,60),40:PAINT(100,60)
+PSET	graphics	-	SCREEN 1:CLS:PSET(10,10)
+PRESET	graphics	-	SCREEN 1:CLS:PSET(10,10):PRESET(10,10)
+POINT	graphics	-	SCREEN 1:CLS:PSET(10,10):PRINT POINT(10,10)
+VIEW	graphics	-	SCREEN 1:CLS:VIEW(0,0)-(100,100):LINE(0,0)-(50,50)
+WINDOW	graphics	-	SCREEN 1:CLS:WINDOW(0,0)-(100,100):LINE(0,0)-(50,50)
+GETAT	graphics	-	10 SCREEN 1:CLS:DIM G(200)\n20 LINE(0,0)-(20,20)\n30 GET@(0,0)-(20,20),G\n40 PUT@(40,40),G\nRUN	GET@ / PUT@
+MAP	graphics	-	SCREEN 1:CLS:WINDOW(0,0)-(100,100):PRINT MAP(50,0)	書式は MAP(<数式>,<機能>)。関数であって命令ではない
+SET	graphics	-	SCREEN 1:CLS:PSET(5,5):PRINT 1	索引の SET は OCR 由来の可能性あり
+# --- キーボード・ファンクションキー ---
+INKEY$	keyboard	-	10 FOR I=1 TO 50:K$=INKEY$:NEXT\n20 PRINT LEN(K$)\nRUN
+KEY	keyboard	-	KEY 1,"TEST":PRINT 1
+KEYLIST	keyboard	-	KEY LIST
+KEYONOFF	keyboard	-	KEY(1) ON:KEY(1) OFF:PRINT 1	KEY(n) ON/OFF/STOP
+ONKEYGOSUB	keyboard	-	10 ON KEY GOSUB 100\n20 KEY(1) ON:KEY(1) OFF\n30 END\n100 RETURN\nRUN	書式は ON KEY GOSUB <行番号>...。KEY(n) は付かない
+INPUT	input	-	10 INPUT "N";V\n20 PRINT V*2\nRUN	実行中に値を打つ
+LINEINPUT	input	-	10 LINE INPUT "S";S$\n20 PRINT S$\nRUN
+INPUTWAIT	input	-	10 INPUT WAIT 60,"N";V\n20 PRINT V\nRUN	時間切れ付き
+LINEINPUTWAIT	input	-	10 LINE INPUT WAIT 60,"S";S$\n20 PRINT S$\nRUN
+INPUTSTR	keyboard	skip		INPUT$ は指定文字数を待つ。打鍵の同期が難しいので後回し
+DATA	data	-	10 DATA 11,22,33\n20 READ A,B,C\n30 PRINT A+B+C\nRUN	DATA/READ
+READ	data	-	10 DATA 5,6\n20 READ A,B\n30 PRINT A*B\nRUN
+RESTORE	data	-	10 DATA 1,2\n20 READ A:RESTORE:READ B\n30 PRINT A;B\nRUN
+# --- プログラム編集 ---
+LIST	editor	-	10 PRINT 1\nLIST	LIST/LLIST
+NEW	editor	-	10 PRINT 1\nNEW\nPRINT FRE(0)
+DELETE	editor	-	10 PRINT 1\n20 PRINT 2\nDELETE 20\nLIST
+RENUM	editor	-	10 PRINT 1\n20 PRINT 2\nRENUM 100,10,10\nLIST
+AUTO	editor	skip		行番号を自動発行し入力待ちになる。抜けるのに STOP が要る
+EDIT	editor	skip		画面エディタに入る。打鍵の同期が難しいので後回し
+SEARCH	strfunc	-	10 DIM S(4)\n20 S(2)=7\n30 PRINT SEARCH(S,7)\nRUN	配列を検索する関数。プログラム編集の SEARCH ではない
+TRON	editor	-	10 PRINT 1\nTRON\nRUN\nTROFF	TRON/TROFF
+HELPONOFF	editor	-	HELP OFF:PRINT 1	HELP ON/OFF/STOP
+ONHELPGOSUB	editor	-	10 ON HELP GOSUB 100\n20 HELP OFF\n30 END\n100 RETURN\nRUN
+# --- 時刻・割り込み ---
+TIMESTR	time	-	PRINT TIME$	TIME$
+DATESTR	time	-	PRINT DATE$	DATE$
+TIMEONOFF	time	-	TIME$ OFF:PRINT 1	TIME$ ON/OFF/STOP
+ONTIMEGOSUB	time	-	10 ON TIME$="00:00:01" GOSUB 100\n20 TIME$ OFF\n30 END\n100 RETURN\nRUN
+STOPONOFF	time	-	STOP OFF:PRINT 1:STOP ON	STOP ON/OFF/STOP
+ONSTOPGOSUB	time	-	10 ON STOP GOSUB 100\n20 STOP OFF\n30 END\n100 RETURN\nRUN
+# --- 音 ---
+BEEP	sound	-	BEEP:BEEP 0
+# --- 入出力ポート・メモリ ---
+PEEK	memory	-	PRINT PEEK(0);PEEK(1)
+POKE	memory	-	POKE 60000,65:PRINT PEEK(60000)
+INP	memory	-	PRINT INP(64)
+OUT	memory	-	OUT 64,0:PRINT 1
+WAIT	memory	skip		条件が成立するまで無限に待つ可能性がある
+CALL	machine	-	POKE 60000,201:AD=60000:CALL AD:PRINT 1	書式は CALL <変数名>。定数は不可。60000 に RET(C9h) を置く
+USR	machine	-	POKE 60000,201:DEF USR0=60000:PRINT USR0(0)
+DEFUSR	machine	-	POKE 60000,201:DEF USR1=60000:PRINT USR1(0)
+MON	machine	skip		マシン語モニタに入る。BASIC に戻る手順が要る
+# --- ディスク ---
+FILES	disk	disk	FILES	FILES/LFILES
+SAVE	disk	diskw	10 PRINT "T"\nSAVE"TMPQ88"
+LOAD	disk	diskw	10 PRINT "T"\nSAVE"TMPQ88"\nNEW\nLOAD"TMPQ88"\nLIST
+KILL	disk	diskw	10 PRINT "T"\nSAVE"TMPQ88"\nKILL"TMPQ88"
+NAME	disk	diskw	10 PRINT "T"\nSAVE"TMPQ88"\nNAME"TMPQ88" AS "TMPQ89"\nFILES
+MERGE	disk	diskw	10 PRINT "T"\nSAVE"TMPQ88",A\nNEW\n20 PRINT "U"\nMERGE"TMPQ88"\nLIST
+CHAIN	disk	skip		別プログラムへ制御を移す。戻ってこないので測定の終端が読めない
+SAVEASCII	disk	diskw	10 PRINT "T"\nSAVE"TMPQ8A",A\nFILES	ASCII 形式での保存
+BSAVE	disk	diskw	POKE 60000,1\nBSAVE"TMPQ8B",60000,16
+BLOAD	disk	diskw	POKE 60000,1\nBSAVE"TMPQ8B",60000,16\nBLOAD"TMPQ8B"		any
+OPEN	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nCLOSE
+CLOSE	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nCLOSE #1
+PRINTNUM	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE	PRINT#
+INPUTNUM	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "TMPD" FOR INPUT AS #1\nINPUT#1,W$\nCLOSE\nPRINT W$	INPUT#
+LINEINPUTNUM	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "TMPD" FOR INPUT AS #1\nLINE INPUT#1,W$\nCLOSE\nPRINT W$	LINE INPUT#
+WRITENUM	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nWRITE#1,"HI",1\nCLOSE	WRITE#
+PRINTNUMUSING	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,USING "###";5\nCLOSE	PRINT# USING
+EOF	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "TMPD" FOR INPUT AS #1\nPRINT EOF(1)\nCLOSE
+LOC	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nPRINT LOC(1)\nCLOSE
+LOF	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "TMPD" FOR INPUT AS #1\nPRINT LOF(1)\nCLOSE
+FPOS	disk	diskw	OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nPRINT FPOS(1)\nCLOSE
+FIELD	disk	diskw	OPEN "TMPR" AS #1\nFIELD #1,16 AS F$\nCLOSE	ランダムアクセス
+LSET	disk	diskw	OPEN "TMPR" AS #1\nFIELD #1,16 AS F$\nLSET F$="AB"\nPUT #1,1\nCLOSE	LSET/RSET
+GETPUT	disk	diskw	OPEN "TMPR" AS #1\nFIELD #1,16 AS F$\nLSET F$="AB"\nPUT #1,1\nGET #1,1\nPRINT F$\nCLOSE	GET/PUT（ファイル）
+MKI	disk	diskw	OPEN "TMPR" AS #1\nFIELD #1,8 AS F$\nLSET F$=MKI$(7)\nPUT #1,1\nCLOSE	MKI$/MKS$/MKD$
+CVI	disk	diskw	OPEN "TMPR" AS #1\nFIELD #1,8 AS F$\nLSET F$=MKI$(7)\nPUT #1,1\nGET #1,1\nPRINT CVI(LEFT$(F$,2))\nCLOSE	CVI/CVS/CVD
+DSKF	disk	disk	PRINT DSKF(1)
+DSKI	disk	disk	A$=DSKI$(1,0,0,1):PRINT LEN(A$)	DSKI$。書式は (ドライブ,サーフェス,トラック,セクタ) の4引数
+DSKO	disk	skip		セクタへの直接書き込み。ディスクを壊しうるので慎重に
+COPY	disk	skip		プリンタ／画面コピー。プリンタが無いと待たされる
+# --- 通信・テープ ---
+MOTOR	tape	-	MOTOR 1:MOTOR 0:PRINT 1	書式は MOTOR [<スイッチ>]。0=OFF、それ以外=ON
+TERM	comm	skip		ターミナルモードに入る。抜ける手順が要る
+ONCOMGOSUB	comm	-	10 ON COM GOSUB 100\n20 COM OFF\n30 END\n100 RETURN\nRUN
+COMONOFF	comm	-	COM OFF:PRINT 1	COM ON/OFF/STOP
+# --- プリンタ ---
+LPRINT	printer	skip		プリンタ未接続。待たされる可能性がある
+LLIST	printer	skip		同上
+WIDTHLPRINT	printer	skip		同上
+LPOS	printer	-	PRINT LPOS(0)	問い合わせのみなので出力はしない
+# --- 拡張命令（第3章 CMD 系）---
+CMDPLAY	ext	-	CMD PLAY "CDE"	サウンドボード用。無ければエラー経路の測定になる
+CMDSOUND	ext	-	CMD SOUND 0,0
+CMDBGM	ext	-	CMD BGM 1
+CMDSTOPM	ext	-	CMD STOP M
+CMDOUTM	ext	-	CMD OUT M
+CMDPAL	ext	-	CMD PAL 0,0
+CMDVOICE	ext	-	CMD VOICE 0
+CMDVOICECOPY	ext	-	CMD VOICE COPY 0,1
+CMDVOICELFO	ext	-	CMD VOICE LFO 0
+CMDVOICEREG	ext	-	CMD VOICE REG 0,0
+CMDUNLINK	ext	-	CMD UNLINK
+CMDPCMLOAD	ext	skip		PCM データファイルが要る
+CMDPCMPLAY	ext	skip		同上
+CMDPCMRECORD	ext	skip		録音。入力源が無い
+CMDPCMSTOP	ext	-	CMD PCM STOP
+STATUS	ext	-	PRINT STATUS(0)
