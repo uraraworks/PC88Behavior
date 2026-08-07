@@ -30,6 +30,7 @@
 #include "libretro.h"
 #include "q88h_trace.h"
 #include "q88h_trap.h"
+#include "q88h_iolog.h"
 
 /* ---- コアの関数ポインタ ------------------------------------------------ */
 static void (*p_set_environment)(retro_environment_t);
@@ -57,6 +58,15 @@ static q88h_trap_t *(*p_trap)(void);
 static q88h_trap_t *(*p_trap_sub)(void);
 static void         (*p_trap_reset)(void);
 static bool          g_trap_available = false;
+
+/* 順序付き I/O 記録（M4）。トラップROM足場と同じ理由で、無いコアもあり得るので
+ * 失敗を許す枠で dlsym する。「見つからなければ従来どおり動く」を守る。 */
+static q88h_iolog_t *(*p_iolog)(void);
+static q88h_iolog_t *(*p_iolog_sub)(void);
+static void          (*p_iolog_reset)(void);
+static void          (*p_iolog_set_enabled)(int);
+static void          (*p_iolog_set_frame)(uint32_t);
+static bool           g_iolog_available = false;
 
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
@@ -327,6 +337,18 @@ static bool load_core(const char *path)
     if (!g_trap_available)
         fprintf(stderr, "[q88measure] 注記: このコアにトラップROM足場が無い。"
                         "トラップ関連オプションは無効化される\n");
+
+    /* 順序付き I/O 記録（M4）も同様に、無いコアでは黙って機能を落とす。 */
+    *(void **)(&p_iolog)              = dlsym(h, "retro_q88h_iolog");
+    *(void **)(&p_iolog_sub)          = dlsym(h, "retro_q88h_iolog_sub");
+    *(void **)(&p_iolog_reset)        = dlsym(h, "retro_q88h_iolog_reset");
+    *(void **)(&p_iolog_set_enabled)  = dlsym(h, "retro_q88h_iolog_set_enabled");
+    *(void **)(&p_iolog_set_frame)    = dlsym(h, "retro_q88h_iolog_set_frame");
+    g_iolog_available = p_iolog && p_iolog_sub && p_iolog_reset
+                      && p_iolog_set_enabled && p_iolog_set_frame;
+    if (!g_iolog_available)
+        fprintf(stderr, "[q88measure] 注記: このコアに順序付きI/O記録が無い。"
+                        "--io-log は無効化される\n");
     return true;
 }
 
@@ -462,6 +484,51 @@ static void write_trap_cpu(FILE *fp, const char *who, const q88h_trap_t *t)
     fprintf(fp, "\n\n");
 }
 
+/* ---- 順序付き I/O 記録（M4）の書き出し ---------------------------------
+ *
+ * PC-88 はメインCPUとサブCPUが別々のZ80として並行に走る。それぞれの
+ * q88h_iolog は自分のCPUの中でだけ通し番号(seq)が意味を持ち、CPUをまたいで
+ * 比較しても「実際に起きた前後関係」にはならない。1本の列に混ぜて
+ * 出すと「起きた順」だと誤解されるので、CPUごとに節を分けて出す。
+ * この判断の理由はコア側（q88h_iolog.h）にも書いてある。 */
+static void write_iolog_cpu(FILE *fp, const char *who, const q88h_iolog_t *l)
+{
+    uint32_t i;
+    fprintf(fp, "# %s\n", who);
+    fprintf(fp, "# seq  frame  cpu   kind  port  value  pc\n");
+    if (!l->n_events) fprintf(fp, "# (記録されたイベントなし)\n");
+    for (i = 0; i < l->n_events; i++) {
+        const q88h_iolog_ev_t *e = &l->ev[i];
+        fprintf(fp, "%6u %6u  %-4s  %-4s  %04X   %02X   %04X\n",
+                e->seq, e->frame, who, e->kind == Q88H_IOLOG_OUT ? "OUT" : "IN",
+                e->port, e->value, e->pc);
+    }
+    /* 0件でも必ず出す。無言で欠けるのが一番まずい */
+    fprintf(fp, "# 取りこぼし: %u件 / 総イベント数: %u件\n\n", l->n_dropped, l->n_events);
+}
+
+static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
+                               const char *disk, unsigned frames,
+                               const q88h_iolog_t *l, const q88h_iolog_t *ls)
+{
+    fprintf(fp, "# PC88Behavior 順序付き I/O 記録\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 記録しているのは OUT/IN の発生順・ポート番号・値・発行元PC(直前PC)・\n");
+    fprintf(fp, "# フレーム番号のみ。ROM の内容は含まない。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# メインCPUとサブCPUは別々のZ80として並行に走っており、互いの\n");
+    fprintf(fp, "# seq/frame を比較しても実際の前後関係にはならない。そのため\n");
+    fprintf(fp, "# 1本の列に混ぜず、CPUごとに節を分けて出す（メイン→サブの順）。\n");
+    fprintf(fp, "# 同一CPU内の節は seq の昇順＝発生順そのもの。\n\n");
+    fprintf(fp, "core      : %s\n", core);
+    fprintf(fp, "rom-dir   : %s\n", romdir);
+    fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    fprintf(fp, "frames    : %u\n\n", frames);
+
+    write_iolog_cpu(fp, "main", l);
+    write_iolog_cpu(fp, "sub",  ls);
+}
+
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
@@ -500,7 +567,8 @@ static void usage(void)
         "                   [--expect-io-out PORT]\n"
         "                   [--trap-map FILE] [--trap-mode ret|stop]\n"
         "                   [--trap-stop-after N]\n"
-        "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n");
+        "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
+        "                   [--io-log FILE]\n");
 }
 
 int main(int argc, char **argv)
@@ -522,6 +590,7 @@ int main(int argc, char **argv)
      * （見る先が map ではなく exec_hits/data_hits）ので別立てにする。 */
     unsigned expect_trap_exec[16]; int n_expect_trap_exec = 0;
     unsigned expect_trap_data[16]; int n_expect_trap_data = 0;
+    const char *io_log_path = NULL;
     const char *env;
     int i, k;
 
@@ -571,6 +640,8 @@ int main(int argc, char **argv)
                 expect_trap_data[n_expect_trap_data++] = (unsigned)strtoul(argv[++i], NULL, 0);
             else ++i;
         }
+        else if (!strcmp(argv[i], "--io-log") && i + 1 < argc)
+            io_log_path = argv[++i];
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -639,6 +710,20 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 順序付き I/O 記録（M4）も trap と同じく load_game の後・
+     * フレームループの前に有効化する。既定は off なので、--io-log が
+     * 指定されない限り記録用の巨大バッファへは一切書かない。 */
+    if (io_log_path) {
+        if (!g_iolog_available) {
+            fprintf(stderr, "[q88measure] 注記: --io-log が指定されたが、"
+                            "このコアに順序付きI/O記録が無いので無視する\n");
+        } else {
+            p_iolog_reset();
+            p_iolog_set_enabled(1);
+            fprintf(stderr, "[q88measure] I/O記録 有効: out=%s\n", io_log_path);
+        }
+    }
+
     if (g_n_keyev) {
         unsigned last = g_keyev[g_n_keyev - 1].end;
         g_typed = typed;
@@ -653,6 +738,10 @@ int main(int argc, char **argv)
     p_trace_reset();
     if (g_trap_available && g_trap_map_path[0]) p_trap_reset();
     for (g_frame = 0; g_frame < frames; g_frame++) {
+        /* イベントに frame を載せるため、走らせる前に必ず今のフレーム番号を
+         * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
+        if (g_iolog_available) p_iolog_set_frame(g_frame);
+
         p_run();
 
         if (g_trap_available && g_trap_map_path[0]) {
@@ -702,6 +791,21 @@ int main(int argc, char **argv)
                 write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir, disk, frames);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
+            }
+
+            /* 順序付き I/O 記録（M4）は --out の本体とは別ファイルに書く。
+             * バスアクセス採取の集計結果（有無フラグ）とは性格が違うので
+             * 混ぜない。 */
+            if (io_log_path && g_iolog_available) {
+                q88h_iolog_t *l  = p_iolog();
+                q88h_iolog_t *ls = p_iolog_sub();
+                FILE *fp = fopen(io_log_path, "w");
+                if (!fp) { perror(io_log_path); return 1; }
+                write_iolog_report(fp, core, g_rom_dir, disk, frames, l, ls);
+                fclose(fp);
+                fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
+                                " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
+                        io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
             /* --expect-trap-exec / --expect-trap-data の検査。

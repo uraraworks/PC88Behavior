@@ -93,6 +93,12 @@ while [ $# -gt 0 ]; do
       DISK_COPY="$SCRATCH/$2"
       DISK_ARGS=(--disk "$DISK_COPY"); shift 2 ;;
     --disk-writable) DISK_WRITABLE=1; shift ;;
+    --io-log)
+      # 私物のパスではないが、出力ファイル自体に $OUT と同じ理由で
+      # 個人環境の絶対パス（core のパス等）が写り込む。$OUT と同じ
+      # sed/redact を later で当てられるよう、パスをここで覚えておく。
+      IO_LOG_OUT="$2"
+      args+=("$1" "$2"); shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -134,6 +140,19 @@ if [ -f "$OUT" ]; then
       -e "s|$HOME|~|g" "$OUT" > "$tmp" && mv "$tmp" "$OUT"
   # 画面に写り込んだディスクのファイル名を伏せる（私物の内容なので）
   python3 "$REPO/tools/redact.py" "$OUT" >/dev/null
+fi
+
+# --io-log の出力ファイルにも $OUT と同じ sed/redact を当てる。
+# 忘れると「新しい出力ファイルには効いていなかった」という
+# 無言の劣化になる（このリポジトリで一度確かめてから足した経緯がある）。
+if [ -n "${IO_LOG_OUT:-}" ] && [ -f "$IO_LOG_OUT" ]; then
+  tmp="$IO_LOG_OUT.tmp"
+  sed -e "s|$PC88_REF_ROM_DIR|\$PC88_REF_ROM_DIR|g" \
+      -e "s|${PC88_REF_DISK_DIR:-__none__}|\$PC88_REF_DISK_DIR|g" \
+      -e "s|${SCRATCH:-__none__}|\$PC88_REF_DISK_DIR|g" \
+      -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
+      -e "s|$HOME|~|g" "$IO_LOG_OUT" > "$tmp" && mv "$tmp" "$IO_LOG_OUT"
+  python3 "$REPO/tools/redact.py" "$IO_LOG_OUT" >/dev/null
 fi
 
 exit $status

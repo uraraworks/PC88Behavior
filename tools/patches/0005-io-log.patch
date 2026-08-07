@@ -1,0 +1,138 @@
+diff --git a/Makefile.common b/Makefile.common
+index e7c02ff..1eaaea3 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -56,6 +56,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/z80-debug-stub.c \
+    $(CORE_DIR)/q88h_trace.c \
+    $(CORE_DIR)/q88h_trap.c \
++   $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/snapshot.c \
+    $(CORE_DIR)/screen-16bpp.c \
+    $(CORE_DIR)/screen-snapshot.c \
+diff --git a/src/pc88main.c b/src/pc88main.c
+index d8ff9f1..289d671 100644
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2958,6 +2958,7 @@ void	main_io_out_with_BP( byte port, byte data )
+ 
+ #include "q88h_trace.h"
+ #include "q88h_trap.h"
++#include "q88h_iolog.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -3047,19 +3048,57 @@ static void q88h_mem_write( word addr, byte data )
+   main_mem_write( addr, data );
+ }
+ 
++/* ----------------------------------------------------------------------
++ * 順序付き I/O 記録（M4）
++ *
++ * q88h_trace の io_in/io_out は有無フラグと総回数しか採らない。
++ * M4 の完了条件「自作 IPL が公式版と同じ I/O 書き込み"列"を出す」を
++ * 判定するには順序・値・発行元PCが要るので、ここで q88h_iolog に足す。
++ * enabled のチェックはここ（呼び手）の責任にする — q88h_trap.c と同じ
++ * 役割分担（q88h_iolog_record は「起きた事実を書く」ことだけに専念する）。
++ * ---------------------------------------------------------------------- */
++
+ static byte q88h_io_in( byte port )
+ {
+   q88h_trace_t *t = retro_q88h_trace();
++  q88h_iolog_t *l = retro_q88h_iolog();
++  byte v;
++
+   t->io_in[port] = 1;
+   t->n_in++;
+-  return main_io_in( port );
++  v = main_io_in( port );
++
++  if( l->enabled ){
++    /* PC_prev は「モニタ用のダミー」(z80.h のコメントどおり) で、
++     * CPU セットアップ時に一度 PC を写すだけで以後は更新されない。
++     * 実測したところ常に 0000 のまま——発行元PCとしては使えなかった。
++     *
++     * 代わりに z80main_cpu.PC.W から逆算する。IN A,(n)/OUT (n),A は
++     * オペコード+ポート番号の2バイト、IN r,(C)/OUT (C),r 等の ED系も
++     * ED+サブオペコードの2バイトで、いずれも io_read/io_write を呼ぶ
++     * 時点で PC は命令の先頭から2進んでいる（z80-code.h / z80-codeED.h
++     * を実測で確認）。よって PC.W - 2 が命令の先頭番地になる。 */
++    q88h_iolog_record( l, Q88H_IOLOG_IN, port, v,
++                        (word)(z80main_cpu.PC.W - 2) );
++  }
++
++  return v;
+ }
+ 
+ static void q88h_io_out( byte port, byte data )
+ {
+   q88h_trace_t *t = retro_q88h_trace();
++  q88h_iolog_t *l = retro_q88h_iolog();
++
+   t->io_out[port] = 1;
+   t->n_out++;
++
++  if( l->enabled ){
++    /* 発行元PCの逆算については q88h_io_in のコメントを参照。 */
++    q88h_iolog_record( l, Q88H_IOLOG_OUT, port, data,
++                        (word)(z80main_cpu.PC.W - 2) );
++  }
++
+   main_io_out( port, data );
+ }
+ 
+diff --git a/src/pc88sub.c b/src/pc88sub.c
+index 9d2f2a0..001de88 100644
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -393,6 +393,7 @@ void	sub_io_out_with_BP( byte port, byte data )
+ 
+ #include "q88h_trace.h"
+ #include "q88h_trap.h"
++#include "q88h_iolog.h"
+ 
+ /* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
+  * サブROMの範囲は 0x0000-0x07FF なので、trap.map もその範囲だけを使う想定。 */
+@@ -468,19 +469,41 @@ static void q88h_sub_mem_write( word addr, byte data )
+   sub_mem_write( addr, data );
+ }
+ 
++/* 順序付き I/O 記録（M4）。考え方は pc88main.c の q88h_io_in / q88h_io_out と同じ。 */
++
+ static byte q88h_sub_io_in( byte port )
+ {
+   q88h_trace_t *t = retro_q88h_trace_sub();
++  q88h_iolog_t *l = retro_q88h_iolog_sub();
++  byte v;
++
+   t->io_in[port] = 1;
+   t->n_in++;
+-  return sub_io_in( port );
++  v = sub_io_in( port );
++
++  if( l->enabled ){
++    /* PC_prev が使えない理由は pc88main.c の q88h_io_in のコメント参照。
++     * ここでも同じく PC.W - 2 で発行元PCを逆算する。 */
++    q88h_iolog_record( l, Q88H_IOLOG_IN, port, v,
++                        (word)(z80sub_cpu.PC.W - 2) );
++  }
++
++  return v;
+ }
+ 
+ static void q88h_sub_io_out( byte port, byte data )
+ {
+   q88h_trace_t *t = retro_q88h_trace_sub();
++  q88h_iolog_t *l = retro_q88h_iolog_sub();
++
+   t->io_out[port] = 1;
+   t->n_out++;
++
++  if( l->enabled ){
++    q88h_iolog_record( l, Q88H_IOLOG_OUT, port, data,
++                        (word)(z80sub_cpu.PC.W - 2) );
++  }
++
+   sub_io_out( port, data );
+ }
+ 

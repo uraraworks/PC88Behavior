@@ -94,10 +94,15 @@ case "$SYMS" in
   *retro_q88h_trace*) echo "  OK: 計測フックのシンボルあり" ;;
   *) echo "  NG: 計測フックのシンボルが無い" >&2; exit 1 ;;
 esac
+case "$SYMS" in
+  *retro_q88h_iolog*) echo "  OK: 順序付きI/O記録のシンボルあり" ;;
+  *) echo "  NG: 順序付きI/O記録のシンボルが無い" >&2; exit 1 ;;
+esac
 
 say "疎通試験"
 # ここまでで「ビルドできた」だけ。フックが末端まで生きているかは別問題なので測る。
 "$REPO/tools/harness/selftest.sh"
 "$REPO/tools/harness/trap_selftest.sh"
+"$REPO/tools/harness/iolog_selftest.sh"
 
 say "完了"

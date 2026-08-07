@@ -15,7 +15,11 @@ make_test_rom.py — 計測フックの疎通確認用の合成 ROM を作る
 
 生成する N88.ROM (32KB) の中身:
 
-    0000  C3 34 12       JP  1234h        ; リセットから既知の番地へ飛ぶ
+    0000  C3 00 12       JP  1200h        ; リセットからセットアップへ飛ぶ
+    ...
+    1200  3E 5A          LD  A,5Ah        ; 既知の値を用意          (SETUP)
+    1202  32 00 C0       LD  (C000h),A    ; RAM に既知の値を置く    → mem_write
+    1205  C3 34 12       JP  1234h        ; 本編へ
     ...
     1234  3A 00 C0       LD  A,(C000h)    ; RAM を読む          → mem_read
     1237  D3 99          OUT (99h),A      ; ポートへ出す        → io_out
@@ -23,7 +27,13 @@ make_test_rom.py — 計測フックの疎通確認用の合成 ROM を作る
     123B  32 01 C0       LD  (C001h),A    ; RAM へ書く          → mem_write
     123E  18 FE          JR  123Eh        ; その場で無限ループ
 
-    → mem_exec は 0000 と 1234 付近に現れるはず
+    → mem_exec は 0000・1200・1234 付近に現れるはず
+
+    SETUP (0x1200) を足したのは iolog_selftest.sh のため。順序付き I/O
+    記録（M4）の検査で「OUT の value が直前に読んだ RAM の値と一致する」
+    ことを確かめるには、0xC000 の中身が起動時のゼロ埋めではなく既知の値
+    だと保証したい。ENTRY (0x1234) は既存の --expect-exec 検査が使う番地
+    なので動かさず、手前に用意した SETUP から JP で素通りさせる。
 
 DISK.ROM (2KB) はサブ CPU 用。何もせず止まるだけのものを置く。
 """
@@ -32,10 +42,12 @@ import argparse
 import pathlib
 
 # 検査に使う番地とポート。frontend の --expect-* に渡す値と一致させる。
+SETUP      = 0x1200    # RAM に既知の値を置いてから ENTRY へ飛ぶ（iolog_selftest.sh 用）
 ENTRY      = 0x1234
 RAM_READ   = 0xC000
 RAM_WRITE  = 0xC001
 IO_PORT    = 0x99      # PC-88 で標準的に使われていない番号を選ぶ
+KNOWN_VALUE = 0x5A      # SETUP が 0xC000 に置く既知の値
 
 N88_SIZE   = 0x8000
 DISK_SIZE  = 0x0800
@@ -50,8 +62,15 @@ def hi(v): return (v >> 8) & 0xFF
 def build_n88() -> bytearray:
     rom = bytearray([FILL] * N88_SIZE)
 
-    # 0000: JP ENTRY
-    rom[0x0000:0x0003] = bytes([0xC3, lo(ENTRY), hi(ENTRY)])
+    # 0000: JP SETUP
+    rom[0x0000:0x0003] = bytes([0xC3, lo(SETUP), hi(SETUP)])
+
+    setup = bytes([
+        0x3E, KNOWN_VALUE,                    # LD A,KNOWN_VALUE
+        0x32, lo(RAM_READ), hi(RAM_READ),     # LD (RAM_READ),A
+        0xC3, lo(ENTRY), hi(ENTRY),           # JP ENTRY
+    ])
+    rom[SETUP:SETUP + len(setup)] = setup
 
     prog = bytes([
         0x3A, lo(RAM_READ),  hi(RAM_READ),    # LD A,(RAM_READ)

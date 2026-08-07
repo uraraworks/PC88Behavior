@@ -36,5 +36,12 @@ dist/
 .DS_Store
 *.swp
 
+# Python のバイトキャッシュ
+# 中身は tools/*.py（自作コード）のコンパイル結果なので規律上の実害は無いが、
+# check_cleanroom.sh は「追跡されているバイナリ」を実害の有無に関わらず弾く。
+# 検査が緑であること自体が証拠なので、例外を作らずに無視する側に倒す。
+__pycache__/
+*.pyc
+
 # ハーネスのビルド成果物
 tools/harness/frontend/q88measure
