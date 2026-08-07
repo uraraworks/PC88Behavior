@@ -13,11 +13,19 @@
 このスクリプトは採取済みログのみを読む。公式ROMのバイト列・逆アセンブル
 結果には一切触れない。
 
+第3版（M6c 共通クロック対応）:
+    従来は main/sub 別々の frame（フレーム番号、粗い）でしか対応付けが
+    できなかった。M6c で main/sub・iolog/intlog を横断する単調増加の
+    共通クロック（`clock` 列）をハーネスに追加したため、本スクリプトは
+    frame ではなく clock で全イベントを1本の時系列にマージして扱う。
+    これにより「同じ frame 内で実際にはどちらが先だったか」を初めて
+    区別できる。
+
 再実行方法:
     python3 tools/analyze_sub_proto.py \
-        --iolog measurements/m6-sub-d0-boot.iolog.txt \
-        --intlog measurements/m6-sub-d0-boot.intlog.txt \
-        --out measurements/m6-sub-proto-d0-boot.txt
+        --iolog measurements/m6c-sub-d0-boot.iolog.txt \
+        --intlog measurements/m6c-sub-d0-boot.intlog.txt \
+        --out measurements/m6c-sub-proto-d0-boot.txt
 """
 from __future__ import annotations
 
@@ -32,6 +40,7 @@ from pathlib import Path
 @dataclass
 class IoEvent:
     seq: int
+    clock: int
     frame: int
     cpu: str
     kind: str  # "IN" / "OUT"
@@ -43,6 +52,7 @@ class IoEvent:
 @dataclass
 class IntEvent:
     seq: int
+    clock: int
     frame: int
     cpu: str
     im: int
@@ -51,16 +61,17 @@ class IntEvent:
     handler_pc: str
 
 
+# M6c: clock 列付きフォーマット (seq clock frame cpu kind port value pc)
 IO_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
 )
 INT_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+(\d+)\s+(main|sub)\s+(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s*$"
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s*$"
 )
 
 
 def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
-    """cpu -> events (seq昇順のまま)"""
+    """cpu -> events (seq昇順のまま。clock列を持つM6c形式が前提)"""
     events: dict[str, list[IoEvent]] = {"main": [], "sub": []}
     cur_cpu = None
     with path.open(encoding="utf-8") as f:
@@ -76,9 +87,12 @@ def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
             m = IO_ROW_RE.match(line)
             if not m:
                 continue
-            seq, frame, cpu, kind, port, value, pc = m.groups()
+            seq, clock, frame, cpu, kind, port, value, pc = m.groups()
             events[cpu].append(
-                IoEvent(int(seq), int(frame), cpu, kind, port.upper(), int(value, 16), pc.upper())
+                IoEvent(
+                    int(seq), int(clock), int(frame), cpu, kind,
+                    port.upper(), int(value, 16), pc.upper(),
+                )
             )
     return events
 
@@ -99,9 +113,12 @@ def parse_intlog(path: Path) -> dict[str, list[IntEvent]]:
             m = INT_ROW_RE.match(line)
             if not m:
                 continue
-            seq, frame, cpu, im, level, ret_pc, handler_pc = m.groups()
+            seq, clock, frame, cpu, im, level, ret_pc, handler_pc = m.groups()
             events[cpu].append(
-                IntEvent(int(seq), int(frame), cpu, int(im), int(level), ret_pc.upper(), handler_pc.upper())
+                IntEvent(
+                    int(seq), int(clock), int(frame), cpu, int(im), int(level),
+                    ret_pc.upper(), handler_pc.upper(),
+                )
             )
     return events
 
@@ -111,6 +128,8 @@ def parse_intlog(path: Path) -> dict[str, list[IntEvent]]:
 COMM_WINDOW_LO = 0x00F0
 COMM_WINDOW_HI = 0x00FF
 MIN_SAMPLE = 10  # これ未満のペアはたまたま値が揃っただけの可能性が高く除外
+SMALL_OUT_WARN = 20  # 発行元OUTの絶対数がこれ未満なら「少数OUT罠」の疑いを明示
+CHANCE_RATE = 1.0 / 256.0  # 1バイト一様分布での偶然一致率(約0.39%)
 
 
 def _in_comm_window(port: str) -> bool:
@@ -122,7 +141,7 @@ def _collapse_consecutive(events: list[IoEvent]) -> list[IoEvent]:
     """同一ポートの列から、直前と同値の連続(ポーリング読み)を1件に畳む。
 
     残るのは各「値が変化した瞬間」のイベントのみ(先頭は必ず残す)。
-    引数は既にseq昇順(発生順)であることを前提とする。
+    引数は既にclock昇順(真の発生順)であることを前提とする。
     """
     collapsed: list[IoEvent] = []
     prev_value = None
@@ -133,25 +152,36 @@ def _collapse_consecutive(events: list[IoEvent]) -> list[IoEvent]:
     return collapsed
 
 
-def _match_backward(
+def _significance_note(rate: float, total: int) -> str:
+    if total <= 0:
+        return ""
+    ratio = rate / CHANCE_RATE if CHANCE_RATE else 0.0
+    return f"(偶然一致率{CHANCE_RATE*100:.2f}%の{ratio:.1f}倍)"
+
+
+def _match_backward_clock(
     out_events_by_port: dict[str, list[IoEvent]],
-    out_frames_by_port: dict[str, list[int]],
+    out_clocks_by_port: dict[str, list[int]],
     ip_events: list[IoEvent],
 ) -> dict[str, tuple[int, int, int]]:
     """各INイベントについて、そのport(の相手候補OUTポート op)ごとに
-    「frameがそのIN以前で最も近いOUTイベント」を探し、一致/不一致/対応なしを集計する。
+    「clockがそのIN未満で最大のOUTイベント」(=真の意味で直前のOUT)を探し、
+    一致/不一致/対応なしを集計する。
+
+    clock は main/sub・iolog/intlog を横断する単調増加の共通時間軸なので、
+    frame と違い「同一frame内でどちらが先か」を正しく区別できる。
 
     戻り値: op -> (match, mismatch, no_preceding)
     """
     result: dict[str, tuple[int, int, int]] = {}
-    for op, op_frames in out_frames_by_port.items():
+    for op, op_clocks in out_clocks_by_port.items():
         op_events = out_events_by_port[op]
         match = 0
         mismatch = 0
         no_preceding = 0
         for ie in ip_events:
-            # ie.frame以下で最大のOUT frameのインデックス(直前の最も近いOUT)
-            idx = bisect.bisect_right(op_frames, ie.frame) - 1
+            # ie.clock 未満で最大のOUT clockのインデックス(真に直前のOUT)
+            idx = bisect.bisect_left(op_clocks, ie.clock) - 1
             if idx < 0:
                 no_preceding += 1
                 continue
@@ -174,14 +204,15 @@ def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
         file=out,
     )
     print(
-        "  第2版での変更点: (1) 対応付けをIN単位に反転し、各INに対して"
-        "「それ以前で最も近い、当該ポートへの相手CPUのOUT」を探す方式にした"
-        "(第1版はOUT単位で「それ以降最初のIN」を探しており、離れたOUTが同じ"
-        "近傍INに多重対応する粗さがあった)。"
-        "(2) 同一ポート・同一値の連続読み(ポーリング)を1件に畳んだ"
-        "「変化時のみ」の一致率を、畳む前(raw)と併記する。"
-        "順序は対応付けの定義上、直前のOUTを探すため必ず満たされる"
-        "(「対応OUTが見つからない=no_preceding」のケースのみ別掲する)。",
+        "  第3版での変更点: 対応付けの時間軸を frame(粗い・CPU間の真の前後関係を"
+        "保証しない) から clock(M6cで追加した main/sub横断の単調増加共通クロック)"
+        "に差し替えた。各INに対して「clock順で真に直前にある、当該ポートへの"
+        "相手CPUのOUT」を探す(第2版までと対応付けの発想=IN基点・後ろ向きは同じ、"
+        "軸だけがframe→clockに変わった)。同一ポート・同一値の連続読み(ポーリング)"
+        "を1件に畳んだ「変化時のみ」の一致率を、畳む前(raw)と併記する。"
+        "各一致率には偶然一致率(1バイト一様分布で約0.39%)との比を併記し、"
+        "有意性の目安にする。発行元OUTの絶対数が少ない(<20件)ペアは"
+        "「少数OUT罠の疑い」を明示する(第2版で見つかった落とし穴の再発防止)。",
         file=out,
     )
     print(file=out)
@@ -204,30 +235,32 @@ def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
             print(file=out)
             continue
 
-        # OUT側: port別にframe昇順で保持(bisect用)。元の並びはseq昇順=発生順。
+        # OUT側: port別にclock昇順で保持(bisect用)。
         outs_by_port: dict[str, list[IoEvent]] = defaultdict(list)
         for e in outs:
             outs_by_port[e.port].append(e)
-        out_frames_by_port: dict[str, list[int]] = {}
+        out_counts_by_port: dict[str, int] = {}
+        out_clocks_by_port: dict[str, list[int]] = {}
         for op, evs in outs_by_port.items():
-            evs.sort(key=lambda e: e.frame)
-            out_frames_by_port[op] = [e.frame for e in evs]
+            evs.sort(key=lambda e: e.clock)
+            out_clocks_by_port[op] = [e.clock for e in evs]
+            out_counts_by_port[op] = len(evs)
 
-        # IN側: port別のraw列とcollapsed(値変化時のみ)列
+        # IN側: port別のraw列(clock昇順)とcollapsed(値変化時のみ)列
         ins_by_port: dict[str, list[IoEvent]] = defaultdict(list)
         for e in ins:
             ins_by_port[e.port].append(e)
         for ip, evs in ins_by_port.items():
-            evs.sort(key=lambda e: (e.frame, e.seq))
+            evs.sort(key=lambda e: e.clock)
 
         in_ports = sorted(ins_by_port)
         results = []
         for ip in in_ports:
             raw_ins = ins_by_port[ip]
             collapsed_ins = _collapse_consecutive(raw_ins)
-            raw_stats = _match_backward(outs_by_port, out_frames_by_port, raw_ins)
-            collapsed_stats = _match_backward(outs_by_port, out_frames_by_port, collapsed_ins)
-            for op in sorted(out_frames_by_port):
+            raw_stats = _match_backward_clock(outs_by_port, out_clocks_by_port, raw_ins)
+            collapsed_stats = _match_backward_clock(outs_by_port, out_clocks_by_port, collapsed_ins)
+            for op in sorted(out_clocks_by_port):
                 r_match, r_mismatch, r_nopre = raw_stats[op]
                 c_match, c_mismatch, c_nopre = collapsed_stats[op]
                 r_total = r_match + r_mismatch
@@ -237,25 +270,29 @@ def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
                 r_rate = r_match / r_total if r_total else 0.0
                 c_rate = c_match / c_total if c_total else 0.0
                 results.append(
-                    (op, ip, r_match, r_mismatch, r_nopre, r_rate, c_match, c_mismatch, c_nopre, c_rate)
+                    (
+                        op, ip, r_match, r_mismatch, r_nopre, r_rate,
+                        c_match, c_mismatch, c_nopre, c_rate,
+                        out_counts_by_port[op],
+                    )
                 )
         # 畳んだ後(値が変化した瞬間)の一致率で降順ソート — ポーリングの水増しを
         # 除いた「本当に効いていそうな」ペアを上に出す。
         results.sort(key=lambda r: -r[9])
         if not results:
             print("  (比較可能なペアなし)", file=out)
-        for op, ip, r_m, r_mm, r_np, r_rate, c_m, c_mm, c_np, c_rate in results:
-            print(
-                f"  OUT {op} -> IN {ip}:",
-                file=out,
-            )
+        for op, ip, r_m, r_mm, r_np, r_rate, c_m, c_mm, c_np, c_rate, op_n in results:
+            warn = f"  ※少数OUT罠の疑い(OUT {op} の発行数={op_n}件)" if op_n < SMALL_OUT_WARN else ""
+            print(f"  OUT {op} (発行数{op_n}件) -> IN {ip}:{warn}", file=out)
             print(
                 f"    畳む前(raw)    : 一致 {r_m} / 不一致 {r_mm} (一致率 {r_rate*100:.1f}%)"
+                f" {_significance_note(r_rate, r_m + r_mm)}"
                 f" [対応OUTなし {r_np} 件は分母外]",
                 file=out,
             )
             print(
                 f"    値変化時のみ(collapsed): 一致 {c_m} / 不一致 {c_mm} (一致率 {c_rate*100:.1f}%)"
+                f" {_significance_note(c_rate, c_m + c_mm)}"
                 f" [対応OUTなし {c_np} 件は分母外]",
                 file=out,
             )
@@ -337,57 +374,84 @@ def analyze_q2_status_bits(io: dict[str, list[IoEvent]], out) -> None:
 def analyze_q3_interrupt_source(
     io: dict[str, list[IoEvent]], intlog: dict[str, list[IntEvent]], out, n: int = 20
 ) -> None:
-    print(f"## Q3 割り込み源: サブ割り込み受理直前{n}件のI/Oイベント集計", file=out)
+    print(f"## Q3 割り込み源: サブ割り込み受理直前{n}件のI/Oイベント集計(clockベース)", file=out)
+    print(
+        "  第3版での変更点: 従来は「サブ自身のI/Oイベントのみ」をframe単位で見ていたため、"
+        "割り込みを受理した時点で相手CPU(main)が直前に何をしていたかは原理的に見えなかった"
+        "(frameでは同一frame内の主従関係が復元できない)。共通クロックにより main+sub を"
+        "1本のclock順イベント列にマージし、割り込み受理の直前に「どちらのCPUが・どのポートに・"
+        "IN/OUTしたか」を区別して集計する。",
+        file=out,
+    )
     print(file=out)
-    sub_io = io["sub"]
     sub_int = intlog["sub"]
     if not sub_int:
         print("  (サブの割り込み受理イベントなし)", file=out)
         print(file=out)
         return
-    if not sub_io:
-        print("  (サブのI/Oイベントなし)", file=out)
+    merged = sorted(io["main"] + io["sub"], key=lambda e: e.clock)
+    if not merged:
+        print("  (I/Oイベントなし)", file=out)
         print(file=out)
         return
+    merged_clocks = [e.clock for e in merged]
 
-    # frame昇順のsub_ioに対し、各割り込み受理点のframe以前・直近N件を集計
-    sub_io_sorted = sorted(sub_io, key=lambda e: (e.frame, e.seq))
-    sub_io_frames = [e.frame for e in sub_io_sorted]
     port_kind_counter: Counter[str] = Counter()
     last_event_counter: Counter[str] = Counter()  # 直前1件だけ
+    last_main_event_counter: Counter[str] = Counter()  # 直前1件のうちmain発のもの
     n_considered = 0
+    n_with_main_in_window = 0
     for ie in sub_int:
-        # ie.frame 以下のI/Oイベントの末尾N件をbisectで求める
-        idx = bisect.bisect_right(sub_io_frames, ie.frame)
+        # ie.clock 未満のI/Oイベントの末尾N件をbisectで求める(真に受理前)
+        idx = bisect.bisect_left(merged_clocks, ie.clock)
         if idx == 0:
             continue
-        window = sub_io_sorted[max(0, idx - n) : idx]
+        window = merged[max(0, idx - n) : idx]
         n_considered += 1
         seen_in_this_window = set()
+        has_main = False
         for e in window:
-            key = f"{e.kind} {e.port}"
+            key = f"{e.cpu} {e.kind} {e.port}"
             seen_in_this_window.add(key)
+            if e.cpu == "main":
+                has_main = True
+        if has_main:
+            n_with_main_in_window += 1
         for key in seen_in_this_window:
             port_kind_counter[key] += 1
         last = window[-1]
-        last_event_counter[f"{last.kind} {last.port}"] += 1
+        last_event_counter[f"{last.cpu} {last.kind} {last.port}"] += 1
+        if last.cpu == "main":
+            last_main_event_counter[f"{last.kind} {last.port}"] += 1
 
     print(f"  対象割り込み受理点: {n_considered} 件 (全{len(sub_int)}件中)", file=out)
-    print(f"  直前{n}件のウィンドウに出現した (kind port) の割り込み受理点カバー率 上位:", file=out)
+    print(
+        f"  直前{n}件のウィンドウにmain側のイベントが1件以上含まれた受理点: "
+        f"{n_with_main_in_window}/{n_considered} 件 "
+        f"({n_with_main_in_window/n_considered*100 if n_considered else 0:.1f}%)",
+        file=out,
+    )
+    print(f"  直前{n}件のウィンドウに出現した (cpu kind port) の割り込み受理点カバー率 上位:", file=out)
     for key, cnt in port_kind_counter.most_common(15):
         rate = cnt / n_considered * 100 if n_considered else 0
         print(f"    {key}: {cnt}/{n_considered} 件のウィンドウに出現 ({rate:.1f}%)", file=out)
-    print(f"  直前1件(直近イベント)の内訳 上位:", file=out)
+    print(f"  直前1件(clock順で真に直近のイベント)の内訳 上位:", file=out)
     for key, cnt in last_event_counter.most_common(10):
         rate = cnt / n_considered * 100 if n_considered else 0
         print(f"    {key}: {cnt} 件 ({rate:.1f}%)", file=out)
+    print(f"  うち、直前1件がmain側だったものの内訳 上位:", file=out)
+    if not last_main_event_counter:
+        print("    (該当なし — 直前1件は常にsub自身のイベントだった)", file=out)
+    for key, cnt in last_main_event_counter.most_common(10):
+        rate = cnt / n_considered * 100 if n_considered else 0
+        print(f"    main {key}: {cnt} 件 (受理点全体の{rate:.1f}%)", file=out)
     print(file=out)
 
 
 def analyze_q4_repeat_units(io: dict[str, list[IoEvent]], out, min_n=2, max_n=30, top=10) -> None:
-    print(f"## Q4 反復単位: サブの (kind,port) 記号列 n-gram (n={min_n}..{max_n})", file=out)
+    print(f"## Q4 反復単位: サブの (kind,port) 記号列 n-gram (n={min_n}..{max_n}, clock順)", file=out)
     print(file=out)
-    sub_io = io["sub"]
+    sub_io = sorted(io["sub"], key=lambda e: e.clock)
     if not sub_io:
         print("  (サブのI/Oイベントなし)", file=out)
         return
@@ -418,8 +482,8 @@ def analyze_q4_repeat_units(io: dict[str, list[IoEvent]], out, min_n=2, max_n=30
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iolog", required=True, type=Path, help="m6-sub-*.iolog.txt へのパス")
-    ap.add_argument("--intlog", required=True, type=Path, help="m6-sub-*.intlog.txt へのパス")
+    ap.add_argument("--iolog", required=True, type=Path, help="m6c-sub-*.iolog.txt へのパス(clock列必須)")
+    ap.add_argument("--intlog", required=True, type=Path, help="m6c-sub-*.intlog.txt へのパス(clock列必須)")
     ap.add_argument("--out", required=True, type=Path, help="解析結果の出力先")
     ap.add_argument("--int-window", type=int, default=20, help="Q3のウィンドウ件数 (既定20)")
     args = ap.parse_args()
@@ -429,7 +493,7 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as out:
-        print(f"# サブCPU通信プロトコル解析: {args.iolog.name}", file=out)
+        print(f"# サブCPU通信プロトコル解析(第3版・共通クロック対応): {args.iolog.name}", file=out)
         print(f"# iolog : {args.iolog}", file=out)
         print(f"# intlog: {args.intlog}", file=out)
         print(

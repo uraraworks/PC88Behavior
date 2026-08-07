@@ -1,0 +1,347 @@
+# サブCPU通信プロトコル解析(第3版・共通クロック対応): m6c-sub-d1-files.iolog.txt
+# iolog : measurements/m6c-sub-d1-files.iolog.txt
+# intlog: measurements/m6c-sub-d1-files.intlog.txt
+# main IOイベント数: 119029, sub IOイベント数: 89861
+# main 割り込み受理数: 2360, sub 割り込み受理数: 15399
+
+## Q1 データ経路の実証: (OUTポート -> INポート) 値一致率・対応付け
+  (通信窓口として指定された $00F0-$00FF の ポートのみを対象にする。範囲外はCRTC/FDC等の無関係なハードウェアポートで ノイズになるため除外。サンプル数 10 未満のペアも偶然一致の 可能性が高いため除外。)
+  第3版での変更点: 対応付けの時間軸を frame(粗い・CPU間の真の前後関係を保証しない) から clock(M6cで追加した main/sub横断の単調増加共通クロック)に差し替えた。各INに対して「clock順で真に直前にある、当該ポートへの相手CPUのOUT」を探す(第2版までと対応付けの発想=IN基点・後ろ向きは同じ、軸だけがframe→clockに変わった)。同一ポート・同一値の連続読み(ポーリング)を1件に畳んだ「変化時のみ」の一致率を、畳む前(raw)と併記する。各一致率には偶然一致率(1バイト一様分布で約0.39%)との比を併記し、有意性の目安にする。発行元OUTの絶対数が少ない(<20件)ペアは「少数OUT罠の疑い」を明示する(第2版で見つかった落とし穴の再発防止)。
+
+### main->sub
+  OUT 00FD (発行数127件) -> IN 00FC:
+    畳む前(raw)    : 一致 118 / 不一致 0 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 115 / 不一致 0 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00F8 (発行数2件) -> IN 00FE:  ※少数OUT罠の疑い(OUT 00F8 の発行数=2件)
+    畳む前(raw)    : 一致 5679 / 不一致 24551 (一致率 18.8%) (偶然一致率0.39%の48.1倍) [対応OUTなし 79 件は分母外]
+    値変化時のみ(collapsed): 一致 5679 / 不一致 22078 (一致率 20.5%) (偶然一致率0.39%の52.4倍) [対応OUTなし 62 件は分母外]
+  OUT 00FD (発行数127件) -> IN 00FE:
+    畳む前(raw)    : 一致 5637 / 不一致 24669 (一致率 18.6%) (偶然一致率0.39%の47.6倍) [対応OUTなし 3 件は分母外]
+    値変化時のみ(collapsed): 一致 5637 / 不一致 22180 (一致率 20.3%) (偶然一致率0.39%の51.9倍) [対応OUTなし 2 件は分母外]
+  OUT 00F3 (発行数2件) -> IN 00FA:  ※少数OUT罠の疑い(OUT 00F3 の発行数=2件)
+    畳む前(raw)    : 一致 24 / 不一致 2256 (一致率 1.1%) (偶然一致率0.39%の2.7倍) [対応OUTなし 13599 件は分母外]
+    値変化時のみ(collapsed): 一致 24 / 不一致 96 (一致率 20.0%) (偶然一致率0.39%の51.2倍) [対応OUTなし 165 件は分母外]
+  OUT 00F8 (発行数2件) -> IN 00FA:  ※少数OUT罠の疑い(OUT 00F8 の発行数=2件)
+    畳む前(raw)    : 一致 48 / 不一致 15776 (一致率 0.3%) (偶然一致率0.39%の0.8倍) [対応OUTなし 55 件は分母外]
+    値変化時のみ(collapsed): 一致 48 / 不一致 192 (一致率 20.0%) (偶然一致率0.39%の51.2倍) [対応OUTなし 45 件は分母外]
+  OUT 00F8 (発行数2件) -> IN 00FC:  ※少数OUT罠の疑い(OUT 00F8 の発行数=2件)
+    畳む前(raw)    : 一致 19 / 不一致 89 (一致率 17.6%) (偶然一致率0.39%の45.0倍) [対応OUTなし 10 件は分母外]
+    値変化時のみ(collapsed): 一致 17 / 不一致 88 (一致率 16.2%) (偶然一致率0.39%の41.4倍) [対応OUTなし 10 件は分母外]
+  OUT 00F3 (発行数2件) -> IN 00FC:  ※少数OUT罠の疑い(OUT 00F3 の発行数=2件)
+    畳む前(raw)    : 一致 8 / 不一致 52 (一致率 13.3%) (偶然一致率0.39%の34.1倍) [対応OUTなし 58 件は分母外]
+    値変化時のみ(collapsed): 一致 8 / 不一致 52 (一致率 13.3%) (偶然一致率0.39%の34.1倍) [対応OUTなし 55 件は分母外]
+  OUT 00FD (発行数127件) -> IN 00FA:
+    畳む前(raw)    : 一致 17 / 不一致 15862 (一致率 0.1%) (偶然一致率0.39%の0.3倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 17 / 不一致 268 (一致率 6.0%) (偶然一致率0.39%の15.3倍) [対応OUTなし 0 件は分母外]
+  OUT 00F3 (発行数2件) -> IN 00FB:  ※少数OUT罠の疑い(OUT 00F3 の発行数=2件)
+    畳む前(raw)    : 一致 550 / 不一致 1578 (一致率 25.8%) (偶然一致率0.39%の66.2倍) [対応OUTなし 13406 件は分母外]
+    値変化時のみ(collapsed): 一致 30 / 不一致 1108 (一致率 2.6%) (偶然一致率0.39%の6.7倍) [対応OUTなし 12819 件は分母外]
+  OUT 00F8 (発行数2件) -> IN 00FB:  ※少数OUT罠の疑い(OUT 00F8 の発行数=2件)
+    畳む前(raw)    : 一致 1206 / 不一致 14314 (一致率 7.8%) (偶然一致率0.39%の19.9倍) [対応OUTなし 14 件は分母外]
+    値変化時のみ(collapsed): 一致 312 / 不一致 13631 (一致率 2.2%) (偶然一致率0.39%の5.7倍) [対応OUTなし 14 件は分母外]
+  OUT 00FD (発行数127件) -> IN 00FB:
+    畳む前(raw)    : 一致 180 / 不一致 15354 (一致率 1.2%) (偶然一致率0.39%の3.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 171 / 不一致 13786 (一致率 1.2%) (偶然一致率0.39%の3.1倍) [対応OUTなし 0 件は分母外]
+  OUT 00F3 (発行数2件) -> IN 00FE:  ※少数OUT罠の疑い(OUT 00F3 の発行数=2件)
+    畳む前(raw)    : 一致 28 / 不一致 5022 (一致率 0.6%) (偶然一致率0.39%の1.4倍) [対応OUTなし 25259 件は分母外]
+    値変化時のみ(collapsed): 一致 28 / 不一致 3396 (一致率 0.8%) (偶然一致率0.39%の2.1倍) [対応OUTなし 24395 件は分母外]
+  OUT 00FF (発行数16389件) -> IN 00FB:
+    畳む前(raw)    : 一致 48 / 不一致 15486 (一致率 0.3%) (偶然一致率0.39%の0.8倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 47 / 不一致 13910 (一致率 0.3%) (偶然一致率0.39%の0.9倍) [対応OUTなし 0 件は分母外]
+  OUT 00F8 (発行数2件) -> IN 00F8:  ※少数OUT罠の疑い(OUT 00F8 の発行数=2件)
+    畳む前(raw)    : 一致 0 / 不一致 16 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 1 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FD (発行数127件) -> IN 00F8:
+    畳む前(raw)    : 一致 0 / 不一致 16 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 1 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数16389件) -> IN 00F8:
+    畳む前(raw)    : 一致 0 / 不一致 16 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 1 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数16389件) -> IN 00FA:
+    畳む前(raw)    : 一致 0 / 不一致 15879 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 285 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数16389件) -> IN 00FC:
+    畳む前(raw)    : 一致 0 / 不一致 118 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 115 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数16389件) -> IN 00FE:
+    畳む前(raw)    : 一致 0 / 不一致 30309 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 27819 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 0 件は分母外]
+
+### sub->main
+  OUT 00FD (発行数7964件) -> IN 00FC:
+    畳む前(raw)    : 一致 7964 / 不一致 0 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 6850 / 不一致 0 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FC (発行数5635件) -> IN 00FD:
+    畳む前(raw)    : 一致 5634 / 不一致 1 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 5433 / 不一致 0 (一致率 100.0%) (偶然一致率0.39%の256.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00FC (発行数5635件) -> IN 00FC:
+    畳む前(raw)    : 一致 539 / 不一致 6646 (一致率 7.5%) (偶然一致率0.39%の19.2倍) [対応OUTなし 779 件は分母外]
+    値変化時のみ(collapsed): 一致 128 / 不一致 5980 (一致率 2.1%) (偶然一致率0.39%の5.4倍) [対応OUTなし 742 件は分母外]
+  OUT 00FD (発行数7964件) -> IN 00FD:
+    畳む前(raw)    : 一致 220 / 不一致 5415 (一致率 3.9%) (偶然一致率0.39%の10.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 102 / 不一致 5331 (一致率 1.9%) (偶然一致率0.39%の4.8倍) [対応OUTなし 0 件は分母外]
+  OUT 00FD (発行数7964件) -> IN 00FE:
+    畳む前(raw)    : 一致 557 / 不一致 29738 (一致率 1.8%) (偶然一致率0.39%の4.7倍) [対応OUTなし 15 件は分母外]
+    値変化時のみ(collapsed): 一致 433 / 不一致 27373 (一致率 1.6%) (偶然一致率0.39%の4.0倍) [対応OUTなし 13 件は分母外]
+  OUT 00FC (発行数5635件) -> IN 00FE:
+    畳む前(raw)    : 一致 379 / 不一致 27208 (一致率 1.4%) (偶然一致率0.39%の3.5倍) [対応OUTなし 2723 件は分母外]
+    値変化時のみ(collapsed): 一致 379 / 不一致 25582 (一致率 1.5%) (偶然一致率0.39%の3.7倍) [対応OUTなし 1858 件は分母外]
+  OUT 00FB (発行数266件) -> IN 00FC:
+    畳む前(raw)    : 一致 360 / 不一致 7604 (一致率 4.5%) (偶然一致率0.39%の11.6倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 88 / 不一致 6762 (一致率 1.3%) (偶然一致率0.39%の3.3倍) [対応OUTなし 0 件は分母外]
+  OUT 00FB (発行数266件) -> IN 00FD:
+    畳む前(raw)    : 一致 26 / 不一致 5609 (一致率 0.5%) (偶然一致率0.39%の1.2倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 24 / 不一致 5409 (一致率 0.4%) (偶然一致率0.39%の1.1倍) [対応OUTなし 0 件は分母外]
+  OUT 00F7 (発行数17件) -> IN 00FC:  ※少数OUT罠の疑い(OUT 00F7 の発行数=17件)
+    畳む前(raw)    : 一致 30 / 不一致 7934 (一致率 0.4%) (偶然一致率0.39%の1.0倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 29 / 不一致 6821 (一致率 0.4%) (偶然一致率0.39%の1.1倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数14103件) -> IN 00FC:
+    畳む前(raw)    : 一致 27 / 不一致 7937 (一致率 0.3%) (偶然一致率0.39%の0.9倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 26 / 不一致 6824 (一致率 0.4%) (偶然一致率0.39%の1.0倍) [対応OUTなし 0 件は分母外]
+  OUT 00F8 (発行数20件) -> IN 00FC:
+    畳む前(raw)    : 一致 22 / 不一致 7942 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 22 / 不一致 6828 (一致率 0.3%) (偶然一致率0.39%の0.8倍) [対応OUTなし 0 件は分母外]
+  OUT 00F7 (発行数17件) -> IN 00FD:  ※少数OUT罠の疑い(OUT 00F7 の発行数=17件)
+    畳む前(raw)    : 一致 15 / 不一致 5620 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 15 / 不一致 5418 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+  OUT 00FF (発行数14103件) -> IN 00FD:
+    畳む前(raw)    : 一致 15 / 不一致 5620 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 15 / 不一致 5418 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+  OUT 00F8 (発行数20件) -> IN 00FD:
+    畳む前(raw)    : 一致 14 / 不一致 5621 (一致率 0.2%) (偶然一致率0.39%の0.6倍) [対応OUTなし 0 件は分母外]
+    値変化時のみ(collapsed): 一致 14 / 不一致 5419 (一致率 0.3%) (偶然一致率0.39%の0.7倍) [対応OUTなし 0 件は分母外]
+  OUT 00F7 (発行数17件) -> IN 00FE:  ※少数OUT罠の疑い(OUT 00F7 の発行数=17件)
+    畳む前(raw)    : 一致 0 / 不一致 30309 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 1 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 27818 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 1 件は分母外]
+  OUT 00F8 (発行数20件) -> IN 00FE:
+    畳む前(raw)    : 一致 0 / 不一致 30303 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 7 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 27814 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 5 件は分母外]
+  OUT 00FB (発行数266件) -> IN 00FE:
+    畳む前(raw)    : 一致 0 / 不一致 30303 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 7 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 27814 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 5 件は分母外]
+  OUT 00FF (発行数14103件) -> IN 00FE:
+    畳む前(raw)    : 一致 0 / 不一致 30309 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 1 件は分母外]
+    値変化時のみ(collapsed): 一致 0 / 不一致 27818 (一致率 0.0%) (偶然一致率0.39%の0.0倍) [対応OUTなし 1 件は分母外]
+
+## Q1補助 制御ポート/データポートの判定: OUT値の異なり数と分布
+  データポートなら書き込まれる値は広く散る(ユニーク値数が多い)はず。制御ポート/ストローブなら少数の値(典型的にはコマンド語)に集中するはず。この節はその区別を数字で出すためのもので、経路の当否そのものは判定しない。
+
+### main が OUT したポート
+  OUT 00F3 (n=2, ユニーク値数=2, 上位1値占有率=50%): 中間的(断定不可)
+    上位値: 30=1(50%), 00=1(50%)
+  OUT 00F8 (n=2, ユニーク値数=1, 上位1値占有率=100%): 制御ポート的(少数値に集中)
+    上位値: 00=2(100%)
+  OUT 00FD (n=127, ユニーク値数=20, 上位1値占有率=17%): 中間的(断定不可)
+    上位値: 00=21(17%), 06=21(17%), 01=18(14%), 02=13(10%), 12=9(7%)
+  OUT 00FF (n=16389, ユニーク値数=10, 上位1値占有率=35%): 中間的(断定不可)
+    上位値: 08=5754(35%), 09=5753(35%), 0A=1178(7%), 0C=1178(7%), 0B=1177(7%)
+
+### sub が OUT したポート
+  OUT 00F7 (n=17, ユニーク値数=1, 上位1値占有率=100%): 制御ポート的(少数値に集中)
+    上位値: 08=17(100%)
+  OUT 00F8 (n=20, ユニーク値数=3, 上位1値占有率=90%): 制御ポート的(少数値に集中)
+    上位値: 07=18(90%), 05=1(5%), FF=1(5%)
+  OUT 00FB (n=266, ユニーク値数=17, 上位1値占有率=19%): 中間的(断定不可)
+    上位値: 00=51(19%), 01=44(17%), 04=29(11%), 08=23(9%), 0F=19(7%)
+  OUT 00FC (n=5635, ユニーク値数=255, 上位1値占有率=5%): データポート的(広く散る)
+    上位値: CD=286(5%), 00=251(4%), 20=138(2%), 23=134(2%), EC=133(2%)
+  OUT 00FD (n=7964, ユニーク値数=256, 上位1値占有率=10%): データポート的(広く散る)
+    上位値: 00=807(10%), FF=360(5%), CD=333(4%), 20=232(3%), EC=181(2%)
+  OUT 00FF (n=14103, ユニーク値数=9, 上位1値占有率=48%): 中間的(断定不可)
+    上位値: 08=6813(48%), 09=6812(48%), 0A=119(1%), 0C=119(1%), 0B=118(1%)
+
+## Q2 ステータスビットの所在: (CPU, INポート) ごとのビット分類
+
+### main
+  IN 0000 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0001 (n=2359): b7=変 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0002 (n=2359): b7=1 b6=変 b5=変 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0003 (n=2359): b7=1 b6=1 b5=1 b4=変 b3=1 b2=1 b1=変 b0=1
+  IN 0004 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=変 b2=1 b1=1 b0=1
+  IN 0005 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0006 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0007 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0008 (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0009 (n=2360): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 000A (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 000B (n=2359): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 0030 (n=2): b7=1 b6=1 b5=0 b4=1 b3=1 b2=0 b1=1 b0=1
+  IN 0031 (n=20): b7=0 b6=1 b5=1 b4=1 b3=1 b2=0 b1=0 b0=1
+  IN 0032 (n=1070): b7=1 b6=0 b5=1 b4=0 b3=1 b2=0 b1=変 b0=変
+  IN 0040 (n=7012): b7=1 b6=1 b5=変 b4=0 b3=0 b2=1 b1=0 b0=0
+  IN 0051 (n=266): b7=0 b6=0 b5=0 b4=1 b3=0 b2=0 b1=0 b0=0
+  IN 006E (n=1): b7=1 b6=0 b5=0 b4=1 b3=0 b2=0 b1=0 b0=0
+  IN 0070 (n=2): b7=0 b6=0 b5=0 b4=0 b3=0 b2=0 b1=0 b0=0
+  IN 0071 (n=1120): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=変
+  IN 00F4 (n=1): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 00F8 (n=1): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 00FC (n=7964): b7=変 b6=変 b5=変 b4=変 b3=変 b2=変 b1=変 b0=変
+  IN 00FD (n=5635): b7=変 b6=変 b5=変 b4=変 b3=変 b2=変 b1=変 b0=変
+  IN 00FE (n=30310): b7=変 b6=変 b5=変 b4=変 b3=0 b2=変 b1=変 b0=変
+
+### sub
+  IN 00F8 (n=16): b7=1 b6=1 b5=1 b4=1 b3=1 b2=1 b1=1 b0=1
+  IN 00FA (n=15879): b7=変 b6=変 b5=変 b4=変 b3=0 b2=変 b1=変 b0=変
+  IN 00FB (n=15534): b7=変 b6=変 b5=変 b4=変 b3=変 b2=変 b1=変 b0=変
+  IN 00FC (n=118): b7=変 b6=変 b5=変 b4=変 b3=変 b2=変 b1=変 b0=変
+  IN 00FE (n=30309): b7=0 b6=変 b5=変 b4=変 b3=変 b2=変 b1=変 b0=変
+
+## Q3 割り込み源: サブ割り込み受理直前20件のI/Oイベント集計(clockベース)
+  第3版での変更点: 従来は「サブ自身のI/Oイベントのみ」をframe単位で見ていたため、割り込みを受理した時点で相手CPU(main)が直前に何をしていたかは原理的に見えなかった(frameでは同一frame内の主従関係が復元できない)。共通クロックにより main+sub を1本のclock順イベント列にマージし、割り込み受理の直前に「どちらのCPUが・どのポートに・IN/OUTしたか」を区別して集計する。
+
+  対象割り込み受理点: 15399 件 (全15399件中)
+  直前20件のウィンドウにmain側のイベントが1件以上含まれた受理点: 14/15399 件 (0.1%)
+  直前20件のウィンドウに出現した (cpu kind port) の割り込み受理点カバー率 上位:
+    sub IN 00FA: 15399/15399 件のウィンドウに出現 (100.0%)
+    sub IN 00FB: 15369/15399 件のウィンドウに出現 (99.8%)
+    sub OUT 00FB: 183/15399 件のウィンドウに出現 (1.2%)
+    sub OUT 00F8: 21/15399 件のウィンドウに出現 (0.1%)
+    sub OUT 00F7: 16/15399 件のウィンドウに出現 (0.1%)
+    sub IN 00F8: 16/15399 件のウィンドウに出現 (0.1%)
+    sub IN 00FE: 14/15399 件のウィンドウに出現 (0.1%)
+    main IN 00FE: 14/15399 件のウィンドウに出現 (0.1%)
+    main OUT 00FF: 14/15399 件のウィンドウに出現 (0.1%)
+    sub OUT 00FF: 14/15399 件のウィンドウに出現 (0.1%)
+    sub IN 00FC: 13/15399 件のウィンドウに出現 (0.1%)
+  直前1件(clock順で真に直近のイベント)の内訳 上位:
+    sub IN 00FB: 15344 件 (99.6%)
+    sub OUT 00FB: 39 件 (0.3%)
+    sub IN 00F8: 16 件 (0.1%)
+  うち、直前1件がmain側だったものの内訳 上位:
+    (該当なし — 直前1件は常にsub自身のイベントだった)
+
+## Q4 反復単位: サブの (kind,port) 記号列 n-gram (n=2..30, clock順)
+
+  n=2: 出現回数上位10件
+    I00FE I00FE  x16398
+    I00FA I00FB  x15534
+    I00FB I00FA  x15483
+    O00FF I00FE  x13898
+    O00FD O00FF  x7964
+    I00FE O00FF  x5946
+    I00FE O00FC  x5635
+    O00FC O00FD  x5635
+    I00FE O00FD  x2329
+    I00FA O00FB  x266
+  n=3: 出現回数上位10件
+    I00FA I00FB I00FA  x15483
+    I00FB I00FA I00FB  x15463
+    O00FF I00FE I00FE  x13896
+    O00FD O00FF I00FE  x7963
+    I00FE I00FE O00FF  x5945
+    I00FE O00FF I00FE  x5746
+    I00FE I00FE O00FC  x5635
+    I00FE O00FC O00FD  x5635
+    O00FC O00FD O00FF  x5635
+    I00FE I00FE I00FE  x2489
+  n=4: 出現回数上位10件
+    I00FA I00FB I00FA I00FB  x15463
+    I00FB I00FA I00FB I00FA  x15428
+    O00FD O00FF I00FE I00FE  x7963
+    O00FF I00FE I00FE O00FF  x5798
+    I00FE I00FE O00FF I00FE  x5745
+    I00FE O00FF I00FE I00FE  x5745
+    I00FE I00FE O00FC O00FD  x5635
+    I00FE O00FC O00FD O00FF  x5635
+    O00FC O00FD O00FF I00FE  x5634
+    O00FF I00FE I00FE O00FC  x5634
+  n=5: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA  x15428
+    I00FB I00FA I00FB I00FA I00FB  x15408
+    I00FE I00FE O00FF I00FE I00FE  x5744
+    O00FF I00FE I00FE O00FF I00FE  x5699
+    O00FD O00FF I00FE I00FE O00FF  x5659
+    I00FE I00FE O00FC O00FD O00FF  x5635
+    I00FE O00FC O00FD O00FF I00FE  x5634
+    O00FC O00FD O00FF I00FE I00FE  x5634
+    I00FE O00FF I00FE I00FE O00FC  x5634
+    O00FF I00FE I00FE O00FC O00FD  x5634
+  n=6: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB  x15408
+    I00FB I00FA I00FB I00FA I00FB I00FA  x15376
+    O00FF I00FE I00FE O00FF I00FE I00FE  x5698
+    O00FD O00FF I00FE I00FE O00FF I00FE  x5659
+    I00FE I00FE O00FC O00FD O00FF I00FE  x5634
+    I00FE O00FC O00FD O00FF I00FE I00FE  x5634
+    O00FC O00FD O00FF I00FE I00FE O00FF  x5634
+    I00FE I00FE O00FF I00FE I00FE O00FC  x5634
+    I00FE O00FF I00FE I00FE O00FC O00FD  x5634
+    O00FF I00FE I00FE O00FC O00FD O00FF  x5634
+  n=8: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15376
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15344
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5634
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5634
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5634
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5634
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5634
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5634
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5633
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5633
+  n=10: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15344
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15312
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5634
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5634
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5634
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5634
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5633
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5633
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5633
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5633
+  n=12: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15312
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15280
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5634
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5634
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5633
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5633
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5633
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5633
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5633
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5633
+  n=16: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15248
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15232
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5633
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5633
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5633
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5633
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5633
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5633
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5632
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5632
+  n=20: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15216
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15200
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5633
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5633
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5632
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5632
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5632
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5632
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5632
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5632
+  n=24: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15184
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15168
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5632
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5632
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5632
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5632
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5632
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5632
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5631
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5631
+  n=30: 出現回数上位10件
+    I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB  x15136
+    I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA I00FB I00FA  x15120
+    I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE  x5631
+    I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE  x5631
+    O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF  x5631
+    O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE  x5631
+    O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE  x5631
+    I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC  x5631
+    I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD  x5631
+    O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF I00FE I00FE O00FF I00FE I00FE O00FC O00FD O00FF  x5631
+
