@@ -12,7 +12,9 @@ make_font_rom.py — L2 フォント（半角ANK + セミグラフィック）�
     相当。同じ面のオフセット0x800-0xFFF）。
 
   半角ANKの出どころは3系統（利用者判断。docs/notes/l2-code-assignment.md）:
-    1. 英数記号（0x20-0x7E、資料から確定できた範囲） → unscii-8（CC-0/PD）
+    1. 英数記号（0x20-0x7E、資料から確定できた範囲） → unscii-8（CC-0/PD）。
+       ただし 0x7E（JIS X0201 のオーバーライン ‾ U+203E）だけは unscii-8.hex に
+       該当コードポイントが無いため対象外とし、横棒1本のルール生成に回す（3.）。
        `--unscii-hex` で渡された unscii-8.hex をこのスクリプトがパースする。
        unscii-8.hex 自体は `tools/fetch_unscii.sh` で取得するだけで、
        このリポジトリにはコミットしない。
@@ -735,16 +737,17 @@ def parse_unscii_hex(path):
     return table
 
 
-# JIS X0201ラテン(0x20-0x7E)とunscii-8のUnicodeコードポイントの対応。
-# 0x5C=円記号(U+00A5)・0x7E=オーバーライン(U+203E)がASCIIとの相違点だが、
-# U+203Eはunscii-8.hexに収録されていないため0x7Eは暫定的にASCIIチルダ
-# (U+007E)を代用する（docs/notes/l2-code-assignment.md 4節。要利用者確認）。
+# JIS X0201ラテン(0x20-0x7D)とunscii-8のUnicodeコードポイントの対応。
+# 0x5C=円記号(U+00A5)がASCIIとの相違点。unscii-8.hexに U+00A5(codepoint行
+# "000A5:...")が実在することを確認済み（vendor/unscii/unscii-8.hex）ので、
+# 他の英数記号と同じくunscii-8由来のままでよい。
+# 0x7E=オーバーライン(U+203E)は unscii-8.hex に該当コードポイントが無いため、
+# ここでは扱わない。呼び出し側(build_ank_plane)で 0x7E は先に分岐し、
+# overline_glyph()（ルール生成。4.）を使う。
 def latin_code_to_unicode(code):
     if code == 0x5C:
         return 0x00A5  # ¥ YEN SIGN
-    if code == 0x7E:
-        return 0x007E  # 本来はU+203E(オーバーライン)。unscii-8に無いため代用
-    return code  # 0x20-0x7Dの残りはASCIIと同じコードポイント
+    return code  # 0x20-0x7D(0x5C除く)はASCIIと同じコードポイント
 
 
 # --------------------------------------------------------------------------
@@ -774,6 +777,21 @@ def semigraphic_glyph(code):
 
 
 # --------------------------------------------------------------------------
+# 3b. オーバーライン(0x7E) — ルールから生成（unscii-8にU+203Eが無いため）
+# --------------------------------------------------------------------------
+def overline_glyph():
+    """JIS X0201 の 0x7E（‾ オーバーライン、U+203E）。
+
+    横棒1本という形自体が「セルの最上段ラインを点灯させる」という幾何規則
+    そのものなので、セミグラフィックと同じ扱いでルールから生成する
+    （unscii-8.hex には U+203E が無く、代用も置かない。実装セッションで確認）。
+    ASCIIチルダ(U+007E)の字形は使わない——チルダは波線でオーバーラインとは
+    別の文字。
+    """
+    return ("########",) + ("........",) * (CELL_BYTES - 1)
+
+
+# --------------------------------------------------------------------------
 # 4. 組み立て
 # --------------------------------------------------------------------------
 def rows_to_bytes(rows):
@@ -793,10 +811,12 @@ def build_ank_plane(unscii_table):
     undetermined = []
     for code in range(256):
         glyph = None
-        if code in KANA_CODE_TO_UNICODE:
+        if code == 0x7E:
+            glyph = rows_to_bytes(overline_glyph())
+        elif code in KANA_CODE_TO_UNICODE:
             cp = KANA_CODE_TO_UNICODE[code]
             glyph = rows_to_bytes(KANA_ART[cp])
-        elif 0x20 <= code <= 0x7E:
+        elif 0x20 <= code <= 0x7D:
             cp = latin_code_to_unicode(code)
             data = unscii_table.get(cp)
             if data is None:

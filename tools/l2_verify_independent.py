@@ -101,14 +101,29 @@ def independent_semigraphic(code):
     return bytes(row_bytes)
 
 
+def independent_overline():
+    """0x7E（オーバーライン、U+203E）を独立実装で組み立てる。
+
+    make_font_rom.overline_glyph は「8行のASCIIアート文字列を作ってから
+    rows_to_bytes で変換する」という他のグリフと同じ経路を通る。
+    ここでは経路そのものを変え、ASCIIアートを経由せず整数演算で直接
+    バイト列を組む（最上段=0xFF、残り7行=0x00、というビット演算の結果を
+    直接 bytes() に渡す）。値が一致していても「文字グリッドの記述」と
+    「バイト値の直接計算」という別の道筋から同じ結論に達している。
+    """
+    return bytes([0xFF] + [0x00] * (CELL_BYTES - 1))
+
+
 def build_independent_rom(unscii_hex_path, break_it=False):
     unscii_table = independent_parse_unscii_hex(unscii_hex_path)
     ank = bytearray(PLANE_BYTES)
     for code in range(256):
-        if code in gen.KANA_CODE_TO_UNICODE:
+        if code == 0x7E:
+            glyph = independent_overline()
+        elif code in gen.KANA_CODE_TO_UNICODE:
             cp = gen.KANA_CODE_TO_UNICODE[code]
             glyph = independent_pack_glyph(gen.KANA_ART[cp], break_it=break_it)
-        elif 0x21 <= code <= 0x7E:
+        elif 0x21 <= code <= 0x7D:
             cp = gen.latin_code_to_unicode(code)
             data = unscii_table.get(cp)
             if data is None:
