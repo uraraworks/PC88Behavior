@@ -1,0 +1,292 @@
+diff --git a/src/LIBRETRO/libretro.c b/src/LIBRETRO/libretro.c
+index ab9bc38..be343ac 100644
+--- a/src/LIBRETRO/libretro.c
++++ b/src/LIBRETRO/libretro.c
+@@ -15,7 +15,8 @@
+ #include "pc88main.h"
+ #include "pc88sub.h"
+ #include "memory.h"
+-#include "font.h"
++/* PC88Behavior: font.h（built_in_font_*、出所不明）は削除した。
++ * q88h_fontsrc.h だけで足りる（詳細は memory.c 冒頭のコメント参照）。 */
+ #include "q88h_fontsrc.h"
+ #include "emu.h"
+ #include "drive.h"
+@@ -130,6 +131,9 @@ static bool     *pad_buffer                     = NULL;
+ static bool      rumble_enabled                 = true;
+ /* PC88Behavior: 必須 ROM が揃ったか。揃わなければ retro_load_game を失敗させる */
+ static bool      q88h_rom_ok                    = false;
++/* PC88Behavior: KNJ1.ROM の読み込みに実際に成功したか。フォント読み込みの
++ * ANK フォールバック判断に使う（詳細は retro_init 内のコメント参照） */
++static bool      q88h_knj1_loaded               = false;
+ static char      download_dir[OSD_MAX_FILENAME] = { '\0' };
+ static char      system_dir[OSD_MAX_FILENAME]   = { '\0' };
+ 
+@@ -491,8 +495,27 @@ static bool load_system_file(uint8_t bios_index, byte *rom_data, uint32_t rom_si
+ 
+          if (file)
+          {
+-            filestream_read(file, rom_data, rom_size);
++            /* PC88Behavior: 上流は filestream_read() の戻り値（実際に読めた
++             * バイト数）を見ておらず、open さえできれば成功扱いにしていた
++             * （l2-font.md 3節「塞ぐ方針」4）。ファイルが期待サイズより
++             * 小さい・読み込み中に失敗した場合を「成功」として扱うと、
++             * 呼び出し側は「ROM が正しく揃っている」という前提で以後の
++             * 上書き抑制判断をすることになり、実際には壊れたデータを
++             * 正規のROM内容として使ってしまう。戻り値を確認し、期待サイズと
++             * 一致しない場合は失敗として扱う。 */
++            int64_t nread = filestream_read(file, rom_data, rom_size);
+             filestream_close(file);
++
++            if (nread != (int64_t)rom_size)
++            {
++               if (log_cb)
++                  log_cb(RETRO_LOG_ERROR,
++                         "[PC88Behavior]: %s は開けたが期待サイズぶん読めなかった"
++                         " (読めた=%lld 期待=%u)。失敗として扱う。\n",
++                         rom_filename, (long long)nread, rom_size);
++               return false;
++            }
++
+             if (log_cb)
+                log_cb(RETRO_LOG_INFO, "[QUASI88]: Loaded %s (0x%08X)\n", rom_filename, rom_size);
+ 
+@@ -591,64 +614,82 @@ void retro_init(void)
+    load_system_file(EXT2_ROM,  main_rom_ext[2], 0x02000);
+    load_system_file(EXT3_ROM,  main_rom_ext[3], 0x02000);
+    load_system_file(N_ROM,     main_rom_n,      0x08000);
+-   load_system_file(KNJ1_ROM,  kanji_rom[0][0], 0x20000);
++   /* PC88Behavior: has_kanji_rom（memory.c 側）はこのビルドでは常に FALSE の
++    * ままで（osd_dir_rom() が libretro 版では設定されず memory_allocate() の
++    * 内部ロードが必ず失敗するため）、実際に漢字ROMが読めたかどうかの判定に
++    * 使えない。ここで実際の読み込み結果を自前で保持し、フォント読み込みの
++    * ANK フォールバック判断（下記）に使う——「未確認のバッファをフォントと
++    * して使わない」（l2-font.md 3節「塞ぐ方針」5）。 */
++   q88h_knj1_loaded = load_system_file(KNJ1_ROM,  kanji_rom[0][0], 0x20000);
+    load_system_file(KNJ2_ROM,  kanji_rom[1][0], 0x20000);
+    load_system_file(JISHO_ROM, jisho_rom[0],    0x80000);
+ 
+    /* == Font files ==
+-    * PC88Behavior 計測ハーネス: フォント供給源の可視化（M5下ごしらえ、第1段階）。
+-    * memory_allocate() が直前（559行）で font_mem 系を一度埋めているが、
+-    * ここから下がそれを無条件に上書きする「二重ロード」になっている
+-    * （docs/spec/l2-font.md 3節）。この段階では挙動そのものはまだ変えず、
+-    * どの分岐が実際に通ったかをタグと件数だけで可視化する。
+-    * font.h 削除・挙動修正は次のコミットで行う。 */
++    * PC88Behavior: font.h（built_in_font_ANK/ANH/graph、出所不明）は削除した。
++    * 併せて l2-font.md 3節が挙げた「ROM読み込みに成功しても中身を上書きする」
++    * すり替わり経路を閉じる:
++    *   - 成功時は load_system_file() が font_mem* へ直接読み込んだ内容を
++    *     一切上書きしない（旧コードは成功時にも built_in_font_* や
++    *     kanji_rom 由来データで踏みつぶしていた）
++    *   - 失敗時の代替は built_in_font_* ではなく 0 埋めにし、
++    *     q88h_fontsrc で「供給源が無い」ことを明示する
++    *   - ANK の漢字ROMフォールバックは q88h_knj1_loaded（実際に KNJ1.ROM の
++    *     読み込みに成功したか）を確認してから使う。未確認のバッファを
++    *     フォントとして使わない（3節「塞ぐ方針」5） */
+ 
+    /* Font 1（実際に画面へ出る唯一のフォント。l2-font.md 1節） */
+    if (load_system_file(FONT_ROM, font_mem, 0x01000))
+    {
++      /* 読み込み成功: ANK・グラフィックとも読み込んだ内容をそのまま使う */
+       font_loaded |= 1;
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK,   Q88H_FONTSRC_ROM_FILE,
++                        &font_mem[0x000], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_ROM_FILE,
++                        &font_mem[0x800], 0x800);
++   }
++   else if (q88h_knj1_loaded)
++   {
++      /* FONT.ROM が無いが KANJI1.ROM は実在して読み込めている場合のみ、
++       * 上流の想定どおり ANK 代わりに使う（l2-font.md 2節）。
++       * グラフィック半分の代替データは持っていないので 0 埋め。 */
+       memcpy(&font_mem[0x000], &kanji_rom[0][(1<<11)][0], 0x800);
+-      memcpy(&font_mem[0x800], &built_in_font_graph[0],   0x800);
++      memset(&font_mem[0x800], 0, 0x800);
+       q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK,   Q88H_FONTSRC_KANJI_DERIVED,
+                         &font_mem[0x000], 0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                        &font_mem[0x800], 0x800);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++                        NULL, 0);
+    }
+    else
+    {
+-      memcpy(&font_mem[0x000], &built_in_font_ANK[0],     0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                        &font_mem[0x000], 0x800);
++      memset(&font_mem[0x000], 0, 0x1000);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_ANK,   Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
+    }
+ 
+-   /* Font 2（描画には使われない死んだ経路。l2-font.md 1節） */
++   /* Font 2（描画には使われない死んだ経路。l2-font.md 1節）。
++    * 同じ方針で揃えるが、画面に効かないためANK専用のフォールバックは無い。 */
+    if (load_system_file(FONT2_ROM, font_mem2, 0x01000))
+    {
+       font_loaded |= 2;
+-      memcpy(&font_mem2[0x000], &built_in_font_ANH[0],    0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_ROM_FILE,
+                         &font_mem2[0x000], 0x800);
+       q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_ROM_FILE,
+                         &font_mem2[0x800], 0x800);
+    }
+    else
+    {
+-      memcpy(&font_mem2[0x000], &built_in_font_ANH[0],    0x800);
+-      memcpy(&font_mem2[0x800], &built_in_font_graph[0],  0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                        &font_mem2[0x000], 0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                        &font_mem2[0x800], 0x800);
++      memset(&font_mem2[0], 0, 0x1000);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_UNAVAILABLE, NULL, 0);
+    }
+ 
+    /* Font 3（描画には使われない死んだ経路。l2-font.md 1節） */
+    if (load_system_file(FONT3_ROM, font_mem3, 0x01000))
+    {
+       font_loaded |= 4;
+-      memcpy(&font_mem3[0x800], &built_in_font_graph[0],  0x800);
+       q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_ROM_FILE,
+                         &font_mem3[0x000], 0x800);
+-      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
++      q88h_fontsrc_set(Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_ROM_FILE,
+                         &font_mem3[0x800], 0x800);
+    }
+    else
+diff --git a/src/memory.c b/src/memory.c
+index dda8119..56423db 100644
+--- a/src/memory.c
++++ b/src/memory.c
+@@ -43,14 +43,17 @@ int	linear_ext_ram = TRUE;			/* 拡張RAMを連続させる	*/
+ /*----------------------------------------------------------------------*/
+ /* 内蔵フォントデータ							*/
+ /*----------------------------------------------------------------------*/
+-#include "font.h"
+-
+-/* PC88Behavior 計測ハーネス: フォント供給源の可視化（M5 下ごしらえ、第1段階）。
+- * どの font_mem 系領域が、どの供給源で埋まったかをタグと件数だけで記録する
+- * （グリフのバイト列は出力しない。q88h_fontsrc.h 参照）。
+- * この段階では built_in_font_* の使用そのものはまだ変更しない
+- * ——「可視化」と「font.h 削除・挙動修正」を別コミットに分ける方針
+- *   （docs/notes/m5-font-survey.md、CLAUDE.md コミット規律）。 */
++/* PC88Behavior: font.h（built_in_font_ANK/ANH/graph、出所不明）は削除した。
++ * 「使わない」ではなく「持っていない」状態にする（CLAUDE.md、M1で疑似BIOS/
++ * 逆アセンブラを削除したのと同じ扱い）。削除は setup_harness.sh の rm で行う
++ * ——unified diff の中に消したいバイト列が丸ごと入るのを避けるため、
++ * このパッチでは「参照しない」ところまでしか表現しない。
++ *
++ * 以下の各分岐は、旧コードが built_in_font_* を使っていた箇所を
++ * 「代替データを持たない」ことが分かる 0 埋めに置き換える。
++ * font_mem（実際に画面へ出る唯一の経路。l2-font.md 1節）については、
++ * さらに「ROM読み込みに成功した内容を上書きしない」よう分岐そのものを
++ * 直す（l2-font.md 3節「塞ぐ方針」1・2）。 */
+ #include "q88h_fontsrc.h"
+ 
+ 
+@@ -428,9 +431,11 @@ int	memory_allocate( void )
+ 
+   if( use_built_in_font ){
+ 
+-    memcpy( &font_mem[0], &built_in_font_ANK[0], 0x100*8 );
+-    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                       &font_mem[0], 0x100*8 );
++    /* font.h（built_in_font_ANK、出所不明）は削除済み。代替データを
++     * 持たないので 0 埋め＝空白グリフにし、供給源が無いことを明示する。 */
++    memset( &font_mem[0], 0, 0x100*8 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_UNAVAILABLE,
++                       NULL, 0 );
+ 
+   }else{
+ 
+@@ -453,10 +458,10 @@ int	memory_allocate( void )
+ 	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_KANJI_DERIVED,
+ 	                   &font_mem[0], 0x100*8 );
+       }else{
+-	memcpy( &font_mem[0], &built_in_font_ANK[0], 0x100*8 );
++	memset( &font_mem[0], 0, 0x100*8 );
+ 	font_loaded &= ~1;
+-	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-	                   &font_mem[0], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_UNAVAILABLE,
++	                   NULL, 0 );
+       }
+     }else{
+       q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_ANK, Q88H_FONTSRC_ROM_FILE,
+@@ -464,9 +469,13 @@ int	memory_allocate( void )
+     }
+   }
+ 
+-  memcpy( &font_mem[0x100*8], &built_in_font_graph[0], 0x100*8 );
+-  q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                     &font_mem[0x100*8], 0x100*8 );
++  /* グラフィック半分（セミグラフィック文字）: font.h 削除前は built_in_font_graph
++   * で埋めていたが、その代替データを持っていない。0 埋めで明示する
++   * （l2-font.md 7節「セミグラフィックコードの実際の用途」は未調査のまま
++   * 残っており、代替データをどう用意するかは L2 実装時の課題）。 */
++  memset( &font_mem[0x100*8], 0, 0x100*8 );
++  q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT1_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++                     NULL, 0 );
+ 
+ 
+ 
+@@ -474,12 +483,11 @@ int	memory_allocate( void )
+ 
+   if( use_built_in_font ){
+ 
+-    memcpy( &font_mem2[0],       &built_in_font_ANH[0],   0x100*8 );
+-    memcpy( &font_mem2[0x100*8], &built_in_font_graph[0], 0x100*8 );
+-    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                       &font_mem2[0],       0x100*8 );
+-    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                       &font_mem2[0x100*8], 0x100*8 );
++    memset( &font_mem2[0], 0, FONT_SZ*2 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK,   Q88H_FONTSRC_UNAVAILABLE,
++                       NULL, 0 );
++    q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++                       NULL, 0 );
+ 
+   }else{
+ 
+@@ -502,15 +510,15 @@ int	memory_allocate( void )
+       if( size == FONT_SZ ){
+ 	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK, Q88H_FONTSRC_ROM_FILE,
+ 	                   &font_mem2[0], 0x100*8 );
+-      }else{			/* 存在しない場合は、内蔵フォントを使用 */
+-	memcpy( &font_mem2[0],     &built_in_font_ANH[0],   0x100*8 );
++      }else{			/* 存在しない場合は、代替データ無し(0埋め)を使用 */
++	memset( &font_mem2[0], 0, 0x100*8 );
+ 	font_loaded &= ~2;
+-	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-	                   &font_mem2[0], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_ANK, Q88H_FONTSRC_UNAVAILABLE,
++	                   NULL, 0 );
+       }
+-      memcpy( &font_mem2[0x100*8], &built_in_font_graph[0], 0x100*8 );
+-      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-                         &font_mem2[0x100*8], 0x100*8 );
++      memset( &font_mem2[0x100*8], 0, 0x100*8 );
++      q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT2_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++                         NULL, 0 );
+     }
+ 
+   }
+@@ -545,11 +553,11 @@ int	memory_allocate( void )
+                          &font_mem3[0x100*8], 0x100*8 );
+     }else{
+       if( size == FONT_SZ ){
+-	memcpy( &font_mem3[0x100*8], &built_in_font_graph[0], 0x100*8 );
++	memset( &font_mem3[0x100*8], 0, 0x100*8 );
+ 	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_ANK,   Q88H_FONTSRC_ROM_FILE,
+ 	                   &font_mem3[0], 0x100*8 );
+-	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_BUILTIN_UNKNOWN,
+-	                   &font_mem3[0x100*8], 0x100*8 );
++	q88h_fontsrc_set( Q88H_FONTSRC_REGION_FONT3_GRAPH, Q88H_FONTSRC_UNAVAILABLE,
++	                   NULL, 0 );
+ 
+       }else{			/* 存在しない場合は、透明フォントを使用 */
+ 	memset( &font_mem3[0], 0, FONT_SZ*2 );
