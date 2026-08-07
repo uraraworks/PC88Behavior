@@ -118,13 +118,70 @@ def _in_comm_window(port: str) -> bool:
     return COMM_WINDOW_LO <= v <= COMM_WINDOW_HI
 
 
+def _collapse_consecutive(events: list[IoEvent]) -> list[IoEvent]:
+    """同一ポートの列から、直前と同値の連続(ポーリング読み)を1件に畳む。
+
+    残るのは各「値が変化した瞬間」のイベントのみ(先頭は必ず残す)。
+    引数は既にseq昇順(発生順)であることを前提とする。
+    """
+    collapsed: list[IoEvent] = []
+    prev_value = None
+    for e in events:
+        if prev_value is None or e.value != prev_value:
+            collapsed.append(e)
+        prev_value = e.value
+    return collapsed
+
+
+def _match_backward(
+    out_events_by_port: dict[str, list[IoEvent]],
+    out_frames_by_port: dict[str, list[int]],
+    ip_events: list[IoEvent],
+) -> dict[str, tuple[int, int, int]]:
+    """各INイベントについて、そのport(の相手候補OUTポート op)ごとに
+    「frameがそのIN以前で最も近いOUTイベント」を探し、一致/不一致/対応なしを集計する。
+
+    戻り値: op -> (match, mismatch, no_preceding)
+    """
+    result: dict[str, tuple[int, int, int]] = {}
+    for op, op_frames in out_frames_by_port.items():
+        op_events = out_events_by_port[op]
+        match = 0
+        mismatch = 0
+        no_preceding = 0
+        for ie in ip_events:
+            # ie.frame以下で最大のOUT frameのインデックス(直前の最も近いOUT)
+            idx = bisect.bisect_right(op_frames, ie.frame) - 1
+            if idx < 0:
+                no_preceding += 1
+                continue
+            oe = op_events[idx]
+            if oe.value == ie.value:
+                match += 1
+            else:
+                mismatch += 1
+        result[op] = (match, mismatch, no_preceding)
+    return result
+
+
 def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
-    print("## Q1 データ経路の実証: (OUTポート -> INポート) 値一致率・順序判定", file=out)
+    print("## Q1 データ経路の実証: (OUTポート -> INポート) 値一致率・対応付け", file=out)
     print(
         f"  (通信窓口として指定された ${COMM_WINDOW_LO:04X}-${COMM_WINDOW_HI:04X} の"
         f" ポートのみを対象にする。範囲外はCRTC/FDC等の無関係なハードウェアポートで"
         f" ノイズになるため除外。サンプル数 {MIN_SAMPLE} 未満のペアも偶然一致の"
         f" 可能性が高いため除外。)",
+        file=out,
+    )
+    print(
+        "  第2版での変更点: (1) 対応付けをIN単位に反転し、各INに対して"
+        "「それ以前で最も近い、当該ポートへの相手CPUのOUT」を探す方式にした"
+        "(第1版はOUT単位で「それ以降最初のIN」を探しており、離れたOUTが同じ"
+        "近傍INに多重対応する粗さがあった)。"
+        "(2) 同一ポート・同一値の連続読み(ポーリング)を1件に畳んだ"
+        "「変化時のみ」の一致率を、畳む前(raw)と併記する。"
+        "順序は対応付けの定義上、直前のOUTを探すため必ず満たされる"
+        "(「対応OUTが見つからない=no_preceding」のケースのみ別掲する)。",
         file=out,
     )
     print(file=out)
@@ -146,64 +203,105 @@ def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
             print("  (OUTまたはINイベントが無く判定不能)", file=out)
             print(file=out)
             continue
-        out_ports = sorted(set(e.port for e in outs))
-        in_ports = sorted(set(e.port for e in ins))
-        # INイベントをport別にframe/seq順のリストとして保持し、各OUTに対し
-        # 直後(seq/frame的に後)で最も近い同値INを探す、という単純な追跡は
-        # 別々のCPUクロックなので厳密比較ができない。そのため frame を
-        # 共通の疎な時間軸として使い、「OUT.frame <= IN.frame」を順序条件、
-        # 「値が一致」を一致条件とし、ポートペアごとに集計する。
+
+        # OUT側: port別にframe昇順で保持(bisect用)。元の並びはseq昇順=発生順。
+        outs_by_port: dict[str, list[IoEvent]] = defaultdict(list)
+        for e in outs:
+            outs_by_port[e.port].append(e)
+        out_frames_by_port: dict[str, list[int]] = {}
+        for op, evs in outs_by_port.items():
+            evs.sort(key=lambda e: e.frame)
+            out_frames_by_port[op] = [e.frame for e in evs]
+
+        # IN側: port別のraw列とcollapsed(値変化時のみ)列
         ins_by_port: dict[str, list[IoEvent]] = defaultdict(list)
         for e in ins:
             ins_by_port[e.port].append(e)
-        # frame昇順のインデックス配列(bisect用)。元のイベント列は既に
-        # seq昇順=frame昇順で入っているはずだが、念のためソートしておく。
-        ins_frames_by_port: dict[str, list[int]] = {}
         for ip, evs in ins_by_port.items():
-            evs.sort(key=lambda e: e.frame)
-            ins_frames_by_port[ip] = [e.frame for e in evs]
+            evs.sort(key=lambda e: (e.frame, e.seq))
 
+        in_ports = sorted(ins_by_port)
         results = []
-        for op in out_ports:
-            op_events = [e for e in outs if e.port == op]
-            for ip in in_ports:
-                ip_events = ins_by_port[ip]
-                ip_frames = ins_frames_by_port[ip]
-                if not ip_events:
+        for ip in in_ports:
+            raw_ins = ins_by_port[ip]
+            collapsed_ins = _collapse_consecutive(raw_ins)
+            raw_stats = _match_backward(outs_by_port, out_frames_by_port, raw_ins)
+            collapsed_stats = _match_backward(outs_by_port, out_frames_by_port, collapsed_ins)
+            for op in sorted(out_frames_by_port):
+                r_match, r_mismatch, r_nopre = raw_stats[op]
+                c_match, c_mismatch, c_nopre = collapsed_stats[op]
+                r_total = r_match + r_mismatch
+                c_total = c_match + c_mismatch
+                if r_total < MIN_SAMPLE and c_total < MIN_SAMPLE:
                     continue
-                match = 0
-                mismatch = 0
-                order_ok = 0
-                order_bad = 0
-                # 各OUT値について、同フレーム以降で同ポートに現れた最初のINと
-                # bisectでO(log n)比較(厳密な1:1対応ではなく傾向を見る)
-                for oe in op_events:
-                    idx = bisect.bisect_left(ip_frames, oe.frame)
-                    if idx >= len(ip_events):
-                        continue
-                    found = ip_events[idx]
-                    if found.value == oe.value:
-                        match += 1
-                    else:
-                        mismatch += 1
-                    if found.frame >= oe.frame:
-                        order_ok += 1
-                    else:
-                        order_bad += 1
-                total = match + mismatch
-                if total < MIN_SAMPLE:
-                    continue
-                rate = match / total if total else 0.0
-                results.append((op, ip, match, mismatch, rate, order_ok, order_bad))
-        results.sort(key=lambda r: -r[4])
+                r_rate = r_match / r_total if r_total else 0.0
+                c_rate = c_match / c_total if c_total else 0.0
+                results.append(
+                    (op, ip, r_match, r_mismatch, r_nopre, r_rate, c_match, c_mismatch, c_nopre, c_rate)
+                )
+        # 畳んだ後(値が変化した瞬間)の一致率で降順ソート — ポーリングの水増しを
+        # 除いた「本当に効いていそうな」ペアを上に出す。
+        results.sort(key=lambda r: -r[9])
         if not results:
             print("  (比較可能なペアなし)", file=out)
-        for op, ip, match, mismatch, rate, order_ok, order_bad in results:
+        for op, ip, r_m, r_mm, r_np, r_rate, c_m, c_mm, c_np, c_rate in results:
             print(
-                f"  OUT {op} -> IN {ip}: 一致 {match} / 不一致 {mismatch} "
-                f"(一致率 {rate*100:.1f}%), 順序(OUT.frame<=IN.frame) {order_ok}/{order_ok+order_bad}",
+                f"  OUT {op} -> IN {ip}:",
                 file=out,
             )
+            print(
+                f"    畳む前(raw)    : 一致 {r_m} / 不一致 {r_mm} (一致率 {r_rate*100:.1f}%)"
+                f" [対応OUTなし {r_np} 件は分母外]",
+                file=out,
+            )
+            print(
+                f"    値変化時のみ(collapsed): 一致 {c_m} / 不一致 {c_mm} (一致率 {c_rate*100:.1f}%)"
+                f" [対応OUTなし {c_np} 件は分母外]",
+                file=out,
+            )
+        print(file=out)
+
+
+def analyze_control_vs_data_ports(io: dict[str, list[IoEvent]], out) -> None:
+    print("## Q1補助 制御ポート/データポートの判定: OUT値の異なり数と分布", file=out)
+    print(
+        "  データポートなら書き込まれる値は広く散る(ユニーク値数が多い)はず。"
+        "制御ポート/ストローブなら少数の値(典型的にはコマンド語)に集中するはず。"
+        "この節はその区別を数字で出すためのもので、経路の当否そのものは判定しない。",
+        file=out,
+    )
+    print(file=out)
+    for cpu in ("main", "sub"):
+        outs = [e for e in io[cpu] if e.kind == "OUT" and _in_comm_window(e.port)]
+        by_port: dict[str, Counter[int]] = defaultdict(Counter)
+        for e in outs:
+            by_port[e.port][e.value] += 1
+        if not by_port:
+            print(f"  ({cpu}: 通信窓口へのOUTイベントなし)", file=out)
+            continue
+        print(f"### {cpu} が OUT したポート", file=out)
+        for port in sorted(by_port):
+            counter = by_port[port]
+            total = sum(counter.values())
+            unique = len(counter)
+            top = counter.most_common(5)
+            top_str = ", ".join(f"{v:02X}={c}({c/total*100:.0f}%)" for v, c in top)
+            # 単純な目安: 上位1値が90%以上を占め、かつユニーク値が8以下なら
+            # 「制御ポート的」、そうでなければ「データポート的」と仮ラベルする。
+            # あくまで目安であり断定ではない。
+            top1_share = top[0][1] / total if top else 0.0
+            if unique <= 8 and top1_share >= 0.9:
+                label = "制御ポート的(少数値に集中)"
+            elif unique >= 32:
+                label = "データポート的(広く散る)"
+            else:
+                label = "中間的(断定不可)"
+            print(
+                f"  OUT {port} (n={total}, ユニーク値数={unique}, 上位1値占有率={top1_share*100:.0f}%): "
+                f"{label}",
+                file=out,
+            )
+            print(f"    上位値: {top_str}", file=out)
         print(file=out)
 
 
@@ -345,6 +443,7 @@ def main() -> None:
         print(file=out)
 
         analyze_q1_data_path(io, out)
+        analyze_control_vs_data_ports(io, out)
         analyze_q2_status_bits(io, out)
         analyze_q3_interrupt_source(io, intlog, out, n=args.int_window)
         analyze_q4_repeat_units(io, out)
