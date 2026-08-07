@@ -68,3 +68,44 @@ echo "OK: 2000 入口 BC=1234 DE=5678 HL=9ABC"
 
 say "合格"
 echo "トラップROM足場（exec 2件・data 1件・入口レジスタ・回数）が末端まで届いている。"
+
+say "全域トラップROM（自作の埋め草バイト、公式ROM不使用）を生成（stop モード用）"
+mkdir -p "$WORK/rom-all"
+python3 "$REPO/tools/harness/make_trap_rom.py" "$WORK/rom-all"
+
+say "疎通試験（stop モード）— HALT の再フェッチで回数が水増しされないことを確認"
+# STOP モードでは 0x0000 が即座にトラップに落ち、q88h_fetch が 0x76(HALT) を
+# 返してその場に留まる。Z80 の HALT は割り込みが来るまで同じ PC を
+# 再フェッチし続けるので、フレームを複数またいで走らせないと
+# 「1回だけ要求されて記録が重複していない」ことは確認できない
+# （1フレームで止めると重複が起きる前に測定が終わってしまう）。
+OUT_STOP="$WORK/trace-stop.txt"
+"$REPO/tools/harness/frontend/q88measure" \
+  --core "$CORE" \
+  --rom-dir "$WORK/rom-all" \
+  --frames 60 \
+  --out "$OUT_STOP" \
+  --trap-map "$WORK/rom-all/trap.map" \
+  --trap-mode stop \
+  --trap-stop-after 64 \
+  2> "$WORK/stderr-stop.txt" || true
+cat "$WORK/stderr-stop.txt" >&2
+
+say "STOP モードで停止した番地(0000)の回数が1であることを確認"
+if ! grep -qE '^ +0000 +回数=1 ' "$OUT_STOP"; then
+  echo "NG: 0x0000 の回数が1でない（HALT の再フェッチが記録され続けている）。以下は該当行:" >&2
+  grep '0000' "$OUT_STOP" >&2 || true
+  exit 1
+fi
+echo "OK: 0000 回数=1"
+
+say "STOP モードの総イベント数が1件であることを確認"
+if ! grep -qE '取りこぼし: 0件 / 総イベント数: 1件' "$OUT_STOP"; then
+  echo "NG: 総イベント数が1件でない。以下は該当行:" >&2
+  grep '総イベント数' "$OUT_STOP" >&2 || true
+  exit 1
+fi
+echo "OK: 総イベント数=1件"
+
+say "合格（stop モード）"
+echo "HALT による同一番地の再フェッチが、トラップ記録の水増しを起こさないことを確認した。"

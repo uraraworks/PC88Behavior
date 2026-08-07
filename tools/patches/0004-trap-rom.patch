@@ -11,10 +11,10 @@ index 84ba0a9..e7c02ff 100644
     $(CORE_DIR)/screen-16bpp.c \
     $(CORE_DIR)/screen-snapshot.c \
 diff --git a/src/pc88main.c b/src/pc88main.c
-index e6a2374..259f7a6 100644
+index e6a2374..d8ff9f1 100644
 --- a/src/pc88main.c
 +++ b/src/pc88main.c
-@@ -2957,23 +2957,72 @@ void	main_io_out_with_BP( byte port, byte data )
+@@ -2957,23 +2957,86 @@ void	main_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -46,13 +46,24 @@ index e6a2374..259f7a6 100644
    t->n_exec++;
 +
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
-+    word caller = main_mem_read( z80main_cpu.SP.W )
-+                | (main_mem_read( (word)(z80main_cpu.SP.W + 1) ) << 8);
++    /* STOPモードで既に stopped が立っているなら、この fetch は
++     * HALT が同じPCを舐めているだけで新しい要求ではない。記録も
++     * 回数加算もせず、そのまま同じ 0x76 を返して停止状態を保つ。
++     * （q88h_trap_record は「起きた事実を書く」関数なので、
++     * 「起きたかどうか」の判断はここ＝呼び手の責任で済ませる） */
++    if( tp->mode == Q88H_TRAP_STOP && tp->stopped ){
++      return 0x76;
++    }
 +
-+    q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
-+                       caller, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
-+                       z80main_cpu.AF.W, z80main_cpu.BC.W,
-+                       z80main_cpu.DE.W, z80main_cpu.HL.W );
++    {
++      word caller = main_mem_read( z80main_cpu.SP.W )
++                  | (main_mem_read( (word)(z80main_cpu.SP.W + 1) ) << 8);
++
++      q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
++                         caller, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
++                         z80main_cpu.AF.W, z80main_cpu.BC.W,
++                         z80main_cpu.DE.W, z80main_cpu.HL.W );
++    }
 +
 +    if( tp->mode == Q88H_TRAP_RET ){
 +      return 0xC9;                     /* RET  — 呼び元へ即座に返す */
@@ -78,8 +89,11 @@ index e6a2374..259f7a6 100644
 -  return main_mem_read( addr );
 +  v = main_mem_read( addr );
 +
-+  /* データアクセスは値を差し替えない。挙動を変えるのは実行アクセスだけ。 */
-+  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++  /* データアクセスは値を差し替えない。挙動を変えるのは実行アクセスだけ。
++   * STOPモードで既に停止済みのあとのデータ読みも exec と同じ理由で
++   * 意味が無いので、記録しない扱いに揃える。 */
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr]
++      && !(tp->mode == Q88H_TRAP_STOP && tp->stopped) ){
 +    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
 +                       0, z80main_cpu.PC_prev.W, z80main_cpu.SP.W,
 +                       z80main_cpu.AF.W, z80main_cpu.BC.W,
@@ -91,10 +105,10 @@ index e6a2374..259f7a6 100644
  
  static void q88h_mem_write( word addr, byte data )
 diff --git a/src/pc88sub.c b/src/pc88sub.c
-index 1688cd6..dcdf865 100644
+index 1688cd6..9d2f2a0 100644
 --- a/src/pc88sub.c
 +++ b/src/pc88sub.c
-@@ -392,23 +392,60 @@ void	sub_io_out_with_BP( byte port, byte data )
+@@ -392,23 +392,72 @@ void	sub_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -115,13 +129,22 @@ index 1688cd6..dcdf865 100644
    t->n_exec++;
 +
 +  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
-+    word caller = sub_mem_read( z80sub_cpu.SP.W )
-+                | (sub_mem_read( (word)(z80sub_cpu.SP.W + 1) ) << 8);
++    /* STOPモードで既に stopped が立っているなら、この fetch は
++     * HALT が同じPCを舐めているだけで新しい要求ではない。記録も
++     * 回数加算もせず、そのまま同じ 0x76 を返して停止状態を保つ。 */
++    if( tp->mode == Q88H_TRAP_STOP && tp->stopped ){
++      return 0x76;
++    }
 +
-+    q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
-+                       caller, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
-+                       z80sub_cpu.AF.W, z80sub_cpu.BC.W,
-+                       z80sub_cpu.DE.W, z80sub_cpu.HL.W );
++    {
++      word caller = sub_mem_read( z80sub_cpu.SP.W )
++                  | (sub_mem_read( (word)(z80sub_cpu.SP.W + 1) ) << 8);
++
++      q88h_trap_record( tp, addr, Q88H_TRAP_EXEC,
++                         caller, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
++                         z80sub_cpu.AF.W, z80sub_cpu.BC.W,
++                         z80sub_cpu.DE.W, z80sub_cpu.HL.W );
++    }
 +
 +    if( tp->mode == Q88H_TRAP_RET ){
 +      return 0xC9;                     /* RET */
@@ -147,7 +170,10 @@ index 1688cd6..dcdf865 100644
 -  return sub_mem_read( addr );
 +  v = sub_mem_read( addr );
 +
-+  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr] ){
++  /* STOPモードで既に停止済みのあとのデータ読みも exec と同じ理由で
++   * 意味が無いので、記録しない扱いに揃える。 */
++  if( tp->mode != Q88H_TRAP_OFF && tp->map[addr]
++      && !(tp->mode == Q88H_TRAP_STOP && tp->stopped) ){
 +    q88h_trap_record( tp, addr, Q88H_TRAP_DATA,
 +                       0, z80sub_cpu.PC_prev.W, z80sub_cpu.SP.W,
 +                       z80sub_cpu.AF.W, z80sub_cpu.BC.W,
