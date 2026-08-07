@@ -15,18 +15,18 @@ type      : \n | FILES\n
    5| 48660 Bytes free
    6| Ok
    7| files
-   8| dtools.j88 1    dtools*bin 5    @cc4h .j88 1    @cc4h *rel 1    @cc4h *map 1
-   9| @cc4h *bin 2    @cc4v .j88 1    @cc4v *rel 1    @cc4v *map 1    @cc4v *bin 2
-  10| @cc4m .j88 1    @cc4m *rel 1    @cc4m *map 1    @cc4m *bin 2    @cc2  .j88 1
-  11| @cc2  *rel 1    @cc2  *map 1    @cc2  *bin 2    fm    *ipl 1    fmv2a *bin 5
-  12| fmv2b *bin 3    fmv2c *bin 2    mek   .    3    sks   .    7    r-play.j88 8
-  13| stone .j88 2    stone *m88 1    flcnv .ut  4    COMMON*COM 5    SYUNBS*COM 2
-  14| JTCNVS*COM 2    YUCNV *COM 1    YUCNV1*COM 2    ktran .j88 1    ktran .ex  14
-  15| BLSUB *M   2    GAME  .    7
+   8| (ディスクのファイル一覧は伏せた)
+   9| (ディスクのファイル一覧は伏せた)
+  10| (ディスクのファイル一覧は伏せた)
+  11| (ディスクのファイル一覧は伏せた)
+  12| (ディスクのファイル一覧は伏せた)
+  13| (ディスクのファイル一覧は伏せた)
+  14| (ディスクのファイル一覧は伏せた)
+  15| (ディスクのファイル一覧は伏せた)
   16| Ok
   19|       load "        auto          go to         list          run
 
-[メインCPU] 総アクセス回数: exec=20085752 read=19508174 write=6156475 in=81430 out=36766
+[メインCPU] 総アクセス回数: exec=20085300 read=19507111 write=6156694 in=81465 out=36834
 
 [[メインCPU] 実行された番地 (fetch)]
   0000-0001  (2)

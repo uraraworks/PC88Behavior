@@ -17,13 +17,13 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
    6| File write protected
    7| Ok
    8| files
-   9| dtools.j88 1    dtools*bin 5    @cc4h .j88 1    @cc4h *rel 1    @cc4h *map 1
-  10| @cc4h *bin 2    @cc4v .j88 1    @cc4v *rel 1    @cc4v *map 1    @cc4v *bin 2
-  11| @cc4m .j88 1    @cc4m *rel 1    @cc4m *map 1    @cc4m *bin 2    @cc2  .j88 1
-  12| @cc2  *rel 1    @cc2  *map 1    @cc2  *bin 2    fm    *ipl 1    fmv2a *bin 5
-  13| fmv2b *bin 3    fmv2c *bin 2    mek   .    3    sks   .    7    r-play.j88 8
-  14| stone .j88 2    stone *m88 1    flcnv .ut  4    COMMON*COM 5    SYUNBS*COM 2
-  15| JTCNVS*COM 2    YUCNV *COM 1    YUCNV1*COM 2    ktran .j88 1    ktran .ex  14
+   9| (ディスクのファイル一覧は伏せた)
+  10| (ディスクのファイル一覧は伏せた)
+  11| (ディスクのファイル一覧は伏せた)
+  12| (ディスクのファイル一覧は伏せた)
+  13| (ディスクのファイル一覧は伏せた)
+  14| (ディスクのファイル一覧は伏せた)
+  15| (ディスクのファイル一覧は伏せた)
   16| BLSUB *M   2    GAME  .    7
   17| Ok
   19|       load "        auto          go to         list          run

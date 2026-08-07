@@ -14,14 +14,14 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\nKILL"TMPQ88.BAS"\n
    3| save"tmpq88"
    4| Ok
    5| files
-   6| dtools.j88 1    dtools*bin 5    @cc4h .j88 1    @cc4h *rel 1    @cc4h *map 1
-   7| @cc4h *bin 2    @cc4v .j88 1    @cc4v *rel 1    @cc4v *map 1    @cc4v *bin 2
-   8| @cc4m .j88 1    @cc4m *rel 1    @cc4m *map 1    @cc4m *bin 2    @cc2  .j88 1
-   9| @cc2  *rel 1    @cc2  *map 1    @cc2  *bin 2    fm    *ipl 1    fmv2a *bin 5
-  10| fmv2b *bin 3    fmv2c *bin 2    mek   .    3    sks   .    7    r-play.j88 8
-  11| stone .j88 2    stone *m88 1    flcnv .ut  4    COMMON*COM 5    SYUNBS*COM 2
-  12| JTCNVS*COM 2    YUCNV *COM 1    YUCNV1*COM 2    ktran .j88 1    ktran .ex  14
-  13| BLSUB *M   2    GAME  .    7    tmpq88.    1
+   6| (ディスクのファイル一覧は伏せた)
+   7| (ディスクのファイル一覧は伏せた)
+   8| (ディスクのファイル一覧は伏せた)
+   9| (ディスクのファイル一覧は伏せた)
+  10| (ディスクのファイル一覧は伏せた)
+  11| (ディスクのファイル一覧は伏せた)
+  12| (ディスクのファイル一覧は伏せた)
+  13| (ディスクのファイル一覧は伏せた)
   14| Ok
   15| kill"tmpq88.bas"
   16| File not found

@@ -129,6 +129,8 @@ if [ -f "$OUT" ]; then
       -e "s|${SCRATCH:-__none__}|\$PC88_REF_DISK_DIR|g" \
       -e "s|$(cd "$REPO/.." && pwd)|\$WORKDIR|g" \
       -e "s|$HOME|~|g" "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+  # 画面に写り込んだディスクのファイル名を伏せる（私物の内容なので）
+  python3 "$REPO/tools/redact.py" "$OUT" >/dev/null
 fi
 
 exit $status

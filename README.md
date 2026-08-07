@@ -26,8 +26,40 @@ PC-88 は ROM が機械の本体で、抜くとディスクを読むコードす
 
 ## 状態
 
-M0（足場と規律の固定）。設計と進め方は [docs/PLAN.md](docs/PLAN.md) を参照。
+M1 完了（計測ハーネス）、M3 着手（需要プロファイル）。
+
+公式 ROM を測ったところ、メイン ROM 32KB のうち実行されるのは現時点で 22.2%、
+サブ ROM (DISK.ROM) 2KB のうち 533 バイト。まだ飽和していない＝測り足りない。
+
+- 設計と進め方: [docs/PLAN.md](docs/PLAN.md)
+- 土台にした QUASI88-libretro の調査: [docs/notes/m1-quasi88-survey.md](docs/notes/m1-quasi88-survey.md)
+- 需要プロファイル: [docs/notes/m3-demand-profile.md](docs/notes/m3-demand-profile.md)
+
+### 手元で再現する
+
+公式 ROM は各自で用意すること（`private/rom/` に置く。このリポジトリには含まない）。
+
+```
+tools/setup_harness.sh    # 上流をピン留めコミットで取得・改変・ビルド・疎通試験
+tools/check_cleanroom.sh  # 防御が効いているかの検査
+tools/measure.sh <名前> --frames 600
+tools/profile.py --growth measurements/*.txt
+```
 
 ## ライセンス
 
-未定（M0 で決める）。
+MIT License（[LICENSE](LICENSE)）。文書・測定結果・ツールを含め全体に適用する。
+
+土台に使っている QUASI88 / QUASI88-libretro は BSD 3-Clause で、
+本リポジトリには第三者のコードを含まない（ピン留めコミットへのパッチのみ）。
+詳細は [docs/notes/m1-quasi88-survey.md](docs/notes/m1-quasi88-survey.md)。
+
+## 測定結果について
+
+`measurements/` に入っているのは、公式 ROM を動かしたときに
+**どの番地にどの種類のアクセスがあったか**の記録である。
+ROM の内容（バイト列）は含まない。
+
+条件が意図どおりだったかを結果自身で検証できるよう、終了時のテキスト画面も
+残している。ただしディスクのファイル一覧だけは私物の内容なので伏せている
+（`tools/redact.py`）。
