@@ -18,9 +18,18 @@ make_font_rom.py — L2 フォント（半角ANK + セミグラフィック）�
        `--unscii-hex` で渡された unscii-8.hex をこのスクリプトがパースする。
        unscii-8.hex 自体は `tools/fetch_unscii.sh` で取得するだけで、
        このリポジトリにはコミットしない。
-    2. 半角カタカナ63字（0xA1-0xDF） → このファイルに ASCII アートで直書き。
-       unscii の半角カナは使わない理由は docs/spec/l2-font.md 4.0節
-       （出自の説明が要る素材を中核に置かない）。
+    2. 半角カタカナ63字（0xA1-0xDF） → **美咲フォント（BDF版）から取得**
+       （第4版。差し替えの経緯は docs/notes/l2-font-misaki-recheck.md）。
+       `--misaki-bdf` で渡された misaki_gothic.bdf をこのスクリプトがパースする。
+       misaki_gothic.bdf 自体は `tools/fetch_misaki.sh` で取得するだけで、
+       このリポジトリにはコミットしない。
+       旧・手描きASCIIアート（`KANA_ART`、下記）は判読性の初稿評価が
+       「判別はできるが読みやすくはない」だったため差し替えた。美咲は
+       8x8で読ませるために設計された完成品であり、かつ全角側カタカナ63字が
+       すべて8x8セル内(7x7の範囲)で揃っていることを確認済み
+          （docs/notes/l2-font-misaki-recheck.md (a)）。
+       `KANA_ART` はビルドには使わず、消さずに残してある
+          （このリポジトリのコミット規律。CLAUDE.md）。
     3. セミグラフィック（後半2048バイト） → ルールから生成（4節）。
   0x00-0x1F・0x7F は制御コードのため空白グリフ。0x80-0xA0・0xE0-0xFF は
   資料から確定できなかったため空白グリフ（`docs/notes/l2-code-assignment.md` 3節）。
@@ -34,8 +43,8 @@ make_font_rom.py — L2 フォント（半角ANK + セミグラフィック）�
   `--selftest` はサイズ・空欄コードの一覧など「組み立ての整合性」を検査する。
   「意図した字形が入っていること」を独立に確かめる検査は
   `tools/verify_l2.sh` 側（本スクリプトとは別の実装で、unscii-8.hex と
-  このファイルの ASCII アート原本から**独立に**ビットパターンを組み直し、
-  生成された FONT.ROM と突き合わせる）に置く。理由は `docs/notes/m4-l1-impl.md`
+  misaki_gothic.bdf から**独立に**ビットパターンを組み直し、生成された
+  FONT.ROM と突き合わせる）に置く。理由は `docs/notes/m4-l1-impl.md`
   の先例と同じ: 同じコードパスで比較しても「そのコードが自己矛盾しない」
   ことしか言えないため。
 """
@@ -51,12 +60,19 @@ PLANE_BYTES = CELL_BYTES * PLANE_CHARS   # 2048
 ROM_SIZE = PLANE_BYTES * 2               # 4096 (ANK面 + GRAPH面)
 
 # --------------------------------------------------------------------------
-# 1. 半角カタカナ 63字 — ASCII アートで直書き（docs/spec/l2-font.md 4.0節）
+# 1. 半角カタカナ 63字（旧稿） — 手描き ASCII アート（第2〜3版で使用。現在は不使用）
 # --------------------------------------------------------------------------
+# **このセクションはビルドには使わない（1b節の美咲フォント由来に差し替え済み。
+# docs/notes/l2-font-misaki-recheck.md）。** 消さずに残してあるのは、行き止まりを
+# git reset で消さないというこのリポジトリのコミット規律（CLAUDE.md）のため。
+#
 # 各グリフは "#"=点灯 "."=消灯 の8x8。ここで描いた形は完全に自作であり、
 # 公式ROM・他社ROMのいずれも見ていない（このセッションで新規に描いた）。
 # 並び順・コードは JIS X0201 標準（Unicode半角カナ U+FF61-U+FF9F と1対1、
 # docs/notes/l2-code-assignment.md 2節）。
+# 差し替えの理由: 利用者から「半角カナが識字できない」との評価が出た。
+# 美咲フォントは8x8で読ませるために設計された完成品であり、差し替えると
+# 改善する見込みがあったため（docs/notes/l2-font-misaki-recheck.md）。
 KANA_ART = {
     0xFF61: (  # 。 句点
         "........",
@@ -707,6 +723,113 @@ def kana_code_map():
 KANA_CODE_TO_UNICODE = kana_code_map()
 
 # --------------------------------------------------------------------------
+# 1b. 半角カタカナ 63字（現行） — 美咲フォント(BDF)から取得
+# --------------------------------------------------------------------------
+# 半角カナの「半角」は呼び名であって寸法ではない。PC-88のテキストセルはどの
+# 文字も8ドット幅であり、必要なのは「8x8のカタカナのグリフ」である。美咲は
+# 全角側のかな・カタカナを8x8(実際は7x7に収める設計)で持つ日本語ビットマップ
+# フォントなので、その全角側から該当63字を取り出す
+# （docs/notes/l2-font-misaki-recheck.md）。
+
+# JIS X0201 半角カナ(Unicode U+FF61-U+FF9F)と、美咲BDFが収録する全角側
+# Unicodeコードポイントの対応。JIS X0201/Unicode の標準的な半角→全角
+# 互換対応表であり、ROM由来のデータではない
+# （docs/notes/l2-font-misaki-recheck.md (a)節で実測に使ったものと同じ表）。
+HALFWIDTH_TO_FULLWIDTH_KATAKANA = {
+    0xFF61: 0x3002, 0xFF62: 0x300C, 0xFF63: 0x300D, 0xFF64: 0x3001, 0xFF65: 0x30FB,
+    0xFF66: 0x30F2, 0xFF67: 0x30A1, 0xFF68: 0x30A3, 0xFF69: 0x30A5, 0xFF6A: 0x30A7,
+    0xFF6B: 0x30A9, 0xFF6C: 0x30E3, 0xFF6D: 0x30E5, 0xFF6E: 0x30E7, 0xFF6F: 0x30C3,
+    0xFF70: 0x30FC, 0xFF71: 0x30A2, 0xFF72: 0x30A4, 0xFF73: 0x30A6, 0xFF74: 0x30A8,
+    0xFF75: 0x30AA, 0xFF76: 0x30AB, 0xFF77: 0x30AD, 0xFF78: 0x30AF, 0xFF79: 0x30B1,
+    0xFF7A: 0x30B3, 0xFF7B: 0x30B5, 0xFF7C: 0x30B7, 0xFF7D: 0x30B9, 0xFF7E: 0x30BB,
+    0xFF7F: 0x30BD, 0xFF80: 0x30BF, 0xFF81: 0x30C1, 0xFF82: 0x30C4, 0xFF83: 0x30C6,
+    0xFF84: 0x30C8, 0xFF85: 0x30CA, 0xFF86: 0x30CB, 0xFF87: 0x30CC, 0xFF88: 0x30CD,
+    0xFF89: 0x30CE, 0xFF8A: 0x30CF, 0xFF8B: 0x30D2, 0xFF8C: 0x30D5, 0xFF8D: 0x30D8,
+    0xFF8E: 0x30DB, 0xFF8F: 0x30DE, 0xFF90: 0x30DF, 0xFF91: 0x30E0, 0xFF92: 0x30E1,
+    0xFF93: 0x30E2, 0xFF94: 0x30E4, 0xFF95: 0x30E6, 0xFF96: 0x30E8, 0xFF97: 0x30E9,
+    0xFF98: 0x30EA, 0xFF99: 0x30EB, 0xFF9A: 0x30EC, 0xFF9B: 0x30ED, 0xFF9C: 0x30EF,
+    0xFF9D: 0x30F3, 0xFF9E: 0x309B, 0xFF9F: 0x309C,
+}
+assert set(HALFWIDTH_TO_FULLWIDTH_KATAKANA) == set(KANA_CODE_TO_UNICODE.values())
+
+
+def misaki_code_to_unicode(code):
+    """PC-88の半角カナコード(0xA1-0xDF)から、美咲BDF内の全角側コードポイントへ。"""
+    return HALFWIDTH_TO_FULLWIDTH_KATAKANA[KANA_CODE_TO_UNICODE[code]]
+
+
+def parse_misaki_bdf(path):
+    """misaki_gothic.bdf(X11 BDF形式)をパースする。
+
+    戻り値: (ascent, descent, {codepoint: {"dwidth": int, "bbx": (w,h,xoff,yoff),
+    "bitmap": [хех行,...]}})。ヘッダの FONT_ASCENT/FONT_DESCENT から
+    セル内の基準線位置を、STARTCHAR〜ENDCHAR の各ブロックからグリフを読む。
+    行単位で状態を追うシンプルな実装（正規表現は使わない）。
+    """
+    ascent = descent = None
+    glyphs = {}
+    cur = None
+    in_bitmap = False
+    with open(path, "r", encoding="ascii", errors="strict") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("FONT_ASCENT "):
+                ascent = int(line.split()[1])
+            elif line.startswith("FONT_DESCENT "):
+                descent = int(line.split()[1])
+            elif line.startswith("STARTCHAR"):
+                cur = {"bitmap": []}
+                in_bitmap = False
+            elif cur is not None and line.startswith("ENCODING "):
+                cur["encoding"] = int(line.split()[1])
+            elif cur is not None and line.startswith("DWIDTH "):
+                cur["dwidth"] = int(line.split()[1])
+            elif cur is not None and line.startswith("BBX "):
+                parts = line.split()
+                cur["bbx"] = tuple(int(x) for x in parts[1:5])
+            elif line == "BITMAP":
+                in_bitmap = True
+            elif line == "ENDCHAR":
+                if cur is not None and "encoding" in cur:
+                    glyphs[cur["encoding"]] = cur
+                cur = None
+                in_bitmap = False
+            elif in_bitmap and cur is not None:
+                cur["bitmap"].append(line)
+    if ascent is None or descent is None:
+        raise ValueError(f"{path}: FONT_ASCENT/FONT_DESCENT が見つからない")
+    return ascent, descent, glyphs
+
+
+def misaki_glyph_to_rows(ascent, descent, glyph):
+    """美咲BDFの1グリフ(BBX+BITMAP)を8x8セルの行配列("#"/".")へ配置する。
+
+    美咲は7x7に収める設計で、文字ごとにBBXの幅・高さ・オフセットが違う。
+    ここを決め打ちで揃えると字がずれるので、BDFの座標系をそのまま使う:
+    セル内の行rは基準線からの高さ y=(ascent-1)-r に対応し、ビットマップの
+    行iはy=yoff+height-1-iに対応する。列は x=xoff+c（cはビットマップ内の
+    列インデックス）。範囲外(0<=x<8, 0<=r<8でない)は描画しない。
+    """
+    width, height, xoff, yoff = glyph["bbx"]
+    rows = [["."] * CELL_BYTES for _ in range(CELL_BYTES)]
+    for i, hexrow in enumerate(glyph["bitmap"]):
+        nbits = len(hexrow) * 4
+        value = int(hexrow, 16) if hexrow else 0
+        bits = bin(value)[2:].zfill(nbits)
+        y = yoff + height - 1 - i
+        r = (ascent - 1) - y
+        if not (0 <= r < CELL_BYTES):
+            continue
+        for c in range(min(width, nbits)):
+            x = xoff + c
+            if not (0 <= x < CELL_BYTES):
+                continue
+            if bits[c] == "1":
+                rows[r][x] = "#"
+    return tuple("".join(row) for row in rows)
+
+
+# --------------------------------------------------------------------------
 # 2. unscii-8.hex のパース（英数記号 0x20-0x7E 用）
 # --------------------------------------------------------------------------
 _HEX_LINE_RE = re.compile(r"^([0-9A-Fa-f]{4,6}):([0-9A-Fa-f]{16}|[0-9A-Fa-f]{32})$")
@@ -805,8 +928,9 @@ def rows_to_bytes(rows):
     return bytes(out)
 
 
-def build_ank_plane(unscii_table):
+def build_ank_plane(unscii_table, misaki):
     """ANK面(2048バイト)を組み立てる。戻り値: (plane_bytes, undetermined_codes)"""
+    misaki_ascent, misaki_descent, misaki_glyphs = misaki
     plane = bytearray(PLANE_BYTES)
     undetermined = []
     for code in range(256):
@@ -814,8 +938,13 @@ def build_ank_plane(unscii_table):
         if code == 0x7E:
             glyph = rows_to_bytes(overline_glyph())
         elif code in KANA_CODE_TO_UNICODE:
-            cp = KANA_CODE_TO_UNICODE[code]
-            glyph = rows_to_bytes(KANA_ART[cp])
+            cp = misaki_code_to_unicode(code)
+            info = misaki_glyphs.get(cp)
+            if info is None:
+                raise ValueError(
+                    f"美咲BDFにコードポイント U+{cp:04X}（PC-88コード0x{code:02X}用）が無い"
+                )
+            glyph = rows_to_bytes(misaki_glyph_to_rows(misaki_ascent, misaki_descent, info))
         elif 0x20 <= code <= 0x7D:
             cp = latin_code_to_unicode(code)
             data = unscii_table.get(cp)
@@ -842,9 +971,10 @@ def build_graph_plane():
     return bytes(plane)
 
 
-def build_font_rom(unscii_hex_path):
+def build_font_rom(unscii_hex_path, misaki_bdf_path):
     unscii_table = parse_unscii_hex(unscii_hex_path)
-    ank, undetermined = build_ank_plane(unscii_table)
+    misaki = parse_misaki_bdf(misaki_bdf_path)
+    ank, undetermined = build_ank_plane(unscii_table, misaki)
     graph = build_graph_plane()
     rom = ank + graph
     assert len(rom) == ROM_SIZE
@@ -910,11 +1040,13 @@ def main():
     ap.add_argument("outdir", help="ROM を書き出すディレクトリ")
     ap.add_argument("--unscii-hex", required=True,
                      help="tools/fetch_unscii.sh が取得した unscii-8.hex のパス")
+    ap.add_argument("--misaki-bdf", required=True,
+                     help="tools/fetch_misaki.sh が取得した misaki_gothic.bdf のパス")
     ap.add_argument("--selftest", action="store_true",
                      help="生成物の自己検査（サイズ・未決定コード一覧など）を行う")
     args = ap.parse_args()
 
-    rom, undetermined = build_font_rom(args.unscii_hex)
+    rom, undetermined = build_font_rom(args.unscii_hex, args.misaki_bdf)
 
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)

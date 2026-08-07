@@ -21,6 +21,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_UNSCII="$(cd "$REPO/.." && pwd)/vendor/unscii"
+VENDOR_MISAKI="$(cd "$REPO/.." && pwd)/vendor/misaki"
 VENDOR_CORE="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 WORK="${TMPDIR:-/tmp}/pc88h-verify-l2.$$"
 
@@ -33,17 +34,23 @@ if [ ! -f "$HEX" ]; then
   echo "unscii-8.hex が無い。先に tools/fetch_unscii.sh を実行すること" >&2
   exit 1
 fi
+MISAKI_BDF="$VENDOR_MISAKI/misaki_gothic.bdf"
+if [ ! -f "$MISAKI_BDF" ]; then
+  echo "misaki_gothic.bdf が無い。先に tools/fetch_misaki.sh を実行すること" >&2
+  exit 1
+fi
 
 say "1. FONT.ROM を生成（--selftest 込み）"
 mkdir -p "$WORK/fontout"
-python3 "$REPO/src/l2_font/make_font_rom.py" "$WORK/fontout" --unscii-hex "$HEX" --selftest
+python3 "$REPO/src/l2_font/make_font_rom.py" "$WORK/fontout" \
+  --unscii-hex "$HEX" --misaki-bdf "$MISAKI_BDF" --selftest
 FONT_ROM="$WORK/fontout/FONT.ROM"
 
 say "2. 独立実装との突き合わせ（生成器 vs. 別経路で組み直したビットパターン）"
-python3 "$REPO/tools/l2_verify_independent.py" "$FONT_ROM" --unscii-hex "$HEX"
+python3 "$REPO/tools/l2_verify_independent.py" "$FONT_ROM" --unscii-hex "$HEX" --misaki-bdf "$MISAKI_BDF"
 
 say "2b. わざと壊して不一致になることを確認（検査が独立であることの実測）"
-if python3 "$REPO/tools/l2_verify_independent.py" "$FONT_ROM" --unscii-hex "$HEX" \
+if python3 "$REPO/tools/l2_verify_independent.py" "$FONT_ROM" --unscii-hex "$HEX" --misaki-bdf "$MISAKI_BDF" \
      --break-independent-path > "$WORK/break.txt" 2>&1; then
   echo "NG: わざと壊したのに一致してしまった（検査に検出力が無い）" >&2
   cat "$WORK/break.txt" >&2
