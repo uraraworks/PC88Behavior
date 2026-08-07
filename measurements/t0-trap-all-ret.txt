@@ -2,7 +2,7 @@
 # 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。
 
 core      : $WORKDIR/vendor/quasi88-libretro/quasi88_libretro.dylib
-rom-dir   : /var/folders/qt/9075m6g57y54zmmgl82vb25h0000gn/T//pc88h-trap-run.66303/rom
+rom-dir   : /var/folders/qt/9075m6g57y54zmmgl82vb25h0000gn/T//pc88h-trap-run.68384/rom
 disk      : (なし)
 frames    : 60
 type      : (なし)
