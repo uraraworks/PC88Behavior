@@ -1,0 +1,49 @@
+# main→サブ 要求プロトコル解析: d5-seqfile
+
+## トランザクション件数(PCクラスタ別)
+  SEND(main OUT $FD, ハンドシェイク型): 2349
+  RECV(main IN $FC, ハンドシェイク型): 3891
+  BULK_RECV(main IN $FC, 高速バルク型): 5632
+
+## pc=3811 (SEND終端マーカー仮説の検証) の単独性(同一pcの連続のみ)
+  単独出現: 1079件 / 同一pc(3811)が連続: 0件
+  (これは「3811の直後にまた3811が来るか」だけを見た指標であり、下のSEND連続長ヒストグラムで分かるとおり、実際には37F4と3811が交互に現れる長い書き込みバーストが存在する。単独性だけでは「3811=列の最後」という仮説は反証も証明もできない。詳細はdocs/notes/m6-main-to-sub.md 参照)
+
+## SEND連続長ヒストグラム(他イベントに中断されない区間の長さ)
+  長さ267: 8区間
+  長さ12: 1区間
+  長さ8: 2区間
+  長さ6: 20区間
+  長さ5: 3区間
+  長さ2: 17区間
+  長さ1: 16区間
+## RECV/BULK_RECV連続長ヒストグラム
+  長さ5632: 1区間
+  長さ256: 15区間
+  長さ1: 51区間
+
+## 再構成した要求(request)件数: 67
+### 先頭5件のヘッダ(SEND列, 16進バイト列)と応答長
+  clock=    7225 frame=   20 preceding=[00 07] response_len=1
+  clock=    7267 frame=   20 preceding=[06] response_len=1
+  clock=    7403 frame=   20 preceding=[0B 07 5F 00 01] response_len=1
+  clock=    8565 frame=   35 preceding=[06] response_len=1
+  clock=    8616 frame=   35 preceding=[12 60] response_len=256
+### 末尾5件
+  clock=  252785 frame= 1311 preceding=[12 60] response_len=256
+  clock=  255635 frame= 1312 preceding=[06] response_len=1
+  clock=  258189 frame= 1391 preceding=[06] response_len=1
+  clock=  258240 frame= 1392 preceding=[12 60] response_len=256
+  clock=  261090 frame= 1393 preceding=[06] response_len=1
+
+## 応答バイト数の分布(0件の応答は除く)
+  1バイト: 51件
+  256バイト: 15件
+  5632バイト: 1件
+
+## $FE 待ちループの値遷移(main IN $FE, PC別)
+  pc=37DC (SEND前(相手の受信準備待ち)): n=1503 遷移=80->82(101), 82->80(62), 82->02(38), 02->80(38)
+  pc=37FF (SEND後(相手の受理確認待ち)): n=3709 遷移=12->14(1270), 14->12(1269)
+  pc=3853 (RECV前(相手のデータ準備待ち)): n=7752 遷移=20->21(1971), 21->20(1970)
+  pc=386F (RECV後(相手の受理解除待ち)): n=3942 遷移=41->40(1971), 40->41(1970)
+
