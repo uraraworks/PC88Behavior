@@ -24,13 +24,13 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   13| (ディスクのファイル一覧は伏せた)
   14| (ディスクのファイル一覧は伏せた)
   15| (ディスクのファイル一覧は伏せた)
-  16| BLSUB *M   2    GAME  .    7
+  16| (ディスクのファイル一覧は伏せた)
   17| Ok
   19|       load "        auto          go to         list          run
 
-[メインCPU] 総アクセス回数: exec=30219457 read=29268193 write=9222135 in=101357 out=48261
+[メインCPU] 総アクセス回数: exec=30219007 read=29266994 write=9222298 in=101392 out=48329
 
-[[メインCPU] 実行された番地 (fetch)]
+[メインCPU 実行された番地 (fetch)]
   0000-0001  (2)
   0004-0004  (1)
   0010-0012  (3)
@@ -2234,15 +2234,14 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   8CAF-8CAF  (1)
   8CB2-8CB4  (3)
   8CB6-8CB8  (3)
-  8CC9-8CCA  (2)
+  8CBA-8CBD  (4)
+  8CBF-8CC1  (3)
+  8CC4-8CC5  (2)
+  8CC8-8CCA  (3)
   8CCD-8CD0  (4)
   8CD2-8CD3  (2)
   8CD6-8CD7  (2)
-  8CD9-8CD9  (1)
-  8CDC-8CDD  (2)
-  8CEF-8CF0  (2)
-  8CF2-8CF2  (1)
-  8CF5-8CF7  (3)
+  8CF6-8CF7  (2)
   8CFA-8CFE  (5)
   8D00-8D00  (1)
   8D03-8D03  (1)
@@ -2284,9 +2283,14 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   8DF2-8DF2  (1)
   8DF5-8DF7  (3)
   8DFA-8DFA  (1)
-  8DFC-8DFE  (3)
-  8E00-8E00  (1)
-  8E03-8E05  (3)
+  8E0E-8E0F  (2)
+  8E12-8E16  (5)
+  8E19-8E21  (9)
+  8E23-8E26  (4)
+  8E28-8E28  (1)
+  8E2A-8E2B  (2)
+  8E2D-8E2D  (1)
+  8E2F-8E31  (3)
   8EC4-8EC9  (6)
   8ECC-8ECC  (1)
   8ECF-8ECF  (1)
@@ -2786,7 +2790,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   EDF9-EDF9  (1)
   EDFF-EDFF  (1)
   EE9B-EE9B  (1)
-[[メインCPU] データとして読まれた番地]
+[メインCPU データとして読まれた番地]
   0002-0003  (2)
   0005-0006  (2)
   0013-0013  (1)
@@ -4656,19 +4660,17 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   8C9A-8C9A  (1)
   8C9C-8C9D  (2)
   8C9F-8C9F  (1)
-  8CA3-8CA3  (1)
   8CA6-8CA6  (1)
   8CB0-8CB1  (2)
   8CB5-8CB5  (1)
   8CB9-8CB9  (1)
+  8CBE-8CBE  (1)
+  8CC2-8CC3  (2)
+  8CC6-8CC7  (2)
   8CCB-8CCC  (2)
   8CD1-8CD1  (1)
   8CD4-8CD5  (2)
   8CD8-8CD8  (1)
-  8CDA-8CDB  (2)
-  8CDE-8CDE  (1)
-  8CF1-8CF1  (1)
-  8CF3-8CF4  (2)
   8CF8-8CF9  (2)
   8CFF-8CFF  (1)
   8D04-8D04  (1)
@@ -4700,8 +4702,13 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   8DEE-8DEF  (2)
   8DF1-8DF1  (1)
   8DF8-8DF9  (2)
-  8DFF-8DFF  (1)
-  8E06-8E07  (2)
+  8DFB-8DFB  (1)
+  8E10-8E11  (2)
+  8E17-8E18  (2)
+  8E22-8E22  (1)
+  8E27-8E27  (1)
+  8E2C-8E2C  (1)
+  8E32-8E33  (2)
   8ECA-8ECB  (2)
   8ECD-8ECE  (2)
   8ED0-8ED1  (2)
@@ -4961,7 +4968,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   B1F8-B29F  (168)
   B334-B35C  (41)
   C000-FFF7  (16376)
-[[メインCPU] 書き込まれた番地]
+[メインCPU 書き込まれた番地]
   0000-0002  (3)
   000B-000D  (3)
   8000-800A  (11)
@@ -4974,7 +4981,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   84BE-84C0  (3)
   8800-B3FF  (11264)
   C000-FFF8  (16377)
-[[メインCPU] 入力された I/O ポート]
+[メインCPU 入力された I/O ポート]
   0000-000B  (12)
   0030-0032  (3)
   0040-0040  (1)
@@ -4984,7 +4991,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   00F4-00F4  (1)
   00F8-00F8  (1)
   00FC-00FE  (3)
-[[メインCPU] 出力された I/O ポート]
+[メインCPU 出力された I/O ポート]
   0030-0032  (3)
   0040-0040  (1)
   0050-0051  (2)
@@ -5006,7 +5013,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
 
 [サブCPU] 総アクセス回数: exec=1542780 read=503985 write=31139 in=70021 out=30941
 
-[[サブCPU] 実行された番地 (fetch)]
+[サブCPU 実行された番地 (fetch)]
   0000-0000  (1)
   0010-0010  (1)
   0018-0018  (1)
@@ -5337,7 +5344,7 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   70EA-70EA  (1)
   70EC-70EC  (1)
   70EE-70EE  (1)
-[[サブCPU] データとして読まれた番地]
+[サブCPU データとして読まれた番地]
   0001-0002  (2)
   0011-0012  (2)
   0019-001A  (2)
@@ -5653,17 +5660,17 @@ type      : \n | 10 PRINT "T"\nSAVE"TMPQ88"\nFILES\n
   7F1C-7F1E  (3)
   7F21-7F21  (1)
   7FE8-7FFF  (24)
-[[サブCPU] 書き込まれた番地]
+[サブCPU 書き込まれた番地]
   4000-70FF  (12544)
   7F00-7F18  (25)
   7F1B-7F22  (8)
   7F42-7F42  (1)
   7FE8-7FFF  (24)
-[[サブCPU] 入力された I/O ポート]
+[サブCPU 入力された I/O ポート]
   00F8-00F8  (1)
   00FA-00FC  (3)
   00FE-00FE  (1)
-[[サブCPU] 出力された I/O ポート]
+[サブCPU 出力された I/O ポート]
   00F7-00F8  (2)
   00FB-00FD  (3)
   00FF-00FF  (1)

@@ -258,7 +258,7 @@ static void dump_ranges(FILE *fp, const char *label,
 {
     size_t i = 0;
     unsigned count = 0;
-    fprintf(fp, "[%s]\n", label);
+    fprintf(fp, "%s\n", label);
     while (i < n) {
         if (map[i]) {
             size_t start = i;
@@ -300,23 +300,24 @@ static void write_screen(FILE *fp)
 }
 
 /* CPU 1 個分の採取結果を書く */
+/* who は "メインCPU" のような CPU 名。見出しは "[メインCPU 実行された番地]" になる */
 static void write_cpu(FILE *fp, const char *who, const q88h_trace_t *t)
 {
-    char label[64];
-    fprintf(fp, "%s 総アクセス回数: exec=%llu read=%llu write=%llu in=%llu out=%llu\n\n",
+    char label[80];
+    fprintf(fp, "[%s] 総アクセス回数: exec=%llu read=%llu write=%llu in=%llu out=%llu\n\n",
             who,
             (unsigned long long)t->n_exec,  (unsigned long long)t->n_read,
             (unsigned long long)t->n_write, (unsigned long long)t->n_in,
             (unsigned long long)t->n_out);
-    snprintf(label, sizeof(label), "%s 実行された番地 (fetch)", who);
+    snprintf(label, sizeof(label), "[%s 実行された番地 (fetch)]", who);
     dump_ranges(fp, label, t->mem_exec, Q88H_MEM_SIZE);
-    snprintf(label, sizeof(label), "%s データとして読まれた番地", who);
+    snprintf(label, sizeof(label), "[%s データとして読まれた番地]", who);
     dump_ranges(fp, label, t->mem_read, Q88H_MEM_SIZE);
-    snprintf(label, sizeof(label), "%s 書き込まれた番地", who);
+    snprintf(label, sizeof(label), "[%s 書き込まれた番地]", who);
     dump_ranges(fp, label, t->mem_write, Q88H_MEM_SIZE);
-    snprintf(label, sizeof(label), "%s 入力された I/O ポート", who);
+    snprintf(label, sizeof(label), "[%s 入力された I/O ポート]", who);
     dump_ranges(fp, label, t->io_in, Q88H_IO_SIZE);
-    snprintf(label, sizeof(label), "%s 出力された I/O ポート", who);
+    snprintf(label, sizeof(label), "[%s 出力された I/O ポート]", who);
     dump_ranges(fp, label, t->io_out, Q88H_IO_SIZE);
     fprintf(fp, "\n");
 }
@@ -335,8 +336,8 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
     write_screen(fp);
 
     /* PC-88 は Z80 が 2 個。サブ ROM も再実装対象なので別々に出す。 */
-    write_cpu(fp, "[メインCPU]", t);
-    write_cpu(fp, "[サブCPU]",   ts);
+    write_cpu(fp, "メインCPU", t);
+    write_cpu(fp, "サブCPU",   ts);
 }
 
 /* ---- main -------------------------------------------------------------- */

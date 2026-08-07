@@ -61,8 +61,8 @@ PC-88 は ROM が機械の本体で、抜くとディスクを読むコードす
 
 M1 完了（計測ハーネス）、M3 着手（需要プロファイル）。
 
-公式 ROM を測ったところ、メイン ROM 32KB のうち実行されるのは現時点で 22.2%、
-サブ ROM (DISK.ROM) 2KB のうち 533 バイト。まだ飽和していない＝測り足りない。
+公式 ROM を 28 条件で測ったところ、メイン ROM 32KB のうち実行されるのは 32.5%、
+サブ ROM (DISK.ROM) 2KB のうち 648 バイト。まだ飽和していない＝測り足りない。
 
 - 設計と進め方: [docs/PLAN.md](docs/PLAN.md)
 - 土台にした QUASI88-libretro の調査: [docs/notes/m1-quasi88-survey.md](docs/notes/m1-quasi88-survey.md)
@@ -75,7 +75,7 @@ M1 完了（計測ハーネス）、M3 着手（需要プロファイル）。
 ```
 tools/setup_harness.sh    # 上流をピン留めコミットで取得・改変・ビルド・疎通試験
 tools/check_cleanroom.sh  # 防御が効いているかの検査
-tools/measure.sh <名前> --frames 600
+tools/measure_suite.sh    # 測定一式（28条件）
 tools/profile.py --growth measurements/*.txt
 ```
 

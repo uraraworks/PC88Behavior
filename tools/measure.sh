@@ -69,7 +69,10 @@ fi
 DISK_ARGS=()
 DISK_WRITABLE=0
 SCRATCH=""
-cleanup() { [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"; }
+# 末尾を必ず成功で終わらせる。set -e 下では EXIT トラップの終了値が
+# スクリプト全体の終了値を上書きするので、ここで偽になると
+# 測定が成功していても失敗として報告される（実際にそうなっていた）。
+cleanup() { [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"; return 0; }
 trap cleanup EXIT
 args=()
 while [ $# -gt 0 ]; do

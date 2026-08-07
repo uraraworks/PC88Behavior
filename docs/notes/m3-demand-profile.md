@@ -1,4 +1,4 @@
-# M3 需要プロファイル（第1回）
+# M3 需要プロファイル
 
 測定日: 2026-08-07
 対象: 公式 N88-BASIC ROM（32KB, メイン CPU）と DISK.ROM（2KB, サブ CPU）。
@@ -8,26 +8,45 @@
 
 ## 結論
 
-**メイン ROM 32KB のうち実行されたのは 7149 バイト = 21.8%。**
-**サブ ROM（DISK.ROM）2KB のうち 533 バイト = 26%。**
-ここまでの条件では、まだ飽和していない。
+**メイン ROM 32KB のうち実行されたのは 10660 バイト = 32.5%。**
+**サブ ROM（DISK.ROM）2KB のうち 648 バイト = 32%。**
+28 条件を測った時点でまだ飽和していない。
 
-| 条件 | 内容 | 実行された番地 | |
-|---|---|---:|---:|
-| idle-noinput | 入力なしで放置 | 2225 | 6.8% |
-| b0-prompt | 起動時プロンプトに RETURN | 3093 | 9.4% |
-| b1-print | `PRINT 12345` | 3743 | 11.4% |
-| b2-for | `FOR I=1 TO 5:PRINT I:NEXT` | 4607 | 14.1% |
-| b3-string | `A$="XY":PRINT A$+A$,LEN(A$)` | 4078 | 12.4% |
-| b4-math | `PRINT SIN(1)+SQR(2)*3/7-4` | 4672 | 14.3% |
-| b5-screen | `SCREEN 1:CLS:LINE(0,0)-(100,100)` | 4372 | 13.3% |
-| b6-error | `FOOBAR 999`（構文エラー） | 3731 | 11.4% |
-| b7-program | 3 行のプログラムを入力し `LIST` / `RUN` | 5458 | 16.7% |
-| d0-boot | システムディスクから起動 | 2445 | 7.5% |
-| d1-files | `FILES` | 3554 | 10.8% |
-| d2-save | `SAVE`（ライトプロテクトで失敗）→ `FILES` | 4170 | 12.7% |
-| d3-diskwrite | 複製のプロテクトを外して `SAVE` / `FILES` / `KILL` | 4394 | 13.4% |
-| **和集合** | | **7266** | **22.2%** |
+測定一式は `tools/measure_suite.sh` にある。条件を足すときはそこに足す。
+`measurements/` の中身はその出力で、第三者が同じ手順で再導出できる。
+
+| 群 | 条件 | 内容 |
+|---|---|---|
+| 基本 | idle-noinput / b0-prompt | 放置 / 起動プロンプトに RETURN |
+| 言語 | b1-print b2-for b7-program b8-dataread b9-deffn b10-gosub b13-arrays | PRINT / FOR / プログラム入力と RUN / DATA READ / DEF FN / ON GOSUB / 配列 |
+| 型・演算 | b4-math b16-numtype b20-printusing | 三角関数 / 倍精度と型変換 / PRINT USING |
+| 文字列 | b3-string b14-strfunc | 連結と LEN / MID$ LEFT$ RIGHT$ ASC |
+| 画面 | b5-screen b12-graphics b15-console | LINE / CIRCLE PAINT PSET / WIDTH COLOR LOCATE CONSOLE |
+| 入出力 | b17-input b18-peek b19-beep | INPUT / PEEK POKE / BEEP TIME$ DATE$ |
+| エラー | b6-error b11-onerror | 構文エラー / ON ERROR GOTO と RESUME |
+| ディスク | d0〜d5 | 起動 / FILES / SAVE / KILL / LOAD / シーケンシャルファイル |
+
+増分の大きかった条件（累計 10660 バイトまで）:
+
+```
+idle-noinput   新規 2225   起動とキー走査
+b12-graphics   新規 1422   CIRCLE / PAINT / PSET
+b10-gosub      新規 1255   ON GOSUB / RETURN / END
+b0-prompt      新規  868   起動時プロンプトの処理
+b1-print       新規  650   PRINT
+b16-numtype    新規  650   倍精度と型変換
+b11-onerror    新規  342   ON ERROR GOTO / RESUME
+b7-program     新規  328   プログラムの格納と LIST / RUN
+b13-arrays     新規  323   多次元配列
+b5-screen      新規  286   SCREEN / LINE
+d0-boot        新規  267   ディスク起動（FDC 経路が初めて通る）
+d5-seqfile     新規  158   シーケンシャルファイル
+...
+b2-for         新規    0   （他の条件で先に踏まれていた）
+```
+
+グラフィックと制御構造が大きい。逆に PEEK/POKE（54）や DATA/READ（42）は小さく、
+既に踏まれた経路の再利用が多い。
 
 サブ CPU（DISK.ROM 2KB）:
 
@@ -36,31 +55,11 @@
 | ディスク無しの全条件 | 0 |
 | d0-boot / d1-files | 529 |
 | d2-save | 533 |
+| d3 以降（書き込みを伴う） | 648 |
 
 **ディスクを入れない限りサブ CPU は 1 命令も実行されない。**
-逆に言えば、ディスクを使う条件では 2KB 中 533 バイトで足りている。
+書き込みまで含めても 2KB 中 648 バイト。
 サブ側は対象が小さく境界もはっきりしていて、L1/L3 の中では最も手を付けやすい。
-
-条件を足したときの新規分:
-
-```
-idle-noinput  累計 2225   新規 2225
-b0-prompt     累計 3093   新規  868
-b1-print      累計 3743   新規  650
-b2-for        累計 4647   新規  904
-b3-string     累計 4917   新規  270
-b4-math       累計 5373   新規  456
-b5-screen     累計 5888   新規  515
-b6-error      累計 6083   新規  195
-b7-program    累計 6734   新規  651
-d0-boot       累計 7015   新規  281   ← ディスク起動。FDC 経路が初めて通る
-d1-files      累計 7026   新規   11
-d2-save       累計 7149   新規  123
-d3-diskwrite  累計 7266   新規  117   ← 実際に書き込む経路
-```
-
-新規が 0 に張り付いていない。**まだ測り足りない。** ディスク入出力、
-グラフィック各種、DATA/READ、ファイル操作などが未測定。
 
 ## 分かったこと
 
@@ -77,7 +76,7 @@ d3-diskwrite  累計 7266   新規  117   ← 実際に書き込む経路
 
 ```
 メイン 入力: 00-0B 30 31 32 40 51 6E 70 71 F4 F8 FC FD FE
-メイン 出力: 30 31 32 34 35 40 50 51 53-5F 64 65 68 70 71 C1 C3 C8 CA E4 E6 EB F3 F8 FD FF
+メイン 出力: 10 30 31 32 34 35 40 50 51 53-5F 64 65 68 70 71 C1 C3 C8 CA E4 E6 EB F3 F8 FD FF
 サブ   入力: F8 FA FB FC FE
 サブ   出力: F7 F8 FB FC FD FF
 ```
@@ -154,12 +153,36 @@ PC-88 は Z80 を 2 個持ち、ディスク側はサブ CPU（DISK.ROM）が担
 同じ落とし穴が 2 箇所にあり、片方だけ塞いでいた形になる。
 → `0003-bus-trace-sub.patch` で塞ぎ、採取バッファも CPU ごとに分けた。
 
+## 測って分かった ROM の挙動（`docs/spec/` に起こす候補）
+
+まだ仕様書に昇格させる段階ではないが、観測として記録しておく。
+いずれも QUASI88 のエミュレーション由来である可能性を排除できていないので、
+実機または別のエミュレータでの再現を確認してから仕様として扱うこと。
+
+- **`OPEN "O",#1,"名前"` を受け付けない。** `Syntax error` になる。
+  `OPEN "名前" FOR OUTPUT AS #1` 形式なら通る。MS-BASIC 系では前者も一般的なので、
+  この N88-BASIC V2.3 の方言差ということになる
+- **シーケンシャルファイルを読み戻すと先頭バイトが `0xFF` になる。**
+  `PRINT#1,"ABCDE"` → `CLOSE` → `INPUT#1,Q$` としたとき、`LEN(Q$)` は 5 だが
+  `ASC(Q$)` が 255、2 文字目以降は `b` `c` `d` `e` と正しい。
+  ファイル種別のマーカーらしきバイトを `INPUT#` が読み飛ばしていないように見える。
+  画面表示の不具合ではなく、値として 255 が入っている（`ASC` で確認）
+
 ## 次に測るべきもの
 
 - [x] ディスク起動。FDC 経路が通り、サブ CPU の需要も採れた
 - [x] `SAVE` / `FILES` — ディスク入出力の BASIC 側（`LOAD` はまだ）
-- [ ] `LOAD` / `KILL` / `NAME` / ランダムアクセスファイル
-- [ ] グラフィックの各命令（`CIRCLE` `PAINT` `PSET` `GET/PUT`）
-- [ ] `DATA` / `READ` / `RESTORE`、`DEF FN`、`ON GOTO`
-- [ ] エラー各種（`RESUME`、`ON ERROR GOTO`）
+- [x] `LOAD` / `KILL` / シーケンシャルファイル
+- [x] グラフィック（`CIRCLE` `PAINT` `PSET` `LINE`）
+- [x] `DATA` / `READ` / `RESTORE`、`DEF FN`、`ON GOSUB`
+- [x] エラー処理（`ON ERROR GOTO` / `RESUME` / `ERR` / `ERL`）
+- [ ] `NAME` / ランダムアクセスファイル（`FIELD` `LSET` `GET` `PUT`）
+- [ ] `GET@` / `PUT@`（グラフィック転送）、`VIEW` `WINDOW` `PALETTE`
+- [ ] `PLAY` / `SOUND`（FM 音源）、`MOTOR` `TERM`（テープ・通信）
+- [ ] マシン語まわり（`USR` `CALL` `DEF USR`、`MON`）
+- [ ] N-BASIC モード（`N80.ROM` 側）と拡張 ROM（`N88_0`〜`N88_3`）
 - [ ] 新規が 0 に張り付くまで続ける。張り付いてから実装の話に移る
+
+飽和していない以上、この 32.5% は**下限**である。
+一方で「32KB 全部が要る」わけでもないことは、増分が小さくなってきている
+（後半の条件はどれも数十〜数百バイト）ことから見えてきている。

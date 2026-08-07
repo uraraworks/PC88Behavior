@@ -24,7 +24,7 @@ import sys
 
 # 測定結果は CPU ごとに節が分かれている（PC-88 は Z80 が 2 個）
 SECTIONS = {}
-for _cpu, _tag in (("[メインCPU]", "main"), ("[サブCPU]", "sub")):
+for _cpu, _tag in (("メインCPU", "main"), ("サブCPU", "sub")):
     for _jp, _en in (("実行された番地 (fetch)", "exec"),
                      ("データとして読まれた番地", "read"),
                      ("書き込まれた番地", "write"),
