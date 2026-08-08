@@ -1,0 +1,67 @@
+name: 実測結果・ハードウェア仕様の報告 / Measurement or hardware spec report
+description: >-
+  実機・エミュレータでの実測結果や、CRTC・ポート等のハードウェア仕様に関する報告。/
+  Report a measurement you took, or a hardware fact (ports, CRTC, timing, ...).
+labels: ["measurement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **注意 / Warning**
+
+        逆アセンブルリスト・コード断片・ROM 内部の番地（エントリアドレス、
+        ジャンプテーブル、ワークエリア番地）やデータテーブルの中身は
+        **書かないでください**。書かれていた場合、**本文を読まずに閉じます**。
+        判定基準は「測定で裏が取れる情報か」です。詳しくは
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+
+        Please do **not** include disassembly listings, code fragments, or
+        internal ROM addresses (entry points, jump tables, work-area
+        addresses) or the contents of in-ROM data tables. If any of that is
+        present, **we will close this without reading the body**. See
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) for what is and isn't
+        welcome.
+
+  - type: textarea
+    id: what-measured
+    attributes:
+      label: 何を測ったか / What did you measure
+      description: 対象のハードウェア機能・ポート・信号など。/ The hardware feature, port, or signal in question.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how-measured
+    attributes:
+      label: どう測ったか（再現手順） / How you measured it (reproduction steps)
+      description: 実機かエミュレータか、使った機材・ソフト、手順。/ Real hardware or emulator, tools/software used, steps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: 結果 / Result
+      description: 得られた値・挙動。/ The value or behaviour you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足（任意） / Additional context (optional)
+      description: 関連する docs/spec/ のファイルなど。/ Related docs/spec/ files, if any.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 確認 / Confirmation
+      options:
+        - label: >-
+            この投稿に公式 ROM の逆アセンブル・コード断片・ROM 内部の番地やデータテーブルの
+            中身が含まれていないことを確認しました / I confirm this submission does not
+            contain any official-ROM disassembly, code fragments, or internal ROM
+            addresses/data-table contents.
+          required: true

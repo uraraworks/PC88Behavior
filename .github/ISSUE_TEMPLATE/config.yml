@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 投稿ポリシーを読む / Read the contribution policy first
+    url: https://github.com/uraraworks/PC88Behavior/blob/main/CONTRIBUTING.md
+    about: >-
+      送ってよい情報・いけない情報の判定基準はこちら。/
+      What you may and may not send us — read this first.

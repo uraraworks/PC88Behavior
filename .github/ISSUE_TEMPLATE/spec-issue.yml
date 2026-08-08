@@ -1,0 +1,58 @@
+name: docs/spec/ の記述への指摘 / Issue with a docs/spec/ document
+description: >-
+  docs/spec/ の記述と実測が食い違っている、または記述が不明瞭な場合の報告。/
+  Report a discrepancy or unclear wording in docs/spec/.
+labels: ["spec"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **注意 / Warning**
+
+        逆アセンブルリスト・コード断片・ROM 内部の番地（エントリアドレス、
+        ジャンプテーブル、ワークエリア番地）やデータテーブルの中身は
+        **書かないでください**。書かれていた場合、**本文を読まずに閉じます**。
+        判定基準は「測定で裏が取れる情報か」です。詳しくは
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+
+        Please do **not** include disassembly listings, code fragments, or
+        internal ROM addresses (entry points, jump tables, work-area
+        addresses) or the contents of in-ROM data tables. If any of that is
+        present, **we will close this without reading the body**. See
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) for what is and isn't
+        welcome.
+
+  - type: input
+    id: spec-file
+    attributes:
+      label: 対象ファイル / Target file
+      description: 例 docs/spec/xxx.md / e.g. docs/spec/xxx.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: 指摘内容 / What's wrong or unclear
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 根拠（自分で測った場合は手順も） / Evidence (if you measured it yourself, include steps)
+      description: 測定で裏が取れる情報のみを記載してください。/ Only measurement-backed information, please.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 確認 / Confirmation
+      options:
+        - label: >-
+            この投稿に公式 ROM の逆アセンブル・コード断片・ROM 内部の番地やデータテーブルの
+            中身が含まれていないことを確認しました / I confirm this submission does not
+            contain any official-ROM disassembly, code fragments, or internal ROM
+            addresses/data-table contents.
+          required: true

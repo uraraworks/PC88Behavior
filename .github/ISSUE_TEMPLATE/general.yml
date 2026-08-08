@@ -1,0 +1,42 @@
+name: その他（質問・文書の不備など） / Other (question, docs issue, etc.)
+description: >-
+  上記に当てはまらない質問・誤字・ビルド手順の不備など。/
+  Anything that doesn't fit the other templates — questions, typos, broken build steps.
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **注意 / Warning**
+
+        逆アセンブルリスト・コード断片・ROM 内部の番地（エントリアドレス、
+        ジャンプテーブル、ワークエリア番地）やデータテーブルの中身は
+        **書かないでください**。書かれていた場合、**本文を読まずに閉じます**。
+        判定基準は「測定で裏が取れる情報か」です。詳しくは
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+
+        Please do **not** include disassembly listings, code fragments, or
+        internal ROM addresses (entry points, jump tables, work-area
+        addresses) or the contents of in-ROM data tables. If any of that is
+        present, **we will close this without reading the body**. See
+        [CONTRIBUTING.md](../../CONTRIBUTING.md) for what is and isn't
+        welcome.
+
+  - type: textarea
+    id: content
+    attributes:
+      label: 内容 / Content
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 確認 / Confirmation
+      options:
+        - label: >-
+            この投稿に公式 ROM の逆アセンブル・コード断片・ROM 内部の番地やデータテーブルの
+            中身が含まれていないことを確認しました / I confirm this submission does not
+            contain any official-ROM disassembly, code fragments, or internal ROM
+            addresses/data-table contents.
+          required: true

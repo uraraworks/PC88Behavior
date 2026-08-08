@@ -30,6 +30,9 @@
 > Start with [docs/PLAN.md](docs/PLAN.md) (design and method) and
 > [CLAUDE.md](CLAUDE.md) (the clean-room rules, enforced by the permission settings in
 > `.claude/settings.json` and checked by `tools/check_cleanroom.sh`).
+>
+> **Before opening an Issue or PR, please read [CONTRIBUTING.md](CONTRIBUTING.md)** —
+> it explains what information we can and cannot accept.
 
 ---
 
@@ -67,6 +70,7 @@ M1 完了（計測ハーネス）、M3 着手（需要プロファイル）。
 - 設計と進め方: [docs/PLAN.md](docs/PLAN.md)
 - 土台にした QUASI88-libretro の調査: [docs/notes/m1-quasi88-survey.md](docs/notes/m1-quasi88-survey.md)
 - 需要プロファイル: [docs/notes/m3-demand-profile.md](docs/notes/m3-demand-profile.md)
+- Issue・PR を送る前に: [CONTRIBUTING.md](CONTRIBUTING.md)（送ってよい情報・いけない情報の判定基準）
 
 ### 手元で再現する
 
