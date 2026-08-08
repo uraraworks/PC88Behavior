@@ -13,13 +13,13 @@ body:
         ジャンプテーブル、ワークエリア番地）やデータテーブルの中身は
         **書かないでください**。書かれていた場合、**本文を読まずに閉じます**。
         判定基準は「測定で裏が取れる情報か」です。詳しくは
-        [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+        [CONTRIBUTING.md](https://github.com/uraraworks/PC88Behavior/blob/main/CONTRIBUTING.md) を参照してください。
 
         Please do **not** include disassembly listings, code fragments, or
         internal ROM addresses (entry points, jump tables, work-area
         addresses) or the contents of in-ROM data tables. If any of that is
         present, **we will close this without reading the body**. See
-        [CONTRIBUTING.md](../../CONTRIBUTING.md) for what is and isn't
+        [CONTRIBUTING.md](https://github.com/uraraworks/PC88Behavior/blob/main/CONTRIBUTING.md) for what is and isn't
         welcome.
 
   - type: textarea
