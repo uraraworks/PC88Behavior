@@ -33,6 +33,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+# cmp_io.py の gzip 透過オープンを共有する（.gz と非圧縮を同じ経路で読む。
+# 2026-08-10 measurements/*.iolog.txt,*.intlog.txt を gzip 化したため必要。
+# docs/notes/disclosure-2026-08-10.md 参照。二重実装しない）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cmp_io  # noqa: E402
+
+
+def _read_text_maybe_gz(path: Path) -> str:
+    with cmp_io._open_iolog(str(path)) as f:
+        return f.read()
+
+
 IO_ROW_RE = re.compile(
     r"^(\s*)(\d+)(\s+)(\d+)(\s+)(\d+)(\s+)(main|sub)(\s+)(IN|OUT)(\s+)([0-9A-Fa-f]{4})(\s+)([0-9A-Fa-f]{2})(\s+)([0-9A-Fa-f]{4})(\s*)$"
 )
@@ -40,7 +52,7 @@ IO_ROW_RE = re.compile(
 
 def make_shuffled_clock(src: Path, dst: Path, seed: int = 1234) -> None:
     """clock列の値集合はそのまま、行への割り当てだけをシャッフルする。"""
-    lines = src.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = _read_text_maybe_gz(src).splitlines(keepends=True)
     row_idxs = []
     clocks = []
     for i, line in enumerate(lines):
@@ -63,7 +75,7 @@ def make_shuffled_clock(src: Path, dst: Path, seed: int = 1234) -> None:
 
 def make_offset_in_values(src: Path, dst: Path, delta: int = 1) -> None:
     """全INイベントのvalueに+delta(mod 256)する。OUTはそのまま。"""
-    lines = src.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = _read_text_maybe_gz(src).splitlines(keepends=True)
     out_lines = lines[:]
     for i, line in enumerate(lines):
         m = IO_ROW_RE.match(line)

@@ -30,11 +30,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import bisect
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# cmp_io.py の gzip 透過オープンを共有する（.gz と非圧縮を同じ経路で読む。
+# 2026-08-10 measurements/*.iolog.txt,*.intlog.txt を gzip 化したため必要
+# になった。docs/notes/disclosure-2026-08-10.md 参照。二重実装しない）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cmp_io  # noqa: E402
 
 
 @dataclass
@@ -74,7 +81,7 @@ def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
     """cpu -> events (seq昇順のまま。clock列を持つM6c形式が前提)"""
     events: dict[str, list[IoEvent]] = {"main": [], "sub": []}
     cur_cpu = None
-    with path.open(encoding="utf-8") as f:
+    with cmp_io._open_iolog(str(path)) as f:
         for line in f:
             if line.startswith("# main"):
                 cur_cpu = "main"
@@ -100,7 +107,7 @@ def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
 def parse_intlog(path: Path) -> dict[str, list[IntEvent]]:
     events: dict[str, list[IntEvent]] = {"main": [], "sub": []}
     cur_cpu = None
-    with path.open(encoding="utf-8") as f:
+    with cmp_io._open_iolog(str(path)) as f:
         for line in f:
             if line.startswith("# main"):
                 cur_cpu = "main"

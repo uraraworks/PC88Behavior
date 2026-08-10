@@ -26,7 +26,16 @@ HASH="$REPO/tools/hash_io_stream.py"
 EXPECTED="$REPO/tests/conformance/expected.tsv"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
-SELFTEST_LOG="$REPO/measurements/m6g-d0-boot-run1.iolog.txt"
+# 検出力の自己検査は、公式ディスクの実測ログ(measurements/m6g-d0-boot-run1.iolog.txt)
+# ではなく、tests/fixtures/ の合成フィクスチャを使う。2026-08-10、
+# measurements/*.iolog.txt にデータポート伏せ字を適用したため、実測ログを
+# hash_io_stream.py に通しても "--" が抽出されるだけで tests/conformance/
+# expected.tsv と一致しなくなった（マスク後の値は元の値と一致しないのが
+# 伏せ字の目的そのものなので、これは正しい動作）。自己検査に要るのは
+# 「比較ロジックが機能しているか」だけで公式データは不要なので、
+# 完全に自作の合成データに切り替える（docs/notes/disclosure-2026-08-10.md 3節）。
+SELFTEST_LOG="$REPO/tests/fixtures/conform_l3_selftest.iolog.txt"
+SELFTEST_EXPECTED="$REPO/tests/fixtures/conform_l3_selftest.expected.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -38,6 +47,10 @@ if [ ! -f "$EXPECTED" ]; then
 fi
 if [ ! -f "$SELFTEST_LOG" ]; then
   echo "エラー: 自己検査用の入力が無い: $SELFTEST_LOG" >&2
+  exit 2
+fi
+if [ ! -f "$SELFTEST_EXPECTED" ]; then
+  echo "エラー: 自己検査用の期待値が無い: $SELFTEST_EXPECTED" >&2
   exit 2
 fi
 
@@ -86,7 +99,7 @@ run_conformance() {
 }
 
 # -----------------------------------------------------------------------
-# 検出力の自己検査（公式環境なしでも回せる。measurements/m6g-* を使う）
+# 検出力の自己検査（公式環境なしでも回せる。tests/fixtures/ の合成データを使う）
 #
 # a. 正しい入力・正しい期待値                → 全件一致（PASS）
 # b. ハッシュを1文字書き換えた期待値のコピー  → 不一致で検出（NG）
@@ -100,7 +113,7 @@ say "検出力の自己検査（比較ロジック自体をわざと壊して検
 selftest_rc=0
 
 echo "  -- a. 正しい入力・正しい期待値 → 一致するはず --"
-if run_conformance "$SELFTEST_LOG" "$EXPECTED" "自己検査a"; then
+if run_conformance "$SELFTEST_LOG" "$SELFTEST_EXPECTED" "自己検査a"; then
   :
 else
   ng "自己検査a: 正しい入力のはずが不一致になった（期待値ファイル自体を疑うこと）"
@@ -111,7 +124,7 @@ echo "  -- b. ハッシュを1文字壊した期待値 → 不一致で検出さ
 awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
      { sha=$6; last=substr(sha,length(sha),1)
        sha=substr(sha,1,length(sha)-1) (last=="0"?"f":"0")
-       $6=sha; print }' "$EXPECTED" > "$WORK/expected.bad_sha.tsv"
+       $6=sha; print }' "$SELFTEST_EXPECTED" > "$WORK/expected.bad_sha.tsv"
 if run_conformance "$SELFTEST_LOG" "$WORK/expected.bad_sha.tsv" "自己検査b" >"$WORK/b.out" 2>&1; then
   cat "$WORK/b.out"
   ng "自己検査b: 壊したハッシュが誤って一致してしまった（検出力が無い）"
@@ -123,7 +136,7 @@ fi
 
 echo "  -- c. 件数を壊した期待値 → 件数不一致で検出されるはず --"
 awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
-     { $5 = $5 + 1; print }' "$EXPECTED" > "$WORK/expected.bad_count.tsv"
+     { $5 = $5 + 1; print }' "$SELFTEST_EXPECTED" > "$WORK/expected.bad_count.tsv"
 if run_conformance "$SELFTEST_LOG" "$WORK/expected.bad_count.tsv" "自己検査c" >"$WORK/c.out" 2>&1; then
   cat "$WORK/c.out"
   ng "自己検査c: 件数を壊した期待値が誤って一致してしまった（検出力が無い）"
@@ -140,7 +153,7 @@ fi
 
 echo "  -- d. 存在しないポート → 抽出0件がエラーで落ちるはず（黙って一致に化けない） --"
 awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
-     { $3 = "FFFE"; print }' "$EXPECTED" > "$WORK/expected.bad_port.tsv"
+     { $3 = "FFFE"; print }' "$SELFTEST_EXPECTED" > "$WORK/expected.bad_port.tsv"
 if run_conformance "$SELFTEST_LOG" "$WORK/expected.bad_port.tsv" "自己検査d" >"$WORK/d.out" 2>&1; then
   cat "$WORK/d.out"
   ng "自己検査d: 存在しないポートの抽出が誤って通ってしまった"

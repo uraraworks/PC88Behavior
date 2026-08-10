@@ -46,6 +46,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# cmp_io.py の gzip 透過オープンを共有する（.gz と非圧縮を同じ経路で読む。
+# 2026-08-10 measurements/*.iolog.txt,*.intlog.txt を gzip 化したため必要
+# になった。docs/notes/disclosure-2026-08-10.md 参照。二重実装しない）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cmp_io  # noqa: E402
+
 ROW_RE = re.compile(
     r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+"
     r"([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
@@ -66,7 +72,7 @@ class Ev:
 
 def parse_iolog(path: Path) -> list[Ev]:
     rows: list[Ev] = []
-    with path.open(encoding="utf-8") as f:
+    with cmp_io._open_iolog(str(path)) as f:
         for line in f:
             m = ROW_RE.match(line)
             if not m:

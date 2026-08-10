@@ -12,15 +12,23 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CMP="$SCRIPT_DIR/cmp_io.py"
-SEED="$REPO_ROOT/measurements/l1-boot-io.iolog.txt"
+SEED_GZ="$REPO_ROOT/measurements/l1-boot-io.iolog.txt.gz"
 
-if [[ ! -f "$SEED" ]]; then
-    echo "エラー: 種ファイルが無い: $SEED" >&2
+if [[ ! -f "$SEED_GZ" ]]; then
+    echo "エラー: 種ファイルが無い: $SEED_GZ" >&2
     exit 2
 fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+
+# 2026-08-10、measurements/*.iolog.txt を gzip 化した（docs/notes/
+# disclosure-2026-08-10.md）。cmp_io.py は .gz を透過的に読めるが、この
+# スクリプトは以下で awk により種ファイルを直接改変して壊れ方のテストを
+# 作るため、$WORK に展開した平文コピーを SEED として使う（リポジトリには
+# 書き戻さない。$WORK は trap で削除される作業ディレクトリのみ）。
+SEED="$WORK/seed.l1-boot-io.iolog.txt"
+gunzip -c "$SEED_GZ" > "$SEED"
 
 FAIL=0
 pass() { echo "OK  - $1"; }
@@ -376,11 +384,16 @@ fi
 # （未検出のまま放置されていた）。8列対応を足したので、そのことを
 # わざと壊して検出する形で確かめる。
 # =====================================================================
-SEED2="$REPO_ROOT/measurements/m6g-d0-boot-run1.iolog.txt"
-if [[ ! -f "$SEED2" ]]; then
-    echo "エラー: 8列形式の種ファイルが無い: $SEED2" >&2
+SEED2_GZ="$REPO_ROOT/measurements/m6g-d0-boot-run1.iolog.txt.gz"
+if [[ ! -f "$SEED2_GZ" ]]; then
+    echo "エラー: 8列形式の種ファイルが無い: $SEED2_GZ" >&2
     exit 2
 fi
+# SEED と同じ理由でWORKに展開した平文コピーを使う。このファイルは
+# データポート($FB/$FC/$FD)を伏せ字済みなので、展開しても実データは
+# 出てこない（伏せ字は redact_iolog.py が既に恒久適用している）。
+SEED2="$WORK/seed2.m6g-d0-boot-run1.iolog.txt"
+gunzip -c "$SEED2_GZ" > "$SEED2"
 # main節・OUT行の総数（8列形式は $4=cpu $5=kind）
 OUT_COUNT2="$(awk '$4=="main" && $5=="OUT" {c++} END{print c+0}' "$SEED2")"
 if [[ "$OUT_COUNT2" -lt 3 ]]; then

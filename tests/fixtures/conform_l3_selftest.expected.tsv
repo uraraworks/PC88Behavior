@@ -1,0 +1,18 @@
+# tools/conform_l3.sh の「検出力の自己検査」専用の期待値。
+#
+# tests/conformance/expected.tsv とは別物。あちらは公式ディスクの実測から
+# 作った本番用の期待値（ハッシュのみ・値は含まない）。こちらは
+# tests/fixtures/conform_l3_selftest.iolog.txt という**完全に自作の合成データ**
+# から生成した期待値で、検出力の自己検査（正しく一致する／壊すと不一致になる）
+# だけを確認するために使う。公式ROM・公式ディスクは無関係（docs/notes/
+# disclosure-2026-08-10.md 3節: measurements/m6g-d0-boot-run1.iolog.txt を
+# 自己検査の入力にしていたのを、伏せ字適用後もこの自己検査が回るように
+# 合成フィクスチャへ切り替えた）。
+#
+# 書式は tests/conformance/expected.tsv と同じ:
+#   name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+#
+# 生成コマンド:
+#   tools/hash_io_stream.py tests/fixtures/conform_l3_selftest.iolog.txt \
+#       --cpu main --port FD --kind IN --name selftest-fixture
+selftest-fixture	main	00FD	IN	200	6f239effa887bed0b6a1e4b5dae6f62a5cfe286e8edf90f8289d2a68768fecb5

@@ -22,7 +22,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
-BASE="$REPO/measurements/l1-boot-io.iolog.txt"
+BASE="$REPO/measurements/l1-boot-io.iolog.txt.gz"  # 2026-08-10 gzip化(docs/notes/disclosure-2026-08-10.md)。cmp_io.pyがgz透過対応
 GEN="$REPO/src/l1_ipl/make_ipl_rom.py"
 
 INIT_N=350   # 第6節① 初期化区間の件数
