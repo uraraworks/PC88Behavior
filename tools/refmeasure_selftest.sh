@@ -219,7 +219,7 @@ else
         pass "e-2. rmtree を無効化すると例外後も生ログ用ディレクトリが残る退行を再現できた(=c-2.に検出力がある証拠)"
         rm -rf "${TMPDIR:-/tmp}"/pc88h-refmeasure-selftest-exc-* 2>/dev/null || true
     else
-        fail "e-2. 保護コードを無効化したのに生ログ用ディレクトリが削除された(結果: $E2_OUT。sedが効いていない可能性)"
+        fail "e-2. 保護コードを無効化したのに生ログ用ディレクトリが削除された(結果: ${E2_OUT}。sedが効いていない可能性)"
     fi
 fi
 
