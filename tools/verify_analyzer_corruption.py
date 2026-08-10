@@ -69,6 +69,21 @@ SKIPを回避できる。伏せ字前の生ログを自分で測定し直せば�
         --iolog measurements/m6c-sub-d5-seqfile.iolog.txt \
         --intlog measurements/m6c-sub-d5-seqfile.intlog.txt \
         --workdir /tmp/m6c-corruption-check
+
+## 2026-08-11 実行結果（公式環境モードの初回実行）
+
+このモードを実装した時点（同日）ではこの作業環境に
+PC88_REF_ROM_DIR/PC88_REF_DISK_DIRが無く、公式環境モードの本体
+(実際のq88measure実行を経由する経路)は一度も実行できていなかった
+(実行できたのは安全側プリミティブ単体の検査のみ)。
+
+同日中にユーザーの公式環境(PC88_REF_ROM_DIR/PC88_REF_DISK_DIR設定済み)
+で、--iolog measurements/m6c-sub-d5-seqfile.iolog.txt.gz /
+--intlog measurements/m6c-sub-d5-seqfile.intlog.txt.gz、frames=1800の
+条件で初めて実行し、(a)(b)両方の破壊テストが成功した(生ログ・個別
+レポートは設計どおり使い捨て作業ディレクトリに書かれ、処理終了時に
+削除された)。結果・考察は docs/notes/m6-sub-proto.md 第5版に記録する
+(このファイルには件数・一致率を含めない)。
 """
 from __future__ import annotations
 
