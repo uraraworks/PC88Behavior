@@ -1,0 +1,172 @@
+# M6j バルクトリガー解析: m6g-d0-boot-run1.iolog.txt.gz
+
+値(value列)は一切使わない。使用列: cpu/seq/clock/frame/port/kind/pc のみ。
+
+## Q1: main IN $FD の pc 分布(バースト本体のループはどこか)
+  総件数: 5635
+  pc の種類数: 2
+    pc=C265: 5632件
+    pc=C2DB: 3件
+
+  バースト区間の clock 範囲: 57778 〜 148280(frame 42〜62)
+
+## 補足: バースト区間内の main IN $FC(併走している別チャンネルの有無を確認)
+  件数: 5634
+    pc=C269: 5632件
+    pc=C2DE: 2件
+  (0件でなければ、バースト1回のループ本体が $FD 読み出しだけでなく$FC 読み出しも同時に行っている=ループが2チャンネル分の受信を1周期でまとめて処理していることを示す。詳細はノート本文参照)
+
+## Q2: バースト開始点から遡った main の I/O 列(どうやって入るか)
+  最初の main IN $FD (clock=57778) の直前 60 件:
+    clock=   20553 frame=   39 main IN  port=00FE pc=37DC
+    clock=   20554 frame=   39 main OUT port=00FF pc=37F0
+    clock=   20555 frame=   39 main OUT port=00FD pc=37F4
+    clock=   20556 frame=   39 main OUT port=00FF pc=37F8
+    clock=   20557 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20563 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20564 frame=   39 main OUT port=00FF pc=3815
+    clock=   20565 frame=   39 main IN  port=00FE pc=381C
+    clock=   20570 frame=   39 main IN  port=00FE pc=381C
+    clock=   20571 frame=   39 main IN  port=00FE pc=37DC
+    clock=   20574 frame=   39 main OUT port=00FF pc=37F0
+    clock=   20575 frame=   39 main OUT port=00FD pc=37F4
+    clock=   20576 frame=   39 main OUT port=00FF pc=37F8
+    clock=   20577 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20578 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20584 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20585 frame=   39 main OUT port=00FF pc=3815
+    clock=   20586 frame=   39 main IN  port=00FE pc=381C
+    clock=   20591 frame=   39 main IN  port=00FE pc=381C
+    clock=   20592 frame=   39 main IN  port=00FE pc=37DC
+    clock=   20595 frame=   39 main OUT port=00FF pc=37F0
+    clock=   20596 frame=   39 main OUT port=00FD pc=37F4
+    clock=   20597 frame=   39 main OUT port=00FF pc=37F8
+    clock=   20598 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20599 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20605 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20606 frame=   39 main OUT port=00FF pc=3815
+    clock=   20607 frame=   39 main IN  port=00FE pc=381C
+    clock=   20612 frame=   39 main IN  port=00FE pc=381C
+    clock=   20613 frame=   39 main IN  port=00FE pc=37DC
+    clock=   20616 frame=   39 main OUT port=00FF pc=37F0
+    clock=   20617 frame=   39 main OUT port=00FD pc=37F4
+    clock=   20618 frame=   39 main OUT port=00FF pc=37F8
+    clock=   20619 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20620 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20626 frame=   39 main IN  port=00FE pc=37FF
+    clock=   20627 frame=   39 main OUT port=00FF pc=3815
+    clock=   20628 frame=   39 main IN  port=00FE pc=381C
+    clock=   57733 frame=   42 main IN  port=00FE pc=381C
+    clock=   57734 frame=   42 main IN  port=0031 pc=C242
+    clock=   57735 frame=   42 main IN  port=00FE pc=37DC
+    clock=   57738 frame=   42 main OUT port=00FF pc=37F0
+    clock=   57739 frame=   42 main OUT port=00FD pc=37F4
+    clock=   57740 frame=   42 main OUT port=00FF pc=37F8
+    clock=   57741 frame=   42 main IN  port=00FE pc=37FF
+    clock=   57742 frame=   42 main IN  port=00FE pc=37FF
+    clock=   57748 frame=   42 main IN  port=00FE pc=37FF
+    clock=   57749 frame=   42 main OUT port=00FF pc=3815
+    clock=   57750 frame=   42 main IN  port=00FE pc=381C
+    clock=   57759 frame=   42 main IN  port=00FE pc=381C
+    clock=   57760 frame=   42 main OUT port=00FF pc=C28C
+    clock=   57761 frame=   42 main OUT port=00FF pc=C290
+    clock=   57762 frame=   42 main OUT port=00FF pc=C294
+    clock=   57763 frame=   42 main OUT port=00FF pc=C298
+    clock=   57764 frame=   42 main OUT port=00FF pc=C29C
+    clock=   57765 frame=   42 main IN  port=00FE pc=C2CD
+    clock=   57769 frame=   42 main IN  port=00FE pc=C2CD
+    clock=   57770 frame=   42 main OUT port=00FF pc=C2D4
+    clock=   57771 frame=   42 main IN  port=00FE pc=C2D6
+    clock=   57777 frame=   42 main IN  port=00FE pc=C2D6
+
+## Q3: sub OUT $FC の pc 分布(Q1と同じ問いをsub側で)
+  総件数: 5635
+  pc の種類数: 2
+    pc=709E: 5632件
+    pc=70E5: 3件
+
+  sub側バースト区間の clock 範囲: 57773 〜 148274
+
+## Q4: バースト終端(5635件目)の直後、main/subは何をするか
+  main側終端 clock=148280
+  sub側終端  clock=148274
+  → sub側の5635件目のほうが先に起きている(sub が先に止まった、と読める)
+
+  main側、終端直後 30 件:
+    clock=  148281 frame=   62 main IN  port=00FC pc=C2DE
+    clock=  148282 frame=   62 main OUT port=00FF pc=C2E3
+    clock=  148283 frame=   62 main OUT port=00FF pc=C27C
+    clock=  148284 frame=   62 main IN  port=0031 pc=C1F4
+    clock=  148285 frame=   62 main OUT port=00F3 pc=C14E
+    clock=  148286 frame=   62 main IN  port=006E pc=C15A
+    clock=  148288 frame=   62 main OUT port=0031 pc=E7F5
+    clock=  148289 frame=   62 main OUT port=00E4 pc=3088
+    clock=  148290 frame=   62 main OUT port=0051 pc=3092
+    clock=  148291 frame=   62 main OUT port=0050 pc=30A0
+    clock=  148292 frame=   62 main OUT port=0050 pc=30A6
+    clock=  148293 frame=   62 main IN  port=0051 pc=3F47
+    clock=  148294 frame=   62 main IN  port=000B pc=32F3
+    clock=  148295 frame=   62 main IN  port=000A pc=32F3
+    clock=  148296 frame=   62 main IN  port=0009 pc=32F3
+    clock=  148297 frame=   62 main IN  port=0008 pc=32F3
+    clock=  148298 frame=   62 main IN  port=0007 pc=32F3
+    clock=  148299 frame=   62 main IN  port=0006 pc=32F3
+    clock=  148300 frame=   62 main IN  port=0005 pc=32F3
+    clock=  148301 frame=   62 main IN  port=0004 pc=32F3
+    clock=  148302 frame=   62 main IN  port=0003 pc=32F3
+    clock=  148303 frame=   62 main IN  port=0002 pc=32F3
+    clock=  148304 frame=   62 main IN  port=0001 pc=32F3
+    clock=  148305 frame=   62 main IN  port=0000 pc=32F3
+    clock=  148306 frame=   62 main OUT port=00E4 pc=30F0
+    clock=  148307 frame=   62 main OUT port=0031 pc=E7FF
+    clock=  148309 frame=   63 main OUT port=0031 pc=E7F5
+    clock=  148310 frame=   63 main OUT port=00E4 pc=3088
+    clock=  148311 frame=   63 main OUT port=0051 pc=3092
+    clock=  148312 frame=   63 main OUT port=0050 pc=30A0
+
+  sub側、終端直後 30 件:
+    clock=  148275 frame=   62 sub  OUT port=00FD pc=70E8
+    clock=  148276 frame=   62 sub  OUT port=00FF pc=70EC
+    clock=  148277 frame=   62 sub  OUT port=00FF pc=70B8
+    clock=  148278 frame=   62 sub  IN  port=00FE pc=00CC
+    clock=  148911 frame=   76 sub  IN  port=00FE pc=00CC
+    clock=  148912 frame=   76 sub  OUT port=00FF pc=06DB
+    clock=  148913 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148919 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148920 frame=   76 sub  OUT port=00FF pc=06F3
+    clock=  148921 frame=   76 sub  IN  port=00FC pc=06F5
+    clock=  148922 frame=   76 sub  OUT port=00FF pc=06FA
+    clock=  148923 frame=   76 sub  IN  port=00FE pc=06FC
+    clock=  148927 frame=   76 sub  IN  port=00FE pc=06FC
+    clock=  148928 frame=   76 sub  OUT port=00FF pc=070B
+    clock=  148929 frame=   76 sub  OUT port=00FF pc=06DB
+    clock=  148930 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148933 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148934 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148940 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148941 frame=   76 sub  OUT port=00FF pc=06F3
+    clock=  148942 frame=   76 sub  IN  port=00FC pc=06F5
+    clock=  148943 frame=   76 sub  OUT port=00FF pc=06FA
+    clock=  148944 frame=   76 sub  IN  port=00FE pc=06FC
+    clock=  148948 frame=   76 sub  IN  port=00FE pc=06FC
+    clock=  148949 frame=   76 sub  OUT port=00FF pc=070B
+    clock=  148950 frame=   76 sub  OUT port=00FF pc=06DB
+    clock=  148951 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148954 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148955 frame=   76 sub  IN  port=00FE pc=06DD
+    clock=  148961 frame=   76 sub  IN  port=00FE pc=06DD
+
+## Q5: バースト区間内($FD最初の件〜5635件目まで)の $FE/$FF アクセス件数
+  区間内の $FE/$FF アクセス総数: 67609
+    main IN $FE: 22536件
+    sub IN $FE: 22536件
+    sub OUT $FF: 11269件
+    main OUT $FF: 11268件
+
+  → 0件ではない。1.10節「バルクは$FEハンドシェイクを一切伴わない単純反復ループ」という記述は、この測定結果と食い違う。訂正が必要(詳細はノート本文)。
+
+## 検出力の自己検算(IN $FD/OUT $FCという選び方をやめても集中するか)
+  main IN $FD: 対象の最頻pc占有率=0.999 / 同数ランダム抽出(全イベントから)=0.227
+  sub OUT $FC: 対象の最頻pc占有率=0.999 / 同数ランダム抽出(全イベントから)=0.168
+  (ランダム抽出のほうが明確に低ければ、Q1/Q3の集中は「IN $FD/OUT $FCを選んだ」ことに特有の現象であり、たまたま出た数字ではないと言える)
+
