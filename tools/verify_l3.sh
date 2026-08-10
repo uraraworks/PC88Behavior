@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # tools/verify_l3.sh — 自作 L3 サブROM（DISK.ROM相当）を検証する。
 #
+# これは二層のうちの**自己検証層**（公式ROM不要）。もう一方の
+# **適合テスト層**（公式ROM・公式ディスクが要る。期待値はハッシュのみ
+# コミット）は tools/conform_l3.sh（docs/PLAN.md「次にやること」1項）。
+#
 # tools/verify_l1.sh（M4）と同じ型（**公式ROM不要で回せる**）を踏襲する。
 # L1 は「自作 N88.ROM を丸ごと走らせ、リポジトリ内の基準ログと比べる」
 # ことで公式ROM無しの検証を成立させていた。L3 では main 側（N88.ROM）も

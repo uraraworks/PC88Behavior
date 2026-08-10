@@ -1,0 +1,17 @@
+# PC88Behavior 適合テスト層 — 期待値（tools/conform_l3.sh が読む）
+#
+# 値そのものは一切含まない。件数とSHA-256のみ（docs/PLAN.md「次にやること
+# （M6の続き）」1項、CLAUDE.md 禁止事項4）。生成コマンドは各行の下に注記する。
+#
+# 書式（TSV。1行1エントリ）:
+#   name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+#
+# name    cpu     port    kind    count   sha256
+#
+# m6g-d0-boot: diskA（N88-BASIC）起動時、main が IN $FD で受け取る値の列。
+#   docs/spec/l3-subrom.md 5.2節条件1・1.6節（5635件・末尾73件が0x00パディング）。
+#   決定論性は measurements/m6g-d0-boot-run{1,2}.iolog.txt の完全一致で確認済み
+#   （docs/notes/m6-conformance.md）。生成:
+#     tools/hash_io_stream.py measurements/m6g-d0-boot-run1.iolog.txt \
+#         --cpu main --port FD --kind IN --name m6g-d0-boot
+m6g-d0-boot	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
