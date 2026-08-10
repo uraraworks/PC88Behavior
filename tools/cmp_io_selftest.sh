@@ -37,7 +37,7 @@ fail() { echo "NG  - $1"; FAIL=1; }
 # main 節・OUT 行の総数を数えておく（種ファイルは 560 件のはず）
 OUT_COUNT="$(awk '$3=="main" && $4=="OUT" {c++} END{print c+0}' "$SEED")"
 if [[ "$OUT_COUNT" -lt 3 ]]; then
-    echo "エラー: 種ファイルの OUT 件数が少なすぎる（$OUT_COUNT）" >&2
+    echo "エラー: 種ファイルの OUT 件数が少なすぎる（${OUT_COUNT}）" >&2
     exit 2
 fi
 
@@ -68,9 +68,9 @@ python3 "$CMP" "$SEED" "$WORK/t2.txt" >"$WORK/t2.out" 2>&1
 rc=$?
 reported="$(grep -oE '[0-9]+ 件目で食い違い' "$WORK/t2.out" | grep -oE '^[0-9]+')"
 if [[ $rc -eq 1 ]] && [[ "$reported" == "$TARGET_N" ]] && grep -q "値が違う" "$WORK/t2.out"; then
-    pass "2. OUT の値を1つ書き換える → 不一致、かつ位置($TARGET_N件目)を正しく指す"
+    pass "2. OUT の値を1つ書き換える → 不一致、かつ位置(${TARGET_N}件目)を正しく指す"
 else
-    fail "2. OUT の値を1つ書き換える → 不一致（報告位置=$reported, 期待=$TARGET_N, rc=$rc）"
+    fail "2. OUT の値を1つ書き換える → 不一致（報告位置=${reported}, 期待=${TARGET_N}, rc=${rc}）"
     cat "$WORK/t2.out"
 fi
 
@@ -141,9 +141,9 @@ python3 "$CMP" "$SEED" "$WORK/t5.txt" >"$WORK/t5.out" 2>&1
 rc=$?
 reported5="$(grep -oE '[0-9]+ 件目で食い違い' "$WORK/t5.out" | grep -oE '^[0-9]+')"
 if [[ $rc -eq 1 ]] && [[ "$reported5" == "$N1" ]]; then
-    pass "5. OUT を2件入れ替える → 不一致（最初の食い違い=$N1件目）"
+    pass "5. OUT を2件入れ替える → 不一致（最初の食い違い=${N1}件目）"
 else
-    fail "5. OUT を2件入れ替える → 不一致（報告位置=$reported5, 期待=$N1, rc=$rc）"
+    fail "5. OUT を2件入れ替える → 不一致（報告位置=${reported5}, 期待=${N1}, rc=${rc}）"
     cat "$WORK/t5.out"
 fi
 
@@ -289,7 +289,7 @@ reported13="$(grep -oE '[0-9]+ 件目で食い違い' "$WORK/t13.out" | grep -oE
 if [[ $rc -eq 1 ]] && [[ "$reported13" == "$BREAK13" ]] && grep -q "① 初期化区間" "$WORK/t13.out"; then
     pass "13. 初期化区間の値を1件書き換える → ① で不一致（$BREAK13 件目）"
 else
-    fail "13. 初期化区間の値を1件書き換える → ① で不一致（報告位置=$reported13, rc=$rc）"
+    fail "13. 初期化区間の値を1件書き換える → ① で不一致（報告位置=${reported13}, rc=${rc}）"
     cat "$WORK/t13.out"
 fi
 
@@ -397,7 +397,7 @@ gunzip -c "$SEED2_GZ" > "$SEED2"
 # main節・OUT行の総数（8列形式は $4=cpu $5=kind）
 OUT_COUNT2="$(awk '$4=="main" && $5=="OUT" {c++} END{print c+0}' "$SEED2")"
 if [[ "$OUT_COUNT2" -lt 3 ]]; then
-    echo "エラー: 8列形式の種ファイルのOUT件数が少なすぎる（$OUT_COUNT2）" >&2
+    echo "エラー: 8列形式の種ファイルのOUT件数が少なすぎる（${OUT_COUNT2}）" >&2
     exit 2
 fi
 

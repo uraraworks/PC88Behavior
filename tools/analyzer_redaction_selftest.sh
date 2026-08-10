@@ -294,7 +294,7 @@ else
         # globで特定できる)。
         rm -rf "${TMPDIR:-/tmp}"/pc88h-selftest-exc-* 2>/dev/null || true
     else
-        fail "h-2. 保護コードを無効化したのに生ログ用ディレクトリが削除された(結果: $BROKEN_PROBE_RESULT。sedが効いていない可能性)"
+        fail "h-2. 保護コードを無効化したのに生ログ用ディレクトリが削除された(結果: ${BROKEN_PROBE_RESULT}。sedが効いていない可能性)"
     fi
 fi
 

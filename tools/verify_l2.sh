@@ -105,7 +105,7 @@ GOT_ANK="$(printf '%s\n' "$ANK_LINE" | awk '{print $NF}')"
 if [ "$GOT_ANK" != "$EXP_ANK" ]; then
   echo "NG: font_mem ANK の CRC32 不一致 (got=$GOT_ANK want=$EXP_ANK)" >&2; exit 1
 fi
-echo "OK: font_mem ANK の CRC32 が一致（$GOT_ANK） ＝ FONT.ROMのANK面が欠落・混入なく届いている"
+echo "OK: font_mem ANK の CRC32 が一致（${GOT_ANK}） ＝ FONT.ROMのANK面が欠落・混入なく届いている"
 
 if ! printf '%s\n' "$GRAPH_LINE" | grep -q 'ROM_FILE'; then
   echo "NG: font_mem GRAPH が ROM_FILE でない: $GRAPH_LINE" >&2; exit 1
@@ -114,7 +114,7 @@ GOT_GRAPH="$(printf '%s\n' "$GRAPH_LINE" | awk '{print $NF}')"
 if [ "$GOT_GRAPH" != "$EXP_GRAPH" ]; then
   echo "NG: font_mem GRAPH の CRC32 不一致 (got=$GOT_GRAPH want=$EXP_GRAPH)" >&2; exit 1
 fi
-echo "OK: font_mem GRAPH の CRC32 が一致（$GOT_GRAPH） ＝ FONT.ROMのGRAPH面が欠落・混入なく届いている"
+echo "OK: font_mem GRAPH の CRC32 が一致（${GOT_GRAPH}） ＝ FONT.ROMのGRAPH面が欠落・混入なく届いている"
 
 say "4. 画面ピクセルまでの到達確認（font_memより先の末端）"
 mkdir -p "$WORK/pxrom"

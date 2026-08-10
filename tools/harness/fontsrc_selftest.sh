@@ -88,7 +88,7 @@ if [ "$GOT_ANK_CRC" != "$CRC_ANK" ]; then
   echo "    ＝外部ファイルの内容が font_mem まで欠落・混入なく届いていない" >&2
   exit 1
 fi
-echo "OK: font_mem ANK の CRC32 が外部ファイルと一致（$GOT_ANK_CRC）"
+echo "OK: font_mem ANK の CRC32 が外部ファイルと一致（${GOT_ANK_CRC}）"
 echo "    → FONT.ROM の内容がそのまま font_mem（画面へ出る唯一のバッファ）まで届いている"
 
 say "font_mem GRAPH が ROM_FILE タグ・CRC32一致であることを確認"
@@ -100,7 +100,7 @@ if [ "$GOT_GRAPH_CRC" != "$CRC_GRAPH" ]; then
   echo "NG: font_mem GRAPH の CRC32 が $GOT_GRAPH_CRC 。期待値は $CRC_GRAPH" >&2
   exit 1
 fi
-echo "OK: font_mem GRAPH = ROM_FILE, CRC32一致（$GOT_GRAPH_CRC）"
+echo "OK: font_mem GRAPH = ROM_FILE, CRC32一致（${GOT_GRAPH_CRC}）"
 
 say "書き込み回数が想定どおり2であることを確認（下記の理由で1ではない）"
 # retro_init() は memory_allocate()（memory.c、上流の標準ロード経路）を

@@ -102,7 +102,7 @@ if [ "$HANDLER_PC" != "0038" ]; then
 fi
 echo "OK: handler_pc=0038"
 
-say "ret_pc が HALT の次の番地（0x$RET_PC_EXPECT）であることを確認"
+say "ret_pc が HALT の次の番地（0x${RET_PC_EXPECT}）であることを確認"
 RET_PC="$(printf '%s\n' "$FIRST_LINE" | awk '{print $7}')"
 if [ "$RET_PC" != "$RET_PC_EXPECT" ]; then
   echo "NG: ret_pc が $RET_PC 。期待値は $RET_PC_EXPECT 。該当行: $FIRST_LINE" >&2
@@ -115,11 +115,11 @@ say "定常状態でほぼ毎フレーム1回受理されていることを確�
 # 取りこぼし無く毎フレーム記録できていれば FRAMES-1 に近い値になるはず。
 MIN_EXPECT=$((FRAMES - 5))
 if [ "$N_EVENTS" -lt "$MIN_EXPECT" ]; then
-  echo "NG: イベント数 $N_EVENTS が少なすぎる（期待 >= $MIN_EXPECT）。" \
+  echo "NG: イベント数 $N_EVENTS が少なすぎる（期待 >= ${MIN_EXPECT}）。" \
        "毎フレーム受理できていない可能性がある" >&2
   exit 1
 fi
-echo "OK: イベント数 $N_EVENTS 件（>= $MIN_EXPECT、ほぼ毎フレーム受理）"
+echo "OK: イベント数 $N_EVENTS 件（>= ${MIN_EXPECT}、ほぼ毎フレーム受理）"
 
 say "取りこぼしが main/sub とも 0件であることを確認"
 if ! grep -qE '取りこぼし: 0件' "$INTLOG"; then

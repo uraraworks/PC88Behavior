@@ -74,7 +74,7 @@ if [ -e "$eff" ]; then
   if cmp -s "$src" "$eff"; then ok "実効側 (cwd) と実体の内容が一致している"
   else ng "実効側と実体の内容がずれている: $eff"; fi
 else
-  ng "実効側に permission 設定が無い: $eff（cwd が PC88 だと実体だけでは読まれない）"
+  ng "実効側に permission 設定が無い: ${eff}（cwd が PC88 だと実体だけでは読まれない）"
 fi
 
 # --- 6. 計測ハーネスが禁止された能力を持っていないか ----------------------
@@ -185,6 +185,74 @@ while IFS= read -r f; do
 done < <(git ls-files)
 if [ -z "$big" ]; then ok "追跡ファイルに50MB超のものは無い"
 else ng "50MB超の追跡ファイルがある:"; printf '       %s\n' $big; fi
+
+# --- 9. 変数展開直後に非ASCII文字が来ていないか(UTF-8ロケールでの識別子誤認) -
+# 背景: UTF-8ロケールのbashは識別子をマルチバイト単位で解釈できてしまうため、
+# 「$port）」のように $var の直後に全角文字が続くと「port）」までが変数名だと
+# 読まれ、$port は未定義扱いになる。set -u があれば即死(実際に
+# tools/conform_l3.sh がこれで自己検査の途中で死に、以降の本体が
+# 一度も走っていなかった)、無ければ空文字列に化けて黙って誤動作する。
+# これまでの回帰確認は全てCロケールで行っており(Cロケールは0x80以上を
+# 識別子に含めないため無症状)、UTF-8ロケールでは一度も検出されていなかった。
+#
+# 判定はヒューリスティック: 行頭からその出現位置までの未エスケープ `'` の
+# 個数が奇数ならシングルクオート内(展開されない)とみなして除外する。
+# 複数行文字列やコマンド内のネストまでは追えないため完全ではない。
+# 誤検出したときは、握りつぶさずに対象行の末尾に
+# `# cleanroom-lint:ignore` を付けて除外理由をコメントで書くこと。
+# コメント行(先頭が # のもの)は無条件で除外する。
+cat > "$WORK_CR/scan_var_ascii.py" <<'PYEOF'
+import re
+import sys
+
+PATTERN = re.compile(r'\$([A-Za-z_][A-Za-z0-9_]*)')
+
+def scan(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        line = raw.rstrip('\n')
+        if line.rstrip().endswith('# cleanroom-lint:ignore'):
+            continue
+        if line.lstrip().startswith('#'):
+            continue
+        for m in PATTERN.finditer(line):
+            end = m.end()
+            if end >= len(line):
+                continue
+            nxt = line[end]
+            if ord(nxt) < 0x80:
+                continue
+            before = line[:m.start()]
+            if before.count("'") % 2 == 1:
+                continue  # シングルクオート内と推定(ヒューリスティック)
+            hits.append((i, line.strip(), m.group(0), nxt))
+    return hits
+
+bad = False
+for path in sys.argv[1:]:
+    try:
+        with open(path, encoding='utf-8') as f:
+            lines = f.readlines()
+    except OSError as e:
+        print(f"{path}: 読めない({e})")
+        bad = True
+        continue
+    for lineno, line, var, nxt in scan(path, lines):
+        print(f"{path}:{lineno}: {var} の直後が非ASCII文字'{nxt}' -> {line}")
+        bad = True
+
+sys.exit(1 if bad else 0)
+PYEOF
+sh_file_list=()
+while IFS= read -r f; do sh_file_list+=("$f"); done < <(git ls-files '*.sh')
+if [ "${#sh_file_list[@]}" -gt 0 ]; then
+  if varhits="$(python3 "$WORK_CR/scan_var_ascii.py" "${sh_file_list[@]}" 2>&1)"; then
+    ok "追跡中の *.sh に変数展開直後の非ASCII文字は無い"
+  else
+    ng "変数展開直後に非ASCII文字がある(UTF-8ロケールで識別子として吸われ誤動作する恐れ):"
+    printf '       %s\n' "$varhits"
+  fi
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then echo "全項目 OK"; else echo "$fail 件 NG"; fi

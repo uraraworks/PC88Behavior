@@ -78,7 +78,7 @@ run_conformance() {
       a_count="$(printf '%s\n' "$out" | awk -F'\t' '$1=="count"{print $2}')"
       a_sha="$(printf '%s\n' "$out" | awk -F'\t' '$1=="sha256"{print $2}')"
     else
-      ng "[$label] ${name}: 抽出に失敗（$cpu/$kind/$port）"
+      ng "[$label] ${name}: 抽出に失敗（${cpu}/${kind}/${port}）"
       sed 's/^/       /' "$WORK/err.$name"
       rc=1
       continue

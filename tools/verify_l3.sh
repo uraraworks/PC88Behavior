@@ -68,7 +68,7 @@ python3 "$GEN_SUB" "$WORK/rom_ok" || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_ok" --requests "$REQUESTS" || exit 1
 python3 "$GEN_DISK" "$WORK/test.d88" || exit 1
 
-say "走らせる（$FRAMES フレーム、要求: $REQUESTS）"
+say "走らせる（${FRAMES} フレーム、要求: ${REQUESTS}）"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_ok" --disk "$WORK/test.d88" \
     --frames "$FRAMES" --io-log "$WORK/ok.iolog.txt" \
     >"$WORK/ok.stdout.txt" 2>"$WORK/ok.stderr.txt"
