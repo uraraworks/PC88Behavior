@@ -30,6 +30,13 @@
 > welcome. If the only source for it is someone's analysis or a disassembly,
 > it isn't.
 >
+> **If you send us a raw I/O log (`.iolog.txt`):** run it through
+> `tools/redact_iolog.py` first. Its data-port columns (`$FB`/`$FC`/`$FD`)
+> carry whatever bytes the official disk actually returned — the same
+> problem as a ROM dump, even though it technically isn't the ROM (see
+> `docs/notes/disclosure-2026-08-10.md`). We may have to decline logs
+> that aren't redacted.
+>
 > **If something in the list above shows up anyway:** we will close it
 > without reading the body. That is not a judgment about the sender's intent
 > — the read itself is what causes the damage, and by the time we've read
@@ -71,6 +78,13 @@ Issue・PR・議論のどの形であっても、以下は送らないでくだ�
 - 実測結果と再現手順（どう測ったかが書いてあるもの）
 - `docs/spec/` の記述と実測が食い違っている、という指摘
 - 誤字、文書の分かりにくさ、ビルド手順の不備の指摘
+
+**生の I/O ログ（`.iolog.txt`）を送る場合**は、先に
+`tools/redact_iolog.py` を通してください。データポート
+（`$FB`/`$FC`/`$FD`）の列には公式ディスクが実際に返したバイト列が
+そのまま載るため、ROM ではなくても ROM ダンプと同じ問題になります
+（[docs/notes/disclosure-2026-08-10.md](docs/notes/disclosure-2026-08-10.md)）。
+伏せ字前のログはお断りする場合があります。
 
 ## 判定の目安
 

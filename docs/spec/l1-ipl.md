@@ -1423,3 +1423,7 @@ OUT 50 <- 01
 OUT E4 <- FF
 OUT 31 <- 19
 ```
+
+---
+
+**追記（2026-08-10）**: このノートが参照する `measurements/*.iolog.txt` は、その後 `.iolog.txt.gz` に伏せ字＋圧縮した（データポート `$FB`/`$FC`/`$FD` の値列のみ。他の列はそのまま）。上記の記述自体は当時の事実として変更していない。詳細は [docs/notes/disclosure-2026-08-10.md](../notes/disclosure-2026-08-10.md) を参照。

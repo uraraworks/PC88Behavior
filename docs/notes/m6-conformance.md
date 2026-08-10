@@ -185,3 +185,7 @@ tools/cmp_io.py <基準> <対象> --cpu main --port FD --kind IN
   8列パース・clock列が比較に無関係であること・`--port/--kind`の
   一致/不一致検出・引数誤りの検出を、いずれも**わざと壊して**確認した
   （全26項目OK）
+
+---
+
+**追記（2026-08-10）**: このノートが参照する `measurements/*.iolog.txt` は、その後 `.iolog.txt.gz` に伏せ字＋圧縮した（データポート `$FB`/`$FC`/`$FD` の値列のみ。他の列はそのまま）。上記の記述自体は当時の事実として変更していない。詳細は [docs/notes/disclosure-2026-08-10.md](disclosure-2026-08-10.md) を参照。
