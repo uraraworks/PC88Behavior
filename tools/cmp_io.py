@@ -40,8 +40,21 @@ IN の回数を適合条件から外したのとまったく同じ理由であ�
 """
 
 import argparse
+import gzip
 import sys
 from dataclasses import dataclass
+
+
+def _open_iolog(path: str):
+    """iolog を透過的に開く。拡張子が .gz なら gzip 展開して読む。
+
+    459MB (measurements/*.iolog.txt) のうち3件が GitHub の推奨上限 50MB を
+    超えるため、伏せ字後は gzip で圧縮してコミットする（docs/PLAN.md
+    「運用上の課題」）。非圧縮ファイルの既存挙動は変えない。
+    """
+    if str(path).endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, "r", encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -71,7 +84,7 @@ def parse_iolog(path: str, cpu: str) -> list[Event]:
     section_found = False
     saw_any_line_in_section = False
 
-    with open(path, "r", encoding="utf-8") as f:
+    with _open_iolog(path) as f:
         for lineno, raw in enumerate(f, start=1):
             line = raw.rstrip("\n")
             stripped = line.strip()
