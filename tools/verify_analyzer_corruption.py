@@ -45,8 +45,27 @@ value が既に `--` に固定されているログに対しては前提が崩�
 場合は `tools/conform_l3.sh` の書式(SKIP: 理由 / 必要なもの / 当時の結果の
 在処)を踏襲して表示する。
 
+## 2026-08-11 公式環境モード
+
+`PC88_REF_ROM_DIR`/`PC88_REF_DISK_DIR` の両方が設定されていれば、上記の
+SKIPを回避できる。伏せ字前の生ログを自分で測定し直せば良いだけなので、
+`--iolog`/`--intlog` は無視し、`tools/conform_l3.sh` の本番区間と同じ条件
+(diskA起動、既定 frames=1800)でその場に生ログを測定して、その生ログに対して
+(a)(b)を実行する。生ログの作業ディレクトリは常にリポジトリ外の使い捨て
+(`tempfile.mkdtemp()`)で、処理終了時(例外時も)に必ず削除する。標準出力の
+レポートには件数・一致率だけを載せ、生ログのパス・内容は一切書かない
+(`_DisposableRawDir` / `reject_if_in_repo` 参照)。
+
 使い方:
+    # 従来どおり(伏せ字済みログの検算。環境変数未設定なら(b)はSKIP):
     python3 tools/verify_analyzer_corruption.py \
+        --iolog measurements/m6c-sub-d5-seqfile.iolog.txt \
+        --intlog measurements/m6c-sub-d5-seqfile.intlog.txt \
+        --workdir /tmp/m6c-corruption-check
+
+    # 公式環境モード((a)(b)とも完全に実行。--iolog/--intlogは無視される):
+    PC88_REF_ROM_DIR=/path/to/rom PC88_REF_DISK_DIR=/path/to/disk \
+        python3 tools/verify_analyzer_corruption.py \
         --iolog measurements/m6c-sub-d5-seqfile.iolog.txt \
         --intlog measurements/m6c-sub-d5-seqfile.intlog.txt \
         --workdir /tmp/m6c-corruption-check
@@ -54,10 +73,13 @@ value が既に `--` に固定されているログに対しては前提が崩�
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # cmp_io.py の gzip 透過オープンを共有する（.gz と非圧縮を同じ経路で読む。
@@ -65,6 +87,162 @@ from pathlib import Path
 # docs/notes/disclosure-2026-08-10.md 参照。二重実装しない）。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cmp_io  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# 公式環境モード（2026-08-11追加）
+#
+# PC88_REF_ROM_DIR/PC88_REF_DISK_DIR が設定されていれば、伏せ字前の生ログを
+# 使い捨ての作業ディレクトリでその場で測定し、(a)(b) 両方の破壊テストを
+# 完全な形で回す。以前はこの経路が「harnessでログを手作業で作って渡せ」と
+# コメントに書いてあるだけで自動化されていなかった。
+#
+# 生ログは公式ディスクの実データを含む(CLAUDE.md 禁止事項3・4)。以下を
+# 構造として守る:
+#   - 生ログの作業ディレクトリは常にリポジトリの外(tempfile.mkdtemp())。
+#     どこであってもリポジトリ配下を指すと即座に拒否する(_DisposableRawDir)。
+#   - 使い終わったら例外の有無に関わらず必ず削除する(try/finallyではなく
+#     コンテキストマネージャの__exit__に閉じ込めて、経路を1つにする)。
+#   - この作業ディレクトリのパスや中身は、標準出力のレポートにも
+#     ユーザー指定の --workdir にも一切書かない。抽出するのは
+#     analyze_sub_proto.py のレポートから件数・一致率だけ
+#     (extract_default_pairs は元々値の生列ではなく件数しか返さない)。
+#     レポート本文自体(analyze_sub_proto.py の出力には制御ポートの
+#     「上位値」のような実データの一部が載る節がある)は raw_dir 内に
+#     留め、raw_dir の外へ一切コピーしない。
+# ---------------------------------------------------------------------------
+
+
+class FullMeasurementError(RuntimeError):
+    """公式環境モードの測定・解析が失敗したときに使う。"""
+
+
+def _repo_root() -> Path:
+    # tools/ の1つ上がリポジトリルート。
+    return Path(__file__).resolve().parent.parent
+
+
+def reject_if_in_repo(path: Path, label: str) -> None:
+    """path がリポジトリ配下を指していたら例外で拒否する。
+
+    公式ディスクの実データを含みうる作業ディレクトリは、リポジトリの外に
+    置くことが構造上の前提(CLAUDE.md「パスの扱い」)。ここが効いていないと
+    「使い捨てのつもりが実はリポジトリ内で、git add一発で持ち出される」
+    という事故につながる。--workdir(ユーザー指定)にも、公式環境モードが
+    内部で作る使い捨てディレクトリにも同じ関数で検査する(経路を分けない)。
+    """
+    repo = _repo_root().resolve()
+    p = path.resolve()
+    if p == repo or repo in p.parents:
+        raise SystemExit(
+            f"エラー: {label} がリポジトリ配下を指している ({p})。"
+            "公式ディスクの実データを含みうる作業ディレクトリはリポジトリの外に"
+            "置くこと(CLAUDE.md「パスの扱い」)。"
+        )
+
+
+class _DisposableRawDir:
+    """使い捨ての生ログ用作業ディレクトリ。
+
+    tempfile.mkdtemp() でリポジトリの外に作り、reject_if_in_repo で
+    確認し、with を抜けるとき(正常終了・例外どちらでも)必ず削除する。
+    「例外時も生ログが残らない」という要件を、呼び出し側のtry/finally
+    忘れに頼らずこの1箇所に閉じ込めるための実装。
+    """
+
+    def __init__(self, prefix: str = "pc88h-corruption-fullcheck-") -> None:
+        self._prefix = prefix
+        self.path: Path | None = None
+
+    def __enter__(self) -> Path:
+        self.path = Path(tempfile.mkdtemp(prefix=self._prefix))
+        reject_if_in_repo(self.path, "内部作業ディレクトリ(生ログ用)")
+        return self.path
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if self.path is not None:
+            shutil.rmtree(self.path, ignore_errors=True)
+        return False  # 例外は揉み消さず伝播させる
+
+
+def discover_frontend_and_core() -> tuple[Path, Path]:
+    """tools/conform_l3.sh と同じ場所からフロントエンドとコアを探す。
+
+    綴りを推測しないため、パスの組み立ては conform_l3.sh の
+    VENDOR/FRONTEND/CORE の定義に厳密に合わせる。
+    """
+    repo = _repo_root()
+    vendor = repo.parent / "vendor" / "quasi88-libretro"
+    frontend = repo / "tools" / "harness" / "frontend" / "q88measure"
+    if not frontend.exists():
+        raise FullMeasurementError(
+            f"フロントエンドが無い: {frontend}"
+            "（tools/harness/frontend で make を先に実行すること）"
+        )
+    cores = sorted(vendor.glob("quasi88_libretro.*"))
+    if not cores:
+        raise FullMeasurementError(
+            f"コアが無い: {vendor}/quasi88_libretro.*"
+            "（tools/setup_harness.sh を先に実行すること）"
+        )
+    return frontend, cores[0]
+
+
+def measure_fresh_raw_log(raw_dir: Path, frames: int) -> tuple[Path, Path]:
+    """PC88_REF_ROM_DIR/PC88_REF_DISK_DIR を使い、伏せ字前の生ログ
+    (iolog/intlog)を raw_dir にその場で測定して作る。
+
+    呼び出し方(diskA起動、--frames の意味、--disk のファイル名)は
+    tools/conform_l3.sh の本番区間に厳密に合わせる(綴りを推測しない)。
+    conform_l3.sh と違い、ここでは生成した生ログをそのまま検証には使うが
+    コミットも標準出力への転記も一切しない。
+
+    q88measure自身の標準出力/標準エラーには --rom-dir/--disk の私物パスが
+    写り込む(main.cの仕様)。これも raw_dir の外へは出さない
+    (このプロセスの標準出力・標準エラーには一切転記しない)。
+    """
+    rom_dir = os.environ.get("PC88_REF_ROM_DIR")
+    disk_dir = os.environ.get("PC88_REF_DISK_DIR")
+    if not rom_dir or not disk_dir:
+        raise FullMeasurementError("PC88_REF_ROM_DIR/PC88_REF_DISK_DIR が未設定")
+
+    frontend, core = discover_frontend_and_core()
+
+    disk = Path(disk_dir) / "N88_FE.D88"
+    if not disk.is_file():
+        raise FullMeasurementError(
+            "参照ディスクが無い: (PC88_REF_DISK_DIR)/N88_FE.D88"
+        )
+
+    io_log = raw_dir / "live.iolog.txt"
+    int_log = raw_dir / "live.intlog.txt"
+    q88_stdout = raw_dir / "live.stdout.txt"
+    q88_stderr = raw_dir / "live.stderr.txt"
+
+    with open(q88_stdout, "w", encoding="utf-8") as out_f, \
+         open(q88_stderr, "w", encoding="utf-8") as err_f:
+        proc = subprocess.run(
+            [
+                str(frontend),
+                "--core", str(core),
+                "--rom-dir", rom_dir,
+                "--disk", str(disk),
+                "--frames", str(frames),
+                "--io-log", str(io_log),
+                "--int-log", str(int_log),
+            ],
+            stdout=out_f,
+            stderr=err_f,
+        )
+
+    if proc.returncode != 0 or not io_log.is_file() or not int_log.is_file():
+        raise FullMeasurementError(
+            f"q88measure の実行に失敗した(終了コード{proc.returncode})。"
+            "詳細は使い捨て作業ディレクトリ内の標準出力/標準エラーのログに"
+            "あるが、私物のパスが写り込むためこのプロセスの標準出力へは"
+            "転記しない。"
+        )
+    return io_log, int_log
 
 
 def _read_text_maybe_gz(path: Path) -> str:
@@ -212,6 +390,35 @@ def extract_default_pairs(report: Path) -> dict:
     return result
 
 
+def run_full_ab_in_raw_dir(fresh_io: Path, fresh_int: Path, raw_dir: Path) -> dict:
+    """公式環境モード: 新規測定した生ログに対して (a)(b) を両方実行する。
+
+    baseline/shuffled/offset の生ログ・解析レポートは全て raw_dir(呼び出し側が
+    _DisposableRawDir で管理する使い捨てディレクトリ)の中に置く。ここから
+    戻すのは extract_default_pairs() が返す件数(一致/不一致)の辞書だけで、
+    レポート本文(analyze_sub_proto.py は制御ポートの「上位値」節で実際の
+    値の一部を出力するため raw_dir の外に出してはいけない)やファイルパスは
+    一切返さない。
+    """
+    baseline_out = raw_dir / "baseline.txt"
+    run_analyzer(fresh_io, fresh_int, baseline_out)
+    baseline = extract_default_pairs(baseline_out)
+
+    shuffled_io = raw_dir / "shuffled.iolog.txt"
+    make_shuffled_clock(fresh_io, shuffled_io)
+    shuffled_out = raw_dir / "shuffled.txt"
+    run_analyzer(shuffled_io, fresh_int, shuffled_out)
+    shuffled = extract_default_pairs(shuffled_out)
+
+    offset_io = raw_dir / "offset.iolog.txt"
+    make_offset_in_values(fresh_io, offset_io)
+    offset_out = raw_dir / "offset.txt"
+    run_analyzer(offset_io, fresh_int, offset_out)
+    offset = extract_default_pairs(offset_out)
+
+    return {"baseline": baseline, "shuffled": shuffled, "offset": offset}
+
+
 MIN_SAMPLE_FOR_PICK = 200  # 少数サンプルの偶然一致で選んでしまわないための下限
 # 偶然一致率(1/256≒0.39%)の5倍を下回る基準では「崩れて見える」余地が
 # そもそも無い(既にほぼ底値)。シャッフルテストとして意味を持たせる
@@ -264,9 +471,63 @@ def main() -> None:
     ap.add_argument("--iolog", required=True, type=Path)
     ap.add_argument("--intlog", required=True, type=Path)
     ap.add_argument("--workdir", required=True, type=Path)
+    ap.add_argument(
+        "--frames",
+        type=int,
+        default=1800,
+        help="公式環境モードでの測定フレーム数(既定 1800。"
+        "tools/conform_l3.sh の本番区間と同条件)",
+    )
     args = ap.parse_args()
 
+    # --workdir はレポート(件数・一致率のみ)の置き場だが、公式ディスクの
+    # 実データを直接書き込む経路ではない(公式環境モードの生ログは常に
+    # _DisposableRawDir=リポジトリ外の使い捨てディレクトリに閉じ込める)。
+    # それでも「私物パスを扱う作業ディレクトリはリポジトリ配下を許さない」
+    # という規律そのものを --workdir にも及ぼす(要件どおり検証する)。
+    reject_if_in_repo(args.workdir, "--workdir")
     args.workdir.mkdir(parents=True, exist_ok=True)
+
+    if os.environ.get("PC88_REF_ROM_DIR") and os.environ.get("PC88_REF_DISK_DIR"):
+        print(f"# 破壊テスト結果(公式環境モード): frames={args.frames}")
+        print()
+        print(
+            "公式環境モード: PC88_REF_ROM_DIR/PC88_REF_DISK_DIR が設定されている"
+            "ため、伏せ字前の生ログを使い捨ての作業ディレクトリ(リポジトリ外・"
+            "処理後に削除)でその場で測定し、(a)(b)両方の破壊テストを完全な形で"
+            "実行する。指定された --iolog/--intlog(伏せ字済み想定)はこのモードでは"
+            "使わない。"
+        )
+        print()
+        try:
+            with _DisposableRawDir() as raw_dir:
+                fresh_io, fresh_int = measure_fresh_raw_log(raw_dir, args.frames)
+                results = run_full_ab_in_raw_dir(fresh_io, fresh_int, raw_dir)
+        except FullMeasurementError as e:
+            print(f"エラー: 公式環境モードの測定/解析に失敗した: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        baseline = results["baseline"]
+        shuffled = results["shuffled"]
+        offset = results["offset"]
+        for pair in baseline:
+            print(f"## {pair}")
+            b = baseline.get(pair, {})
+            s = shuffled.get(pair, {})
+            o = offset.get(pair, {})
+            print(f"  baseline (無加工)        : raw {pct(b.get('raw_match',0), b.get('raw_mismatch',0))}"
+                  f" / collapsed {pct(b.get('collapsed_match',0), b.get('collapsed_mismatch',0))}")
+            print(f"  (a) shuffle-clock (順序破壊): raw {pct(s.get('raw_match',0), s.get('raw_mismatch',0))}"
+                  f" / collapsed {pct(s.get('collapsed_match',0), s.get('collapsed_mismatch',0))}")
+            print(f"  (b) offset-value (値+1)    : raw {pct(o.get('raw_match',0), o.get('raw_mismatch',0))}"
+                  f" / collapsed {pct(o.get('collapsed_match',0), o.get('collapsed_mismatch',0))}")
+            print()
+        print(
+            "詳細レポート: 公式環境モードの生ログ・解析レポートは使い捨て"
+            "作業ディレクトリに書いたが、処理終了時に削除済み(コミット対象にも"
+            "このレポートにもパス・内容は残さない)。"
+        )
+        return
 
     masked_ports = detect_masked_ports(args.iolog)
 
@@ -329,12 +590,11 @@ def main() -> None:
     )
     print(
         "  公式環境(PC88_REF_ROM_DIR/PC88_REF_DISK_DIR)があれば、"
-        "tools/harness のフロントエンド(q88measure --io-log <出力先>)で"
-        "伏せ字前の生ログをその場で作れる。伏せ字は redact_iolog.py という"
-        "別工程でしか適用されないため、harnessが吐く直後のログには"
-        "元の値が残っている。そのログをそのまま本スクリプトに渡せば"
-        "(b)を含めた完全な検算ができる（そのログは伏せ字前なので"
-        "コミットしないこと。使い捨てのworkdirに置くこと）。"
+        "このスクリプト自身が使い捨ての作業ディレクトリ(リポジトリ外・"
+        "処理後に削除)で伏せ字前の生ログをその場で測定し、(a)(b)を含めた"
+        "完全な検算を自動で行う(2026-08-11以降、手作業は不要)。"
+        "上記2つの環境変数を設定してこのスクリプトを再実行するだけでよい"
+        "（--iolog/--intlog はそのモードでは使われない）。"
     )
     print()
 
