@@ -24,6 +24,7 @@ SCRIPTS=(
   tools/cmp_io_selftest.sh
   tools/redact_iolog_selftest.sh
   tools/analyzer_redaction_selftest.sh
+  tools/refmeasure_selftest.sh
   tools/conform_l3.sh
   tools/verify_l1.sh
   tools/verify_l2.sh

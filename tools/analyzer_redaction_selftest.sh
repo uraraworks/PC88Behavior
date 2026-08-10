@@ -133,9 +133,7 @@ fi
 # sys.path.insert(0, __file__の親)に依存しているので別ディレクトリに置くと
 # import に失敗する)。使い終わったらtrapで消す。
 BROKEN_ANALYZE="$SCRIPT_DIR/.analyze_sub_proto_broken_selftest.py"
-BROKEN_VERIFY_NORMTREE="$SCRIPT_DIR/.verify_analyzer_corruption_broken_normtree_selftest.py"
-BROKEN_VERIFY_NOREJECT="$SCRIPT_DIR/.verify_analyzer_corruption_broken_noreject_selftest.py"
-trap 'rm -rf "$WORK" "$BROKEN_ANALYZE" "$BROKEN_VERIFY_NORMTREE" "$BROKEN_VERIFY_NOREJECT"' EXIT
+trap 'rm -rf "$WORK" "$BROKEN_ANALYZE"' EXIT
 sed -E 's/\(\[0-9A-Fa-f\]\{2\}\|--\)/([0-9A-Fa-f]{2})/' "$ANALYZE" > "$BROKEN_ANALYZE"
 if diff -q "$ANALYZE" "$BROKEN_ANALYZE" >/dev/null 2>&1; then
     fail "c. 壊れたコピーの生成に失敗した(sedが対象行にマッチしなかった。ANALYZE側の書式が変わった可能性)"
@@ -216,87 +214,11 @@ else
     pass "f. 拒否時にリポジトリ配下へディレクトリが作られていない"
 fi
 
-# --- g. 例外が起きても生ログ用の使い捨てディレクトリが残らないこと ---------
-# 公式環境(PC88_REF_ROM_DIR)がこの作業環境に無いため、実際のq88measure測定を
-# 経由した経路(公式環境モードの本体)はここでは検査できない(未実行のまま
-# 正直に報告する)。代わりに、生ログ用ディレクトリの生成・削除を担う
-# _DisposableRawDir というプリミティブを直接使い、「with を抜けるときに
-# 例外があっても必ず削除される」ことをそれ単体で検査する
-# (measure_fresh_raw_log自体もこの同じコンテキストマネージャの中で
-# 呼ばれるので、これが効いていれば測定側の失敗でも生ログは残らない)。
-run_disposable_probe() {
-    local module_path="$1"
-    python3 - "$module_path" <<'PYEOF'
-import importlib.util
-import sys
-
-module_path = sys.argv[1]
-spec = importlib.util.spec_from_file_location("verify_analyzer_corruption_probe", module_path)
-vac = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(vac)
-
-holder = {}
-try:
-    with vac._DisposableRawDir(prefix="pc88h-selftest-exc-") as d:
-        holder["path"] = d
-        if not d.is_dir():
-            print("SETUP_FAILED")
-            sys.exit(1)
-        raise RuntimeError("わざと起こした例外(検査用)")
-except RuntimeError:
-    pass
-p = holder.get("path")
-print("GONE" if (p is not None and not p.exists()) else "EXISTS")
-PYEOF
-}
-
-PROBE_RESULT="$(run_disposable_probe "$VERIFY")"
-if [[ "$PROBE_RESULT" == "GONE" ]]; then
-    pass "g. _DisposableRawDir: with 内で例外が起きても生ログ用ディレクトリが削除される"
-else
-    fail "g. _DisposableRawDir: 例外後も生ログ用ディレクトリが残った(結果: $PROBE_RESULT)"
-fi
-echo "  (注記: 公式環境が無いためq88measureを経由する実測定パスそのものは未実行。" \
-     "上記は削除保証プリミティブ単体の検査)"
-
-# --- h. 上記の防御をわざと無効化すると、テストが落ちることの確認 -----------
-# f./g.が本当に検出力を持っているか(=常にpassするザル検査ではないか)を、
-# 保護コードを機械的に無効化したコピーに対して同じ検査をかけて確認する
-# (tools/conform_l3.sh・上のc.と同じ「わざと壊す」作法)。
-
-# h-1: reject_if_in_repo の判定を無効化(常にリポジトリ外と同じ扱いにする)
-sed -E 's/if p == repo or repo in p\.parents:/if False:/' "$VERIFY" > "$BROKEN_VERIFY_NOREJECT"
-if diff -q "$VERIFY" "$BROKEN_VERIFY_NOREJECT" >/dev/null 2>&1; then
-    fail "h-1. reject_if_in_repo を無効化したコピーの生成に失敗した(sedが対象行にマッチしなかった)"
-else
-    rm -rf "$INREPO_WORKDIR"
-    BROKEN_INREPO_OUT="$WORK/inrepo_workdir_broken.out"
-    if env -u PC88_REF_ROM_DIR -u PC88_REF_DISK_DIR \
-        python3 "$BROKEN_VERIFY_NOREJECT" --iolog "$MASKED_IO" --intlog "$INTLOG" --workdir "$INREPO_WORKDIR" \
-        > "$BROKEN_INREPO_OUT" 2>&1; then
-        pass "h-1. reject_if_in_repo を無効化すると --workdir のリポジトリ内指定が素通りする退行を再現できた(=f.に検出力がある証拠)"
-    else
-        fail "h-1. 保護コードを無効化したのに --workdir のリポジトリ内指定が依然拒否された(sedが効いていない可能性)"
-    fi
-    rm -rf "$INREPO_WORKDIR"
-fi
-
-# h-2: _DisposableRawDir.__exit__ の rmtree を無効化(削除しない)
-sed -E 's/shutil\.rmtree\(self\.path, ignore_errors=True\)/pass  # broken-for-selftest/' \
-    "$VERIFY" > "$BROKEN_VERIFY_NORMTREE"
-if diff -q "$VERIFY" "$BROKEN_VERIFY_NORMTREE" >/dev/null 2>&1; then
-    fail "h-2. rmtree を無効化したコピーの生成に失敗した(sedが対象行にマッチしなかった)"
-else
-    BROKEN_PROBE_RESULT="$(run_disposable_probe "$BROKEN_VERIFY_NORMTREE")"
-    if [[ "$BROKEN_PROBE_RESULT" == "EXISTS" ]]; then
-        pass "h-2. rmtree を無効化すると例外後も生ログ用ディレクトリが残る退行を再現できた(=g.に検出力がある証拠)"
-        # 再現できたディレクトリ自体は後始末する(名前がユニークなprefixなので
-        # globで特定できる)。
-        rm -rf "${TMPDIR:-/tmp}"/pc88h-selftest-exc-* 2>/dev/null || true
-    else
-        fail "h-2. 保護コードを無効化したのに生ログ用ディレクトリが削除された(結果: ${BROKEN_PROBE_RESULT}。sedが効いていない可能性)"
-    fi
-fi
+# --- g/h. 生ログ用使い捨てディレクトリの安全側プリミティブ(_DisposableRawDir・
+#          reject_if_in_repo)そのものの検出力検査は tools/refmeasure.py に
+#          切り出したため tools/refmeasure_selftest.sh に移した(重複させない)。
+#          ここに残すのは a〜f までの、verify_analyzer_corruption.py が
+#          refmeasure を正しく使えているかという結合的な確認のみ。
 
 echo
 if [[ "$FAIL" -eq 0 ]]; then
