@@ -52,8 +52,16 @@ class IoEvent:
     cpu: str
     kind: str  # "IN" / "OUT"
     port: str  # 4桁hex文字列 (例 "00F8")
-    value: int
+    value: int | None  # 2026-08-10伏せ字化(`--`)されたイベントは None
     pc: str
+
+
+# 2026-08-10、$FB/$FC/$FD の value 列を `--` に伏せ字化した
+# (docs/notes/disclosure-2026-08-10.md)。伏せ字イベントを黙って捨てると
+# 「そんな所見は無い」という誤ったレポートを無言で出してしまう
+# (このスクリプトの2026-08-10の修正の根拠そのもの)。value列は
+# 2桁hexまたはこの固定文字列のどちらかとして受理する。
+MASKED_VALUE = "--"
 
 
 @dataclass
@@ -69,17 +77,24 @@ class IntEvent:
 
 
 # M6c: clock 列付きフォーマット (seq clock frame cpu kind port value pc)
+# value は2桁hexまたは伏せ字マーカー(`--`)のどちらも受理する。
 IO_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2}|--)\s+([0-9A-Fa-f]{4})\s*$"
 )
 INT_ROW_RE = re.compile(
     r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s*$"
 )
 
 
-def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
-    """cpu -> events (seq昇順のまま。clock列を持つM6c形式が前提)"""
+def parse_iolog(path: Path) -> tuple[dict[str, list[IoEvent]], dict[tuple[str, str, str], int]]:
+    """cpu -> events (seq昇順のまま。clock列を持つM6c形式が前提)。
+
+    戻り値の2番目は、伏せ字(`--`)のため value が読めなかったイベントの
+    件数を (cpu, port, kind) ごとに数えたもの。値そのものはここにも
+    保持しない — 件数だけ。
+    """
     events: dict[str, list[IoEvent]] = {"main": [], "sub": []}
+    masked: dict[tuple[str, str, str], int] = defaultdict(int)
     cur_cpu = None
     with cmp_io._open_iolog(str(path)) as f:
         for line in f:
@@ -94,14 +109,20 @@ def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
             m = IO_ROW_RE.match(line)
             if not m:
                 continue
-            seq, clock, frame, cpu, kind, port, value, pc = m.groups()
+            seq, clock, frame, cpu, kind, port, value_s, pc = m.groups()
+            port_u = port.upper()
+            if value_s == MASKED_VALUE:
+                masked[(cpu, port_u, kind)] += 1
+                value: int | None = None
+            else:
+                value = int(value_s, 16)
             events[cpu].append(
                 IoEvent(
                     int(seq), int(clock), int(frame), cpu, kind,
-                    port.upper(), int(value, 16), pc.upper(),
+                    port_u, value, pc.upper(),
                 )
             )
-    return events
+    return events, dict(masked)
 
 
 def parse_intlog(path: Path) -> dict[str, list[IntEvent]]:
@@ -223,10 +244,13 @@ def analyze_q1_data_path(io: dict[str, list[IoEvent]], out) -> None:
         file=out,
     )
     print(file=out)
-    main_outs = [e for e in io["main"] if e.kind == "OUT" and _in_comm_window(e.port)]
-    sub_outs = [e for e in io["sub"] if e.kind == "OUT" and _in_comm_window(e.port)]
-    main_ins = [e for e in io["main"] if e.kind == "IN" and _in_comm_window(e.port)]
-    sub_ins = [e for e in io["sub"] if e.kind == "IN" and _in_comm_window(e.port)]
+    # 値が伏せ字(None)のイベントは値比較に使えないため除外する。
+    # どのポートが何件除外されたかは analyze_masked_notice() で別途明示する
+    # (ここで黙って除外すると「そのポートは無風だった」と誤読されるため)。
+    main_outs = [e for e in io["main"] if e.kind == "OUT" and _in_comm_window(e.port) and e.value is not None]
+    sub_outs = [e for e in io["sub"] if e.kind == "OUT" and _in_comm_window(e.port) and e.value is not None]
+    main_ins = [e for e in io["main"] if e.kind == "IN" and _in_comm_window(e.port) and e.value is not None]
+    sub_ins = [e for e in io["sub"] if e.kind == "IN" and _in_comm_window(e.port) and e.value is not None]
 
     # 候補ペア: 片方のCPUのOUTポートともう片方のCPUのINポートの全組合せ。
     # 同一CPU内の対応(自分のOUTが自分のINに出る)は経路ではないので除外。
@@ -316,7 +340,7 @@ def analyze_control_vs_data_ports(io: dict[str, list[IoEvent]], out) -> None:
     )
     print(file=out)
     for cpu in ("main", "sub"):
-        outs = [e for e in io[cpu] if e.kind == "OUT" and _in_comm_window(e.port)]
+        outs = [e for e in io[cpu] if e.kind == "OUT" and _in_comm_window(e.port) and e.value is not None]
         by_port: dict[str, Counter[int]] = defaultdict(Counter)
         for e in outs:
             by_port[e.port][e.value] += 1
@@ -353,7 +377,7 @@ def analyze_q2_status_bits(io: dict[str, list[IoEvent]], out) -> None:
     print("## Q2 ステータスビットの所在: (CPU, INポート) ごとのビット分類", file=out)
     print(file=out)
     for cpu in ("main", "sub"):
-        ins = [e for e in io[cpu] if e.kind == "IN"]
+        ins = [e for e in io[cpu] if e.kind == "IN" and e.value is not None]
         by_port: dict[str, list[int]] = defaultdict(list)
         for e in ins:
             by_port[e.port].append(e.value)
@@ -487,6 +511,45 @@ def analyze_q4_repeat_units(io: dict[str, list[IoEvent]], out, min_n=2, max_n=30
     print(file=out)
 
 
+def analyze_masked_notice(masked: dict[tuple[str, str, str], int], out) -> None:
+    """伏せ字(`--`)のため値比較が不能なポートを明示する。
+
+    2026-08-10の伏せ字化(docs/notes/disclosure-2026-08-10.md)以降、
+    このスクリプトを伏せ字済みログに対して実行すると $FC/$FD 等の
+    値ベースの一致率(Q1・Q2・Q1補助)は「そのペア/ポートが観測されなかった」
+    かのようにレポートから消える。件数を出さずに黙って除外すると第三者が
+    「そんな所見は無い」と誤読するため、この節で明示する
+    (値そのものは一切出さない。件数のみ)。
+    """
+    print("## 注記: 伏せ字(値秘匿)により値比較が不能なポート", file=out)
+    if not masked:
+        print("  (伏せ字のイベントは含まれていない)", file=out)
+        print(file=out)
+        return
+    total = sum(masked.values())
+    print(
+        f"  このログには2026-08-10の伏せ字化（データポートの value を `--` に"
+        f"置換。docs/notes/disclosure-2026-08-10.md）を適用したイベントが"
+        f"{total}件含まれており、値ベースの比較(Q1/Q1補助/Q2)から除外した"
+        f"（比較不能な値を偶然一致0%として数えると誤った結論になるため、"
+        f"除外して「算出不能」と明示するほうを選ぶ）。",
+        file=out,
+    )
+    for (cpu, port, kind), cnt in sorted(masked.items()):
+        print(
+            f"    {cpu} {kind} ${port[-2:]}: 値が伏せ字のため{cnt}件を除外"
+            f"（値一致率は算出不能）",
+            file=out,
+        )
+    print(
+        "  当時（伏せ字前）の測定結果と所見は docs/notes/m6-sub-proto.md、"
+        "および measurements/m6c-corruption-check/ に記録が残っている"
+        "（docs/spec/l3-subrom.md 1.2節も参照）。",
+        file=out,
+    )
+    print(file=out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iolog", required=True, type=Path, help="m6c-sub-*.iolog.txt へのパス(clock列必須)")
@@ -495,8 +558,16 @@ def main() -> None:
     ap.add_argument("--int-window", type=int, default=20, help="Q3のウィンドウ件数 (既定20)")
     args = ap.parse_args()
 
-    io = parse_iolog(args.iolog)
+    io, masked = parse_iolog(args.iolog)
     intlog = parse_intlog(args.intlog)
+
+    masked_total = sum(masked.values())
+    if masked_total:
+        print(
+            f"警告: 入力ログに伏せ字(値秘匿)イベントが{masked_total}件含まれる。"
+            f"値比較不能なポート/件数はレポート冒頭の注記に明示した。",
+            file=sys.stderr,
+        )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as out:
@@ -512,6 +583,8 @@ def main() -> None:
             file=out,
         )
         print(file=out)
+
+        analyze_masked_notice(masked, out)
 
         analyze_q1_data_path(io, out)
         analyze_control_vs_data_ports(io, out)

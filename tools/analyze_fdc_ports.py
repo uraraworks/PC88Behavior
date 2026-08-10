@@ -47,17 +47,26 @@ class IoEvent:
     cpu: str
     kind: str
     port: str
-    value: int
+    value: int | None  # 2026-08-10伏せ字化(`--`)されたイベントは None
     pc: str
 
 
+# 2026-08-10、$FB(このスクリプトの主対象そのもの)の value 列を `--` に
+# 伏せ字化した(docs/notes/disclosure-2026-08-10.md)。旧regexはvalueを
+# 2桁hex限定にしていたため、伏せ字後は $FB の行が丸ごとマッチ失敗で
+# 消え、H1(直後イベントが$FBかどうか)まで無言で崩れていた
+# (portの有無だけを見るH1でも、イベント自体が消えれば判定できない)。
+MASKED_VALUE = "--"
 IO_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2}|--)\s+([0-9A-Fa-f]{4})\s*$"
 )
 
 
-def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
+def parse_iolog(path: Path) -> tuple[dict[str, list[IoEvent]], dict[tuple[str, str, str], int]]:
+    """cpu -> events。2番目の戻り値は (cpu,port,kind) ごとの伏せ字件数
+    (値そのものは保持しない)。"""
     events: dict[str, list[IoEvent]] = {"main": [], "sub": []}
+    masked: dict[tuple[str, str, str], int] = Counter()
     cur_cpu = None
     with cmp_io._open_iolog(str(path)) as f:
         for line in f:
@@ -72,14 +81,20 @@ def parse_iolog(path: Path) -> dict[str, list[IoEvent]]:
             m = IO_ROW_RE.match(line)
             if not m:
                 continue
-            seq, clock, frame, cpu, kind, port, value, pc = m.groups()
+            seq, clock, frame, cpu, kind, port, value_s, pc = m.groups()
+            port_u = port.upper()
+            if value_s == MASKED_VALUE:
+                masked[(cpu, port_u, kind)] += 1
+                value: int | None = None
+            else:
+                value = int(value_s, 16)
             events[cpu].append(
                 IoEvent(
                     int(seq), int(clock), int(frame), cpu, kind,
-                    port.upper(), int(value, 16), pc.upper(),
+                    port_u, value, pc.upper(),
                 )
             )
-    return events
+    return events, dict(masked)
 
 
 def bits(v: int) -> list[int]:
@@ -165,7 +180,11 @@ def h2_fb_burst_structure(sub_events: list[IoEvent]) -> tuple[str, list[list[IoE
         bursts.append(cur)
 
     lengths = Counter(len(b) for b in bursts)
-    first_bytes = Counter(b[0].value for b in bursts)
+    # $FB は2026-08-10に伏せ字化された対象ポート(このH2の主題そのもの)。
+    # 伏せ字(value is None)のバースト先頭は値の分布に数えられない。
+    # 黙って除いた場合との違いが分かるよう、除いた件数を明示する。
+    masked_first = sum(1 for b in bursts if b[0].value is None)
+    first_bytes = Counter(b[0].value for b in bursts if b[0].value is not None)
 
     lines = []
     lines.append("## H2: sub OUT $FB のバースト構造 (IN $FA 直後を区切りとする定義)")
@@ -177,7 +196,13 @@ def h2_fb_burst_structure(sub_events: list[IoEvent]) -> tuple[str, list[list[IoE
     for length, c in lengths.most_common(15):
         lines.append(f"  長さ{length}: {c}件")
     lines.append("")
-    lines.append("バースト先頭バイト値の分布 (上位15):")
+    if masked_first:
+        lines.append(
+            f"注記: バースト先頭{masked_first}件は値が伏せ字(`--`)のため"
+            f"分布から除外した（値一致率は算出不能。"
+            f"docs/notes/disclosure-2026-08-10.md）。"
+        )
+    lines.append("バースト先頭バイト値の分布 (上位15、伏せ字分は除く):")
     for v, c in first_bytes.most_common(15):
         lines.append(f"  0x{v:02X}: {c}件")
     lines.append("")
@@ -197,10 +222,16 @@ def h3_burst_first_byte_by_condition(all_bursts: dict[str, list[list[IoEvent]]])
     lines.append("## H3: 条件別のバースト先頭バイト分布比較")
     lines.append("")
     for label, bursts in all_bursts.items():
-        fb = Counter(b[0].value for b in bursts)
+        masked_first = sum(1 for b in bursts if b[0].value is None)
+        fb = Counter(b[0].value for b in bursts if b[0].value is not None)
         total = sum(fb.values())
         top = fb.most_common(5)
         lines.append(f"### {label} (バースト数 {len(bursts)})")
+        if masked_first:
+            lines.append(
+                f"  注記: 先頭{masked_first}件は値が伏せ字のため分布から除外"
+                f"（値一致率は算出不能。docs/notes/disclosure-2026-08-10.md）"
+            )
         for v, c in top:
             pct = 100.0 * c / total if total else 0.0
             lines.append(f"  0x{v:02X}: {c}件 ({pct:.1f}%)")
@@ -287,13 +318,37 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.mode == "single":
-        events = parse_iolog(args.iolog)
+        events, masked = parse_iolog(args.iolog)
         sub = events["sub"]
+
+        masked_total = sum(masked.values())
+        if masked_total:
+            print(
+                f"警告: 入力ログに伏せ字(値秘匿)イベントが{masked_total}件含まれる。"
+                f"値比較不能なポート/件数はレポート冒頭の注記に明示した。",
+                file=sys.stderr,
+            )
 
         out_lines = []
         out_lines.append(f"# M6h FDCポート解析: {args.label}")
         out_lines.append(f"入力: {args.iolog}")
         out_lines.append(f"sub イベント総数: {len(sub)}")
+        out_lines.append("")
+        out_lines.append("## 注記: 伏せ字(値秘匿)により値比較が不能なポート")
+        if not masked:
+            out_lines.append("  (伏せ字のイベントは含まれていない)")
+        else:
+            out_lines.append(
+                f"  このログには2026-08-10の伏せ字化（docs/notes/disclosure-2026-08-10.md）"
+                f"を適用したイベントが{masked_total}件含まれる。以下のH2/H3の値ベースの"
+                f"分布からは除外している（値そのものは出さない。件数のみ）。"
+            )
+            for (cpu, port, kind), cnt in sorted(masked.items()):
+                out_lines.append(f"    {cpu} {kind} ${port[-2:]}: {cnt}件を除外")
+            out_lines.append(
+                "  当時（伏せ字前）の測定結果は docs/notes/m6-fdc-ports.md、"
+                "measurements/m6c-corruption-check/ を参照。"
+            )
         out_lines.append("")
 
         out_lines.append(h1_fa_predicts_fb(sub))
@@ -307,7 +362,14 @@ def main() -> None:
     else:
         all_bursts: dict[str, list[list[IoEvent]]] = {}
         for label, path in args.iolog:
-            events = parse_iolog(Path(path))
+            events, masked = parse_iolog(Path(path))
+            masked_total = sum(masked.values())
+            if masked_total:
+                print(
+                    f"警告: {path}: 伏せ字(値秘匿)イベントが{masked_total}件含まれる"
+                    f"（H3のレポート側で除外件数を明示する）。",
+                    file=sys.stderr,
+                )
             _, bursts = h2_fb_burst_structure(events["sub"])
             all_bursts[label] = bursts
 

@@ -554,3 +554,27 @@ QUASI88のこの実装にはそれを起こす余地がそもそも無い。
 ---
 
 **追記（2026-08-10）**: このノートが参照する `measurements/*.iolog.txt` は、その後 `.iolog.txt.gz` に伏せ字＋圧縮した（データポート `$FB`/`$FC`/`$FD` の値列のみ。他の列はそのまま）。上記の記述自体は当時の事実として変更していない。詳細は [docs/notes/disclosure-2026-08-10.md](disclosure-2026-08-10.md) を参照。
+
+**追記2（2026-08-10）**: 上記の伏せ字化を適用した直後、`tools/analyze_sub_proto.py`
+（およびこれを使う `tools/analyze_fdc_ports.py` / `tools/analyze_main_to_sub.py`）を
+伏せ字済みログに対して実行すると、`$FC`/`$FD` を含むペアの値一致率が**警告も注記も無く
+レポートから消える**という不具合があった（value列を2桁hex限定で正規表現マッチしていた
+ため、伏せ字行(`--`)がparse時点で無言でスキップされ、`$FB`のバースト集計や
+SEND/RECV分類までイベントごと丸ごと欠落していた）。これは本ノート・
+`docs/spec/l3-subrom.md` 1.2節が根拠にした所見そのものが、現在のリポジトリで
+解析器を再実行しても再現できないように見える状態であり、
+「不自然な数字は観測系の故障を疑う」規律に反する。
+
+同日中に3スクリプトを修正し、伏せ字イベントを黙って捨てずに件数を明示する
+（値そのものは出さない）ようにした。`tools/verify_analyzer_corruption.py` の
+破壊テストも、伏せ字済みログに対しては (b) offset-value をSKIPし、
+(a) shuffle-clock は伏せていないポートの中から動的に対象を選び直すよう改めた。
+検出力は `tools/analyzer_redaction_selftest.sh`（自作の合成フィクスチャのみ使用）
+で確認済み。
+
+**当時（伏せ字前）の測定結果と本ノートの所見自体は変更していない。**
+再実行して同じ数字を得たい場合は、`measurements/m6c-corruption-check/`
+（当時の破壊テスト結果）と、公式環境がある場合は
+`PC88_REF_ROM_DIR`/`PC88_REF_DISK_DIR` を使って harness で伏せ字前の
+生ログをその場で作り直す方法（`tools/verify_analyzer_corruption.py` の
+SKIPメッセージに手順を記載）を参照。

@@ -52,9 +52,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cmp_io  # noqa: E402
 
+# 2026-08-10、このスクリプトが主対象にする $FC/$FD の value 列を
+# `--` に伏せ字化した(docs/notes/disclosure-2026-08-10.md)。旧regexは
+# valueを2桁hex限定にしていたため、伏せ字後は $FC/$FD の行が丸ごと
+# マッチ失敗で消え、SEND/RECV/BULK_RECVの分類そのもの(portとpcしか
+# 見ていないのに)が無言で崩れていた。value列は2桁hexまたは伏せ字
+# マーカー(`--`)のどちらも受理する。
+MASKED_VALUE = "--"
 ROW_RE = re.compile(
     r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(main|sub)\s+(IN|OUT)\s+"
-    r"([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{4})\s*$"
+    r"([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2}|--)\s+([0-9A-Fa-f]{4})\s*$"
 )
 
 
@@ -66,22 +73,31 @@ class Ev:
     cpu: str
     kind: str
     port: str
-    value: int
+    value: int | None  # 伏せ字化されたイベントは None
     pc: str
 
 
-def parse_iolog(path: Path) -> list[Ev]:
+def parse_iolog(path: Path) -> tuple[list[Ev], dict[tuple[str, str, str], int]]:
+    """戻り値の2番目は (cpu,port,kind) ごとの伏せ字件数(値は保持しない)。"""
     rows: list[Ev] = []
+    masked: dict[tuple[str, str, str], int] = {}
     with cmp_io._open_iolog(str(path)) as f:
         for line in f:
             m = ROW_RE.match(line)
             if not m:
                 continue
-            seq, clock, frame, cpu, kind, port, value, pc = m.groups()
+            seq, clock, frame, cpu, kind, port, value_s, pc = m.groups()
+            port_u = port.upper()
+            if value_s == MASKED_VALUE:
+                key = (cpu, port_u, kind)
+                masked[key] = masked.get(key, 0) + 1
+                value: int | None = None
+            else:
+                value = int(value_s, 16)
             rows.append(Ev(int(seq), int(clock), int(frame), cpu, kind,
-                            port.upper(), int(value, 16), pc.upper()))
+                            port_u, value, pc.upper()))
     rows.sort(key=lambda e: e.clock)
-    return rows
+    return rows, masked
 
 
 # --- 1. トランザクション分類 -------------------------------------------
@@ -274,10 +290,39 @@ def run_lengths(tx: list[Ev], target_kinds: set[str]) -> list[int]:
 # --- レポート出力 ---------------------------------------------------------
 
 def fmt_header(h: list[Ev]) -> str:
-    return " ".join(f"{e.value:02X}" for e in h)
+    # e.value が None のイベントは伏せ字済み(`--`)。値そのものはここでも
+    # 出さない。マーカーはすでに伏せ字ツールが使っている `--` をそのまま
+    # 使い、実データではないことを明示する。
+    return " ".join((f"{e.value:02X}" if e.value is not None else "--") for e in h)
 
 
-def write_single_report(rows: list[Ev], label: str, out) -> None:
+def write_masked_notice(masked: dict[tuple[str, str, str], int], out) -> None:
+    """2026-08-10の伏せ字化により値比較が不能なポートを明示する(値は出さない)。"""
+    print("## 注記: 伏せ字(値秘匿)により値比較が不能なポート", file=out)
+    if not masked:
+        print("  (伏せ字のイベントは含まれていない)", file=out)
+        print(file=out)
+        return
+    total = sum(masked.values())
+    print(
+        f"  このログには2026-08-10の伏せ字化（データポートの value を `--` に"
+        f"置換。docs/notes/disclosure-2026-08-10.md）を適用したイベントが"
+        f"{total}件含まれる。SEND/RECV/BULK_RECVの分類自体はport/pcのみに"
+        f"依存するため影響しないが、ヘッダ表示(preceding)の該当バイトは"
+        f"`--`のまま出す（値そのものは出さない）。",
+        file=out,
+    )
+    for (cpu, port, kind), cnt in sorted(masked.items()):
+        print(f"    {cpu} {kind} ${port[-2:]}: {cnt}件が伏せ字", file=out)
+    print(
+        "  当時（伏せ字前）の測定結果は docs/notes/m6-main-to-sub.md、"
+        "measurements/m6c-corruption-check/ を参照。",
+        file=out,
+    )
+    print(file=out)
+
+
+def write_single_report(rows: list[Ev], label: str, out, masked: dict[tuple[str, str, str], int] | None = None) -> None:
     tx = classify_transactions(rows)
     solo, consecutive = check_3811_is_singleton(tx)
     requests = reconstruct_requests(tx)
@@ -286,6 +331,8 @@ def write_single_report(rows: list[Ev], label: str, out) -> None:
 
     print(f"# main→サブ 要求プロトコル解析: {label}", file=out)
     print(file=out)
+    if masked is not None:
+        write_masked_notice(masked, out)
     print("## トランザクション件数(PCクラスタ別)", file=out)
     print(f"  SEND(main OUT $FD, ハンドシェイク型): {counts['SEND']}", file=out)
     print(f"  RECV(main IN $FC, ハンドシェイク型): {counts['RECV']}", file=out)
@@ -353,9 +400,33 @@ def write_single_report(rows: list[Ev], label: str, out) -> None:
     print(file=out)
 
 
-def write_cross_report(all_rows: dict[str, list[Ev]], out) -> None:
+def write_cross_report(
+    all_rows: dict[str, list[Ev]],
+    out,
+    masked_by_label: dict[str, dict[tuple[str, str, str], int]] | None = None,
+) -> None:
     print("# 条件横断比較: main→サブ 要求プロトコル", file=out)
     print(file=out)
+
+    if masked_by_label is not None:
+        print("## 注記: 伏せ字(値秘匿)により値比較が不能なポート(条件別)", file=out)
+        any_masked = any(sum(m.values()) for m in masked_by_label.values())
+        if not any_masked:
+            print("  (伏せ字のイベントは含まれていない)", file=out)
+        else:
+            for label, masked in masked_by_label.items():
+                total = sum(masked.values())
+                if not total:
+                    continue
+                print(f"  {label}: 伏せ字イベント{total}件", file=out)
+                for (cpu, port, kind), cnt in sorted(masked.items()):
+                    print(f"    {cpu} {kind} ${port[-2:]}: {cnt}件", file=out)
+            print(
+                "  ヘッダ表示(先頭の要求ヘッダ節)の該当バイトは `--` のまま出す。"
+                "docs/notes/m6-main-to-sub.md、measurements/m6c-corruption-check/ を参照。",
+                file=out,
+            )
+        print(file=out)
 
     print("## SEND連続長267(256バイト書き込みバースト相当)の出現回数", file=out)
     for label, rows in all_rows.items():
@@ -422,11 +493,30 @@ def main() -> None:
             if len(args.iolog) != 1:
                 print("error: single モードは --iolog 1個のみ", file=sys.stderr)
                 sys.exit(2)
-            rows = parse_iolog(args.iolog[0])
-            write_single_report(rows, args.label[0], out)
+            rows, masked = parse_iolog(args.iolog[0])
+            masked_total = sum(masked.values())
+            if masked_total:
+                print(
+                    f"警告: 入力ログに伏せ字(値秘匿)イベントが{masked_total}件含まれる。"
+                    f"値比較不能なポート/件数はレポート冒頭の注記に明示した。",
+                    file=sys.stderr,
+                )
+            write_single_report(rows, args.label[0], out, masked)
         else:
-            all_rows = {label: parse_iolog(p) for label, p in zip(args.label, args.iolog)}
-            write_cross_report(all_rows, out)
+            all_rows: dict[str, list[Ev]] = {}
+            masked_by_label: dict[str, dict[tuple[str, str, str], int]] = {}
+            for label, p in zip(args.label, args.iolog):
+                rows, masked = parse_iolog(p)
+                all_rows[label] = rows
+                masked_by_label[label] = masked
+                masked_total = sum(masked.values())
+                if masked_total:
+                    print(
+                        f"警告: {p}: 伏せ字(値秘匿)イベントが{masked_total}件含まれる"
+                        f"（レポート側で条件別に明示する）。",
+                        file=sys.stderr,
+                    )
+            write_cross_report(all_rows, out, masked_by_label)
 
 
 if __name__ == "__main__":
