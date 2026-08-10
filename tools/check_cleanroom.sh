@@ -21,6 +21,9 @@ info() { printf '  --   %s\n' "$1"; }
 
 echo "clean-room check: $REPO"
 
+WORK_CR="$(mktemp -d)"
+trap 'rm -rf "$WORK_CR"' EXIT
+
 # --- 1. private/ の遮断 -------------------------------------------------
 mkdir -p private
 probe="private/.__probe__"
@@ -39,16 +42,24 @@ rm -f "$stray"
 # --- 3. 追跡ファイルへのバイナリ混入 ------------------------------------
 # ROM 由来のバイト列は必ずバイナリになる。テキストしか追跡していないはず。
 # 空ファイル(.gitkeep 等)は対象外。NUL バイトを含むものをバイナリとみなす。
+#
+# 例外: measurements/*.gz は伏せ字適用後に gzip したテキストログであり、
+# バイナリ形式そのものが目的（2026-08-10、docs/notes/disclosure-2026-08-10.md）。
+# gzip という「バイナリであること」自体は問題ではなく、中身が伏せ字済みかが
+# 問題なので、ここでは除外し、下の 7. で内容を個別に検査する。
 binaries=""
 while IFS= read -r f; do
   [ -s "$f" ] || continue
+  case "$f" in
+    measurements/*.gz) continue ;;
+  esac
   # シェル文字列に NUL は入らないので grep のパターンには書けない。
   # NUL を除去した長さが元と違えば NUL を含む = バイナリ。
   if [ "$(LC_ALL=C tr -d '\000' < "$f" | wc -c)" -ne "$(wc -c < "$f")" ]; then
     binaries="$binaries $f"
   fi
 done < <(git ls-files)
-if [ -z "$binaries" ]; then ok "追跡ファイルにバイナリの混入なし"
+if [ -z "$binaries" ]; then ok "追跡ファイルにバイナリの混入なし（measurements/*.gz を除く。7.で個別検査）"
 else ng "バイナリが追跡されている:"; printf '       %s\n' $binaries; fi
 
 # --- 4/5. permission 設定の実体と実効位置 -------------------------------
@@ -91,6 +102,89 @@ if [ -d "$harness" ]; then
 else
   info "ハーネス未取得のためスキップ（tools/setup_harness.sh）"
 fi
+
+# --- 7. measurements/*.iolog.txt(.gz) のデータポートが伏せ字済みか -------
+# CLAUDE.md 禁止事項5（2026-08-10追加。docs/notes/disclosure-2026-08-10.md）。
+# 対象: 追跡中の measurements/*.iolog.txt* すべて（.gz可）。
+#   (a) 非.gzの *.iolog.txt が追跡されていたら即NG（gzip忘れ）
+#   (b) $FB/$FC/$FD (main/sub, IN/OUT) の value 列に "--" 以外の値が
+#       1件でも残っていたら NG（伏せ字漏れ）
+#
+# tools/redact_iolog.py を検査に流用しない。あのツールは「伏せた記録」の
+# 節（FOOTER_MARKER）が既にあると即座に無変更を返す（冪等性のため）。
+# もし伏せた後に何らかの理由で行が1件でも復元されても、その仕組みだと
+# 検出できない（実際に試して確認した——後述「検出力の自己検査」参照）。
+# ここでは冪等性の仕組みを経由せず、全行を独立に読んで判定する。
+plain=""
+while IFS= read -r f; do
+  case "$f" in
+    measurements/*.iolog.txt) plain="$plain $f" ;;
+  esac
+done < <(git ls-files measurements)
+if [ -n "$plain" ]; then
+  ng "gzip されていない .iolog.txt が追跡されている:"; printf '       %s\n' $plain
+else
+  ok "追跡中の .iolog.txt はすべて .gz 化されている"
+fi
+
+cat > "$WORK_CR/scan_masked.py" <<'PYEOF'
+import gzip, sys
+
+TARGET = {"00FB", "00FC", "00FD"}
+
+bad = []
+for path in [l.strip() for l in sys.stdin if l.strip()]:
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        bad.append(f"{path}(読めない:{e})")
+        continue
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        fields = s.split()
+        if len(fields) == 7:
+            seq_s, frame_s, cpu, kind, port, value, pc = fields
+        elif len(fields) == 8:
+            seq_s, clock_s, frame_s, cpu, kind, port, value, pc = fields
+        else:
+            continue
+        if kind not in ("IN", "OUT") or cpu not in ("main", "sub"):
+            continue
+        try:
+            int(seq_s)
+        except ValueError:
+            continue
+        port_norm = port.upper().zfill(4)
+        if port_norm in TARGET and value != "--":
+            bad.append(f"{path}({cpu}/{kind}/{port_norm}=masked外)")
+            break
+for b in bad:
+    print(b)
+PYEOF
+unmasked="$(git ls-files measurements | grep '\.iolog\.txt\.gz$' | python3 "$WORK_CR/scan_masked.py")"
+if [ -n "$unmasked" ]; then
+  ng "データポート(\$FB/\$FC/\$FD)の値が伏せ字されていないファイルがある:"
+  printf '       %s\n' $unmasked
+else
+  ok "追跡中の iolog.txt.gz は全てデータポートの値が伏せ字済み"
+fi
+
+# --- 8. 追跡ファイルに50MB超のものが無いか --------------------------------
+# docs/PLAN.md「運用上の課題」（m6e-diskB-boot*が72MB超のまま公開された）
+# の再発防止。GitHubの推奨上限50MBを基準にする。
+big=""
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  sz="$(wc -c < "$f" | tr -d ' ')"
+  if [ "$sz" -gt $((50*1024*1024)) ]; then
+    big="$big $f(${sz}B)"
+  fi
+done < <(git ls-files)
+if [ -z "$big" ]; then ok "追跡ファイルに50MB超のものは無い"
+else ng "50MB超の追跡ファイルがある:"; printf '       %s\n' $big; fi
 
 echo
 if [ "$fail" -eq 0 ]; then echo "全項目 OK"; else echo "$fail 件 NG"; fi
