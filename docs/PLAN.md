@@ -422,6 +422,23 @@ ROM 由来のバイト列はゼロ。自作の試験ドライバと自作 D88 �
 できたということであり、条件2〜4は依然未判定のまま。詳細は
 [docs/notes/m6-conformance.md](notes/m6-conformance.md) 第2版。
 
+**m6j: バルク転送の起点・終端を解析（2026-08-11）。** 既存ログ
+`measurements/m6g-d0-boot-run{1,2}.iolog.txt` の再解析のみで実施
+（追加測定なし）。run1・run2 で解析結果が完全一致し、決定論性を
+再確認した。この解析の結果、`docs/spec/l3-subrom.md` 1.10節
+「起動時バーストは $FE ハンドシェイクを一切伴わない」という記述が
+**誤りだった**ことが判明した（実際はバースト区間に $FE/$FF アクセスが
+67,609件含まれる）。同spec第5版で訂正し、1.14節を新設した。
+`docs/notes/m6-main-to-sub.md` 1.3節・365行付近・416行付近の関連記述も
+誤りである旨を訂正注記付きで更新済み（詳細は
+[docs/notes/m6j-bulk-trigger.md](notes/m6j-bulk-trigger.md)）。
+**教訓: 今回の誤りは測定そのものではなく、旧解析器
+`analyze_main_to_sub.py` の `RECV_BULK_PCS` が main側 `IN $FC` の pc
+しか見ておらず、別pcで起きる $FE ポーリングが視野の外にあったことに
+由来する。** 測定ログ自体は当初から正しかった。残る宿題は変わらず
+上記2項（diskA起動シーケンスを自作実装で通す）・3項（ネガティブ
+コントロールの実装）・4項（SAVE 経路、未着手）。
+
 ### 運用上の課題（次セッションで対処）
 
 `measurements/m6e-diskB-boot*.iolog.txt` が **72MB 超**で、GitHub の推奨上限 50MB を
