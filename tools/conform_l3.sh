@@ -26,6 +26,9 @@ HASH="$REPO/tools/hash_io_stream.py"
 EXPECTED="$REPO/tests/conformance/expected.tsv"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
+# build_mixed_rom は tools/lib_l3_measure.sh に切り出した（tools/diag_l3_mixed.sh
+# と共有するため。二重実装を避ける。詳細はそのファイル冒頭のコメント参照）。
+source "$REPO/tools/lib_l3_measure.sh"
 # 検出力の自己検査は、公式ディスクの実測ログ(measurements/m6g-d0-boot-run1.iolog.txt)
 # ではなく、tests/fixtures/ の合成フィクスチャを使う。2026-08-10、
 # measurements/*.iolog.txt にデータポート伏せ字を適用したため、実測ログを
@@ -58,26 +61,6 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 overall_rc=0
-
-# -----------------------------------------------------------------------
-# 混成ROMディレクトリを組み立てる（公式main ROM一式 + 自作サブROMのみ差替）。
-#
-# $1 = コピー元ROMディレクトリ（公式一式、または自己検査用ダミー）
-# $2 = 出力先ディレクトリ
-#
-# 中身を一切読まずに cp するだけなのでクリーンルーム規律に触れない
-# （CLAUDE.md「公式ROMファイルを cp でコピーするのは可」）。
-# サブROMのファイル名は "DISK.ROM"（tools/harness/make_trap_rom.py・
-# make_test_rom.py・docs/spec/l3-subrom.md 冒頭・docs/notes/m1-quasi88-survey.md
-# で既に確定済みの名称。公式ROMディレクトリを ls して確認したのではなく、
-# 既存のハーネスコード・仕様書側の記述から特定した）。
-# -----------------------------------------------------------------------
-build_mixed_rom() {
-  local src="$1" dst="$2"
-  mkdir -p "$dst"
-  cp -p "$src"/* "$dst"/ || return 1
-  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" >/dev/null 2>&1 || return 1
-}
 
 # -----------------------------------------------------------------------
 # 照合の本体。iolog 1つと期待値TSV 1つを受け取り、各行を照合して結果を
@@ -333,19 +316,12 @@ fi
 # -----------------------------------------------------------------------
 say "混成ROM適合テスト（公式main ROM一式 + 自作サブROM(DISK.ROM)を公式ディスクで起動）"
 
-MIXED_ROM_DIR="$WORK/mixed_rom"
-if ! build_mixed_rom "$PC88_REF_ROM_DIR" "$MIXED_ROM_DIR"; then
-  echo "エラー: 混成ROMディレクトリの構築に失敗した" >&2
+# 測定本体（混成ROMディレクトリ構築 + q88measure 実行）は
+# tools/lib_l3_measure.sh の run_l3_mixed_measurement に切り出した
+# （tools/diag_l3_mixed.sh と同条件で二重実装しないため）。
+if ! run_l3_mixed_measurement "$PC88_REF_ROM_DIR" "$DISK" "$WORK" "$WORK/mixed.iolog.txt"; then
   exit 1
 fi
-
-"$FRONTEND" --core "$CORE" --rom-dir "$MIXED_ROM_DIR" --disk "$DISK" \
-    --frames 1800 --io-log "$WORK/mixed.iolog.txt" \
-    >"$WORK/mixed.stdout.txt" 2>"$WORK/mixed.stderr.txt" || {
-  echo "エラー: 混成ROMでの q88measure が失敗した" >&2
-  cat "$WORK/mixed.stderr.txt" >&2
-  exit 1
-}
 
 say "混成ROMのI/Oストリームを期待値と照合"
 if run_conformance "$WORK/mixed.iolog.txt" "$EXPECTED" "混成(自作サブROM)"; then

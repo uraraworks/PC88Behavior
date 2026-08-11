@@ -47,6 +47,7 @@ SCRIPTS_EXPECTED=(
   "tools/analyzer_redaction_selftest.sh:0"
   "tools/refmeasure_selftest.sh:0"
   "tools/conform_l3.sh:0"
+  "tools/diag_l3_mixed.sh:0"
   "tools/verify_l1.sh:0"
   "tools/verify_l2.sh:0"
   "tools/verify_l3.sh:1"

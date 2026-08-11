@@ -1,0 +1,27 @@
+# tests/fixtures/diag_l3_mixed_selftest_ref.iolog.txt
+# tools/diag_l3_mixed.sh の検出力自己検査専用の合成フィクスチャ(公式データ不使用)
+core      : (テスト用ダミー)
+frames    : 10
+
+# main
+# seq    clock   frame  cpu   kind  port  value  pc
+     1       1      0  main  OUT   00FF   0F   3001
+     2       2      0  main  IN    00FE   01   3002
+     3       3      0  main  OUT   00FF   0E   3003
+     4       4      0  main  OUT   00FD   AA   3004
+     5       5      0  main  OUT   00FF   09   3005
+     6       6      0  main  IN    00FE   01   3006
+     7       7      0  main  OUT   00FF   08   3007
+     8       8      0  main  IN    00FE   00   3008
+     9       9      0  main  IN    00FD   BB   3009
+    10      10      0  main  OUT   00F3   01   300A
+
+# sub
+# seq    clock   frame  cpu   kind  port  value  pc
+     1      11      0  sub   IN    00FF   0F   4001
+     2      12      0  sub   OUT   00FE   01   4002
+     3      13      0  sub   IN    00FF   0E   4003
+     4      14      0  sub   IN    00FD   AA   4004
+     5      15      0  sub   OUT   00FA   00   4005
+     6      16      0  sub   IN    00FB   CC   4006
+     7      17      0  sub   OUT   00FC   DD   4007
