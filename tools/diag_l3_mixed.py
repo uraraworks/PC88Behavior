@@ -51,6 +51,34 @@ value を使わないので、伏せ字が「--」に潰れていようが元の
 いるかどうかに依存しない設計になっている。スピン畳み込み（回数の
 カウント）も compare_key だけを見て行うので、この性質は変わらない。
 
+## なぜ sub 側の比較キーから pc を外すのか（第2の既定変更）
+
+実走ログで main/sub とも公式と**方向・ポート・スピン回数まで完全一致**した
+にもかかわらず、本ツールは「sub 側は構造的一致プレフィックス0件・分岐点#1」
+と誤報したことがある。原因は sub 側の比較キーにも pc を含めていたこと。
+
+**sub 側の pc は自作サブROM自身が発行した番地である。** 公式サブROMの
+番地と一致する道理がない——`docs/spec/l3-subrom.md` 1.14節・5.1節が
+明言するとおり、サブ内部の実装（ループ本体をどの番地に置くか）は
+「実装の目標にはならない」自由な範囲であり、pc が公式と一致したら
+むしろ写経を疑うべき値である。したがって sub 側で pc を比較キーに
+含めると、実装が正しく独立に書けているほど「分岐あり」と誤検出する
+（本末転倒）。
+
+**一方 main 側は両者とも公式 main ROM（同一バイナリ）を走らせているので、
+pc が一致するのが正しい。** 実際に一致する（97件）ことが「本当に同じ
+コード列を通っている」ことの検査力を持つ。だから main 側は従来どおり
+pc を比較キーに含める。
+
+sub の pc は表示からは消さない——`(参考。比較キーに含まず)` と明示して
+残す。デバッグ時に「どの番地で止まっているか」の手がかりとして有用であり、
+「値を出さない」原則（value は伏せ字対象）とは別の話だからである
+（pc はROM由来のバイト列ではなく実行アドレスの列であり、CLAUDE.md
+禁止事項5の対象外）。
+
+旧来の「sub も pc を含める」挙動は `--sub-pc` で選べる形で残す
+（行き止まりを消さない規律）。
+
 ## cmp_io.py との関係（二重実装しない範囲・した範囲）
 
 - **パース(parse_iolog)は cmp_io.py から import して使う。** iolog の
@@ -85,34 +113,56 @@ import cmp_io  # noqa: E402
 EXTREME_RATIO = 50.0
 
 
-def compare_key(e: "cmp_io.Event") -> tuple:
-    """比較キー。value を含めないのが要点(モジュールdocstring参照)。"""
-    return (e.cpu, e.kind, e.port, e.pc)
+def pc_is_reference_only(cpu: str, sub_pc: bool) -> bool:
+    """sub 側で pc を比較キーから外している(既定)かどうか。
+
+    True のとき、表示上の pc は「参考」であって比較には使っていない
+    (モジュールdocstring「なぜ sub 側の比較キーから pc を外すのか」参照)。
+    """
+    return cpu == "sub" and not sub_pc
+
+
+def compare_key(e: "cmp_io.Event", cpu: str, sub_pc: bool = False) -> tuple:
+    """比較キー。value を含めないのが要点(モジュールdocstring参照)。
+
+    main: (kind, port, pc) — 両側とも公式 main ROM なので pc も一致すべき。
+    sub : (kind, port)     — sub の pc は自作実装自身の番地で、公式と
+          一致する道理がない(1.14節・5.1節)。既定では比較キーから外す。
+          --sub-pc 指定時のみ旧来どおり pc を含める。
+    """
+    if pc_is_reference_only(cpu, sub_pc):
+        return (e.kind, e.port)
+    return (e.kind, e.port, e.pc)
 
 
 def fmt_key_event(e: "cmp_io.Event") -> str:
-    """value を出さない表示(厳密比較・--strict 用)。"""
+    """value を出さない表示(厳密比較・--strict 用)。--strict は cpu を
+    問わず pc を比較キーに含める旧来モードなので、表示にも常に含める。"""
     return f"{e.kind:<3} port={e.port} pc={e.pc}  (seq={e.seq} frame={e.frame})"
 
 
 @dataclass(frozen=True)
 class Run:
-    """畳み込み後の1件。同一 (cpu,kind,port,pc) が連続した回数を保持する。"""
+    """畳み込み後の1件。同一 compare_key が連続した回数を保持する。"""
 
     key: tuple
     count: int
-    first: "cmp_io.Event"  # 表示用(seq/frame)は先頭イベントのものを使う
+    first: "cmp_io.Event"  # 表示用(seq/frame/pc)は先頭イベントのものを使う
 
 
-def fold_spins(events: list) -> list["Run"]:
-    """連続する同一 (cpu,kind,port,pc) を1件に畳み込む(ランレングス圧縮)。
+def fold_spins(events: list, cpu: str, sub_pc: bool = False) -> list["Run"]:
+    """連続する同一 compare_key を1件に畳み込む(ランレングス圧縮)。
 
     タイミング依存のポーリング回数を「回数の差」として構造比較から
     分離するための前処理(モジュールdocstring参照)。value は使わない。
+    sub 側は既定で pc を畳み込みキーに含めない(隣接する別 pc の同一
+    (kind,port) も1つに畳まれる)。main / sub とも同じ規則
+    (「同じキー定義で畳み込む」)を適用しており、扱いを変えているのは
+    pc をキーに含めるかどうかだけである。
     """
     runs: list[Run] = []
     for e in events:
-        k = compare_key(e)
+        k = compare_key(e, cpu, sub_pc)
         if runs and runs[-1].key == k:
             runs[-1] = Run(k, runs[-1].count + 1, runs[-1].first)
         else:
@@ -120,10 +170,14 @@ def fold_spins(events: list) -> list["Run"]:
     return runs
 
 
-def fmt_run(r: "Run") -> str:
-    cpu, kind, port, pc = r.key
+def fmt_run(r: "Run", cpu: str, sub_pc: bool = False) -> str:
+    e = r.first
     cnt = f" x{r.count}" if r.count > 1 else ""
-    return f"{kind:<3} port={port} pc={pc}{cnt}  (先頭 seq={r.first.seq} frame={r.first.frame})"
+    pc_note = " (参考。比較キーに含まず)" if pc_is_reference_only(cpu, sub_pc) else ""
+    return (
+        f"{e.kind:<3} port={e.port} pc={e.pc}{pc_note}{cnt}"
+        f"  (先頭 seq={r.first.seq} frame={r.first.frame})"
+    )
 
 
 def find_first_divergence(seq_a: list, seq_b: list, key_fn) -> int | None:
@@ -155,19 +209,53 @@ def print_window_strict(ref: list, mixed: list, idx: int, radius: int = 20) -> N
         print(f"  {marker} 混成[{i + 1:>6}] {fmt_key_event(e) if e else '(なし)'}")
 
 
-def print_window_folded(ref_runs: list, mixed_runs: list, idx: int, radius: int = 20) -> None:
+def print_window_folded(
+    ref_runs: list, mixed_runs: list, idx: int, cpu: str, sub_pc: bool = False, radius: int = 20
+) -> None:
     lo = max(0, idx - radius)
     hi = min(max(len(ref_runs), len(mixed_runs)), idx + radius + 1)
     print(f"  --- 基準側 畳み込み後index {lo + 1}〜{hi} ---")
     for i in range(lo, hi):
         marker = "→" if i == idx else " "
         r = ref_runs[i] if i < len(ref_runs) else None
-        print(f"  {marker} 基準[{i + 1:>6}] {fmt_run(r) if r else '(なし)'}")
+        print(f"  {marker} 基準[{i + 1:>6}] {fmt_run(r, cpu, sub_pc) if r else '(なし)'}")
     print(f"  --- 混成側 畳み込み後index {lo + 1}〜{hi} ---")
     for i in range(lo, hi):
         marker = "→" if i == idx else " "
         r = mixed_runs[i] if i < len(mixed_runs) else None
-        print(f"  {marker} 混成[{i + 1:>6}] {fmt_run(r) if r else '(なし)'}")
+        print(f"  {marker} 混成[{i + 1:>6}] {fmt_run(r, cpu, sub_pc) if r else '(なし)'}")
+
+
+def top_runs_by_count(runs: list, top: int = 5) -> list[tuple[int, "Run"]]:
+    """畳み込み後の連長(count)が大きい順に上位 top 件を返す。
+
+    戻り値は (畳み込み後index(1始まり), Run) のリスト。分岐点の有無・
+    位置とは無関係に常に計算できる(無限スピンの位置を見るための機能。
+    欠陥2参照: 分岐点の前後だけを見る窓では、分岐が起きない側の
+    巨大スピンが視界に入らなかった)。
+    """
+    indexed = list(enumerate(runs, start=1))
+    indexed.sort(key=lambda ir: ir[1].count, reverse=True)
+    return indexed[:top]
+
+
+def print_top_runs(label: str, runs: list, cpu: str, sub_pc: bool = False, top: int = 5) -> None:
+    print(f"\n  --- {label} 畳み込み後 連長上位{top}件（分岐点と無関係に常に表示） ---")
+    if not runs:
+        print("    (無し)")
+        return
+    for pos, r in top_runs_by_count(runs, top):
+        print(f"    畳み込み後#{pos}  {fmt_run(r, cpu, sub_pc)}")
+
+
+def print_tail_runs(label: str, runs: list, cpu: str, sub_pc: bool = False, n: int = 10) -> None:
+    print(f"\n  --- {label} 畳み込み後 末尾{n}件 ---")
+    if not runs:
+        print("    (無し)")
+        return
+    start = max(0, len(runs) - n)
+    for i in range(start, len(runs)):
+        print(f"    畳み込み後#{i + 1}  {fmt_run(runs[i], cpu, sub_pc)}")
 
 
 def port_kind_breakdown(events: list, top: int = 10) -> list[tuple[tuple, int]]:
@@ -185,7 +273,9 @@ def ports_only_in(a: list, b: list) -> set:
 def count_diff_report(ref_runs: list, mixed_runs: list, matched_prefix: int) -> list[tuple]:
     """畳み込み後の一致プレフィックス内で、キーは同じだが回数が違う箇所を集める。
 
-    戻り値の各要素: (畳み込み後index, key, 基準回数, 混成回数, 比)
+    戻り値の各要素: (畳み込み後index, ref側Run, mixed側Run, 比)。
+    pc の表示は呼び出し側(print_count_diffs)が cpu/sub_pc を見て決める
+    (rr.first.pc は常に持っているので、sub でも「参考」として出せる)。
     """
     diffs = []
     for i in range(matched_prefix):
@@ -193,47 +283,57 @@ def count_diff_report(ref_runs: list, mixed_runs: list, matched_prefix: int) -> 
         if rr.count != mr.count:
             lo, hi = min(rr.count, mr.count), max(rr.count, mr.count)
             ratio = hi / lo if lo else float("inf")
-            diffs.append((i, rr.key, rr.count, mr.count, ratio))
+            diffs.append((i, rr, mr, ratio))
     return diffs
 
 
-def print_count_diffs(diffs: list, max_show: int = 30) -> None:
+def _fmt_diff_row(i: int, rr: "Run", mr: "Run", ratio: float, cpu: str, sub_pc: bool) -> str:
+    e = rr.first
+    pc_note = " (参考)" if pc_is_reference_only(cpu, sub_pc) else ""
+    return (
+        f"    畳み込み後#{i + 1}  {e.kind:<3} port={e.port} pc={e.pc}{pc_note}"
+        f"  基準={rr.count}回  混成={mr.count}回  比={ratio:.1f}倍"
+    )
+
+
+def print_count_diffs(diffs: list, cpu: str, sub_pc: bool = False, max_show: int = 30) -> None:
     if not diffs:
         print("    (無し)")
         return
-    diffs_sorted = sorted(diffs, key=lambda d: d[4], reverse=True)
-    extreme = [d for d in diffs_sorted if d[4] >= EXTREME_RATIO]
+    diffs_sorted = sorted(diffs, key=lambda d: d[3], reverse=True)
+    extreme = [d for d in diffs_sorted if d[3] >= EXTREME_RATIO]
     if extreme:
         print(
             f"  [要注意] 比が{EXTREME_RATIO:.0f}倍以上の回数差 {len(extreme)}件"
             "（無限ループの疑い。実際の停止位置を示す最良の手がかり）:"
         )
-        for i, key, rc, mc, ratio in extreme:
-            cpu, kind, port, pc = key
-            print(
-                f"    畳み込み後#{i + 1}  {kind:<3} port={port} pc={pc}"
-                f"  基準={rc}回  混成={mc}回  比={ratio:.1f}倍"
-            )
+        for i, rr, mr, ratio in extreme:
+            print(_fmt_diff_row(i, rr, mr, ratio, cpu, sub_pc))
     shown = diffs_sorted[:max_show]
     print(
         f"\n  --- 回数差一覧（構造一致・回数不一致、上位{len(shown)}/{len(diffs_sorted)}件、比の降順） ---"
     )
-    for i, key, rc, mc, ratio in shown:
-        cpu, kind, port, pc = key
-        print(
-            f"    畳み込み後#{i + 1}  {kind:<3} port={port} pc={pc}"
-            f"  基準={rc}回  混成={mc}回  比={ratio:.1f}倍"
-        )
+    for i, rr, mr, ratio in shown:
+        print(_fmt_diff_row(i, rr, mr, ratio, cpu, sub_pc))
 
 
-def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False) -> int:
+def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, sub_pc: bool = False) -> int:
     """1 CPU 分（main または sub）のレポートを表示する。戻り値: 分岐あり1/なし0。"""
     print(f"\n===== {cpu} =====")
     print(f"  基準側 総イベント数: {len(ref)} 件 / 混成側 総イベント数: {len(mixed)} 件")
 
+    key_note = (
+        "(kind,port) のみ。pc は自作サブROM自身の番地で公式と一致する道理がなく"
+        "比較キーから除外（仕様書1.14節・5.1節。--sub-pc で従来どおり pc を含める挙動に戻せる）"
+        if pc_is_reference_only(cpu, sub_pc)
+        else "(kind,port,pc)。両側とも公式 main ROM なので pc も一致すべき"
+    )
+    print(f"  比較キー: {key_note}")
+
     rc = 0
     if strict:
-        idx = find_first_divergence(ref, mixed, compare_key)
+        key_fn = lambda e: compare_key(e, cpu, True)  # noqa: E731  strictは常にpc込み
+        idx = find_first_divergence(ref, mixed, key_fn)
         if idx is None:
             print("  分岐なし（(kind,port,pc) の列が先頭から完全一致・厳密比較）")
         else:
@@ -241,11 +341,11 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False) -
             print(f"  最初の分岐点(厳密比較): 通し番号 {idx + 1} 件目")
             print_window_strict(ref, mixed, idx)
     else:
-        ref_runs = fold_spins(ref)
-        mixed_runs = fold_spins(mixed)
+        ref_runs = fold_spins(ref, cpu, sub_pc)
+        mixed_runs = fold_spins(mixed, cpu, sub_pc)
         print(
             f"  畳み込み後件数: 基準側 {len(ref_runs)} 件 / 混成側 {len(mixed_runs)} 件"
-            "（連続する同一(kind,port,pc)をランレングス圧縮。既定の比較モード）"
+            "（連続する同一の比較キーをランレングス圧縮。既定の比較モード）"
         )
 
         idx = find_first_divergence(ref_runs, mixed_runs, lambda r: r.key)
@@ -258,15 +358,23 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False) -
         )
 
         if idx is None:
-            print("  構造的分岐なし（畳み込み後の (kind,port,pc) の列が先頭から完全一致）")
+            print("  構造的分岐なし（畳み込み後の比較キーの列が先頭から完全一致）")
         else:
             rc = 1
             print(f"  最初の構造的分岐点: 畳み込み後 通し番号 {idx + 1} 件目")
-            print_window_folded(ref_runs, mixed_runs, idx)
+            print_window_folded(ref_runs, mixed_runs, idx, cpu, sub_pc)
 
         print("\n  --- 回数差（構造一致・回数不一致の箇所、畳み込み後） ---")
         diffs = count_diff_report(ref_runs, mixed_runs, matched_prefix)
-        print_count_diffs(diffs)
+        print_count_diffs(diffs, cpu, sub_pc)
+
+        # 欠陥2対応: 分岐点の前後窓だけでは、分岐が起きない側で回っている
+        # 巨大スピン(無限ループ疑い)の位置が視界に入らない。分岐の有無・
+        # 位置と無関係に常に表示する。
+        print_top_runs("基準側", ref_runs, cpu, sub_pc)
+        print_top_runs("混成側", mixed_runs, cpu, sub_pc)
+        print_tail_runs("基準側", ref_runs, cpu, sub_pc)
+        print_tail_runs("混成側", mixed_runs, cpu, sub_pc)
 
     print("\n  --- 基準側 ポート別内訳（上位10件、(kind,port)） ---")
     for (kind, port), cnt in port_kind_breakdown(ref):
@@ -293,7 +401,7 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False) -
     return rc
 
 
-def run(ref_path: str, mixed_path: str, strict: bool = False) -> int:
+def run(ref_path: str, mixed_path: str, strict: bool = False, sub_pc: bool = False) -> int:
     overall_rc = 0
     for cpu in ("main", "sub"):
         try:
@@ -306,28 +414,38 @@ def run(ref_path: str, mixed_path: str, strict: bool = False) -> int:
         except cmp_io.FormatError as e:
             print(f"エラー: 混成ログの読み込みに失敗（{cpu}）: {e}", file=sys.stderr)
             return 2
-        rc = report_cpu_section(cpu, ref_events, mixed_events, strict=strict)
+        rc = report_cpu_section(cpu, ref_events, mixed_events, strict=strict, sub_pc=sub_pc)
         overall_rc = overall_rc or rc
     return overall_rc
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="混成ROM実行のiologを公式基準iologと(cpu,kind,port,pc)だけで"
+        description="混成ROM実行のiologを公式基準iologと(kind,port[,pc])だけで"
         "突き合わせ、最初の構造的分岐点を報告する（valueは一切見ない/出さない）。"
         "既定はスピン畳み込み比較(タイミング依存のポーリング回数差は分岐扱いしない)。"
+        "main は pc も比較キーに含める。sub は既定で pc を比較キーから除外する"
+        "(sub の pc は自作実装自身の番地で公式と一致する道理がないため。"
+        "仕様書1.14節・5.1節)。"
     )
     parser.add_argument("ref", help="基準の .iolog.txt(.gz可、伏せ字済み)")
     parser.add_argument("mixed", help="混成ROMの .iolog.txt(伏せ字済み)")
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="厳密比較(添字を揃えた完全一致比較。スピン回数の畳み込みをしない旧来モード)",
+        help="厳密比較(添字を揃えた完全一致比較。スピン回数の畳み込みをしない旧来モード。"
+        "cpu を問わず pc を比較キーに含める)",
+    )
+    parser.add_argument(
+        "--sub-pc",
+        action="store_true",
+        help="sub 側でも pc を比較キーに含める旧来の挙動に戻す"
+        "(既定は sub の pc を比較キーから除外。上のdescription参照)",
     )
     args = parser.parse_args()
 
     try:
-        return run(args.ref, args.mixed, strict=args.strict)
+        return run(args.ref, args.mixed, strict=args.strict, sub_pc=args.sub_pc)
     except OSError as e:
         print(f"エラー: ファイルを読めない: {e}", file=sys.stderr)
         return 2
