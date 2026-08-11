@@ -45,6 +45,7 @@ SCRIPTS_EXPECTED=(
   "tools/cmp_io_selftest.sh:0"
   "tools/redact_iolog_selftest.sh:0"
   "tools/analyzer_redaction_selftest.sh:0"
+  "tools/analyze_sub_fe_selftest.sh:0"
   "tools/refmeasure_selftest.sh:0"
   "tools/conform_l3.sh:0"
   "tools/diag_l3_mixed.sh:0"
