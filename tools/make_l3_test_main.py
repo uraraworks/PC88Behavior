@@ -22,6 +22,24 @@ SEND/RECV 手順を、そのまま Z80 コードに書き起こしただけの�
 256バイトの応答を RECV で受け取って、その場で捨てて次へ進む。
 受け取った値そのものは `--io-log` の main 側 IN $FC 列に残るので、
 判定は verify_l3.sh 側（ログを読む）で行う。
+
+## 第6版での訂正（重要）
+
+旧版はここで「ポートCはたすき掛け配線」という理論のもと、main 側からも
+`OUT $FE` に直接マスク値を書き込んでいた。これは
+`src/l3_service/make_subrom.py`（旧版）と本ファイル（旧版）を組ませて
+動かした結果を根拠にしており、**自作サブROMと自作mainドライバが互いの
+誤解に合わせて辻褄を合わせていただけ**だった（このファイルの本来の
+存在意義——「仕様書どおりの手順を踏む相手」を用意すること——を
+自ら破っていた）。
+
+本版は `docs/spec/l3-subrom.md` 1.10節（main視点SEND/RECVの手順）・
+1.12節（$FFフェーズコード語彙）・1.13節（main視点の`$FE`待ち遷移表）
+**だけ**を根拠に書き直した。main は仕様書どおり `$FF` にフェーズコードを
+書き、`$FE` は読むだけで一度も書き込まない。**自作サブROM
+（`src/l3_service/make_subrom.py`）の実装に合わせて調整することは
+しない**——それは今回の失敗の再生産になる。両者が別々に仕様書だけを
+見て書かれ、それでも組んで動く、という一致だけが検証の意味を持つ。
 """
 
 import argparse
@@ -87,6 +105,7 @@ class Asm:
     def ld_a(self, n):    self.db(0x3E, n)
     def ld_b(self, n):    self.db(0x06, n)
     def and_a(self, n):   self.db(0xE6, n)
+    def cp_n(self, n):    self.db(0xFE, n)
     def ld_sp(self, nn):  self.db(0x31, nn & 0xFF, (nn >> 8) & 0xFF)
     def ld_hl_imm(self, nn): self.db(0x21, nn & 0xFF, (nn >> 8) & 0xFF)
     def ld_hl(self, name):   self.db(0x21); self._abs(name)
@@ -115,50 +134,51 @@ def build(requests):
 
     # (pio_set_mode 呼び出しは MAIN 冒頭で行う。下記 a.label("MAIN") 参照)
 
+    # ---- $FE 待ち目標値（仕様書1.13節。矢印/`⇄`の右側の値を目標に採用。
+    #      make_subrom.py の docstring と同じ選び方——値そのものを変えない
+    #      範囲でのポーリングコードの書き方の選択） ----
+    #   SEND前（相手の受信準備待ち）: 80⇄82        → 目標 0x82
+    #   SEND後（相手の受理確認待ち）: 12⇄14        → 目標 0x14
+    #   RECV前（相手のデータ準備待ち）: 20⇄21       → 目標 0x21
+    #   RECV後（相手の受理解除待ち）: 40⇄41        → 目標 0x41
+
     # ---- SEND_MAIN: 1バイト送信（main視点、仕様書1.10節 SEND そのまま） ----
     #   引数: A = 送るバイト
     a.label("SEND_MAIN")
     a.push_af()
     a.out_imm(0xFF, 0x0F)                # OUT FF,0F
-    # ポートCは「たすき掛け」配線（vendor src/pio.c pio_read_C）なので、
-    # sub が OUT $FE で書いた下位ニブルの値は、main からは上位ニブルの
-    # 位置に見える（src/l3_service/make_subrom.py のポートC訂正メモ参照。
-    # 実測して確かめた）。sub の ACK_SEND_START(0x01)/ACK_SEND_DATA(0x02)
-    # に対応する main 側マスクは 0x10 / 0x20。
     a.label("_send_wait1")
     a.in_port(0xFE)
-    a.and_a(0x10)
-    a.jr_z("_send_wait1")                # sub の ACK_SEND_START を待つ
+    a.cp_n(0x82)
+    a.jr_nz("_send_wait1")               # 相手の受信準備待ち（→0x82）
     a.out_imm(0xFF, 0x0E)                # OUT FF,0E
     a.pop_af()
     a.out_a(0xFD)                        # OUT FD,<byte>
     a.out_imm(0xFF, 0x09)                # OUT FF,09
     a.label("_send_wait2")
     a.in_port(0xFE)
-    a.and_a(0x20)
-    a.jr_z("_send_wait2")                # sub の ACK_SEND_DATA を待つ
+    a.cp_n(0x14)
+    a.jr_nz("_send_wait2")               # 相手の受理確認待ち（→0x14）
     a.out_imm(0xFF, 0x08)                # OUT FF,08
-    a.in_port(0xFE)                      # 結果ステータス（読み捨て）
+    a.in_port(0xFE)                      # 結果ステータス（単発読み、読み捨て。1.10節どおり待ちループにしない）
     a.ret()
 
     # ---- RECV_MAIN: 1バイト受信（main視点、仕様書1.10節 RECV そのまま） ----
     #   結果: A = 受け取ったバイト
     a.label("RECV_MAIN")
     a.out_imm(0xFF, 0x0B)                # OUT FF,0B
-    # sub の ACK_RECV_START(0x04)/ACK_RECV_ACK(0x08) に対応する main 側
-    # マスクは（たすき掛けにより）0x40 / 0x80。
     a.label("_recv_wait1")
     a.in_port(0xFE)
-    a.and_a(0x40)
-    a.jr_z("_recv_wait1")                # sub の ACK_RECV_START を待つ
+    a.cp_n(0x21)
+    a.jr_nz("_recv_wait1")               # 相手のデータ準備待ち（→0x21）
     a.out_imm(0xFF, 0x0A)                # OUT FF,0A
     a.in_port(0xFC)                      # IN FC = 実データ（sub OUT $FD）
     a.push_af()
     a.out_imm(0xFF, 0x0D)                # OUT FF,0D
     a.label("_recv_wait2")
     a.in_port(0xFE)
-    a.and_a(0x80)
-    a.jr_z("_recv_wait2")                # sub の ACK_RECV_ACK を待つ
+    a.cp_n(0x41)
+    a.jr_nz("_recv_wait2")               # 相手の受理解除待ち（→0x41）
     a.out_imm(0xFF, 0x0C)                # OUT FF,0C
     a.pop_af()
     a.ret()
@@ -173,7 +193,9 @@ def build(requests):
 
     # ---- 本編 ----
     a.label("MAIN")
-    a.out_imm(0xFF, 0x99)   # ポートCを相手読みモードに（sub側と対称。src/l3_service/make_subrom.py 参照）
+    # ポートCの明示的なモード設定は行わない（0x99は仕様書に根拠が無い旧版の
+    # 値だった。src/l3_service/make_subrom.py のリセットベクタと対称に、
+    # ここでも削除した）。
     for name in hdr_labels:
         # ヘッダ8バイトを SEND で送る
         a.ld_hl(name)

@@ -46,16 +46,44 @@ GPL の第三者エミュレータ実装 `src/pc88sub.c`・`src/fdc.c` を確認
 選べないが、**そこに何のバイト列を送るか（コマンド体系）は
 公開仕様に従って自分で決めている**。
 
-## $FE/$FF の意味論について
+## $FE/$FF の意味論について（第6版で全面改訂）
 
-$FF の8種のフェーズコード（0x08-0x0F）と、それが相手側の $FE に
-どう見えるかは、仕様書 1.12節（確定した語彙）と 1.10節（手順の型）
-から導ける。8255 相当の PIO がビットセット/リセット方式で
-ポートCの上位ニブルを操作することは、vendor の `src/pio.c`
-（同じく GPL 第三者実装、公式ROM無関係）で確認した一般的な PIO
-のふるまいであり、公開されている8255の一般仕様とも一致する。
-サブ側の応答値（0x80/0x82/0x12/0x14/0x20/0x21/0x40/0x41）は
-仕様書 1.13節に記載されている値をそのまま使う。
+**旧版（第5版まで）の実装は誤りだった。** 以前はここで「ポートCは
+たすき掛け配線で、sub 側が `OUT $FE` に直接マスク値を書き込む」という
+理論を採用していたが、これは自作サブROM＋自作試験用mainドライバ
+（`tools/make_l3_test_main.py`）同士を組ませて動かした結果を根拠にして
+おり、**双方が自作である以上「仕様書どおりの相手」を検証したことには
+ならなかった**（誤解を共有したまま両者が「動く」ように調整し合って
+いた）。公式サブROMを公式環境で実走させた測定（`docs/spec/l3-subrom.md`
+1.15節・6節10項）により、**公式subは`$FE`に一度も書き込まない**ことが
+確定した。したがって本版では `OUT $FE` を一切行わない。
+
+sub がすることは `OUT $FF` にフェーズコード（1.12節の8値の部分集合）を
+書くことだけであり、相手（main）の`$FF`書き込みが`$FE`側にどう映るかは
+PIOハードウェアの仕事であって sub 側コードが関与しない。sub は
+`IN $FE` で相手の状態を読み、仕様書 1.15節の遷移表に記載された
+**到達値**（矢印の右側・`⇄`の右側の値）に達するまで待つ。
+
+具体的な待ちと目標値（1.15節の表をそのまま転記。矢印/`⇄`の右側の値を
+「到達したら抜ける」目標値として採用した——これは値そのものを変えない
+範囲でのポーリングコードの書き方の選択であり、5.1節「内部実装は自由」
+の範囲内である）:
+
+| sub の待ち | 仕様書の遷移 | 目標値 |
+|---|---|---|
+| RECVプリミティブ・手順2（相手のデータ準備待ち） | `20→21` / `28→21` | `0x21` |
+| RECVプリミティブ・手順6（相手の受理解除待ち） | `41→40` | `0x40` |
+| SENDプリミティブ・手順1（相手の受信準備待ち） | `00→02` | `0x02` |
+| SENDプリミティブ・手順4（相手の受理確認待ち） | `12⇄14` | `0x14` |
+
+SENDプリミティブ手順6（「`IN $FE` でステータス相当を読む（スピン）」）は
+仕様書が「次に続く手順により抜け値が変わる境界的な待ち」と明記して
+おり（1.15節・3節、未確定のまま残されている）、確定した目標値が無い。
+**推測でループ条件を作らない**という規律に従い、ここは単発の
+`IN $FE` 読み捨て（ブロックしない）とする。main視点のSENDプリミティブ
+（1.10節）でも対応する最終手順は「`IN $FE`（結果ステータス）」と
+単発読みとして書かれており、待ちループとしては定義されていない
+ことと整合する。
 """
 
 import argparse
@@ -71,48 +99,26 @@ P_FDC_DATA = 0xFB   # IN/OUT: FDC データ/コマンド
 P_TC       = 0xF8   # IN: FDC へ TC（ターミナルカウント）を送る（vendor src/pc88sub.c）
 P_PIO_A    = 0xFC   # sub からは OUT で main の $FD 書き込みが IN で読める（SEND受信）
 P_PIO_B    = 0xFD   # sub の OUT がここに出ると main の IN $FC に見える（RECV送信）
-P_PIO_C    = 0xFE   # ハンドシェイク状態。IN=相手の状態、OUT=自分の状態（直接書き込み）
+P_PIO_C    = 0xFE   # ハンドシェイク状態。sub は IN のみ（仕様書6節10項: subはOUTしない）
 
 RQM  = 0x80   # $FA bit7
 DIO  = 0x40   # $FA bit6（1='FDCからホストへ'方向）
 
-# ---- ポートC（$FE/$FF）の実測による訂正 ----
-#
-# 当初は「CH ニブルの bit0..3 が、相手が読む値の bit4..7 に素直に
-# 対応する」と読んでいたが、実際に q88measure で自作 subrom と
-# 自作 main ドライバ（tools/make_l3_test_main.py）を組ませて動かすと
-# main/sub 双方が起動直後の待ちループから一歩も進まないデッドロックに
-# なった。ハーネスの `vendor/quasi88-libretro/src/pio.c`
-# `pio_read_C()` を読み直すと、上位ニブルは相手側の **CL**、
-# 下位ニブルは相手側の **CH** から来る「たすき掛け」配線だった
-# （GPLの第三者実装。公式ROM無関係。読むことは規律上の禁止対象外——
-#  仕様書 2.1節が pio.c を読んだのと同じ扱い）。
-#
-# main は $FF に 0x08-0x0F しか書かない（1.10節）——これは常に
-# 自分の CH ビットだけを操作する（CL は触らない）。したがって
-# sub が IN $FE で見るのは常に「下位ニブル」側にだけ現れる:
-#   main の CH bit3 (0x0F/0x0E) → sub は mask 0x08 で見る
-#   main の CH bit0 (0x09/0x08) → sub は mask 0x01 で見る
-#   main の CH bit1 (0x0B/0x0A) → sub は mask 0x02 で見る
-#   main の CH bit2 (0x0D/0x0C) → sub は mask 0x04 で見る
-#
-# 同様に、sub が OUT $FE (直接書き込み) で出した1バイトは、main 側では
-# ニブルが入れ替わって見える（上位⇔下位）。ここは「相手読みが
-# 成立することを確かめてから信用する」（このリポジトリの規律）を
-# 実地でやった結果の訂正であり、公式ROMや第三者解析物は一切
-# 参照していない——動かして直接測った。
-FE_SEND_START = 0x08   # main が OUT $FF,0x0F（クリアで 0x0E）
-FE_SEND_DATA  = 0x01   # main が OUT $FF,0x09（クリアで 0x08）
-FE_RECV_START = 0x02   # main が OUT $FF,0x0B（クリアで 0x0A）
-FE_RECV_ACK   = 0x04   # main が OUT $FF,0x0D（クリアで 0x0C）
+# ---- $FF フェーズコード語彙（仕様書1.12節。SEND系/RECV系で共通） ----
+PH_SEND_START_SET = 0x0F   # （sub SENDでは使わない。main SENDの語彙）
+PH_SEND_START_CLR = 0x0E   # （同上）
+PH_SEND_DATA_SET  = 0x09
+PH_SEND_DATA_CLR  = 0x08
+PH_RECV_START_SET = 0x0B
+PH_RECV_START_CLR = 0x0A
+PH_RECV_ACK_SET   = 0x0D
+PH_RECV_ACK_CLR   = 0x0C
 
-# sub 自身の ack（OUT $FE 直接書き込み）。main 側はニブルが入れ替わって
-# 見えるので、mask 0x0N を書くと main 側では 0xN0 として観測される
-# （tools/make_l3_test_main.py の待ちマスクと対にすること）。
-ACK_SEND_START = 0x01   # main 側 mask 0x10
-ACK_SEND_DATA  = 0x02   # main 側 mask 0x20
-ACK_RECV_START = 0x04   # main 側 mask 0x40
-ACK_RECV_ACK   = 0x08   # main 側 mask 0x80
+# ---- sub視点の $FE 待ち目標値（仕様書1.15節。上のdocstring表と同じ） ----
+FE_RECV_DATA_READY = 0x21   # RECVプリミティブ手順2（20→21 / 28→21）
+FE_RECV_ACK_DONE    = 0x40  # RECVプリミティブ手順6（41→40）
+FE_SEND_RECV_READY  = 0x02  # SENDプリミティブ手順1（00→02）
+FE_SEND_ACK_DONE     = 0x14  # SENDプリミティブ手順4（12⇄14。到達値を目標に採用）
 
 # --------------------------------------------------------------------------
 # ごく小さな Z80 アセンブラ（src/l1_ipl/make_ipl_rom.py の Asm を踏襲）
@@ -241,74 +247,72 @@ def build_subrom(break_response=False):
     # ====================================================================
     a.di()
     a.ld_sp(STACK)
-    # ポートCを「相手側を読む」モードに設定する（vendor src/pio.c
-    # pio_set_mode。既定値のままだと IN $FE は自分の書き込みを読み返す
-    # だけで、main<->sub のハンドシェイクが成立しない。bit7=モード設定、
-    # bit4=Aポート自分読み(既定どおりRead。これを崩すとIN $FCが
-    # 自分の書き込みを読み返してしまう——実機で踏んだ罠)、
-    # bit3=CH相手読み、bit0=CL相手読み。bit1(Bポート)は既定のWRITEを
-    # 維持（触らない=0）。main 側（試験用ドライバ）も起動時に同じ値を
-    # 書く（tools/make_l3_test_main.py）。
-    a.out_imm(0xFF, 0x99)
+    # ポートC（$FF/$FE）に関する明示的なモード設定は行わない。
+    # 旧版はここで `OUT $FF,0x99` という初期化を行っていたが、その値は
+    # 仕様書のどこにも根拠が無い（1.12節が確定しているsubのOUT $FF値は
+    # 08-0Eの7種のみで0x99は含まれない）。旧版の値は自作サブROM＋自作
+    # 試験用mainドライバ同士を動かして辻褄合わせした結果であり、今回の
+    # 見直しの対象そのものである。**仕様に無いので入れない。**
     a.call("FDC_SPECIFY")
     a.jp("MAIN_LOOP")
 
     # ====================================================================
-    # ハンドシェイク・プリミティブ（仕様書 1.10・1.12・1.13節）
+    # ハンドシェイク・プリミティブ（仕様書 1.15節。sub視点で確定した手順）
+    #
+    # sub は $FF にフェーズコードを書くだけで、$FE には一度も書き込まない
+    # （仕様書6節10項）。$FE は相手(main)の$FF書き込みがハードウェア越しに
+    # 見える読み取り専用の窓であり、sub 側コードはその値がどう作られるかに
+    # 関与しない——ここが旧版（たすき掛け理論・OUT $FE直接書き込み）から
+    # の最大の変更点。
     # ====================================================================
 
-    # ---- 相手(main)の $FE ビットが立つ/下がるのを待つ ----
-    # マスク別に8つの待ちルーチンを用意する（B レジスタ渡しにせず、
-    # マスクごとに専用ルーチンにしたほうがコードが単純になる）。
-    for name, mask in (
-        ("WAIT_SEND_START_SET", FE_SEND_START),
-        ("WAIT_SEND_START_CLR", FE_SEND_START),
-        ("WAIT_SEND_DATA_SET",  FE_SEND_DATA),
-        ("WAIT_SEND_DATA_CLR",  FE_SEND_DATA),
-        ("WAIT_RECV_START_SET", FE_RECV_START),
-        ("WAIT_RECV_START_CLR", FE_RECV_START),
-        ("WAIT_RECV_ACK_SET",   FE_RECV_ACK),
-        ("WAIT_RECV_ACK_CLR",   FE_RECV_ACK),
+    # ---- IN $FE をポーリングし、指定の目標値に達するまで待つ ----
+    for name, target in (
+        ("WAIT_FE_RECV_DATA_READY", FE_RECV_DATA_READY),
+        ("WAIT_FE_RECV_ACK_DONE",   FE_RECV_ACK_DONE),
+        ("WAIT_FE_SEND_RECV_READY", FE_SEND_RECV_READY),
+        ("WAIT_FE_SEND_ACK_DONE",   FE_SEND_ACK_DONE),
     ):
         a.label(name)
         a.label(name + "_LOOP")
         a.in_port(P_PIO_C)
-        a.and_a(mask)
-        if name.endswith("_SET"):
-            a.jr_z(name + "_LOOP")     # ビットが立つまで待つ
-        else:
-            a.jr_nz(name + "_LOOP")    # ビットが下がるまで待つ
+        a.cp_n(target)
+        a.jr_nz(name + "_LOOP")
         a.ret()
 
-    # ---- RECV_BYTE: main が SEND した1バイトを受け取る。結果は A ----
-    # 仕様書1.10節 SEND（main視点）の手順そのものに、サブ側から見て
-    # 正しく応答する（6節5項）。ack の具体的な値は自作（上のポートC
-    # 訂正メモのとおり、実測で確かめた配線に合わせた自前の設計。
-    # 5.1節「PIOの内部実装は自由」の範囲内）。
+    # ---- RECV_BYTE: main の SEND を受け取る。結果は A ----
+    # 仕様書1.15節「sub視点のRECVプリミティブ」の手順1〜7をそのまま。
     a.label("RECV_BYTE")
-    a.call("WAIT_SEND_START_SET")     # main が 0x0F を書いた
-    a.out_imm(P_PIO_C, ACK_SEND_START)
-    a.call("WAIT_SEND_START_CLR")     # main が 0x0E を書いた
-    a.call("WAIT_SEND_DATA_SET")      # main が $FD に書いてから 0x09
-    a.in_port(P_PIO_A)                # main OUT $FD は sub IN $FC で読める
+    a.out_imm(0xFF, PH_RECV_START_SET)      # 手順1: OUT $FF,0x0B
+    a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(→0x21)
+    a.out_imm(0xFF, PH_RECV_START_CLR)      # 手順3: OUT $FF,0x0A
+    a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）
     a.push_af()
-    a.out_imm(P_PIO_C, ACK_SEND_DATA)
-    a.call("WAIT_SEND_DATA_CLR")      # main が 0x08 を書いた（サイクル終了）
+    a.out_imm(0xFF, PH_RECV_ACK_SET)        # 手順5: OUT $FF,0x0D
+    a.call("WAIT_FE_RECV_ACK_DONE")         # 手順6: 相手の受理解除待ち(→0x40)
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)        # 手順7: OUT $FF,0x0C
     a.pop_af()
     a.ret()
 
-    # ---- SEND_BYTE: 1バイトを main へ送る。引数は A ----
-    # 仕様書1.10節 RECV（main視点）の手順に、サブ側から見て正しく応答する。
+    # ---- SEND_BYTE: main の RECV に応答して1バイト送る。引数は A ----
+    # 仕様書1.15節「sub視点のSENDプリミティブ」の手順1〜6をそのまま。
+    # 0x0F/0x0E相当の書き込みは4条件で一度も観測されなかった（1.15節）ので
+    # ここでは書かない。
     a.label("SEND_BYTE")
     a.push_af()
-    a.call("WAIT_RECV_START_SET")     # main が 0x0B を書いた
+    a.call("WAIT_FE_SEND_RECV_READY")       # 手順1: 相手の受信準備待ち(→0x02)
     a.pop_af()
-    a.out_a(P_PIO_B)                  # sub OUT $FD は main IN $FC で読める
-    a.out_imm(P_PIO_C, ACK_RECV_START)
-    a.call("WAIT_RECV_START_CLR")     # main が 0x0A を書いた（読み取り済）
-    a.call("WAIT_RECV_ACK_SET")       # main が 0x0D を書いた
-    a.out_imm(P_PIO_C, ACK_RECV_ACK)
-    a.call("WAIT_RECV_ACK_CLR")       # main が 0x0C を書いた（サイクル終了）
+    a.out_a(P_PIO_B)                        # 手順2: OUT $FD（main IN $FCと対応）
+    a.out_imm(0xFF, PH_SEND_DATA_SET)       # 手順3: OUT $FF,0x09
+    a.call("WAIT_FE_SEND_ACK_DONE")         # 手順4: 相手の受理確認待ち(→0x14)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)       # 手順5: OUT $FF,0x08
+    a.in_port(P_PIO_C)                      # 手順6: ステータス相当を単発で読み捨てる
+    # ↑ 仕様書は手順6を「次に続く手順により抜け値が変わる境界的な待ち」
+    # と明記し、確定した目標値を示していない（3節）。推測でループ条件を
+    # 作らないため、ここではブロックしない単発読みに留める。main視点の
+    # SENDプリミティブ（1.10節）でも対応する最終手順は単発の
+    # 「IN $FE（結果ステータス）」であり、待ちループとしては定義されて
+    # いないことと矛盾しない。
     a.ret()
 
     # ====================================================================
