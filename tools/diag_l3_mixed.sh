@@ -7,8 +7,15 @@
 # 受け取る値の列（docs/spec/l3-subrom.md 5.2節条件1）でしか判定しない。
 # 直近の実走結果は「main/IN/00FD に該当するイベントが0件」——つまり
 # データ転送以前、$FE/$FF のハンドシェイク段階で食い違っている。
-# このスクリプトはその**最初の食い違ったイベント**を、値を一切見ずに
+# このスクリプトはその**最初の構造的な食い違い**を、値を一切見ずに
 # (cpu, 方向IN/OUT, ポート, pc) の4項目だけで特定する。
+#
+# 添字を厳密に揃えた比較には欠陥があった: ポーリングループ（例:
+# 1.13節のSEND前$FE待ち）の回数はタイミング依存で、公式と自作で
+# 回数が違うだけでも添字がずれて以降すべてが「分岐」に見えてしまう。
+# 既定は連続する同一(cpu,kind,port,pc)を畳み込んでから比較し、
+# 回数の差は「回数差」として分岐と切り離して報告する
+# （tools/diag_l3_mixed.py のモジュールdocstring参照）。
 #
 # クリーンルーム規律: 比較キーに value を含めない。これは
 # CLAUDE.md 禁止事項5（データポートの値列を伏せる）を守った状態の
@@ -61,13 +68,24 @@ usage() {
   --out DIR       伏せ字済みログの保存先（省略時は mktemp。パスを表示する。
                    リポジトリ内には保存しない）
   --from-log PATH 既存の iolog を使い、混成ROMの再測定を飛ばす
-                   （PC88_REF_ROM_DIR / PC88_REF_DISK_DIR 不要）
+                   （PC88_REF_ROM_DIR / PC88_REF_DISK_DIR 不要。既に
+                   redact_iolog.py 済みのログをそのまま渡してよい——
+                   本スクリプトが再度適用しても冪等）
 
 環境変数（--from-log 未指定時のみ必要）:
   PC88_REF_ROM_DIR   公式ROMの置き場
   PC88_REF_DISK_DIR  diskA(N88_FE.D88) の置き場
 
 「検出力の自己検査」は常に実行する（環境変数の有無に関わらない）。
+
+比較の既定はスピン畳み込み比較（連続する同一(cpu,kind,port,pc)を
+ランレングス圧縮してから比較。ポーリング回数の差は分岐にせず、
+別立てで「回数差」として報告する）。添字を厳密に揃えた旧来の比較は
+tools/diag_l3_mixed.py --strict で個別に呼び出せる。
+
+前回の実走ログを再測定せずに解析し直す例:
+  tools/diag_l3_mixed.sh --from-log \
+      ~/pc88-diag/diag-l3-mixed-d0-boot.20260812-004221.iolog.redacted.txt
 EOF
 }
 
@@ -99,15 +117,45 @@ overall_rc=0
 # -----------------------------------------------------------------------
 # 検出力の自己検査（公式環境なしで常に回せる。合成フィクスチャのみ使用）
 #
-#   a. 完全一致のコピー           → 分岐なし
-#   b. 途中1件のポートを書き換え   → その通し番号が分岐点として報告される
-#   c. 片方を途中で打ち切り        → 打ち切り位置が分岐点として検出される
+#   a. 完全一致のコピー             → 構造的分岐なし
+#   b. 途中1件のポートを書き換え     → その通し番号が構造的分岐点として報告される
+#   c. 片方を途中で打ち切り          → 打ち切り位置が構造的分岐点として検出される
+#   d. スピン回数だけが違う          → 構造的分岐なし・かつ回数差として報告される
+#   e. 畳み込んでも構造が違う        → その位置が構造的分岐点として検出される
+#   f. 一方が無限ループ（極端な回数） → 回数差として目立つ形（[要注意]）で報告される
 #
 # 「わざと壊して検出できることを確かめてから信用する」がこのリポジトリの
 # 規律（CLAUDE.md / feedback_measure_the_end_not_the_signal.md）。
+# d/e/f は、既定のスピン畳み込み比較（コミット時点で追加）が
+# 「タイミング差を分岐扱いしない」ことと「本当の構造的分岐は見逃さない」
+# ことの両方を満たすかを検査する。片方だけの確認では不十分
+# （ポーリング回数差を分岐なしと誤判定しても、回数差として報告されて
+# いなければ「揺れを黙って握り潰しただけ」になる）。
 # -----------------------------------------------------------------------
 say "検出力の自己検査（比較ロジックをわざと壊して検出できるか）"
 selftest_rc=0
+
+# main セクションの2件目 (IN 00FE 01 3002) を N 回連続に複製する
+# ヘルパ。d/e/f のスピン合成フィクスチャ生成に使う。他の行・sub節は
+# 変えない。seq 列はキー比較に使わないので振り直さない。
+gen_line2_spin() {
+  local want="$1" outfile="$2"
+  awk -v want="$want" '
+    /^# main$/ { in_main=1; print; next }
+    /^# sub$/  { in_main=0; print; next }
+    {
+      if (in_main == 1) {
+        stripped = $0
+        gsub(/^[ \t]+|[ \t]+$/, "", stripped)
+        if (stripped == "" || substr(stripped, 1, 1) == "#") { print; next }
+        cnt++
+        if (cnt == 2) { for (i = 0; i < want; i++) print; next }
+        print; next
+      }
+      print
+    }
+  ' "$SELFTEST_REF" > "$outfile"
+}
 
 cp "$SELFTEST_REF" "$WORK/st_a.txt"
 
@@ -148,7 +196,7 @@ fi
 echo "  -- b. 途中1件のポートを書き換え → 通し番号5件目が分岐点のはず --"
 out_b="$(python3 "$DIAG" "$SELFTEST_REF" "$WORK/st_b.txt" 2>"$WORK/b.err")"
 rc_b=$?
-if [ "$rc_b" -eq 1 ] && printf '%s\n' "$out_b" | grep -q "最初の分岐点: 通し番号 5 件目"; then
+if [ "$rc_b" -eq 1 ] && printf '%s\n' "$out_b" | grep -q "最初の構造的分岐点: 畳み込み後 通し番号 5 件目"; then
   ok "自己検査b: 書き換えた5件目が正しく分岐点として検出された（rc=1）"
 else
   ng "自己検査b: 書き換えた箇所が分岐点として検出されなかった（rc=${rc_b}）"
@@ -167,11 +215,85 @@ fi
 echo "  -- c. 片方を途中で打ち切り → 打ち切り位置(7件目)が分岐点のはず --"
 out_c="$(python3 "$DIAG" "$SELFTEST_REF" "$WORK/st_c.txt" 2>"$WORK/c.err")"
 rc_c=$?
-if [ "$rc_c" -eq 1 ] && printf '%s\n' "$out_c" | grep -q "最初の分岐点: 通し番号 7 件目"; then
+if [ "$rc_c" -eq 1 ] && printf '%s\n' "$out_c" | grep -q "最初の構造的分岐点: 畳み込み後 通し番号 7 件目"; then
   ok "自己検査c: 打ち切り位置(7件目)が正しく分岐点として検出された（rc=1）"
 else
   ng "自己検査c: 打ち切りが分岐点として検出されなかった（rc=${rc_c}）"
   printf '%s\n' "$out_c" | sed 's/^/       /'
+  selftest_rc=1
+fi
+
+echo "  -- (strict) --strict で厳密比較モードが健在なことを確認 --"
+out_bs="$(python3 "$DIAG" --strict "$SELFTEST_REF" "$WORK/st_b.txt" 2>"$WORK/bs.err")"
+rc_bs=$?
+if [ "$rc_bs" -eq 1 ] && printf '%s\n' "$out_bs" | grep -q "最初の分岐点(厳密比較): 通し番号 5 件目"; then
+  ok "自己検査strict: --strict は旧来どおり添字5件目で分岐を報告する（rc=1）"
+else
+  ng "自己検査strict: --strict の厳密比較が機能していない（rc=${rc_bs}）"
+  printf '%s\n' "$out_bs" | sed 's/^/       /'
+  selftest_rc=1
+fi
+
+echo "  -- d. スピン回数だけが違う(基準4回/混成2回) → 構造的分岐なし・かつ回数差として報告 --"
+gen_line2_spin 4 "$WORK/st_d_ref.txt"
+gen_line2_spin 2 "$WORK/st_d_mixed.txt"
+out_d="$(python3 "$DIAG" "$WORK/st_d_ref.txt" "$WORK/st_d_mixed.txt" 2>"$WORK/d.err")"
+rc_d=$?
+d_ok=1
+if [ "$rc_d" -eq 0 ] && printf '%s\n' "$out_d" | grep -q "構造的分岐なし"; then
+  :
+else
+  d_ok=0
+fi
+if printf '%s\n' "$out_d" | grep -E -q "pc=3002.*基準=4回.*混成=2回"; then
+  :
+else
+  d_ok=0
+fi
+if [ "$d_ok" -eq 1 ]; then
+  ok "自己検査d: スピン回数差(4回/2回)を構造的分岐にせず、かつ回数差として報告した"
+else
+  ng "自己検査d: スピン回数差の扱いが誤り（構造的分岐なし・回数差報告の両方を満たさなかった、rc=${rc_d}）"
+  printf '%s\n' "$out_d" | sed 's/^/       /'
+  selftest_rc=1
+fi
+
+echo "  -- e. 畳み込んでも構造が違う(両側スピン3回+片側のみポート変更) → 構造的分岐点として検出 --"
+gen_line2_spin 3 "$WORK/st_e_ref.txt"
+gen_line2_spin 3 "$WORK/st_e_mixed_base.txt"
+sed 's/00FF   09   3005/00FC   09   3005/' "$WORK/st_e_mixed_base.txt" > "$WORK/st_e_mixed.txt"
+out_e="$(python3 "$DIAG" "$WORK/st_e_ref.txt" "$WORK/st_e_mixed.txt" 2>"$WORK/e.err")"
+rc_e=$?
+if [ "$rc_e" -eq 1 ] && printf '%s\n' "$out_e" | grep -q "最初の構造的分岐点: 畳み込み後 通し番号 5 件目"; then
+  ok "自己検査e: スピンに紛れても構造の食い違い(5件目)を正しく検出した（rc=1）"
+else
+  ng "自己検査e: 畳み込みが本当の構造分岐を握り潰した（rc=${rc_e}）"
+  printf '%s\n' "$out_e" | sed 's/^/       /'
+  selftest_rc=1
+fi
+
+echo "  -- f. 一方が無限ループ(基準50000回/混成3回) → 回数差が[要注意]として目立つ形で報告 --"
+gen_line2_spin 50000 "$WORK/st_f_ref.txt"
+gen_line2_spin 3 "$WORK/st_f_mixed.txt"
+out_f="$(python3 "$DIAG" "$WORK/st_f_ref.txt" "$WORK/st_f_mixed.txt" 2>"$WORK/f.err")"
+rc_f=$?
+f_ok=1
+if [ "$rc_f" -eq 0 ] && printf '%s\n' "$out_f" | grep -q "構造的分岐なし"; then
+  :
+else
+  f_ok=0
+fi
+if printf '%s\n' "$out_f" | grep -q "要注意" && \
+   printf '%s\n' "$out_f" | grep -E -q "pc=3002.*基準=50000回.*混成=3回"; then
+  :
+else
+  f_ok=0
+fi
+if [ "$f_ok" -eq 1 ]; then
+  ok "自己検査f: 極端な回数差(50000回/3回)を[要注意]として目立つ形で報告した"
+else
+  ng "自己検査f: 極端な回数差が目立つ形で報告されなかった（rc=${rc_f}）"
+  printf '%s\n' "$out_f" | sed 's/^/       /'
   selftest_rc=1
 fi
 
