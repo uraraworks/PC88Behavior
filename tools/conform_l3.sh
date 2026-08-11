@@ -60,6 +60,26 @@ trap 'rm -rf "$WORK"' EXIT
 overall_rc=0
 
 # -----------------------------------------------------------------------
+# 混成ROMディレクトリを組み立てる（公式main ROM一式 + 自作サブROMのみ差替）。
+#
+# $1 = コピー元ROMディレクトリ（公式一式、または自己検査用ダミー）
+# $2 = 出力先ディレクトリ
+#
+# 中身を一切読まずに cp するだけなのでクリーンルーム規律に触れない
+# （CLAUDE.md「公式ROMファイルを cp でコピーするのは可」）。
+# サブROMのファイル名は "DISK.ROM"（tools/harness/make_trap_rom.py・
+# make_test_rom.py・docs/spec/l3-subrom.md 冒頭・docs/notes/m1-quasi88-survey.md
+# で既に確定済みの名称。公式ROMディレクトリを ls して確認したのではなく、
+# 既存のハーネスコード・仕様書側の記述から特定した）。
+# -----------------------------------------------------------------------
+build_mixed_rom() {
+  local src="$1" dst="$2"
+  mkdir -p "$dst"
+  cp -p "$src"/* "$dst"/ || return 1
+  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" >/dev/null 2>&1 || return 1
+}
+
+# -----------------------------------------------------------------------
 # 照合の本体。iolog 1つと期待値TSV 1つを受け取り、各行を照合して結果を
 # 表示する。戻り値は「1件でも不一致/エラーがあれば1」。
 # 自己検査（このスクリプトが検出力を持つか）と本番（公式環境）の両方で
@@ -176,6 +196,61 @@ fi
 overall_rc=$(( overall_rc || selftest_rc ))
 
 # -----------------------------------------------------------------------
+# 検出力の自己検査（続き）: 混成ROMディレクトリの「コピー＋サブROMだけ
+# 差替」が実際に効いているかを、公式環境なしで確認する。
+#
+# ここで使う"公式ROM一式"はダミー（全部自作）。自作物同士なので中身を
+# cmp で比較してよい（比較対象がどちらも自作である限り規律に触れない。
+# 公式ROM・公式ディスクは一切登場しない）。
+# -----------------------------------------------------------------------
+say "検出力の自己検査（続き）: 混成ROMディレクトリの差し替えが実際に効いているか"
+
+mixed_selftest_rc=0
+
+DUMMY_OFFICIAL="$WORK/dummy_official_rom"
+mkdir -p "$DUMMY_OFFICIAL"
+python3 "$REPO/src/l3_service/make_subrom.py" "$DUMMY_OFFICIAL" --break-response >/dev/null
+echo "dummy main-side rom for selftest only (not a real ROM)" > "$DUMMY_OFFICIAL/N88.ROM"
+
+DUMMY_MIXED="$WORK/dummy_mixed_rom"
+if ! build_mixed_rom "$DUMMY_OFFICIAL" "$DUMMY_MIXED"; then
+  ng "自己検査e: build_mixed_rom 自体が失敗した"
+  mixed_selftest_rc=1
+fi
+
+REFERENCE_SUBROM="$WORK/reference_subrom"
+mkdir -p "$REFERENCE_SUBROM"
+python3 "$REPO/src/l3_service/make_subrom.py" "$REFERENCE_SUBROM" >/dev/null
+
+if [ -f "$DUMMY_MIXED/N88.ROM" ] && cmp -s "$DUMMY_MIXED/N88.ROM" "$DUMMY_OFFICIAL/N88.ROM"; then
+  ok "自己検査e: main側ファイル(N88.ROM相当)はコピーされ内容も保持されている"
+else
+  ng "自己検査e: main側ファイルがコピーされていない、または内容が変わった"
+  mixed_selftest_rc=1
+fi
+
+if [ -f "$DUMMY_MIXED/DISK.ROM" ] && cmp -s "$DUMMY_MIXED/DISK.ROM" "$REFERENCE_SUBROM/DISK.ROM"; then
+  ok "自己検査f: DISK.ROMは自作サブROM(通常版)に正しく差し替わっている"
+else
+  ng "自己検査f: DISK.ROMが自作サブROM(通常版)と一致しない（差し替えが効いていない）"
+  mixed_selftest_rc=1
+fi
+
+if [ -f "$DUMMY_MIXED/DISK.ROM" ] && cmp -s "$DUMMY_MIXED/DISK.ROM" "$DUMMY_OFFICIAL/DISK.ROM"; then
+  ng "自己検査g: DISK.ROMが「公式」ダミー(break-response版)のまま残っている（上書きされていない）"
+  mixed_selftest_rc=1
+else
+  ok "自己検査g: DISK.ROMは「公式」ダミーのままではなく、確かに上書きされている"
+fi
+
+if [ "$mixed_selftest_rc" -eq 0 ]; then
+  ok "混成ROMディレクトリ構築の自己検査: 全項目OK"
+else
+  ng "混成ROMディレクトリ構築の自己検査: 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || mixed_selftest_rc ))
+
+# -----------------------------------------------------------------------
 # 本番: 公式ROM・公式ディスクでの測定 → 期待値と照合
 # -----------------------------------------------------------------------
 say "適合テスト本体（公式ROM・公式ディスクが必要）"
@@ -242,13 +317,106 @@ else
 fi
 
 # -----------------------------------------------------------------------
+# 混成: 公式main側ROM一式 + 自作サブROM(DISK.ROM)で公式ディスクを起動
+#
+# 上の「本番」は公式ROM一式（サブROMも公式）で走らせており、これが
+# 判定しているのは**公式環境の再現性（決定論性）**であって、
+# 自作サブROM（src/l3_service/make_subrom.py）が公式ディスク相手に
+# docs/spec/l3-subrom.md 5.2節条件1を満たすかは一度も判定していなかった。
+# ここでサブROMだけを自作品に差し替えて同じ期待値と照合することで、
+# それを判定する（docs/PLAN.md「次にやること（M6の続き）」2項）。
+#
+# 一致しないのが現時点の正常な想定である。自作サブROMはまだ起動時の
+# 高速バルクモード（5635件、1.6節・1.10節）を実装していない
+# （make_subrom.py 冒頭コメント参照）。したがって不一致を「不適合」と
+# して正直に報告する。通すために期待値やテストを緩めることはしない。
+# -----------------------------------------------------------------------
+say "混成ROM適合テスト（公式main ROM一式 + 自作サブROM(DISK.ROM)を公式ディスクで起動）"
+
+MIXED_ROM_DIR="$WORK/mixed_rom"
+if ! build_mixed_rom "$PC88_REF_ROM_DIR" "$MIXED_ROM_DIR"; then
+  echo "エラー: 混成ROMディレクトリの構築に失敗した" >&2
+  exit 1
+fi
+
+"$FRONTEND" --core "$CORE" --rom-dir "$MIXED_ROM_DIR" --disk "$DISK" \
+    --frames 1800 --io-log "$WORK/mixed.iolog.txt" \
+    >"$WORK/mixed.stdout.txt" 2>"$WORK/mixed.stderr.txt" || {
+  echo "エラー: 混成ROMでの q88measure が失敗した" >&2
+  cat "$WORK/mixed.stderr.txt" >&2
+  exit 1
+}
+
+say "混成ROMのI/Oストリームを期待値と照合"
+if run_conformance "$WORK/mixed.iolog.txt" "$EXPECTED" "混成(自作サブROM)"; then
+  ok "混成: 自作サブROMが適合条件1を満たした（想定より進んでいた場合。docs/PLAN.mdの状況認識を更新すること）"
+else
+  overall_rc=1
+  # ---------------------------------------------------------------
+  # 分岐点報告（値は一切出さない）。
+  #
+  # 設計判断: cmp_io.py の report_mismatch/fmt_event は不一致箇所の
+  # value を表示する実装（値を伏せるモードを持たない）。今回はそこに
+  # 手を入れて「値を伏せるオプション」を足す代わりに、conform_l3.sh
+  # 側を「件数比較に留める」設計を選んだ。理由: expected.tsv には
+  # そもそも値の列を持たせていない（ハッシュのみ。CLAUDE.md禁止事項4）
+  # ので、「どの通し番号で値が食い違ったか」は原理的に導けない
+  # （導けるとしたら値そのものを別途保持している場合だけで、それは
+  # 今回やらないと決めたこと自体と矛盾する）。ここで出せるのは
+  # 「受信件数」と、件数が期待に届かず打ち切られた場合の「最初に
+  # 届かなかった通し番号」（=推定される分岐点）・その cpu/port/kind
+  # （expected.tsv に既に載っているメタ情報。値ではない）まで。
+  # 件数が一致しているのにSHA-256だけ違う場合は、値を持たない設計上
+  # 「特定できない」と正直に言う。
+  # ---------------------------------------------------------------
+  echo
+  echo "  --- 分岐点報告（値は出さない。件数と通し番号のみ） ---"
+  while IFS=$'\t' read -r name cpu port kind count sha; do
+    [ -z "${name:-}" ] && continue
+    case "$name" in \#*) continue ;; esac
+    if a_out="$(python3 "$HASH" "$WORK/mixed.iolog.txt" --cpu "$cpu" --port "$port" --kind "$kind" 2>/dev/null)"; then
+      a_count="$(printf '%s\n' "$a_out" | awk -F'\t' '$1=="count"{print $2}')"
+    else
+      a_count=0
+    fi
+    if [ "$a_count" -eq 0 ]; then
+      echo "  ${name}(${cpu}/${kind}/${port}): 対象イベントが1件も無い（通し番号1件目より前で分岐）"
+    elif [ "$a_count" -lt "$count" ]; then
+      echo "  ${name}(${cpu}/${kind}/${port}): ${a_count} 件受信した時点で途切れた（期待 ${count} 件）"
+      echo "    最初に食い違ったと推定できる通し番号: $((a_count + 1)) 件目（以降を自作サブROMは未実装）"
+    elif [ "$a_count" -eq "$count" ]; then
+      echo "  ${name}(${cpu}/${kind}/${port}): 件数(${a_count})は一致するがSHA-256が不一致"
+      echo "    値を保持しない設計のため、どの通し番号で食い違ったかはこの仕組みでは特定できない"
+    else
+      echo "  ${name}(${cpu}/${kind}/${port}): 想定より多い ${a_count} 件を受信（期待 ${count} 件）"
+    fi
+  done < "$EXPECTED"
+fi
+
+# -----------------------------------------------------------------------
 # 現状の到達点（正直に書く。ごまかさない）
 # -----------------------------------------------------------------------
 say "現状の到達点"
 cat <<'EOF'
+  これまでの誤解（正直に書く）: 「本番」ステップ（公式ROM一式＝
+  サブROMも公式）が合格しても、それは公式環境の再現性（決定論性。
+  measurements/m6g-d0-boot-run{1,2}.iolog.txt の完全一致で既に確認済み）
+  を確認しているだけで、自作実装（src/l3_service/make_subrom.py）が
+  適合条件1を満たすかは一度も判定していなかった。docs/PLAN.md
+  「次にやること（M6の続き）」2項がまだ手つかずだった理由がこれ。
+
+  今回追加した「混成」ステップが、その2項に対応する。公式main側ROMは
+  そのまま・サブROMだけ自作品に差し替えて公式ディスクで起動し、同じ
+  期待値と照合する。これで初めて「自作サブROMが公式ディスクを相手に
+  適合条件1を満たすか」を判定できるようになった。
+
   判定できる: 適合条件1（docs/spec/l3-subrom.md 5.2節1項）——
     diskA起動時、main が IN $FD で受け取る値の列の一致
-    （tests/conformance/expected.tsv の m6g-d0-boot 行）。
+    （tests/conformance/expected.tsv の m6g-d0-boot 行）を、
+    (a) 公式環境の再現性として（本番ステップ）、
+    (b) 自作サブROMの適合として（混成ステップ）、
+    の両方で判定する。(b) は現時点では不一致が正常な想定
+    （自作サブROMがまだ起動時バルクモードを実装していないため）。
 
   未判定のまま残す:
     条件2（diskB起動時に $FC を一切使わないこと。5.2節2項）
