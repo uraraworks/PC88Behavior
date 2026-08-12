@@ -43,6 +43,7 @@ cd "$REPO"
 SCRIPTS_EXPECTED=(
   "tools/check_cleanroom.sh:0"
   "tools/cmp_io_selftest.sh:0"
+  "tools/cmp_fdc_sectors_selftest.sh:0"
   "tools/redact_iolog_selftest.sh:0"
   "tools/analyzer_redaction_selftest.sh:0"
   "tools/analyze_sub_fe_selftest.sh:0"

@@ -505,6 +505,29 @@ else
     cat "$WORK/t26.out"
 fi
 
+# --- テスト27: 区間限定＋位置だけ表示で値差を検出し、値は出さない -----
+# 4件目のIN 00FDのseqを上限にするため、比較対象は先頭3件。その3件目を
+# 意図的に変更したt23を使い、不一致位置だけが出て値自体は出ないことを見る。
+CUT_SEQ="$(awk 'BEGIN{c=0} $4=="main" && $5=="IN" && $6=="00FD" {
+    c++; if(c==4){print $1; exit}}' "$SEED2")"
+python3 "$CMP" "$SEED2" "$WORK/t23.txt" --cpu main --port FD --kind IN \
+    --base-before-seq "$CUT_SEQ" --target-before-seq "$CUT_SEQ" \
+    --location-only >"$WORK/t27.out" 2>&1
+rc=$?
+if [[ $rc -eq 1 ]] \
+    && grep -q '^基準側比較件数: 3$' "$WORK/t27.out" \
+    && grep -q '^対象側比較件数: 3$' "$WORK/t27.out" \
+    && grep -q '^値の一致プレフィックス長: 2$' "$WORK/t27.out" \
+    && grep -q '^最初の不一致位置: 3$' "$WORK/t27.out" \
+    && grep -q '^基準側位置: frame=[0-9][0-9]* seq=[0-9][0-9]*$' "$WORK/t27.out" \
+    && grep -q '^対象側位置: frame=[0-9][0-9]* seq=[0-9][0-9]*$' "$WORK/t27.out" \
+    && ! grep -q 'ZZ' "$WORK/t27.out"; then
+    pass "27. 区間限定＋位置のみ: 意図的な値差を検出し、値は非表示"
+else
+    fail "27. 区間限定＋位置のみの安全な値差検出 rc=$rc"
+    cat "$WORK/t27.out"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
     echo "全項目 OK"

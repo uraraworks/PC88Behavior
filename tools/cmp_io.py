@@ -265,6 +265,54 @@ def report_mismatch(base: list[Event], target: list[Event], mode_label: str) -> 
     return 1
 
 
+def report_mismatch_location_only(base: list[Event], target: list[Event]) -> int:
+    """値を比較するが、出力には値・pc・前後窓を一切含めない安全モード。
+
+    データポートの値列について「最初に違う位置」だけを知る用途向け。
+    表示するのは比較件数、一致プレフィックス長、1-based不一致index、
+    frame/seq、差異種別だけである。
+    """
+    n = min(len(base), len(target))
+    first_diff = None
+    for i in range(n):
+        b, t = base[i], target[i]
+        if b.port != t.port or b.value != t.value or b.kind != t.kind:
+            first_diff = i
+            break
+    if first_diff is None and len(base) != len(target):
+        first_diff = n
+
+    print(f"基準側比較件数: {len(base)}")
+    print(f"対象側比較件数: {len(target)}")
+    prefix = n if first_diff is None else first_diff
+    print(f"値の一致プレフィックス長: {prefix}")
+    if first_diff is None:
+        print("最初の不一致位置: なし")
+        print("不一致種別: 一致")
+        return 0
+
+    print(f"最初の不一致位置: {first_diff + 1}")
+    b = base[first_diff] if first_diff < len(base) else None
+    t = target[first_diff] if first_diff < len(target) else None
+    if b is None:
+        print("基準側位置: なし")
+    else:
+        print(f"基準側位置: frame={b.frame} seq={b.seq}")
+    if t is None:
+        print("対象側位置: なし")
+    else:
+        print(f"対象側位置: frame={t.frame} seq={t.seq}")
+    print(f"不一致種別: {classify_mismatch(base, target, first_diff)}")
+    return 1
+
+
+def filter_before_seq(events: list[Event], limit: int | None) -> list[Event]:
+    """seqがlimit未満のイベントだけを残す。Noneなら無変更。"""
+    if limit is None:
+        return events
+    return [event for event in events if event.seq < limit]
+
+
 def check_cycle(seq: list[Event], n_init: int, cycle: list[tuple[str, str]],
                 side: str) -> tuple[str | None, int, int]:
     """n_init 件目以降が cycle の繰り返しかを見る。
@@ -430,6 +478,13 @@ def main() -> int:
                              "M6のような非周期の一括転送向け（docs/notes/m6-conformance.md）")
     parser.add_argument("--kind", choices=["IN", "OUT"], default=None,
                         help="特定ポート判定: 見る方向（--port と併用必須）")
+    parser.add_argument("--base-before-seq", type=int, default=None, metavar="N",
+                        help="基準側を seq<N の区間に限定する")
+    parser.add_argument("--target-before-seq", type=int, default=None, metavar="N",
+                        help="対象側を seq<N の区間に限定する")
+    parser.add_argument("--location-only", action="store_true",
+                        help="値は比較するが表示せず、不一致index/frame/seqだけを出す。"
+                             "--port/--kind専用")
     args = parser.parse_args()
 
     if (args.init is None) != (args.cycle is None):
@@ -451,6 +506,17 @@ def main() -> int:
     if args.port is not None and args.with_in:
         print("エラー: --with-in と --port/--kind は併用しない", file=sys.stderr)
         return 2
+    if (args.base_before_seq is None) != (args.target_before_seq is None):
+        print("エラー: --base-before-seq と --target-before-seq は両方指定する", file=sys.stderr)
+        return 2
+    if args.base_before_seq is not None and (
+        args.base_before_seq < 0 or args.target_before_seq < 0
+    ):
+        print("エラー: seq上限は0以上", file=sys.stderr)
+        return 2
+    if args.location_only and args.port is None:
+        print("エラー: --location-only は --port/--kind と併用する", file=sys.stderr)
+        return 2
 
     try:
         base_events = parse_iolog(args.base, args.cpu)
@@ -461,6 +527,9 @@ def main() -> int:
     except OSError as e:
         print(f"エラー: ファイルを読めない: {e}", file=sys.stderr)
         return 2
+
+    base_events = filter_before_seq(base_events, args.base_before_seq)
+    target_events = filter_before_seq(target_events, args.target_before_seq)
 
     if args.init is not None:
         base_seq = filter_out_only(base_events)
@@ -482,6 +551,8 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         label = f"{args.kind} {normalize_port(args.port)} のみ（完全一致・非周期）"
+        if args.location_only:
+            return report_mismatch_location_only(base_seq, target_seq)
         rc = report_mismatch(base_seq, target_seq, label)
         if rc == 0:
             print(f"[{label}] 一致（{len(base_seq)}件）")
