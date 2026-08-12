@@ -518,6 +518,8 @@ class Asm:
     def pop_de(self):     self.db(0xD1)
     def dec_de(self):     self.db(0x1B)   # DEC DE（フラグは変化しない。ゼロ判定は別途 LD A,D / OR E で行う）
     def ld_a_d(self):     self.db(0x7A)
+    def ld_a_e(self):     self.db(0x7B)   # LD A,E（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
+    def ld_e_a(self):     self.db(0x5F)   # LD E,A
     def or_e(self):        self.db(0xB3)
     def or_a(self):        self.db(0xB7)   # OR A（キャリーを0にするためだけに使う）
     def sbc_hl_de(self):    self.db(0xED, 0x52)   # SBC HL,DE（ED 42はSBC HL,BC。取り違え注意）
@@ -525,6 +527,7 @@ class Asm:
     def ld_a(self, n):    self.db(0x3E, n)
     def ld_b(self, n):    self.db(0x06, n)
     def ld_c(self, n):    self.db(0x0E, n)
+    def ld_e(self, n):    self.db(0x1E, n)   # LD E,n（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def and_a(self, n):   self.db(0xE6, n)
     def or_n(self, n):    self.db(0xF6, n)
     def cp_n(self, n):    self.db(0xFE, n)
@@ -803,8 +806,13 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
-    # ---- 仕様書1.22節（第16版・第17版）で確定した起動時FDC初期化の
-    #      batch1・batch2（ドライブ0向け）を再現する。
+    # ---- 仕様書1.22節（第16版〜第18版）で確定した起動時FDC初期化の
+    #      batch1〜7を再現する。ドライブ割り当て（1.22節・
+    #      `docs/notes/m6r-specify-vs-seek.md`）: batch1/2/3=ドライブ0、
+    #      batch4/5/6=ドライブ1、batch7=ドライブ2。第18版で
+    #      `FDC_RECALIBRATE`/`FDC_SEEK`をドライブ番号引数化(E)した
+    #      ことで、旧版がドライブ0決め打ちのため見送っていたbatch3以降
+    #      を実装できるようになった。
     #      batch1: SPECIFY+RECALIBRATE+SENSE INTERRUPT STATUS
     #      （write=6バイト・read=2バイト）。FDC_RECALIBRATEは内部で
     #      FDC_SENSE_INTまで呼ぶ既存ルーチン。直後の単発`OUT $F8,0x07`は
@@ -812,22 +820,19 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      伴わない簡略形」をそのまま再現する（1.21節のFDC_TC
     #      サブルーチンは使わない——あちらは`OUT $F7`/`IN $F8`まで
     #      含む完全な三つ組み用）。
-    a.call("FDC_RECALIBRATE")
+    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
     a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（$F7/IN $F8は伴わない）
     #      batch2: SEEK+SENSE INTERRUPT STATUS（write=4バイト・
-    #      read=2バイト）。第17版（`docs/notes/m6r-specify-vs-seek.md`）
-    #      でSPECIFYではなくSEEKと確定した——MSR($FA)のSeek Busyビット
-    #      （対照群RECALIBRATE=batch3/4/6/7で先に妥当性確認済み）が、
-    #      batch2の最終コマンドバイト送信後にドライブ0分立っており、
-    #      SPECIFYは決してこのビットを立てないため。
-    #      目標シリンダは`0x00`固定（任意値でよい）: 同ノート5節の
+    #      read=2バイト、ドライブ0）。第17版（`docs/notes/
+    #      m6r-specify-vs-seek.md`）でSPECIFYではなくSEEKと確定した
+    #      ——MSR($FA)のSeek Busyビット（対照群RECALIBRATE=batch3/4/6/7で
+    #      先に妥当性確認済み）が、batch2の最終コマンドバイト送信後に
+    #      ドライブ0分立っており、SPECIFYは決してこのビットを立てない
+    #      ため。目標シリンダは`0x00`固定（任意値でよい）: 同ノート5節の
     #      とおり、この結果はmainへ渡らずsub内部で消費され、かつ直後の
     #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
-    #      上書きされるため、値は区間の最終観測可能状態に影響しない
-    #      （batch3自体は未実装。ドライブ1・2向けのbatch4以降を含め、
-    #      現行の`FDC_RECALIBRATE`/`FDC_SEEK`がドライブ番号引数を
-    #      取らないため——別スコープの変更が要る。仕様書3節・6節22項）。
-    a.ld_a(0x00); a.call("FDC_SEEK")
+    #      上書きされるため、値は区間の最終観測可能状態に影響しない。
+    a.ld_e(0x00); a.ld_a(0x00); a.call("FDC_SEEK")   # ドライブ0, シリンダ0
     a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（batch2直後、1.22節）
     if inject_spurious_sense_int:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
@@ -838,6 +843,21 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # STATUSを呼ぶと、μPD765データシートの規定により結果フェーズは
         # ST0(Invalid Command)の1バイトのみで終わる。
         a.call("FDC_SENSE_INT")
+    #      batch3〜7: 1.22節が確定した「TCはbatch1・batch2の直後にのみ
+    #      現れ、batch3〜7の後には一度も現れない」に従い、TCは発行しない。
+    #      batch3: RECALIBRATE（ドライブ0、write=3バイト・read=2バイト）。
+    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
+    #      batch4: RECALIBRATE（ドライブ1）。
+    a.ld_e(0x01); a.call("FDC_RECALIBRATE")   # ドライブ1
+    #      batch5: SEEK（ドライブ1、write=4バイト・read=2バイト）。
+    #      目標シリンダはbatch2と同じ理由で`0x00`固定（直後のbatch6
+    #      RECALIBRATEが無条件にトラック0へ戻すため、値は区間の最終
+    #      観測可能状態に影響しない。仕様書1.22節第17版）。
+    a.ld_e(0x01); a.ld_a(0x00); a.call("FDC_SEEK")   # ドライブ1, シリンダ0
+    #      batch6: RECALIBRATE（ドライブ1）。
+    a.ld_e(0x01); a.call("FDC_RECALIBRATE")   # ドライブ1
+    #      batch7: RECALIBRATE（ドライブ2）。
+    a.ld_e(0x02); a.call("FDC_RECALIBRATE")   # ドライブ2
     a.jp("MAIN_LOOP")
 
     # ====================================================================
@@ -1033,11 +1053,23 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.label("_fdc_sense_int_done")
     a.ret()
 
-    # ---- RECALIBRATE（ドライブ0をトラック0へ）----
+    # ---- RECALIBRATE（指定ドライブをトラック0へ）。
+    #      引数: E = ドライブ番号(0-3)。第18版でドライブ番号引数化した
+    #      （仕様書1.22節・`docs/notes/m6r-specify-vs-seek.md`が
+    #      batch1/2/3をドライブ0、batch4/5/6をドライブ1、batch7を
+    #      ドライブ2と確定させたが、旧実装はドライブ0決め打ちで
+    #      batch3以降を再現できなかった）。
+    #      μPD765/8272データシート（公開仕様）: RECALIBRATEコマンド
+    #      フェーズ第2バイトの下位2ビット(US1,US0)がドライブ選択、
+    #      bit2(HD)がヘッド選択。本実装はヘッド0のみを扱うため、
+    #      第2バイトはE(ドライブ番号)をそのまま使う。
+    #      Eはこのファイルの他のFDCサブルーチン(FDC_BEGIN/FDC_OUT/
+    #      FDC_IN/FDC_SENSE_INT)がいずれもDEを保存して戻るため、
+    #      呼び出しをまたいでも壊れない。 ----
     a.label("FDC_RECALIBRATE")
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x07); a.call("FDC_OUT")     # コマンド: RECALIBRATE
-    a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
+    a.ld_a_e(); a.call("FDC_OUT")       # unit=E(ドライブ番号), head=0
     a.call("FDC_SENSE_INT")
     a.ret()
 
@@ -1056,12 +1088,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.call("FDC_IN")                    # 結果フェーズ: ST3（1バイト、Aに残る）
     a.ret()
 
-    # ---- SEEK（引数: A=目的シリンダ） ----
+    # ---- SEEK（引数: E=ドライブ番号(0-3), A=目的シリンダ）。
+    #      第18版でドライブ番号引数化（FDC_RECALIBRATEと同じ根拠・
+    #      同じビット割り当て。上のFDC_RECALIBRATEのコメント参照）。----
     a.label("FDC_SEEK")
     a.push_af()
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x0F); a.call("FDC_OUT")     # コマンド: SEEK
-    a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
+    a.ld_a_e(); a.call("FDC_OUT")       # unit=E(ドライブ番号), head=0
     a.pop_af();  a.call("FDC_OUT")      # 目的シリンダ
     a.call("FDC_SENSE_INT")
     a.ret()
@@ -1119,7 +1153,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # 旧構造をそのまま復元する。
         # ====================================================================
         a.label("MAIN_LOOP")
-        a.call("FDC_RECALIBRATE")
+        a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
         a.label("REQ_LOOP")
 
         a.label("IDLE_DISPATCH")
@@ -1154,6 +1188,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
 
         a.ld_hl_imm(REQ_HDR + 3)
         a.ld_a_hl()
+        a.ld_e(0x00)          # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
         a.call("FDC_SEEK")
 
         a.call("FDC_READ_SECTOR")
@@ -1197,7 +1232,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
     a.ld_mem_a(RUN_LEN)
-    a.call("FDC_RECALIBRATE")
+    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
 
     # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
     # $FF へ何も書かずに $FE を読み、どちらの側かが確定するまで待つ。
@@ -1324,6 +1359,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # シリンダへシーク
     a.ld_hl_imm(REQ_HDR + 3)
     a.ld_a_hl()
+    a.ld_e(0x00)          # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
     a.call("FDC_SEEK")
 
     # セクタを読み出し、応答フェーズを開始する（実際のSENDは行わない）
