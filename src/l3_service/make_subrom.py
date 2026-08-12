@@ -49,6 +49,44 @@ make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相�
   定常状態のRECV直後の即時SEND応答）のみを実装し、値による分岐は
   一切行わない。
 
+## アイドル判別（第8版で追加。`docs/notes/m6l-idle-dispatch.md`・仕様書3節）
+
+`docs/notes/m6k-mixed-divergence.md`第1部で報告された混成ROM実走の
+デッドロックは、旧版のディスパッチャ（`REQ_LOOP`が毎回、何も確認せず
+いきなり`OUT $FF,0x0B`（RECVプリミティブ手順1）を書いていたこと）が
+直接原因だった。mainが逆に「subが送る番」を期待している局面で、
+subが先に「RECVする（＝mainが送る番だと決め打つ）」と宣言してしまい、
+互いに相手の`$FE`遷移を待ち続けて止まっていた。
+
+**確定している範囲だけで直す。** `IDLE_DISPATCH`は`$FF`へ何も書かずに
+`IN $FE`を読み、以下の2値のどちらかに達するまでポーリングする:
+
+- `0x08`（`FE_IDLE_TO_RECV`）: 仕様書1.17節・`docs/notes/m6k-mixed-divergence.md`
+  第5部の「アイドル待ち」（`pc=00CC`）が4条件・観測全252件で例外なく
+  到達し、その直後に必ずRECVへ進んでいた**確定済みの観測値**。
+  本実装のテスト用main（`tools/make_l3_test_main.py`）はヘッダ送信を
+  main視点SENDプリミティブ（`OUT $FF,0x0F`始まり）で開始するため、
+  同じ`$FF`フェーズコード列がsub側`$FE`に反映され、同じ`0x08`に
+  到達するはずだという想定のもとで採用している（本ハーネスの
+  PIOクロス配線は同一の`vendor/quasi88-libretro`コアが両ROM組に共通
+  なので、想定は成立するはずだが、これ自体は本ノートの追加測定
+  ではなく既存資産からの類推であることを明記する）。
+- `0x02`（`FE_IDLE_TO_SEND`）: 仕様書1.15節「sub視点のSENDプリミティブ
+  手順1」が待つ到達値と同じ。**これは確定した判別条件ではない。**
+  実測コーパス（`measurements/m6c-sub-*`・`m6g-d0-boot-run{1,2}`）には
+  「アイドル待ちから直接SENDへ進む」事例が1件も無く（1.17節）、
+  この値がアイドル時のバレ読みで実際にこの意味で現れるかどうかは
+  未検証である。**仕様書の確定範囲（1.15節のSEND手順1の到達値）から
+  導いた暫定構造であり、値の裏付けは無い。**
+
+`0x02`に達したら`SEND_BYTE`を1回呼んで`IDLE_DISPATCH`へ戻る
+（送るバイトの値は`0x00`固定。**値の正しさは目標ではない**——
+このバイトの意味論は未確定であり、正しい値を推測して埋めることは
+しない。目的はデッドロックの回避のみ）。`0x08`に達したら従来どおり
+8バイトヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。どちらでもない
+中間値のあいだはポーリングを続ける（`WAIT_FE_*`と同じ、目標値に
+達するまで単純に回すスタイル）。
+
 ## $FA/$FB のポート番号について
 
 サブが FDC とどう通信するかは内部実装なので本来自由（仕様書0節）だが、
@@ -140,6 +178,10 @@ FE_RECV_DATA_READY = 0x21   # RECVプリミティブ手順2（20→21 / 28→21�
 FE_RECV_ACK_DONE    = 0x40  # RECVプリミティブ手順6（41→40）
 FE_SEND_RECV_READY  = 0x02  # SENDプリミティブ手順1（00→02）
 FE_SEND_ACK_DONE     = 0x14  # SENDプリミティブ手順4（12⇄14。到達値を目標に採用）
+
+# ---- アイドル判別（上のdocstring「アイドル判別」節を参照。第8版で追加） ----
+FE_IDLE_TO_RECV = 0x08   # 確定: 1.17節「アイドル待ち(pc=00CC)」の到達値(4条件252件で例外なし)
+FE_IDLE_TO_SEND = FE_SEND_RECV_READY  # 未確定: SENDプリミティブ手順1の到達値からの類推(裏付け無し)
 
 # --------------------------------------------------------------------------
 # ごく小さな Z80 アセンブラ（src/l1_ipl/make_ipl_rom.py の Asm を踏襲）
@@ -469,6 +511,28 @@ def build_subrom(break_response=False):
     a.label("MAIN_LOOP")
     a.call("FDC_RECALIBRATE")
     a.label("REQ_LOOP")
+
+    # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
+    # $FF へ何も書かずに $FE を読み、どちらの側かが確定するまで待つ。
+    # 0x08 は確定済みの観測値（1.17節「アイドル待ち」）、0x02 は
+    # 1.15節SEND手順1の到達値からの類推であり未確定（docstring参照）。
+    a.label("IDLE_DISPATCH")
+    a.in_port(P_PIO_C)
+    a.cp_n(FE_IDLE_TO_SEND)
+    a.jr_z("IDLE_SEND_BRANCH")
+    a.cp_n(FE_IDLE_TO_RECV)
+    a.jr_z("REQ_HEADER_RECV")
+    a.jr("IDLE_DISPATCH")
+
+    a.label("IDLE_SEND_BRANCH")
+    # 未確定構造（docstring参照）: 送るバイトの値そのものは仕様書に
+    # 根拠が無いため 0x00 固定とする。値の正しさは目標ではない——
+    # デッドロックを起こさず SEND プリミティブへ応答することだけが目的。
+    a.ld_a(0x00)
+    a.call("SEND_BYTE")
+    a.jr("IDLE_DISPATCH")
+
+    a.label("REQ_HEADER_RECV")
     # 8バイトのヘッダを RECV で受け取り、REQ_HDR に順に格納する
     a.ld_hl_imm(REQ_HDR)
     a.ld_b(8)
