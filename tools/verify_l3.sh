@@ -169,7 +169,55 @@ else
 fi
 
 # --------------------------------------------------------------------
-# 6. わざと壊して検出できることを確認する（このリポジトリの規律）
+# 6. run境界（連続SENDの途中でOUT $FF 0Fが省略される場合）でも
+#    デッドロックしないか（make_subrom.py 第11版の回帰テスト）
+# --------------------------------------------------------------------
+# 背景: 公式環境での混成ROM実走で、mainが複数バイト連続SEND(run)の
+# 継続バイトで`OUT $FF 0F`を省略して直接`bit1=1`待ちに入っているのに、
+# 自作subがRECVを1バイト完遂するたびに無条件でIDLE_DISPATCHへ戻り、
+# そこで何も書かずに$FEを読みに行くだけだったため、main/subが相互に
+# 相手の書き込みを待ち続けてデッドロックしていた
+# （docs/notes/m6n-run-boundary.md、仕様書1.20節）。
+# tools/make_l3_test_main.py --run-continuation-test は、仕様書1.10節が
+# 明記する「OUT $FF 0Fは省略される場合がある」の範囲内で、8バイト
+# ヘッダの1バイト目だけ通常のSEND、2〜8バイト目は0Fを省略したSENDで
+# 送るrunを再現する。
+say "run境界: 連続SENDの継続バイトで0Fを省略してもデッドロックしないか"
+mkdir -p "$WORK/rom_run_cont"
+python3 "$GEN_SUB" "$WORK/rom_run_cont" || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_run_cont" --requests "$REQUESTS" --run-continuation-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_run_cont" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/run_cont.iolog.txt" \
+    >"$WORK/run_cont.stdout.txt" 2>"$WORK/run_cont.stderr.txt"
+
+if python3 "$CHECK" "$WORK/run_cont.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 256; then
+  ok "0F省略runのあとも通常の3要求が正しく完了した（run境界判別、現行実装）"
+else
+  ng "0F省略runを挟むと現行実装でも要求列が壊れた/デッドロックした"
+  overall_rc=1
+fi
+
+say "検出力の確認: 修正前と同型の版（--break-run-continuation）で同じシナリオが落ちるか"
+mkdir -p "$WORK/rom_run_cont_broken"
+python3 "$GEN_SUB" "$WORK/rom_run_cont_broken" --break-run-continuation || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_run_cont_broken" --requests "$REQUESTS" --run-continuation-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_run_cont_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/run_cont_broken.iolog.txt" \
+    >"$WORK/run_cont_broken.stdout.txt" 2>"$WORK/run_cont_broken.stderr.txt"
+
+if python3 "$CHECK" "$WORK/run_cont_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 256 >"$WORK/run_cont_broken.check.txt" 2>&1; then
+  ng "修正前相当の版が0F省略runシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
+  cat "$WORK/run_cont_broken.check.txt"
+  overall_rc=1
+else
+  ok "修正前相当の版は0F省略runシナリオで正しく不一致/未達として検出された"
+  grep -m5 "不一致\|足りない" "$WORK/run_cont_broken.check.txt" | sed 's/^/       /'
+fi
+
+# --------------------------------------------------------------------
+# 6b. わざと壊して検出できることを確認する（このリポジトリの規律）
 # --------------------------------------------------------------------
 say "わざと壊す: 応答の先頭バイトを1ビット反転させた版で検証が落ちるか"
 mkdir -p "$WORK/rom_broken"

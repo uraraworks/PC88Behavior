@@ -199,6 +199,46 @@ SENDプリミティブ手順6（「`IN $FE` でステータス相当を読む（
 
 アイドル判別（`IDLE_DISPATCH`）のビット判定への置き換えは、上の
 「アイドル判別」節（第8版で追加、第10版で更新）を参照。
+
+## run境界（連続受信の途中か終わりか）の判別（第11版で追加。
+##          `docs/notes/m6n-run-boundary.md`・仕様書1.20節・3節・6節16項）
+
+コミット`c73fb00`後の混成ROM実走で、mainの構造的一致プレフィックスが
+137件のまま前進しなかった。原因は、mainが複数バイト連続SEND（run、
+例えば8バイトヘッダの2バイト目以降）では`OUT $FF 0F`を省略して
+直接「相手の受信準備待ち」（`bit1=1`）に入るのに対し、旧`RECV_DISPATCH`
+はRECVを1回終えるたびに無条件で`IDLE_DISPATCH`へ戻っていたことに
+あった。`IDLE_DISPATCH`はそこで改めて`$FE`を読みに行くだけで**何も
+書かない**ため、mainが待っている`bit1=1`（＝subが`OUT $FF,0x0B`を
+書くこと）がいつまでも来ず、mainは`bit1`を待ち、subは（何も書かずに）
+mainの新しい合図を待つ、という相互デッドロックになっていた。
+
+仕様書1.20節（`docs/notes/m6n-run-boundary.md`）で、sub の
+`OUT $FF=0x0C`（RECV完遂）直後の後継サイトを再解析したところ、
+4条件すべて・全サンプルで例外なく、各サイトが「必ずRECVへ進む」か
+「必ずSENDへ進む」かに一意に決まることが確定した。**ただし、公式sub
+の実行コードがどちらへ分岐するかの選択根拠（多くの場合`$FE`/`$FF`を
+一切経由しない直接再武装）は、値を見ない本手法の観測範囲外で確認
+できなかった。**
+
+**確定できなかった選択根拠を推測で埋める代わりに、確定済みの範囲
+（1.19節の2つのビット）だけを新しい局面へ機械的に適用した暫定構造を
+採る。** `RECV_DISPATCH`は、8バイト未満で継続する場合、
+`IDLE_DISPATCH`へ戻る前に**直ちに再武装**（`OUT $FF,0x0B`。
+mainが`bit1=1`を待ってスピンしている場合があるため、武装を後回しに
+すると上記の相互デッドロックを再現してしまう）したうえで、
+`$FE`のポーリングで`bit1`（`FE_BIT_SEND_RECV_READY`。相手がRECV役に
+転じた＝応答を求めている合図）と`bit0`（`FE_BIT_RECV_DATA_READY`。
+相手が続けてデータを書いた＝runが続いている合図）の両方を同時に
+見張り、先に立った方へ分岐する。`bit0`が先ならRECVプリミティブの
+残り手順（`RECV_BYTE_ARMED`、手順2〜7）を続ける。`bit1`が先なら
+`IDLE_DISPATCH`（既存のSEND経路）に委ねる。**使っているビットは
+いずれも別の文脈（1.19節）で確定済みのものであり、新しい推測を
+追加していない。** ただし「RECV完遂直後に毎回この2ビットを同時
+ポーリングする」という構造自体は公式subの観測された振る舞い
+（直接再武装のケースは`$FE`/`$FF`を経由せず無条件に分岐する）とは
+異なる**自作subの暫定的な設計選択**であり、確定した判別条件では
+ない（仕様書1.20節・3節・6節16項）。
 """
 
 import argparse
@@ -385,7 +425,8 @@ RESP_ACTIVE = 0x4304   # 1バイト: 0=応答フェーズでない、非0=応答
 ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x2000,...)）
 
 
-def build_subrom(break_response=False, break_dispatch_return=False):
+def build_subrom(break_response=False, break_dispatch_return=False,
+                  break_run_continuation=False):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -396,7 +437,16 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     「一塊」として決め打ちしていた旧構造）を意図的に再現するフラグ。
     tools/verify_l3.sh の回帰テストが検出力を持つことを確認するためだけ
     に使う。既定（False）では新構造（プリミティブ1回ごとに
-    IDLE_DISPATCHへ戻る）を使う。"""
+    IDLE_DISPATCHへ戻る）を使う。
+
+    break_run_continuation: 第11版で修正したバグ（RECVを1回終えるたびに
+    無条件でIDLE_DISPATCHへ戻り、そこで何も書かずに$FEを読みに行くだけ
+    だったため、mainの継続SENDバイト(0F省略)がbit1=1を待ってスピンする
+    局面で相互デッドロックしていた旧構造）を意図的に再現するフラグ。
+    tools/verify_l3.sh の`--run-continuation-test`回帰テストが検出力を
+    持つことを確認するためだけに使う。既定（False）では新構造（直ちに
+    再武装してbit0/bit1をポーリングする、上のモジュールdocstring
+    「run境界の判別」節参照）を使う。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -445,8 +495,12 @@ def build_subrom(break_response=False, break_dispatch_return=False):
 
     # ---- RECV_BYTE: main の SEND を受け取る。結果は A ----
     # 仕様書1.15節「sub視点のRECVプリミティブ」の手順1〜7をそのまま。
+    # 第11版で RECV_BYTE_ARMED を切り出した（run境界判別、上のdocstring
+    # 「run境界の判別」節参照）。手順1(OUT $FF,0x0B)だけを呼び出し側が
+    # 先に済ませている場合はRECV_BYTE_ARMEDへ直接入る。
     a.label("RECV_BYTE")
     a.out_imm(0xFF, PH_RECV_START_SET)      # 手順1: OUT $FF,0x0B
+    a.label("RECV_BYTE_ARMED")              # 手順1を済ませた状態から始める入口
     a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(bit0=1)
     a.out_imm(0xFF, PH_RECV_START_CLR)      # 手順3: OUT $FF,0x0A
     a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）
@@ -455,6 +509,20 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     a.call("WAIT_FE_RECV_ACK_DONE")         # 手順6: 相手の受理解除待ち(bit0=0)
     a.out_imm(0xFF, PH_RECV_ACK_CLR)        # 手順7: OUT $FF,0x0C
     a.pop_af()
+    a.ret()
+
+    # ---- HDR_STORE_AND_CHECK: 受け取ったバイト(A)をHDR_PTRへ書き込み
+    #      インクリメントする。Z=1ならREQ_HDR+8に到達（8バイト集まった）。
+    #      第11版で追加（run境界判別ループから2箇所で呼ぶため切り出した。
+    #      二重実装しない）。 ----
+    a.label("HDR_STORE_AND_CHECK")
+    a.ld_hl_mem(HDR_PTR)
+    a.ld_hl_a()
+    a.inc_hl()
+    a.ld_mem_hl(HDR_PTR)
+    a.ld_de_imm(REQ_HDR + 8)
+    a.or_a()
+    a.sbc_hl_de()
     a.ret()
 
     # ---- SEND_BYTE: main の RECV に応答して1バイト送る。引数は A ----
@@ -727,16 +795,39 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     #      $FEを読んで決める）。 ----
     a.label("RECV_DISPATCH")
     a.call("RECV_BYTE")               # A = 受け取ったバイト
-    a.ld_hl_mem(HDR_PTR)
-    a.ld_hl_a()                       # (HDR_PTR位置) <- A
-    a.inc_hl()
-    a.ld_mem_hl(HDR_PTR)
-    a.ld_de_imm(REQ_HDR + 8)
-    a.or_a()
-    a.sbc_hl_de()                     # HDR_PTR(更新後) - (REQ_HDR+8)
-    a.jr_nz("IDLE_DISPATCH")          # まだ8バイト集まっていない
+    a.call("HDR_STORE_AND_CHECK")     # HDR_PTRへ書き込み、8バイト到達ならZ=1
+    a.jr_z("_recv_dispatch_hdr_done")
+
+    if break_run_continuation:
+        # 第11版で修正したバグをわざと再現する版（tools/verify_l3.sh の
+        # `--run-continuation-test`回帰テストが検出力を持つことを確認
+        # するためだけに使う。上のbuild_subrom() docstring参照）。
+        # まだ8バイト未満でも無条件でIDLE_DISPATCHへ戻り、そこで何も
+        # 書かずに$FEを読みに行くだけの旧構造をそのまま復元する。
+        a.jr("IDLE_DISPATCH")
+    else:
+        # ---- run境界判別（未確定、暫定構造。仕様書1.20節・6節16項、
+        #      上のモジュールdocstring「run境界の判別」節参照）----
+        # まだ8バイト未満。IDLE_DISPATCHへ戻る前に直ちに再武装
+        # (OUT $FF,0x0B)する——mainが継続バイトで0Fを省略しbit1=1を
+        # 待ってスピンしている場合、武装を後回しにすると相互デッド
+        # ロックを再現してしまう(m6n-run-boundary.md 3節)。
+        a.label("_recv_dispatch_continue")
+        a.out_imm(0xFF, PH_RECV_START_SET)    # RECVプリミティブ手順1を先出しで実行
+        a.label("_recv_dispatch_poll")
+        a.in_port(P_PIO_C)
+        a.ld_b_a()                            # 元の値をBに退避(AND破壊対策)
+        a.and_a(FE_BIT_SEND_RECV_READY)       # bit1: 相手がRECV役に転じた(応答を求めている)合図
+        a.jr_nz("IDLE_DISPATCH")              # 武装済みの0x0Bは残るが、次はSEND経路に委ねる
+        a.ld_a_b()
+        a.and_a(FE_BIT_RECV_DATA_READY)       # bit0: 相手が続けてデータを書いた(runが続いている)合図
+        a.jr_z("_recv_dispatch_poll")
+        a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜7を続ける
+        a.call("HDR_STORE_AND_CHECK")
+        a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: 直ちに再武装してポーリングを繰り返す
 
     # 8バイト集まった: 次のヘッダ受信に備えてポインタを巻き戻す
+    a.label("_recv_dispatch_hdr_done")
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
 
@@ -801,9 +892,11 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     return a
 
 
-def build(break_response=False, break_dispatch_return=False):
+def build(break_response=False, break_dispatch_return=False,
+          break_run_continuation=False):
     a = build_subrom(break_response=break_response,
-                      break_dispatch_return=break_dispatch_return)
+                      break_dispatch_return=break_dispatch_return,
+                      break_run_continuation=break_run_continuation)
     a.resolve()
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
@@ -824,9 +917,15 @@ def main():
                      help="第9版で修正したバグ（RECV/SEND完遂後にIDLE_DISPATCHへ"
                           "戻らない旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
                           "の回帰テストの検出力確認用）。")
+    ap.add_argument("--break-run-continuation", action="store_true",
+                     help="第11版で修正したバグ（RECV完遂後、まだ8バイト未満でも"
+                          "無条件でIDLE_DISPATCHへ戻り、mainの継続SENDバイト"
+                          "(0F省略)と相互デッドロックする旧構造）をわざと再現する"
+                          "フラグ（tools/verify_l3.sh の回帰テストの検出力確認用）。")
     args = ap.parse_args()
     rom, used = build(break_response=args.break_response,
-                       break_dispatch_return=args.break_dispatch_return)
+                       break_dispatch_return=args.break_dispatch_return,
+                       break_run_continuation=args.break_run_continuation)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

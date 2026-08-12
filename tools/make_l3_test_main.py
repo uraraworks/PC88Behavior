@@ -77,6 +77,32 @@ SEND/RECVを組み合わせられる）で再現したものであり、「1バ�
 モデル化になっている）。これにより、以降で送る本来のヘッダ要求列の
 バイト境界を汚さずに、旧実装（8バイト・256バイトを「一塊」として
 決め打ちする構造）だけが引っかかる状況を作れる。
+
+## `--run-continuation-test`（第11版で追加）
+
+`src/l3_service/make_subrom.py` 第11版で見つかったバグ（RECVを1バイト
+完遂するたびに無条件でIDLE_DISPATCHへ戻る旧構造が、mainの複数バイト
+連続SEND(run)の途中でmain/sub相互デッドロックを起こす）の回帰テスト用。
+`docs/notes/m6n-run-boundary.md`・仕様書1.20節が根拠。
+
+**厳守**: このシナリオも自作サブROMの実装を見ずに、仕様書1.10節
+「main側にはSEND/RECVという2つの定型ハンドシェイク・プリミティブが
+ある」の記述**だけ**を根拠に書く。1.10節はSENDプリミティブの最初の
+手順`OUT $FF 0F`を「省略される場合あり」と明記しており、
+`docs/notes/m6-main-to-sub.md` 1.1節・`docs/notes/m6n-run-boundary.md`
+1節は、複数バイトを連続送信する場面ではこの省略が**先頭バイト以外の
+継続バイトで**高い比率（4条件で84〜99%）で起きることを確認している。
+本シナリオはこれを、mainの手順として正当な範囲内（1.10節が明記する
+「省略される場合あり」の範囲内）で再現する: 8バイトの読み出し要求
+ヘッダを送る際、**1バイト目だけ通常のSEND（`OUT $FF 0F`を含む）**、
+**2〜8バイト目は`OUT $FF 0F`を省略したSEND**で送る。旧実装
+（RECVを1回終えるたびに無条件でIDLE_DISPATCHへ戻り、そこで
+何も書かずに`$FE`を読みに行くだけの構造）は、mainが継続バイトの
+`bit1=1`待ち（`OUT $FF 0F`を省略した直後の待ち）に入っているのに
+subが何も書かずに待つだけなので、相互デッドロックしてスピンし続ける
+はずである。**このシナリオが実際に旧実装（本コミット直前の版）で
+落ちることを確認してから、`tools/verify_l3.sh`に組み込んだ**
+（下のモジュール末尾コメント・`tools/verify_l3.sh`参照）。
 """
 
 import argparse
@@ -162,13 +188,18 @@ class Asm:
 HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突しない番地）
 
 
-def build(requests, dispatch_switch_test=False):
+def build(requests, dispatch_switch_test=False, run_continuation_test=False):
     """requests: [(cyl, sec), ...] の列。それぞれヘッダを送り256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
     起動直後のSEND1回のあと、通常の要求ループへ入る前に「8バイトの
     ヘッダをSENDし、応答の1バイト目だけRECVしてすぐ次へ進む」割り込み
-    シナリオを1回挟む。"""
+    シナリオを1回挟む。
+
+    run_continuation_test: 上のdocstring「--run-continuation-test」参照。
+    8バイトヘッダの1バイト目だけ通常のSEND(`OUT $FF 0F`あり)、
+    2〜8バイト目は`OUT $FF 0F`を省略したSENDで送り、応答256バイトを
+    全部RECVしてから通常の要求ループへ入る。"""
     a = Asm(0x0000)
     a.di()
     a.ld_sp(STACK)
@@ -176,13 +207,24 @@ def build(requests, dispatch_switch_test=False):
 
     # (pio_set_mode 呼び出しは MAIN 冒頭で行う。下記 a.label("MAIN") 参照)
 
-    # ---- $FE 待ち目標値（仕様書1.13節。矢印/`⇄`の右側の値を目標に採用。
-    #      make_subrom.py の docstring と同じ選び方——値そのものを変えない
-    #      範囲でのポーリングコードの書き方の選択） ----
-    #   SEND前（相手の受信準備待ち）: 80⇄82        → 目標 0x82
-    #   SEND後（相手の受理確認待ち）: 12⇄14        → 目標 0x14
-    #   RECV前（相手のデータ準備待ち）: 20⇄21       → 目標 0x21
-    #   RECV後（相手の受理解除待ち）: 40⇄41        → 目標 0x41
+    # ---- $FE 待ちのビット判定（第11版で全面改訂。仕様書1.19節参照）----
+    # 旧版はここを目標値との完全一致(`CP`)で判定していたが、これは
+    # 1.13節が「まれに`02⇄80⇄82`」と既に明記していた副次パターン
+    # （`0x82`ではなく`0x02`で抜けるケース）を取りこぼす。実際に
+    # `--run-continuation-test`（第11版で追加）を走らせたところ、
+    # 継続バイトの待ち（`_send_cont_wait1`）がまさに`0x02`で止まる
+    # 事例を踏み、完全一致判定のまま無限にスピンすることを確認した。
+    # `src/l3_service/make_subrom.py`が第10版で行ったのと同じ理由・
+    # 同じ根拠（仕様書1.19節が確定した単一ビット）で、こちらも
+    # `AND`によるビット判定に置き換える。
+    #   SEND前（相手の受信準備待ち）: bit1=1（仕様書1.19節、0例外）
+    #   SEND後（相手の受理確認待ち）: bit2=1（仕様書1.19節、bit1=0も同格）
+    #   RECV前（相手のデータ準備待ち）: bit0=1（仕様書1.19節、0例外）
+    #   RECV後（相手の受理解除待ち）: bit0=0（仕様書1.19節、0例外）
+    FE_BIT_SEND_BEFORE = 0x02   # bit1
+    FE_BIT_SEND_AFTER  = 0x04   # bit2
+    FE_BIT_RECV_BEFORE = 0x01   # bit0
+    FE_BIT_RECV_AFTER  = 0x01   # bit0
 
     # ---- SEND_MAIN: 1バイト送信（main視点、仕様書1.10節 SEND そのまま） ----
     #   引数: A = 送るバイト
@@ -191,18 +233,40 @@ def build(requests, dispatch_switch_test=False):
     a.out_imm(0xFF, 0x0F)                # OUT FF,0F
     a.label("_send_wait1")
     a.in_port(0xFE)
-    a.cp_n(0x82)
-    a.jr_nz("_send_wait1")               # 相手の受信準備待ち（→0x82）
+    a.and_a(FE_BIT_SEND_BEFORE)
+    a.jr_z("_send_wait1")                # 相手の受信準備待ち（bit1=1で抜ける）
     a.out_imm(0xFF, 0x0E)                # OUT FF,0E
     a.pop_af()
     a.out_a(0xFD)                        # OUT FD,<byte>
     a.out_imm(0xFF, 0x09)                # OUT FF,09
     a.label("_send_wait2")
     a.in_port(0xFE)
-    a.cp_n(0x14)
-    a.jr_nz("_send_wait2")               # 相手の受理確認待ち（→0x14）
+    a.and_a(FE_BIT_SEND_AFTER)
+    a.jr_z("_send_wait2")                # 相手の受理確認待ち（bit2=1で抜ける）
     a.out_imm(0xFF, 0x08)                # OUT FF,08
     a.in_port(0xFE)                      # 結果ステータス（単発読み、読み捨て。1.10節どおり待ちループにしない）
+    a.ret()
+
+    # ---- SEND_MAIN_CONT: SEND_MAINと同じだが`OUT $FF 0F`を省略する
+    #      （仕様書1.10節「省略される場合あり」。上のdocstring
+    #      「--run-continuation-test」参照。runの継続バイトを模す）----
+    #   引数: A = 送るバイト
+    a.label("SEND_MAIN_CONT")
+    a.push_af()
+    a.label("_send_cont_wait1")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_SEND_BEFORE)
+    a.jr_z("_send_cont_wait1")           # 相手の受信準備待ち。0Fを書かずに直接待つ
+    a.out_imm(0xFF, 0x0E)                # OUT FF,0E
+    a.pop_af()
+    a.out_a(0xFD)                        # OUT FD,<byte>
+    a.out_imm(0xFF, 0x09)                # OUT FF,09
+    a.label("_send_cont_wait2")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_SEND_AFTER)
+    a.jr_z("_send_cont_wait2")           # 相手の受理確認待ち（bit2=1で抜ける）
+    a.out_imm(0xFF, 0x08)                # OUT FF,08
+    a.in_port(0xFE)                      # 結果ステータス（単発読み、読み捨て）
     a.ret()
 
     # ---- RECV_MAIN: 1バイト受信（main視点、仕様書1.10節 RECV そのまま） ----
@@ -211,16 +275,16 @@ def build(requests, dispatch_switch_test=False):
     a.out_imm(0xFF, 0x0B)                # OUT FF,0B
     a.label("_recv_wait1")
     a.in_port(0xFE)
-    a.cp_n(0x21)
-    a.jr_nz("_recv_wait1")               # 相手のデータ準備待ち（→0x21）
+    a.and_a(FE_BIT_RECV_BEFORE)
+    a.jr_z("_recv_wait1")                # 相手のデータ準備待ち（bit0=1で抜ける）
     a.out_imm(0xFF, 0x0A)                # OUT FF,0A
     a.in_port(0xFC)                      # IN FC = 実データ（sub OUT $FD）
     a.push_af()
     a.out_imm(0xFF, 0x0D)                # OUT FF,0D
     a.label("_recv_wait2")
     a.in_port(0xFE)
-    a.cp_n(0x41)
-    a.jr_nz("_recv_wait2")               # 相手の受理解除待ち（→0x41）
+    a.and_a(FE_BIT_RECV_AFTER)
+    a.jr_nz("_recv_wait2")               # 相手の受理解除待ち（bit0=0で抜ける）
     a.out_imm(0xFF, 0x0C)                # OUT FF,0C
     a.pop_af()
     a.ret()
@@ -242,6 +306,17 @@ def build(requests, dispatch_switch_test=False):
         cyl0, sec0 = requests[0]
         dispatch_switch_hdr = "DISPATCH_SWITCH_HDR"
         a.label(dispatch_switch_hdr)
+        a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
+
+    # ---- --run-continuation-test 用のヘッダ（上のdocstring参照）。
+    #      requests[0] と同じ (cyl,sec) を使う——dispatch_switch_hdrと
+    #      同じ理由（有効な読み出し要求として成立させるためだけで、
+    #      値そのものに意味は無い）。 ----
+    run_cont_hdr = None
+    if run_continuation_test:
+        cyl0, sec0 = requests[0]
+        run_cont_hdr = "RUN_CONT_HDR"
+        a.label(run_cont_hdr)
         a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
 
     # ---- 本編 ----
@@ -267,6 +342,26 @@ def build(requests, dispatch_switch_test=False):
         a.inc_hl()
         a.djnz("_dsw_hdrsend")
         a.call("RECV_MAIN")   # 応答の1バイト目だけ受けて捨てる
+
+    if run_continuation_test:
+        # runシナリオ（上のdocstring「--run-continuation-test」参照）:
+        # 1バイト目だけ通常のSEND(0Fあり)、2〜8バイト目は0Fを省略した
+        # SENDでヘッダを送り、応答256バイトを全部RECVする。
+        a.ld_hl(run_cont_hdr)
+        a.ld_a_hl()
+        a.call("SEND_MAIN")          # 1バイト目(先頭): 0Fあり
+        a.inc_hl()
+        a.ld_b(7)
+        a.label("_rct_hdrsend_cont")
+        a.ld_a_hl()
+        a.call("SEND_MAIN_CONT")     # 2〜8バイト目(継続): 0Fを省略
+        a.inc_hl()
+        a.djnz("_rct_hdrsend_cont")
+
+        a.ld_b(0x00)
+        a.label("_rct_resprecv")
+        a.call("RECV_MAIN")
+        a.djnz("_rct_resprecv")
 
     for name in hdr_labels:
         # ヘッダ8バイトを SEND で送る
@@ -305,6 +400,10 @@ def main():
     ap.add_argument("--dispatch-switch-test", action="store_true",
                      help="上のdocstring「--dispatch-switch-test」参照。"
                           "make_subrom.py 第9版の回帰テスト用シナリオを挟む。")
+    ap.add_argument("--run-continuation-test", action="store_true",
+                     help="上のdocstring「--run-continuation-test」参照。"
+                          "make_subrom.py 第11版の回帰テスト用シナリオ"
+                          "（0F省略の連続SEND run）を挟む。")
     args = ap.parse_args()
 
     requests = []
@@ -312,7 +411,8 @@ def main():
         c, s = tok.split(":")
         requests.append((int(c), int(s)))
 
-    a = build(requests, dispatch_switch_test=args.dispatch_switch_test)
+    a = build(requests, dispatch_switch_test=args.dispatch_switch_test,
+              run_continuation_test=args.run_continuation_test)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
