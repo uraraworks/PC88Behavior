@@ -257,6 +257,16 @@ P_PIO_B    = 0xFD   # sub の OUT がここに出ると main の IN $FC に見�
 P_PIO_C    = 0xFE   # ハンドシェイク状態。sub は IN のみ（仕様書6節10項: subはOUTしない）
 P_STROBE   = 0xF7   # 起動時ハンドシェイクで書く（仕様書1.5節・1.16節。用途は未確定）
 
+# ---- FDCステータス待ちタイムアウトの診断用マーカー（仕様書に根拠は無い。
+#      下の FDC_WAIT_TIMEOUT の docstring 参照）----
+# $F9 は vendor/quasi88-libretro/src/pc88sub.c の sub_io_out() switch に
+# case が無い「未デコードポート」（同ファイル実測: f4/f7/f8/fb/fc/fd/fe/ff
+# のみ処理され、それ以外は verbose_io ログを出すだけで no-op として黙って
+# 捨てられる）。副作用が無いことを確認した上で、タイムアウト発生を
+# iolog に残すためだけに使う。
+P_FDC_TIMEOUT_MARK = 0xF9
+FDC_TIMEOUT_MARK_VALUE = 0xA5   # 事実上何でもよい。ポートへの到達自体が信号
+
 # ---- 起動順序で使う固定値（仕様書1.16節。4条件で1バイトも違わず一致） ----
 BOOT_F7_VALUE = 0x08
 BOOT_FF_VALUE = 0x91   # 1.12節の8種のフェーズコード語彙のいずれにも属さない
@@ -369,6 +379,11 @@ class Asm:
     def pop_bc(self):     self.db(0xC1)
     def push_hl(self):    self.db(0xE5)
     def pop_hl(self):     self.db(0xE1)
+    def push_de(self):    self.db(0xD5)
+    def pop_de(self):     self.db(0xD1)
+    def dec_de(self):     self.db(0x1B)   # DEC DE（フラグは変化しない。ゼロ判定は別途 LD A,D / OR E で行う）
+    def ld_a_d(self):     self.db(0x7A)
+    def or_e(self):        self.db(0xB3)
     def or_a(self):        self.db(0xB7)   # OR A（キャリーを0にするためだけに使う）
     def sbc_hl_de(self):    self.db(0xED, 0x52)   # SBC HL,DE（ED 42はSBC HL,BC。取り違え注意）
 
@@ -426,7 +441,9 @@ ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x20
 
 
 def build_subrom(break_response=False, break_dispatch_return=False,
-                  break_run_continuation=False):
+                  break_run_continuation=False,
+                  inject_spurious_sense_int=False,
+                  break_sense_int_result_count=False):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -446,7 +463,20 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     tools/verify_l3.sh の`--run-continuation-test`回帰テストが検出力を
     持つことを確認するためだけに使う。既定（False）では新構造（直ちに
     再武装してbit0/bit1をポーリングする、上のモジュールdocstring
-    「run境界の判別」節参照）を使う。"""
+    「run境界の判別」節参照）を使う。
+
+    inject_spurious_sense_int: 起動直後・RECALIBRATE/SEEKを一度も発行
+    していない時点（＝FDC側に保留中の割り込みが1件も無いことが保証
+    できる時点）で SENSE INTERRUPT STATUS を1回よけいに呼ぶ。μPD765
+    データシートの規定により、この状況では結果フェーズがST0(Invalid
+    Command)の1バイトだけで終わり、通常の2バイト目（PCN）は来ない。
+    tools/verify_l3.sh がこの状況を意図的に作り出し、FDC_SENSE_INTの
+    結果バイト数の扱いを検証するためのフラグ。
+
+    break_sense_int_result_count: FDC_SENSE_INTを「ST0のInterrupt Code
+    フィールドを見ずに常に2バイト読む」旧実装（本版で修正した挙動）に
+    戻す。inject_spurious_sense_intと組み合わせ、この場合に無いはずの
+    2バイト目を待つ状態を作って検出力を確認するためだけに使う。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -571,30 +601,81 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
+    if inject_spurious_sense_int:
+        # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
+        # RECALIBRATE/SEEKをまだ一度も発行していないこの時点では、FDC側に
+        # 保留中の割り込みは1件も無いことが構造上保証できる。ここで
+        # SENSE INTERRUPT STATUSを呼ぶと、μPD765データシートの規定により
+        # 結果フェーズはST0(Invalid Command)の1バイトのみで終わる。
+        a.call("FDC_SENSE_INT")
     a.jp("MAIN_LOOP")
 
     # ====================================================================
     # FDC（μPD765 相当。$FA=ステータス、$FB=データ。公開仕様に基づく実装）
     # ====================================================================
 
-    # ---- FDC がホストへデータを渡す準備ができるまで待って IN する ----
+    # ---- FDCステータス待ちのタイムアウト回数。μPD765データシートには
+    #      根拠が無い、この実装だけの判断（下のFDC_IN/FDC_OUTのdocstring
+    #      参照）。0xFFFF回のポーリングでも実機を模す時間ではなく、単に
+    #      「有限回で必ず抜ける」ことだけを保証する値として選んだ。 ----
+    FDC_WAIT_TIMEOUT = 0xFFFF
+
+    # ---- タイムアウト発生を記録するだけの補助ルーチン。
+    #      仕様書のどこにも根拠が無い、実装上の判断（このファイルだけの
+    #      追加。P_FDC_TIMEOUT_MARK のdocstring参照）。AFのみ使い、
+    #      呼び出し元のDE/HL/BCには触れない。 ----
+    a.label("FDC_TIMEOUT_MARK")
+    a.push_af()
+    a.out_imm(P_FDC_TIMEOUT_MARK, FDC_TIMEOUT_MARK_VALUE)
+    a.pop_af()
+    a.ret()
+
+    # ---- FDC がホストへデータを渡す準備ができるまで待って IN する。
+    #      **タイムアウト（実装判断・仕様書に根拠なし）**: RQM=1かつ
+    #      DIO=1になるまで無条件に待ち続けると、想定外にFDCが結果フェーズ
+    #      のバイトを持っていない場合（例: SENSE INTERRUPT STATUSを
+    #      割り込み保留無しで呼んだ時のように、期待した結果バイト数より
+    #      少ないバイトしか無い場合）に無限スピンする。有限回で必ず抜け、
+    #      タイムアウトを記録した上でそのまま IN して返す（値は不定だが
+    #      「無限に止まる」よりは進める、という実装判断）。 ----
     a.label("FDC_IN")
+    a.push_de()
+    a.ld_de_imm(FDC_WAIT_TIMEOUT)
     a.label("_fdc_in_wait")
     a.in_port(P_FDC_STAT)
     a.and_a(RQM | DIO)
     a.cp_n(RQM | DIO)
+    a.jr_z("_fdc_in_ready")
+    a.dec_de()
+    a.ld_a_d()
+    a.or_e()
     a.jr_nz("_fdc_in_wait")
+    a.call("FDC_TIMEOUT_MARK")
+    a.label("_fdc_in_ready")
+    a.pop_de()
     a.in_port(P_FDC_DATA)
     a.ret()
 
-    # ---- ホストから FDC へ1バイト送る（コマンド/パラメータ共通） ----
+    # ---- ホストから FDC へ1バイト送る（コマンド/パラメータ共通）。
+    #      タイムアウトの考え方は FDC_IN と同じ（実装判断・仕様書に
+    #      根拠なし）。送ろうとしていた値(A)はPUSH済みなので、タイムアウト
+    #      後もその値をそのまま OUT する。 ----
     a.label("FDC_OUT")               # 引数: A = 送る値
     a.push_af()
+    a.push_de()
+    a.ld_de_imm(FDC_WAIT_TIMEOUT)
     a.label("_fdc_out_wait")
     a.in_port(P_FDC_STAT)
     a.and_a(RQM | DIO)
     a.cp_n(RQM)
+    a.jr_z("_fdc_out_ready")
+    a.dec_de()
+    a.ld_a_d()
+    a.or_e()
     a.jr_nz("_fdc_out_wait")
+    a.call("FDC_TIMEOUT_MARK")
+    a.label("_fdc_out_ready")
+    a.pop_de()
     a.pop_af()
     a.out_a(P_FDC_DATA)
     a.ret()
@@ -607,11 +688,31 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x02); a.call("FDC_OUT")     # HLT/ND
     a.ret()
 
-    # ---- SENSE INTERRUPT STATUS（結果2バイトは読み捨てる） ----
+    # ---- SENSE INTERRUPT STATUS。
+    # μPD765/8272データシート: この結果フェーズのバイト数は固定2バイト
+    # ではない。ST0（r0）のInterrupt Codeフィールド（bit7-6）が
+    # 「Invalid Command」（10）の場合——このコマンドが発行された時点で
+    # 保留中の（SEEK/RECALIBRATE完了による）割り込みが1件も無かった
+    # 場合に該当する——結果フェーズはST0の1バイトのみで終わり、2バイト目
+    # （PCN）は存在しない。呼ぶたびに機械的に2バイト読んでいた旧実装は、
+    # この場合に来ないはずの2バイト目を待ち続けて無限スピンする
+    # （FDC_IN側のタイムアウトはこれを止血するが、根本はここで直す）。
+    # r0のIC field(bit7-6)を確認し、Invalid Command(10xxxxxx)でなければ
+    # （＝正常に割り込みを拾えた場合）だけ2バイト目を読む。 ----
     a.label("FDC_SENSE_INT")
     a.ld_a(0x08); a.call("FDC_OUT")
-    a.call("FDC_IN")   # r0
-    a.call("FDC_IN")   # r1
+    a.call("FDC_IN")     # r0 = ST0
+    if break_sense_int_result_count:
+        # 検出力確認用（tools/verify_l3.sh --break-sense-int-count）:
+        # 本版で修正する前の挙動（ST0の中身を見ずに無条件で2バイト目を
+        # 読む）をそのまま再現する。
+        a.call("FDC_IN")     # r1（本来存在しない場合がある）
+    else:
+        a.and_a(0xC0)         # ST0 bit7-6 = Interrupt Code field
+        a.cp_n(0x80)          # 10 = Invalid Command（保留中の割り込み無し）
+        a.jr_z("_fdc_sense_int_done")   # r1(PCN)は存在しない。読まない
+        a.call("FDC_IN")     # r1 = PCN
+        a.label("_fdc_sense_int_done")
     a.ret()
 
     # ---- RECALIBRATE（ドライブ0をトラック0へ）----
@@ -893,10 +994,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
 
 
 def build(break_response=False, break_dispatch_return=False,
-          break_run_continuation=False):
+          break_run_continuation=False,
+          inject_spurious_sense_int=False,
+          break_sense_int_result_count=False):
     a = build_subrom(break_response=break_response,
                       break_dispatch_return=break_dispatch_return,
-                      break_run_continuation=break_run_continuation)
+                      break_run_continuation=break_run_continuation,
+                      inject_spurious_sense_int=inject_spurious_sense_int,
+                      break_sense_int_result_count=break_sense_int_result_count)
     a.resolve()
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
@@ -922,10 +1027,22 @@ def main():
                           "無条件でIDLE_DISPATCHへ戻り、mainの継続SENDバイト"
                           "(0F省略)と相互デッドロックする旧構造）をわざと再現する"
                           "フラグ（tools/verify_l3.sh の回帰テストの検出力確認用）。")
+    ap.add_argument("--inject-spurious-sense-int", action="store_true",
+                     help="起動直後、RECALIBRATE/SEEKを一度も発行していない時点で"
+                          "SENSE INTERRUPT STATUSを1回よけいに呼ぶ。μPD765の仕様上"
+                          "結果フェーズがST0の1バイトだけで終わる状況を意図的に作る"
+                          "（tools/verify_l3.sh の検出力確認用）。")
+    ap.add_argument("--break-sense-int-result-count", action="store_true",
+                     help="FDC_SENSE_INTを、ST0のInterrupt Codeフィールドを見ずに"
+                          "常に2バイト読む旧実装に戻す（tools/verify_l3.sh の"
+                          "回帰テストの検出力確認用。--inject-spurious-sense-intと"
+                          "組み合わせて使う）。")
     args = ap.parse_args()
     rom, used = build(break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
-                       break_run_continuation=args.break_run_continuation)
+                       break_run_continuation=args.break_run_continuation,
+                       inject_spurious_sense_int=args.inject_spurious_sense_int,
+                       break_sense_int_result_count=args.break_sense_int_result_count)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

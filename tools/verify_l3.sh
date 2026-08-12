@@ -238,6 +238,86 @@ else
 fi
 
 # --------------------------------------------------------------------
+# 7. SENSE INTERRUPT STATUSの結果バイト数（μPD765データシート適合）
+# --------------------------------------------------------------------
+# 背景: 公式環境での混成ROM実走で、sub側がIN $FA(FDCステータス)を延々
+# ポーリングして止まっているのが観測された（measurements配下の混成ROM
+# ログ解析）。μPD765/8272データシートでは、SENSE INTERRUPT STATUSは
+# 保留中の割り込みが無い状態で発行されると結果フェーズがST0
+# (Invalid Command=80H)の1バイトだけで終わり、通常の2バイト目(PCN)は
+# 来ない。旧実装のFDC_SENSE_INTは常に2バイト読んでおり、来ないはずの
+# 2バイト目を待ち続けて無限スピンし得た（make_subrom.pyのFDC_SENSE_INT
+# 参照）。
+#
+# tools/make_l3_test_main.py 側は変更していない——このバグはsubの内部の
+# FDCコマンド往復（$FA/$FB）だけで完結し、main向けのSEND/RECV手順
+# ($FC/$FD/$FE/$FF)には現れないため、通常のREQUESTSシナリオと同じ
+# 試験用mainドライバで検証できる。sub側にだけ
+# `--inject-spurious-sense-int`（RECALIBRATE/SEEKを一度も発行していない
+# 起動直後にSENSE INTERRUPT STATUSをもう1回よけいに呼び、「保留中の
+# 割り込みが無い」状況を意図的に作る）を足して、修正後の実装がこれを
+# 正しく1バイトで打ち切れるかを見る。
+say "SENSE INTERRUPT STATUSの結果バイト数: 保留中の割り込みが無い状況を挟んでも壊れないか"
+mkdir -p "$WORK/rom_sense_int_ok"
+python3 "$GEN_SUB" "$WORK/rom_sense_int_ok" --inject-spurious-sense-int || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_sense_int_ok" --requests "$REQUESTS" || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_sense_int_ok" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/sense_int_ok.iolog.txt" \
+    >"$WORK/sense_int_ok.stdout.txt" 2>"$WORK/sense_int_ok.stderr.txt"
+
+if python3 "$CHECK" "$WORK/sense_int_ok.iolog.txt" --requests "$REQUESTS"; then
+  ok "保留中の割り込みが無いSENSE INTERRUPT STATUS呼び出しを挟んでも通常の3要求が完了した"
+else
+  ng "SENSE INTERRUPT STATUSの結果バイト数の扱いが壊れている"
+  overall_rc=1
+fi
+
+say "検出力の確認: 修正前と同型の版（--break-sense-int-result-count）で同じシナリオを走らせる"
+mkdir -p "$WORK/rom_sense_int_broken"
+python3 "$GEN_SUB" "$WORK/rom_sense_int_broken" \
+    --inject-spurious-sense-int --break-sense-int-result-count || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_sense_int_broken" --requests "$REQUESTS" || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_sense_int_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/sense_int_broken.iolog.txt" \
+    >"$WORK/sense_int_broken.stdout.txt" 2>"$WORK/sense_int_broken.stderr.txt"
+python3 "$CHECK" "$WORK/sense_int_broken.iolog.txt" --requests "$REQUESTS" \
+    >"$WORK/sense_int_broken.check.txt" 2>&1 || true
+
+# 正直に書く: この版でも256バイト×3件の内容自体は一致し得る
+# （$WORK/sense_int_broken.check.txt を参照）。来ないはずの2バイト目を
+# FDC_IN_timeoutが黙って諦めて代わりに読む先はFDCがコマンド受付待ち
+# （WAITフェーズ）に戻った直後のIN $FBであり、この状態でのIN $FBは
+# vendor/quasi88-libretro/src/pc88sub.c 経由でFDCの内部コマンドキューを
+# 消費しない読み取り専用アクセスなので、後続のRECALIBRATE/SEEK/READが
+# 壊れずに続行できてしまう（＝実害は「タイムアウト1回ぶんの遅延」に
+# 収まる）。したがって check_l3_response.py の一致判定はこのバグの
+# 検出力を持たない——検出できるのはタイムアウトマーカーの有無であり、
+# それを次で確認する。
+
+say "FDCステータス待ちタイムアウトが記録されるか（サイレントに握り潰さないことの確認）"
+# $F9 は FDC_TIMEOUT_MARK が到達したことを示すためだけの未デコードポート
+# （make_subrom.py のP_FDC_TIMEOUT_MARKのdocstring参照）。無限スピンする
+# はずだった旧実装の版でだけ、subのイベント列にこのポートへのOUTが
+# 現れることを確認する。正常な新実装の版では一度も現れないはずである。
+# これが「--break-sense-int-result-count」の検出力そのものである。
+sense_int_ok_timeouts="$(awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && $5=="OUT" && $6=="00F9"' "$WORK/sense_int_ok.iolog.txt" | wc -l | tr -d ' ')"
+sense_int_broken_timeouts="$(awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && $5=="OUT" && $6=="00F9"' "$WORK/sense_int_broken.iolog.txt" | wc -l | tr -d ' ')"
+if [ "$sense_int_ok_timeouts" = "0" ]; then
+  ok "修正後の実装ではFDCステータス待ちタイムアウトが一度も発生しなかった"
+else
+  ng "修正後の実装でもFDCステータス待ちタイムアウトが $sense_int_ok_timeouts 件発生した"
+  overall_rc=1
+fi
+if [ "$sense_int_broken_timeouts" != "0" ]; then
+  ok "修正前相当の版ではFDCステータス待ちタイムアウトが $sense_int_broken_timeouts 件記録された（サイレントに握り潰していない）"
+else
+  ng "修正前相当の版なのにFDCステータス待ちタイムアウトが1件も記録されなかった（想定と異なる）"
+  overall_rc=1
+fi
+
+# --------------------------------------------------------------------
 # 制限事項（正直に書く。ごまかさない）
 # --------------------------------------------------------------------
 say "制限事項（未検証のまま残すこと）"
