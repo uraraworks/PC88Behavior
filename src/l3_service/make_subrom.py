@@ -240,6 +240,85 @@ mainが`bit1=1`を待ってスピンしている場合があるため、武装�
 異なる**自作subの暫定的な設計選択**であり、確定した判別条件では
 ない（仕様書1.20節・3節・6節16項）。
 
+## run境界駆動への書き換え（第13版。`docs/notes/m6k-mixed-divergence.md`
+##                        第10部・仕様書1.18節・1.20節・3節・6節17項）
+
+コミット`c9f5a0f`（FDCタイムアウト分岐修正）後、混成ROMを公式環境で
+実走したところ、mainの構造的一致プレフィックスは179→180件に前進し
+（FDCが完走するようになった）、その先で新たな分岐点が見つかった。
+**サブROMがラウンド境界を無視して受信バイトを通算8バイト貯め、
+それを1.11節の固定8バイトヘッダと取り違えていた。** 1.18節が確定した
+起動シーケンスの構造（可変長ラウンドのSEND→RECV往復、ラウンドごとに
+応答が返る）によれば、起動シーケンス最初の3ラウンドは2バイト・
+1バイト・5バイトという短い独立した要求であり、それぞれ単独で応答が
+返るはずだった。ところが第11版までの`RECV_DISPATCH`は、runの継続/
+終了の判別（16項のbit0/bit1同時ポーリング）こそrun境界で行っていた
+ものの、**応答形式の決定（8バイト到達で即座にシーク・読み出し・
+応答フェーズへ進むかどうか）は依然として通算バイト数（`HDR_PTR`が
+`REQ_HDR+8`に達したか）だけで判定していた**。そのため、3ラウンドの
+通算2+1+5=8バイトが「8バイトヘッダが1つ揃った」と誤認され、
+sub側は256バイト応答フェーズを開始してしまう一方、mainは（本来の
+短いラウンドどおり）1バイトの応答しか受け取らずに次のラウンドへ
+進もうとする——**両者が同時に「送る側」になって固着する**
+（main側`pc=37DC`で262,144回、sub側`pc=01B3`で262,145回のスピンで
+停止することを確認した。詳細は`docs/notes/m6k-mixed-divergence.md`
+第10部）。
+
+**確定している範囲だけで直す。** runの終端（`RECV_DISPATCH`が
+継続ポーリング中に`bit1=1`を観測すること、16項で既に確定済みの
+判別条件）そのものを、応答をいつ・どの形式で返すかの駆動条件に
+格上げする。固定バイト数（8バイト）での打ち切りを廃し、bit0が
+立ち続ける限りrunは何バイトでも継続を許す。runが終わった時点で
+初めて、そのrunで受け取ったバイト数（`RUN_LEN`、本版で新設したRAM
+カウンタ）を見て応答形式を判断する:
+
+- `RUN_LEN==8` → 1.11節の固定8バイトヘッダとして扱い、従来どおり
+  シーク・読み出し・応答フェーズの準備を行う。
+- `RUN_LEN!=8` → 応答フェーズには入らない（`RESP_ACTIVE`は0のまま）。
+  `bit1`は立ったままIDLE_DISPATCHへ戻るため、次に`IDLE_DISPATCH`が
+  改めて`$FE`を読んだ時点で`SEND_DISPATCH_IDLE`（ST3の1バイト応答、
+  第9版）へ自然に落ちる——「応答しない」ための特別な分岐は要らない。
+
+この判断に使うビット（`bit0`＝RECVプリミティブ手順2で確定済み、
+`bit1`＝SENDプリミティブ手順1で確定済み、いずれも仕様書1.19節）は
+16項から変えていない。**新しい推測を追加したのは「run長==8」を
+「1.11節の固定8バイトヘッダ」と等値視する部分だけであり、これは
+1.18節が確認した「256バイト応答を返す3ラウンドのSEND側バイト数は
+8/6/8とばらついた」という事実に照らせば不完全（6バイトのケースを
+取りこぼす）である。この不完全さは推測で埋めず、仕様書3節に
+未確定として明記した。**
+
+**run開始時の状態初期化（第13版で追加）。** `RECV_DISPATCH`への
+進入時（＝`IDLE_DISPATCH`が`bit3=1`を観測し新しいrunが始まる時点）に
+`HDR_PTR`をREQ_HDRへ、`RUN_LEN`を0へ、そして**`RESP_ACTIVE`も0へ**
+明示的にリセットする。旧構造は`RESP_ACTIVE`を応答フェーズ終了時にしか
+クリアしておらず、応答送信の途中でmainが送り手へ戻った場合（run長が
+8でない短いラウンドが応答の合間に割り込む場合）、残留した
+`RESP_ACTIVE=1`が次のrunの`SEND_DISPATCH`判定を汚す余地があった。
+
+**受信バッファの拡張（第13版で追加）。** `REQ_HDR`の受信バッファを
+8バイトから`REQ_HDR_CAPACITY`（16バイト）へ拡張した。1.18節は最大
+12バイトのラウンドを確認しており、8バイト固定のままでは長いrunの
+受信中にバッファをはみ出す。`RUN_LEN`が`REQ_HDR_CAPACITY`に達したら
+以降は格納だけ止め（`HDR_PTR`は進めない）、カウンタ自体は`0xFF`まで
+飽和させながら受信は止めない——runの継続/終了判別（bit0/bit1）を
+乱さないようにするため。
+
+**`HDR_STORE_AND_CHECK`のセマンティクス変更。** 第11版までは
+「格納してZ=1なら8バイト到達」という意味を持っていたが、応答形式の
+判断を通算バイト数から切り離した結果、この呼び出し元での即時判定は
+不要になった。第13版では「格納して`RUN_LEN`を進めるだけ」の
+サブルーチンに縮小した（上限到達時の格納スキップ・カウンタ飽和は
+このサブルーチン内で完結する）。
+
+**回帰テスト（`--fixed-byte-cutoff-test`）。** `tools/verify_l3.sh`
+の規約どおり、有効時は本版で修正した旧構造（通算8バイトで打ち切る）
+をそのまま復元するフラグを用意した。`tools/make_l3_test_main.py
+--fixed-byte-cutoff-test`（2バイト・1バイト・5バイトの独立した
+3ラウンド、値の並びは合わせると1.11節のヘッダと同じ形になる）を
+使い、新実装ではPASS・このフラグを立てた版ではFAILすることを実際に
+確認した。
+
 ## FDC結果/コマンドフェーズの終了判定とタイムアウト時の中止（第12版で修正）
 
 コミット`ce3bd5b`（SENSE INTERRUPT STATUSの結果バイト数修正＋FDCステータス
@@ -449,9 +528,14 @@ class Asm:
     def ld_hl(self, name):   self.db(0x21); self._abs(name)
     def call(self, name):    self.db(0xCD); self._abs(name)
     def jp(self, name):      self.db(0xC3); self._abs(name)
+    def jp_nz(self, name):   self.db(0xC2); self._abs(name)   # JP NZ,nn（第13版で追加。相対ジャンプが届かない遠方分岐用）
+    def jp_z(self, name):    self.db(0xCA); self._abs(name)   # JP Z,nn
     def jr(self, name):      self.db(0x18); self._rel(name)
     def jr_nz(self, name):   self.db(0x20); self._rel(name)
     def jr_z(self, name):    self.db(0x28); self._rel(name)
+    def jr_nc(self, name):   self.db(0x30); self._rel(name)   # JR NC,e（第13版で追加。run長カウンタの上限判定に使う）
+    def jr_c(self, name):    self.db(0x38); self._rel(name)
+    def inc_a(self):         self.db(0x3C)   # INC A（第13版で追加）
     def djnz(self, name):    self.db(0x10); self._rel(name)
 
     def in_port(self, port):
@@ -475,11 +559,14 @@ class Asm:
 
 STACK      = 0x6000
 SECTOR_BUF = 0x4000    # 256バイトのセクタ読み出しバッファ
-REQ_HDR    = 0x4200    # 8バイトの要求ヘッダ（byte0..7）
+# ---- 第13版でREQ_HDRの領域を8バイトから拡張（下のREQ_HDR_CAPACITY参照）。
+#      HDR_PTR(0x4300)まで0x100バイトの余地があるため衝突しない。 ----
+REQ_HDR    = 0x4200    # 要求ヘッダの受信バッファ（先頭REQ_HDR_CAPACITYバイトまで格納）
+REQ_HDR_CAPACITY = 16  # 第13版で8→16へ拡張。1.18節の最大12バイトのラウンドに余裕を持たせる
 
 # ---- ディスパッチャの進行状態（第9版で追加。上のdocstring「プリミティブ
 #      1回ごとにディスパッチャへ戻る」参照）----
-HDR_PTR     = 0x4300   # 2バイト: ヘッダ受信中の書き込み位置(REQ_HDR..REQ_HDR+8)
+HDR_PTR     = 0x4300   # 2バイト: ヘッダ受信中の書き込み位置(REQ_HDR..REQ_HDR+REQ_HDR_CAPACITY)
 RESP_PTR    = 0x4302   # 2バイト: 応答送信中の読み出し位置(SECTOR_BUF..SECTOR_BUF+256)
 RESP_ACTIVE = 0x4304   # 1バイト: 0=応答フェーズでない、非0=応答送信中
 # ---- 第12版で追加。FDC_IN/FDC_OUTが「タイムアウトした／待たずに相手が
@@ -489,6 +576,11 @@ RESP_ACTIVE = 0x4304   # 1バイト: 0=応答フェーズでない、非0=応答
 #      終了判定とタイムアウト時の中止」節参照）。仕様書に根拠の無い、
 #      この実装だけの判断。 ----
 FDC_ABORT   = 0x4305   # 1バイト: 0=正常、非0=このFDCコマンドは中断済み
+# ---- 第13版で追加。RECV完遂ごとにインクリメントする「run内で受け取った
+#      バイト数」のカウンタ。REQ_HDR_CAPACITY到達後は格納だけ止めるが
+#      カウンタ自体は0xFFで飽和するまで増え続ける（上のモジュールdocstring
+#      「run境界駆動への書き換え」節参照）。 ----
+RUN_LEN     = 0x4306   # 1バイト: 現在のrunで受け取ったバイト数（run開始時に0へ初期化）
 
 ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x2000,...)）
 
@@ -498,7 +590,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
                   inject_spurious_sense_int=False,
                   break_sense_int_result_count=False,
                   break_fdc_timeout_reads_anyway=False,
-                  disable_fdc_timeout_mark=False):
+                  disable_fdc_timeout_mark=False,
+                  break_fixed_byte_cutoff=False):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -543,7 +636,17 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     disable_fdc_timeout_mark: $F9（FDC_TIMEOUT_MARK）への書き込みを
     無効化する。このポートは公式subには存在しない診断専用のイベントで
     あり、適合テストに提出するROMでは立てるべきではない。既定（False）
-    では有効（$F9への記録を残す）のまま。"""
+    では有効（$F9への記録を残す）のまま。
+
+    break_fixed_byte_cutoff: 第13版で修正したバグ（run境界〔bit1の
+    観測〕ではなく、通算8バイト受け取ったことだけでrunを打ち切っていた
+    旧構造）を意図的に再現するフラグ。m6k-mixed-divergence.md第10部が
+    診断した「複数ラウンドに分かれた受信（例:2+1+5=8バイト）を1つの
+    8バイトヘッダに取り違える」バグをそのまま再現する。
+    tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが検出力を
+    持つことを確認するためだけに使う。既定（False）では新構造（run終了
+    〔bit1観測〕まで受信を続け、run長で応答形式を判断する、上の
+    モジュールdocstring「run境界駆動への書き換え」節参照）を使う。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -608,18 +711,39 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.pop_af()
     a.ret()
 
-    # ---- HDR_STORE_AND_CHECK: 受け取ったバイト(A)をHDR_PTRへ書き込み
-    #      インクリメントする。Z=1ならREQ_HDR+8に到達（8バイト集まった）。
-    #      第11版で追加（run境界判別ループから2箇所で呼ぶため切り出した。
-    #      二重実装しない）。 ----
+    # ---- HDR_STORE_AND_CHECK: 受け取ったバイト(A)をREQ_HDRへ格納し、
+    #      RUN_LEN（runで受け取った通算バイト数）を進める。
+    #      第11版では「Z=1ならREQ_HDR+8に到達」という8バイト固定の
+    #      セマンティクスを持っていたが、第13版でrun境界駆動に書き換えた
+    #      ため不要になった——runがいつ終わるかはRUN_LENの値ではなく
+    #      bit1の観測で決める（呼び出し側、RECV_DISPATCH参照）。ここは
+    #      「格納して数える」だけのサブルーチンに縮小した。
+    #      REQ_HDR_CAPACITY（16バイト）に達したら以降は格納しない
+    #      （HDR_PTRは進めない）が、RUN_LENのカウント自体は0xFFで
+    #      飽和するまで続ける——run長がバッファ容量を超えても受信は
+    #      止めず、呼び出し側が「run長==8」を正しく判定できるようにする
+    #      （上のモジュールdocstring「run境界駆動への書き換え」節参照）。
+    #      第11版から変わらず、run境界判別ループから複数箇所で呼ぶため
+    #      切り出している（二重実装しない）。 ----
     a.label("HDR_STORE_AND_CHECK")
+    a.push_af()                       # 受け取ったバイトを退避
+    a.ld_a_mem(RUN_LEN)
+    a.cp_n(REQ_HDR_CAPACITY)
+    a.jr_nc("_hdr_store_skip")        # RUN_LEN >= CAPACITY: もう格納しない
+    a.pop_af()
+    a.push_af()
     a.ld_hl_mem(HDR_PTR)
     a.ld_hl_a()
     a.inc_hl()
     a.ld_mem_hl(HDR_PTR)
-    a.ld_de_imm(REQ_HDR + 8)
-    a.or_a()
-    a.sbc_hl_de()
+    a.label("_hdr_store_skip")
+    a.pop_af()                        # スタック平衡のため復元（以降Aは未使用）
+    a.ld_a_mem(RUN_LEN)
+    a.cp_n(0xFF)
+    a.jr_z("_hdr_run_len_done")       # 0xFFで飽和、これ以上は増やさない
+    a.inc_a()
+    a.ld_mem_a(RUN_LEN)
+    a.label("_hdr_run_len_done")
     a.ret()
 
     # ---- SEND_BYTE: main の RECV に応答して1バイト送る。引数は A ----
@@ -1009,11 +1133,12 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 戻る」参照）。
     # ====================================================================
     a.label("MAIN_LOOP")
-    # 進行状態を初期化する（起動直後の1回だけ）
+    # 進行状態を初期化する（起動直後の1回だけ）。第13版でRUN_LENを追加。
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
+    a.ld_mem_a(RUN_LEN)
     a.call("FDC_RECALIBRATE")
 
     # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
@@ -1033,46 +1158,107 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.jr_nz("SEND_DISPATCH")
     a.jr("IDLE_DISPATCH")
 
-    # ---- RECV_DISPATCH: RECVを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
-    #      HDR_PTRがREQ_HDR+8に達したら8バイト集まったということなので、
-    #      その場でシーク・読み出し・応答フェーズの準備を行う
-    #      （これも「決め打ちで次にSENDへ進む」のではなく、応答準備が
-    #      整うだけ——実際にSENDするかどうかは次回以降のIDLE_DISPATCHが
-    #      $FEを読んで決める）。 ----
+    # ---- RECV_DISPATCH: 1つのrun（mainがsubへ送り手であり続ける区間）を
+    #      最初から最後まで処理し、必ずIDLE_DISPATCHへ戻る。
+    #
+    #      第13版でrun境界駆動に書き換えた（m6k-mixed-divergence.md第10部
+    #      の診断、上のモジュールdocstring「run境界駆動への書き換え」節
+    #      参照）。**runの終端は「通算8バイト受け取ったこと」ではなく
+    #      「bit1=1（相手がSEND待ちに転じたこと）を先に観測したこと」で
+    #      決める。** bit0が先に立ち続ける限り、8バイトを超えても
+    #      受信を続ける（1.18節: ラウンドは1〜12バイトと幅がある）。
+    #      run終了時点のrun長（RUN_LEN）を見て、その形式を判断する:
+    #        - run長==8 → 1.11節の固定8バイトヘッダとして扱い、シーク・
+    #          読み出し・応答フェーズの準備を行う
+    #        - run長!=8 → 応答フェーズには入らない(RESP_ACTIVE=0のまま)。
+    #          IDLE_DISPATCHへ戻った直後、bit1はまだ立っているので
+    #          SEND_DISPATCH_IDLE経路(ST3を1バイト返す)に落ちる
+    #      run長==8ルールが1.18節の「256バイト応答を返した3ラウンドの
+    #      SEND側バイト数は8/6/8とばらついた」という確定事実に照らして
+    #      不完全である(6バイトのケースを取りこぼす)ことは、未確定として
+    #      docs/spec/l3-subrom.md 3節に明記している。 ----
     a.label("RECV_DISPATCH")
+    # run開始: 進行状態を初期化する。RESP_ACTIVEもここで明示的にクリア
+    # する——応答送信の途中でmainが送り手へ戻った場合の残留状態を断ち、
+    # 次のrunを汚さないようにするため(break_fixed_byte_cutoff時はこの
+    # 初期化自体を省き、m6k第10部が診断した「ラウンド境界を無視して
+    # 通算で貯め込む」旧構造を忠実に再現する——HDR_PTR/RUN_LENは
+    # MAIN_LOOP起動時の1回と、8バイト到達後の巻き戻ししか行わない)。
+    if not break_fixed_byte_cutoff:
+        a.ld_hl_imm(REQ_HDR)
+        a.ld_mem_hl(HDR_PTR)
+        a.ld_a(0x00)
+        a.ld_mem_a(RUN_LEN)
+        a.ld_mem_a(RESP_ACTIVE)
     a.call("RECV_BYTE")               # A = 受け取ったバイト
-    a.call("HDR_STORE_AND_CHECK")     # HDR_PTRへ書き込み、8バイト到達ならZ=1
-    a.jr_z("_recv_dispatch_hdr_done")
+    a.call("HDR_STORE_AND_CHECK")     # REQ_HDRへ格納しRUN_LENを進める
+
+    if break_fixed_byte_cutoff:
+        # tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが
+        # 検出力を持つことを確認するためだけに使う（上のbuild_subrom()
+        # docstring参照）。第13版で修正した旧構造（bit1を見ずHDR_PTRが
+        # REQ_HDR+8に達したことだけで打ち切る）をそのまま復元する。
+        # 複数ラウンドに分かれた受信(例: 2+1+5=8バイト)が1つの8バイト
+        # ヘッダに取り違えられるバグ(m6k-mixed-divergence.md第10部)を
+        # 再現する。
+        a.ld_hl_mem(HDR_PTR)
+        a.ld_de_imm(REQ_HDR + 8)
+        a.or_a()
+        a.sbc_hl_de()
+        a.jr_z("_recv_dispatch_hdr_done")
 
     if break_run_continuation:
         # 第11版で修正したバグをわざと再現する版（tools/verify_l3.sh の
         # `--run-continuation-test`回帰テストが検出力を持つことを確認
         # するためだけに使う。上のbuild_subrom() docstring参照）。
-        # まだ8バイト未満でも無条件でIDLE_DISPATCHへ戻り、そこで何も
-        # 書かずに$FEを読みに行くだけの旧構造をそのまま復元する。
-        a.jr("IDLE_DISPATCH")
+        # 無条件でIDLE_DISPATCHへ戻り、そこで何も書かずに$FEを読みに
+        # 行くだけの旧構造をそのまま復元する。
+        # （RECV_DISPATCHが大きくなりIDLE_DISPATCHから遠いため、
+        # 相対ジャンプ(JR)ではなく絶対ジャンプ(JP)を使う）
+        a.jp("IDLE_DISPATCH")
     else:
-        # ---- run境界判別（未確定、暫定構造。仕様書1.20節・6節16項、
-        #      上のモジュールdocstring「run境界の判別」節参照）----
-        # まだ8バイト未満。IDLE_DISPATCHへ戻る前に直ちに再武装
-        # (OUT $FF,0x0B)する——mainが継続バイトで0Fを省略しbit1=1を
-        # 待ってスピンしている場合、武装を後回しにすると相互デッド
-        # ロックを再現してしまう(m6n-run-boundary.md 3節)。
+        # ---- run継続ループ：bit0/bit1同時ポーリング。仕様書1.20節・
+        #      6節16項、上のモジュールdocstring「run境界の判別」節
+        #      参照。使うビットは第11版から変えていない。 ----
         a.label("_recv_dispatch_continue")
         a.out_imm(0xFF, PH_RECV_START_SET)    # RECVプリミティブ手順1を先出しで実行
         a.label("_recv_dispatch_poll")
         a.in_port(P_PIO_C)
         a.ld_b_a()                            # 元の値をBに退避(AND破壊対策)
-        a.and_a(FE_BIT_SEND_RECV_READY)       # bit1: 相手がRECV役に転じた(応答を求めている)合図
-        a.jr_nz("IDLE_DISPATCH")              # 武装済みの0x0Bは残るが、次はSEND経路に委ねる
+        a.and_a(FE_BIT_SEND_RECV_READY)       # bit1: 相手がSEND待ちに転じた(run終了)合図
+        if break_fixed_byte_cutoff:
+            a.jp_nz("IDLE_DISPATCH")          # 旧構造の再現: run長を見ず即座に委ねる（遠方分岐のためJP）
+        else:
+            a.jr_nz("_recv_dispatch_run_done")    # 新構造: run終了。RUN_LENで応答形式を判断
         a.ld_a_b()
         a.and_a(FE_BIT_RECV_DATA_READY)       # bit0: 相手が続けてデータを書いた(runが続いている)合図
         a.jr_z("_recv_dispatch_poll")
         a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜7を続ける
         a.call("HDR_STORE_AND_CHECK")
-        a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: 直ちに再武装してポーリングを繰り返す
+        if break_fixed_byte_cutoff:
+            a.ld_hl_mem(HDR_PTR)
+            a.ld_de_imm(REQ_HDR + 8)
+            a.or_a()
+            a.sbc_hl_de()
+            a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: ポーリングを繰り返す
+            # Z: 8バイト到達。そのまま_recv_dispatch_hdr_doneへ落ちる
+        else:
+            a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
 
-    # 8バイト集まった: 次のヘッダ受信に備えてポインタを巻き戻す
+    if not break_fixed_byte_cutoff:
+        # ---- run終了(bit1観測)。RUN_LENで応答形式を判断する ----
+        a.label("_recv_dispatch_run_done")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(8)
+        a.jp_nz("IDLE_DISPATCH")    # run長!=8: 応答フェーズに入らない（遠方分岐のためJP）。
+                                     # bit1は立ったままなのでIDLE_DISPATCHが
+                                     # 改めて$FEを読み、SEND_DISPATCH_IDLE
+                                     # (ST3応答)へ委ねる
+        # run長==8: そのまま_recv_dispatch_hdr_doneへ落ちて固定8バイト
+        # ヘッダとして処理する
+
+    # 8バイト到達（固定8バイトヘッダ）: 次のヘッダ受信に備えて
+    # ポインタを巻き戻す
     a.label("_recv_dispatch_hdr_done")
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
@@ -1093,7 +1279,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_mem_hl(RESP_PTR)
     a.ld_a(0x01)
     a.ld_mem_a(RESP_ACTIVE)
-    a.jr("IDLE_DISPATCH")
+    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
 
     # ---- SEND_DISPATCH: SENDを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
     #      応答フェーズ中(RESP_ACTIVE!=0)ならSECTOR_BUFの次の1バイトを
@@ -1113,12 +1299,12 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_de_imm(SECTOR_BUF + 256)
     a.or_a()
     a.sbc_hl_de()                     # RESP_PTR(更新後) - (SECTOR_BUF+256)
-    a.jr_nz("IDLE_DISPATCH")          # まだ256バイト送り終えていない
+    a.jp_nz("IDLE_DISPATCH")          # まだ256バイト送り終えていない（遠方分岐のためJP）
 
     # 256バイト送り終えた: 応答フェーズを終了する
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
-    a.jr("IDLE_DISPATCH")
+    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
 
     a.label("SEND_DISPATCH_IDLE")
     # 第9版で変更: 応答フェーズ外（8バイトヘッダがまだ揃っていない
@@ -1133,7 +1319,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 値を知らないまま構成上正しい返答経路にする（仕様書6節14項）。
     a.call("FDC_SENSE_DRIVE_STATUS")
     a.call("SEND_BYTE")
-    a.jr("IDLE_DISPATCH")
+    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
 
     return a
 
@@ -1143,14 +1329,16 @@ def build(break_response=False, break_dispatch_return=False,
           inject_spurious_sense_int=False,
           break_sense_int_result_count=False,
           break_fdc_timeout_reads_anyway=False,
-          disable_fdc_timeout_mark=False):
+          disable_fdc_timeout_mark=False,
+          break_fixed_byte_cutoff=False):
     a = build_subrom(break_response=break_response,
                       break_dispatch_return=break_dispatch_return,
                       break_run_continuation=break_run_continuation,
                       inject_spurious_sense_int=inject_spurious_sense_int,
                       break_sense_int_result_count=break_sense_int_result_count,
                       break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
-                      disable_fdc_timeout_mark=disable_fdc_timeout_mark)
+                      disable_fdc_timeout_mark=disable_fdc_timeout_mark,
+                      break_fixed_byte_cutoff=break_fixed_byte_cutoff)
     a.resolve()
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
@@ -1197,6 +1385,12 @@ def main():
                           "公式subには存在しない）への書き込みを無効化する。"
                           "適合テストへ提出するROMではこのイベント自体を"
                           "出したくない場合に使う。")
+    ap.add_argument("--fixed-byte-cutoff-test", action="store_true",
+                     dest="break_fixed_byte_cutoff",
+                     help="第13版で修正したバグ（run境界(bit1の観測)ではなく"
+                          "通算8バイト受け取ったことだけでrunを打ち切っていた"
+                          "旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
+                          "の回帰テストの検出力確認用）。")
     args = ap.parse_args()
     rom, used = build(break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
@@ -1204,7 +1398,8 @@ def main():
                        inject_spurious_sense_int=args.inject_spurious_sense_int,
                        break_sense_int_result_count=args.break_sense_int_result_count,
                        break_fdc_timeout_reads_anyway=args.break_fdc_timeout_reads_anyway,
-                       disable_fdc_timeout_mark=args.disable_fdc_timeout_mark)
+                       disable_fdc_timeout_mark=args.disable_fdc_timeout_mark,
+                       break_fixed_byte_cutoff=args.break_fixed_byte_cutoff)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
