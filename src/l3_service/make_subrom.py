@@ -802,6 +802,19 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
+    # ---- 仕様書1.22節（第16版）で確定した起動時FDC初期化batch1
+    #      （SPECIFY+RECALIBRATE+SENSE INTERRUPT STATUS、write=6バイト・
+    #      read=2バイト）を再現する。FDC_RECALIBRATEは内部で
+    #      FDC_SENSE_INTまで呼ぶ既存ルーチン。直後の単発`OUT $F8,0x07`は
+    #      1.22節で確認した「三つ組みの1バイト目のみ、$F7/IN $F8を
+    #      伴わない簡略形」をそのまま再現する（1.21節のFDC_TC
+    #      サブルーチンは使わない——あちらは`OUT $F7`/`IN $F8`まで
+    #      含む完全な三つ組み用）。
+    #      batch2以降（1.22節、SPECIFYかSEEKかが未確定）は実装しない。
+    #      未確定のコマンドを飛ばして後続だけ実装すると実際の並びと
+    #      異なる推測実装になるため、ここで止める（仕様書3節・6節22項）。
+    a.call("FDC_RECALIBRATE")
+    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（$F7/IN $F8は伴わない）
     if inject_spurious_sense_int:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
         # RECALIBRATE/SEEKをまだ一度も発行していないこの時点では、FDC側に
