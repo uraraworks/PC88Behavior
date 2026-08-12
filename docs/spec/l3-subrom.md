@@ -29,6 +29,7 @@
 | 第15版 | 2026-08-12 | 混成ROM実走診断の分岐点28（結果フェーズ直後のTC）を確定させる測定セッション（既存ログの再解析、追加測定なし） | 混成ROM実走診断が示した分岐点28（sub側の構造的一致プレフィックスが27件で切れる箇所。基準側はFDCコマンド結果フェーズ直後に`OUT $F8 pc=06D5`が来るが、自作subは`$FE`ハンドシェイクへ戻ってしまう）を確定させた。新規解析器`tools/analyze_tc_and_f8.py`（`tools/analyze_fdc_ports.py`の`IoEvent`/`parse_iolog`を再利用）で既存4条件ログを再解析し、**`OUT $F8,0x07`→`OUT $F7,0x08`→`IN $F8`(常に`0xFF`)が固定の三つ組みで、4条件・全事例で例外なく隣接すること**、**この三つ組みはFDCコマンドの結果フェーズ（`IN $FB`の連続run）直後には来るが、結果フェーズが終わるたび必ず来るわけではなく、複数のFDCコマンド呼び出しから成るバッチの最後にのみ現れること**（バッチの区切り条件自体は未確定）、**`$F8`は主に`OUT`で使われ、`IN $F8`は三つ組み専用の単発確認読みに限られること**（自作subが`IN`を61回使っていたのは方向の取り違え）を確定した。あわせて`src/l3_service/make_subrom.py`の`P_TC`コメント（vendor実装由来の「IN: FDCへTCを送る」という誤った方向）と、`FDC_READ_SECTOR`終端の`a.in_port(P_TC)`（結果フェーズを読む**前**に`IN`していた）を、確定した構造（結果フェーズ256+7=263バイトを読み終えた**後**に`OUT $F8,0x07`→`OUT $F7,0x08`→`IN $F8`の三つ組み）に合わせて修正した。`FDC_SEEK`/`FDC_RECALIBRATE`/`FDC_SENSE_*`へのTC追加は、バッチ境界条件が未確定のため見送った（推測でコードを書かない）。決定論性（run1/run2完全一致）を確認済み。根拠は`docs/notes/m6p-tc-and-f8.md`。1.5節を更新、1.21節を新設、3節・6節を更新 |
 | 第16版 | 2026-08-12 | 分岐点28（混成ROM実走診断、16:56版）を踏まえた起動時FDC初期化シーケンス（1.16節手順8）の構造解析（既存ログの再解析、追加測定なし） | 分岐点28（sub側の構造的一致プレフィックスが27件で切れる箇所。基準側は結果フェーズ直後に`OUT $F8`(TC)が来るが、自作subは`FDC_SPECIFY`（結果フェーズ0バイト）しか呼ばず`MAIN_LOOP`へ直行するためこの構造自体が起きない）を踏まえ、1.16節手順8「FDC初期化」で中身が未確定のまま残っていたFDCコマンド列を、既存4条件ログの再解析で具体化した。新規解析器`tools/analyze_boot_fdc_sequence.py`（`tools/analyze_fdc_ports.py`のパーサを再利用）で、1.16節手順6〜7の直後から最初の`$FE`/`$FF`アクセス（1.17節アイドル待ちへの遷移）までを「起動時FDC初期化区間」として切り出し、`$FB`のOUT/IN run列を求めた。**4条件すべてで区間境界・run列が完全一致**し、7組の(書き,読み)runペア（長さ`6,4,3,3,4,3,3`、いずれも読みは2バイト）から成ることを確定した。μPD765/8272データシート（公開仕様、コマンド/結果フェーズのバイト数）と突き合わせ、**各batchの最後は結果2バイトを持つSENSE INTERRUPT STATUSで一意に決まること**、**batch3・4・6・7（run長3,読み2）はRECALIBRATE+SENSE INTERRUPT STATUSで一意に決まること**（既存実装`FDC_RECALIBRATE`の構造と一致）を確定した。一方**batch1・2・5（run長6/4,読み2）はSPECIFYとSEEKがどちらもコマンドフェーズ3バイト・結果0バイトで同型のため、バイト数だけでは一意に絞れないこと**を確認し、推測で1つに決めず候補併記のまま未確定とした（pcで区別できないかも確認したが、`$FB`書き込みはすべて単一の共有OUT補助ルーチン経由の同一pcで、区別材料にならなかった）。あわせて、TC（`OUT $F8@06D5`、1.21節）がbatch1・batch2の直後にのみ現れ（batch3〜7の後には現れない）、かつこの2回はどちらも1.21節の「三つ組み」の残り2ステップ（`OUT $F7`・`IN $F8`）を伴わない簡略形であることを新たに確認した（m6p 2節の未確定範囲を、boot区間内の具体的な位置まで特定するもので、m6pの結論とは矛盾しない）。実装（`src/l3_service/make_subrom.py`）は、既存の起動時`FDC_SPECIFY`呼び出しの直後に`FDC_RECALIBRATE`（内部で`FDC_SENSE_INT`まで呼ぶ既存ルーチン）を追加してbatch1（SPECIFY+RECALIBRATE+SENSE_INT、write=6,read=2）を再現し、その直後に三つ組みでない単発の`OUT $F8`(TC、m6q節5で確認した簡略形)を発行するところまでにとどめた。batch2（SPECIFY/SEEKが未確定）以降は、順序上batch1の直後に来るため、未確定のbatch2を飛ばしてbatch3以降だけを実装すると実際の並びと異なる推測実装になってしまう。したがって**batch2以降は実装せず、そのままMAIN_LOOPへ進む**（推測でコードを書かない。ここで分岐が止まる見込みであることをノートに明記した）。根拠は`docs/notes/m6q-boot-fdc-sequence.md`。1.16節を更新、1.22節を新設、3節・6節を更新 |
 | 第17版 | 2026-08-12 | 測定セッション（既存ログの再解析。追加測定なし） | 1.22節が未確定として残したbatch2・5（コマンドフェーズ3バイト・結果フェーズ0バイトで、SPECIFYとSEEKがバイト数上区別できない）を、判別の主軸をμPD765AデータシートのMSR（`$FA`、制御ポート）bit3〜0（Seek Busy、ドライブ0〜3）に切り替えて解析した。新規解析器`tools/analyze_m6r_msr.py`（既存の`analyze_fdc_ports.py`/`analyze_boot_fdc_sequence.py`の関数を再利用）。まず対照群（batch3・4・6・7、RECALIBRATEと一意に確定済み）で、各batchの最終コマンドバイト送信後にビットが対応ドライブ分立ち、SENSE INTERRUPT STATUSの結果読み出し直後に`0000`へ戻ることを確認し、手法の妥当性を先に確認した。その上でbatch2・5を見ると、どちらも最終コマンドバイト送信後に対応ドライブのビットが立っていた（batch2→D0B、batch5→D1B）。SPECIFYはどのドライブのビットも立てないコマンドであり、対照群でビットが実際にトグルすることを確認済みのため、**batch2・5はSEEKと判定した**（4条件で完全一致）。あわせて、batch1・2・3がドライブ0、batch4・5・6がドライブ1、batch7がドライブ2という3ドライブ分の初期化列として読めることも確認した。実行時間差（補助的な筋道）はSEEKとRECALIBRATEで区別する情報を持たず（全batch共通でclock差=3）、これは「FDCが機械的完了を待たずに次コマンドを受理する」という想定どおりの結果であり、判定には使っていない。さらに、batch2→batch3・batch5→batch6のSENSE INTERRUPT STATUS結果読み出し直後は、$FD/$FC（main応答経路）にもアイドル待ちにも入らず即座に次のFDCコマンドへ進むことを確認し、**SEEKの目標シリンダの値はmainへ渡らないこと**、かつ直後のRECALIBRATE（batch3・batch6）が無条件にトラック0へ戻すため**この区間の最終的な観測可能状態はSEEKの目標値に依存しないこと**を確定した（区間外でこの中間位置に依存する経路が無いことは未確認のまま限界として明記）。実装（`src/l3_service/make_subrom.py`）は、batch1の直後にbatch2（`FDC_SEEK`、目標シリンダは上記の理由で任意値=0）とそのTCを追加した。batch3以降（ドライブ1・2向けの`FDC_RECALIBRATE`/`FDC_SEEK`はドライブ番号引数を取らない現行実装では直接呼べず、drive-parametrized化という別スコープの変更を要する）は今回のスコープ外として実装せず、そのままMAIN_LOOPへ進む。根拠は`docs/notes/m6r-specify-vs-seek.md`。1.22節を更新、3節・6節を更新 |
+| 第18版 | 2026-08-12 | 実装セッション（既存の確定事項の適用。追加測定なし） | 第16版・第17版が「ドライブ番号引数を取らない現行実装ではbatch3以降を再現できない」として見送っていたスコープに着手した。`docs/notes/m6r-specify-vs-seek.md`（第17版が根拠とした測定）は既にbatch1〜7全件のドライブ番号（batch1/2/3=ドライブ0、batch4/5/6=ドライブ1、batch7=ドライブ2）を確定させていたため、追加測定は行わず、既存ノートの再確認のみで実装に進んだ。`src/l3_service/make_subrom.py`の`FDC_RECALIBRATE`・`FDC_SEEK`をドライブ番号引数化した（レジスタE。μPD765/8272データシート公開仕様のとおり、コマンドフェーズ第2バイトの下位2ビット(US1,US0)がドライブ選択、bit2(HD)がヘッド選択で、本実装はヘッド0のみを扱う）。E はこのファイルの他のFDCサブルーチン（`FDC_BEGIN`/`FDC_OUT`/`FDC_IN`/`FDC_SENSE_INT`）がいずれもDEを保存して戻るため、呼び出しをまたいでも壊れない。既存の呼び出し箇所（`BOOT_HANDSHAKE`のbatch1・batch2、`MAIN_LOOP`起動時のRECALIBRATE、`FDC_READ_SECTOR`前のSEEK、および`--break-dispatch-return`回帰専用パスの対応する2箇所）は、意味を変えないようすべてドライブ0（`E=0x00`）を明示的に渡す形に直した。その上で、`BOOT_HANDSHAKE`にbatch3〜7（1.22節がTCを伴わないと確定済みのとおりTCは追加しない）を実装した：batch3=RECALIBRATE(ドライブ0)、batch4=RECALIBRATE(ドライブ1)、batch5=SEEK(ドライブ1、目標シリンダはbatch2と同じ理由で任意値`0x00`)、batch6=RECALIBRATE(ドライブ1)、batch7=RECALIBRATE(ドライブ2)。これでbatch1〜7全件を実装し、`MAIN_LOOP`へ進む。`tools/verify_l3.sh`を実行し、変更前後で結果（OK13件・NG1件、NGは既知の未達成事項「ディスク無しでもsubがI/Oを発行する」の負のコントロールで新規回帰ではない）が完全に一致することを確認した。1.22節・3節・6節を更新 |
 
 ---
 
@@ -890,6 +891,19 @@ batch6は無条件にトラック0へ戻すRECALIBRATEであるため、直前�
 「確認して否定した」のではなく「確認する経路が見当たらなかった」に
 とどまる）。
 
+**実装（第18版）: batch1〜7を全件実装した。** 第16版・第17版時点の
+`FDC_RECALIBRATE`/`FDC_SEEK`はドライブ番号引数を取らずドライブ0
+決め打ちだったため、ドライブ1・2向けのbatch4〜7を再現できず
+見送っていた。第18版でこの2ルーチンをドライブ番号引数化（レジスタE。
+μPD765/8272データシート公開仕様のとおり、コマンドフェーズ第2バイトの
+下位2ビットがドライブ選択）し、`docs/notes/m6r-specify-vs-seek.md`が
+既に確定していたドライブ割り当て（batch1/2/3=ドライブ0、batch4/5/6=
+ドライブ1、batch7=ドライブ2）に従ってbatch3〜7を実装した。TCは
+上で確定したとおりbatch1・batch2の直後にのみ発行し、batch3〜7の後
+には発行しない。batch1内の順序（RECALIBRATEが先かSEEKが先か）は
+未確定のままなので、実装はこれまでどおりRECALIBRATE→SEEKの順を
+そのまま維持している（未確定を推測で解決したわけではない。3節）。
+
 ---
 
 ## 2. 明示的に「採用できない」こと
@@ -1512,25 +1526,29 @@ frame 301→302・pc=E7F5で最初の食い違いが人間に分かる形
     コマンド単体（結果フェーズ長`1`/`2`）はTCを伴わない事例が大多数
     であり、いつバッチが終わってTCを送るべきかの条件が未確定のまま
     追加すると、公式ROMには無い過剰なTCを発行する推測実装になる。
-22. **（第16版で追加、第17版でbatch2を追加）起動時
-    （`BOOT_HANDSHAKE`手順8）は、既存の`FDC_SPECIFY`呼び出しの直後に
-    `FDC_RECALIBRATE`を1回（batch1）、続けて単発の`OUT $F8,0x07`
-    (TC。1.21節の三つ組みではなく`OUT $F7`/`IN $F8`を伴わない単発。
-    1.22節で確定した簡略形をそのまま再現する)、続けて`FDC_SEEK`
-    （batch2。目標シリンダは任意値でよい——1.22節第17版分・
-    `docs/notes/m6r-specify-vs-seek.md`5節の理由により、mainへ渡らず
-    直後のRECALIBRATE（未実装のbatch3、今後の課題）で上書きされる
-    ため構造上等価。実装は`0x00`を使う）、さらに同じ単発TCを1回発行
-    してから`MAIN_LOOP`へ進むこと。** 1.22節が確定したbatch1
-    （SPECIFY+RECALIBRATE+SENSE_INTERRUPT_STATUS、write=6,read=2）と
-    batch2（SEEK+SENSE_INTERRUPT_STATUS、write=4,read=2）を再現する。
-    **batch3以降（1.22節でRECALIBRATE/SEEKと個々には一意に決まって
-    いるが、ドライブ1・2を対象とする）は実装しないこと。** 現行の
-    `FDC_RECALIBRATE`/`FDC_SEEK`はドライブ番号引数を取らず常にunit=0
-    を送るため、ドライブ1・2向けの再現にはdrive-parametrized化という
-    別スコープの変更が要る。未実装のまま先へ進むと実際の並びと異なる
-    推測実装になるため、batch2までの実装で止める（3節に明記のとおり、
-    この先で混成ROM実走がどこまで進むかは未検証）。
+22. **（第16版で追加、第17版でbatch2を追加、第18版でbatch3〜7を追加）
+    `FDC_RECALIBRATE`/`FDC_SEEK`はドライブ番号引数（レジスタE、
+    0-3）を取ること。** μPD765/8272データシート公開仕様のとおり、
+    コマンドフェーズ第2バイトの下位2ビット(US1,US0)がドライブ選択。
+    起動時（`BOOT_HANDSHAKE`手順8）は、既存の`FDC_SPECIFY`呼び出しの
+    直後に次の順で発行し、`MAIN_LOOP`へ進むこと:
+    batch1=`FDC_RECALIBRATE`(E=0)、単発TC(`OUT $F8,0x07`のみ。
+    1.21節の三つ組みではなく`OUT $F7`/`IN $F8`を伴わない単発。1.22節
+    で確定した簡略形）、batch2=`FDC_SEEK`(E=0、目標シリンダは任意値
+    でよい——1.22節第17版・`docs/notes/m6r-specify-vs-seek.md`5節の
+    理由により、mainへ渡らず直後のRECALIBRATE(batch3)で上書きされる
+    ため構造上等価。実装は`0x00`を使う)、単発TC、batch3=
+    `FDC_RECALIBRATE`(E=0、TCなし)、batch4=`FDC_RECALIBRATE`(E=1、
+    TCなし)、batch5=`FDC_SEEK`(E=1、目標シリンダ`0x00`。batch2と
+    同じ理由、TCなし)、batch6=`FDC_RECALIBRATE`(E=1、TCなし)、
+    batch7=`FDC_RECALIBRATE`(E=2、TCなし)。**batch3〜7の後にTCを
+    発行しないこと** — 1.22節が確定したとおり、TCはbatch1・batch2の
+    直後にのみ現れる。既存の呼び出し箇所（`MAIN_LOOP`起動時の
+    RECALIBRATE、`FDC_READ_SECTOR`前のSEEK）は、意味を変えないよう
+    `E=0`（ドライブ0）を明示的に渡すこと。**batch1内の順序
+    （RECALIBRATEが先かSEEKが先か）は未確定のまま**なので、実装は
+    RECALIBRATE→SEEKの順を維持し、これを確定事項として扱わないこと
+    （3節）。
 
 ---
 
