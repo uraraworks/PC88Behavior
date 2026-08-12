@@ -376,7 +376,12 @@ import sys
 
 P_FDC_STAT = 0xFA   # IN: FDC メインステータス。bit7=RQM（仕様書1.7節）
 P_FDC_DATA = 0xFB   # IN/OUT: FDC データ/コマンド
-P_TC       = 0xF8   # IN: FDC へ TC（ターミナルカウント）を送る（vendor src/pc88sub.c）
+P_TC       = 0xF8   # OUT: FDC へ TC（ターミナルカウント）を送る。
+                     # 第15版で訂正: 旧コメント「IN」はvendor実装由来の
+                     # 方向の取り違え。仕様書1.21節・docs/notes/
+                     # m6p-tc-and-f8.md参照——公式subは$F8を主にOUTで
+                     # 使い、IN $F8は「OUT $F7,0x08直後の単発確認読み
+                     # (値は常に0xFF)」に限られる。
 P_PIO_A    = 0xFC   # sub からは OUT で main の $FD 書き込みが IN で読める（SEND受信）
 P_PIO_B    = 0xFD   # sub の OUT がここに出ると main の IN $FC に見える（RECV送信）
 P_PIO_C    = 0xFE   # ハンドシェイク状態。sub は IN のみ（仕様書6節10項: subはOUTしない）
@@ -397,6 +402,11 @@ BOOT_F7_VALUE = 0x08
 BOOT_FF_VALUE = 0x91   # 1.12節の8種のフェーズコード語彙のいずれにも属さない
 BOOT_F8_VALUE_1 = 0x05
 BOOT_F8_VALUE_2 = 0xFF
+
+# ---- TC三つ組み（仕様書1.21節、第15版）。OUT $F8,0x07 -> OUT $F7,0x08 ->
+#      IN $F8(結果は捨てる。値は常に0xFFだが意味は未確定なので分岐に
+#      使わない) が4条件・全事例で例外なく隣接することを確認済み。 ----
+FDC_TC_VALUE = 0x07
 
 RQM  = 0x80   # $FA bit7
 DIO  = 0x40   # $FA bit6（1='FDCからホストへ'方向）
@@ -849,6 +859,20 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.pop_af()
     a.ret()
 
+    # ---- TC三つ組み（仕様書1.21節、第15版）。呼び出し元がFDCコマンド
+    #      バッチ（例: 1セクタ分のデータフェーズ＋結果フェーズ）を
+    #      読み終えた後に呼ぶ。$F8はOUTで送る（P_TCのdocstring参照。
+    #      旧実装はここをINで読んでおり方向を取り違えていた）。
+    #      個々のFDCコマンド呼び出し1回ごとに呼ぶものではない
+    #      （どの単位がバッチかは未確定。仕様書3節・6節21項）。 ----
+    a.label("FDC_TC")
+    a.push_af()
+    a.out_imm(P_TC, FDC_TC_VALUE)        # OUT $F8,0x07
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)   # OUT $F7,0x08
+    a.in_port(P_TC)                      # IN $F8（単発、読み捨て。常に0xFF）
+    a.pop_af()
+    a.ret()
+
     # ---- FDC がホストへデータを渡す準備ができるまで待って IN する。
     #      第12版で全面書き直し（上のモジュールdocstring「FDC結果/
     #      コマンドフェーズの終了判定とタイムアウト時の中止」節参照）。
@@ -1045,10 +1069,15 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.inc_hl()
     a.djnz("_read_loop")
 
-    a.in_port(P_TC)                     # TC を送ってセクタ転送を終える
     # 結果フェーズ（ST0,ST1,ST2,C,H,R,N の7バイト）は読み捨てる
     for _ in range(7):
         a.call("FDC_IN")
+    # 第15版で訂正: 旧実装はここで(結果フェーズを読む前に) IN $F8 で
+    # 「TCを送ろうとして」いたが、方向(IN)も位置(結果フェーズの前)も
+    # 誤りだった。仕様書1.21節: 公式subは256+7=263バイト(データ+結果)を
+    # 読み終えた後にOUT $F8,0x07(TC)->OUT $F7,0x08->IN $F8の三つ組みを
+    # 送る。
+    a.call("FDC_TC")
     a.ret()
 
     if break_dispatch_return:
