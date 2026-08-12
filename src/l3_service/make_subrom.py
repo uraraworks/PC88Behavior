@@ -49,7 +49,9 @@ make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相�
   定常状態のRECV直後の即時SEND応答）のみを実装し、値による分岐は
   一切行わない。
 
-## アイドル判別（第8版で追加。`docs/notes/m6l-idle-dispatch.md`・仕様書3節）
+## アイドル判別（第8版で追加、第10版でビット判定へ置き換え。
+##                `docs/notes/m6l-idle-dispatch.md`・`docs/notes/
+##                m6m-fe-bit-analysis.md`・仕様書1.19節・3節）
 
 `docs/notes/m6k-mixed-divergence.md`第1部で報告された混成ROM実走の
 デッドロックは、旧版のディスパッチャ（`REQ_LOOP`が毎回、何も確認せず
@@ -59,27 +61,35 @@ subが先に「RECVする（＝mainが送る番だと決め打つ）」と宣言
 互いに相手の`$FE`遷移を待ち続けて止まっていた。
 
 **確定している範囲だけで直す。** `IDLE_DISPATCH`は`$FF`へ何も書かずに
-`IN $FE`を読み、以下の2値のどちらかに達するまでポーリングする:
+`IN $FE`を読み、以下のどちらかのビット条件が成立するまでポーリングする:
 
-- `0x08`（`FE_IDLE_TO_RECV`）: 仕様書1.17節・`docs/notes/m6k-mixed-divergence.md`
-  第5部の「アイドル待ち」（`pc=00CC`）が4条件・観測全252件で例外なく
-  到達し、その直後に必ずRECVへ進んでいた**確定済みの観測値**。
-  本実装のテスト用main（`tools/make_l3_test_main.py`）はヘッダ送信を
-  main視点SENDプリミティブ（`OUT $FF,0x0F`始まり）で開始するため、
-  同じ`$FF`フェーズコード列がsub側`$FE`に反映され、同じ`0x08`に
-  到達するはずだという想定のもとで採用している（本ハーネスの
-  PIOクロス配線は同一の`vendor/quasi88-libretro`コアが両ROM組に共通
-  なので、想定は成立するはずだが、これ自体は本ノートの追加測定
-  ではなく既存資産からの類推であることを明記する）。
-- `0x02`（`FE_IDLE_TO_SEND`）: 仕様書1.15節「sub視点のSENDプリミティブ
-  手順1」が待つ到達値と同じ。**これは確定した判別条件ではない。**
+- `bit3=1`（`FE_BIT_IDLE_RECV`）: 仕様書1.17節・1.19節・
+  `docs/notes/m6k-mixed-divergence.md`第5部の「アイドル待ち」
+  （`pc=00CC`）が4条件・観測全252件で例外なく到達し、その直後に必ず
+  RECVへ進んでいた**確定済みの条件**。第8版までは到達値`0x08`との
+  完全一致(`CP`)で判定していたが、これは観測されたentry値
+  （`0x00`/`0x01`のみ、いずれもbit3=0）が偶然狭かったために結果的に
+  正しく動いていたに過ぎない。entry値にbit3以外の未観測ビットが
+  変化した値（例:`0x09`,`0x0C`）が現れると完全一致判定は誤って
+  「まだアイドル」と判定し続ける——これが実際に混成ROM実走で
+  報告されたデッドロック（main`IN $FE pc=37DC`1,041,413回・
+  sub`IN $FE pc=00CC`1,048,477回のスピン）の見立てであり、第10版で
+  `bit3=1`のビット判定（`AND`命令）へ置き換えて解消する。
+- `bit1=1`（`FE_BIT_IDLE_SEND`）: 仕様書1.15節「sub視点のSENDプリミティブ
+  手順1」が待つビットと同じ。**これは確定した判別条件ではない。**
   実測コーパス（`measurements/m6c-sub-*`・`m6g-d0-boot-run{1,2}`）には
   「アイドル待ちから直接SENDへ進む」事例が1件も無く（1.17節）、
   この値がアイドル時のバレ読みで実際にこの意味で現れるかどうかは
-  未検証である。**仕様書の確定範囲（1.15節のSEND手順1の到達値）から
-  導いた暫定構造であり、値の裏付けは無い。**
+  未検証である。**仕様書の確定範囲（1.15節のSEND手順1のビット）から
+  導いた暫定構造であり、値の裏付けは無い。** 第10版で、SEND手順6の
+  定常サイトにおいて`bit1=1`→SEND開始・`bit3=1`→RECV開始という同じ
+  対応が実際に両方観測される事例を確認した（1.19節）ため、この慣行
+  自体が同一サブROM内の別サイトで存在することは確定したが、
+  pc=00CC本体でこの分岐が実際に使われているかどうかは依然として
+  未確認である。判定方式だけを完全一致からビット判定に揃えたが、
+  確定度の格上げではない。
 
-`0x02`に達したら`SEND_BYTE`を1回呼んで`IDLE_DISPATCH`へ戻る
+`bit1=1`に達したら`SEND_BYTE`を1回呼んで`IDLE_DISPATCH`へ戻る
 （送るバイトの値は、第9版まで`0x00`固定だった。**値の正しさは
 目標ではない**という前提は変わらないが、仕様書6節14項（第9版で
 追加）により「でっちあげた値」を送ること自体を方針違反と判断し、
@@ -88,9 +98,9 @@ subが先に「RECVする（＝mainが送る番だと決め打つ）」と宣言
 差し替えた。このバイトの意味論が未確定であることは変わらないので、
 正しい値を推測して埋めるのではなく「FDCへ実際に問い合わせて得た値を
 返す」構造にすることでデッドロック回避と方針の両方を満たす）。
-`0x08`に達したら8バイトヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。
-どちらでもない中間値のあいだはポーリングを続ける（`WAIT_FE_*`と同じ、
-目標値に達するまで単純に回すスタイル）。
+`bit3=1`に達したら8バイトヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。
+どちらのビットも立っていない中間値のあいだはポーリングを続ける
+（`WAIT_FE_*`と同じ、ビット条件が成立するまで単純に回すスタイル）。
 
 ## プリミティブ1回ごとにディスパッチャへ戻る（第9版で修正）
 
@@ -120,7 +130,9 @@ RECVへ切り替えることがある**——sub側が「一度RECVに入った�
 次の処理（シーク・読み出し・応答準備、または応答フェーズの終了）を
 行うが、**次に何をするか（RECVを続けるかSENDに切り替わるか）は
 毎回`IDLE_DISPATCH`が`$FE`を読んで決める**。アイドル判別条件
-そのもの（`0x02`が未確定であること）は変えていない。
+そのもの（`bit1=1`＝SEND分岐が未確定であること）は変えていない
+（第10版で判定方式をビット判定に揃えたのみ、上の「アイドル判別」節
+参照）。
 
 ## $FA/$FB のポート番号について
 
@@ -151,26 +163,42 @@ PIOハードウェアの仕事であって sub 側コードが関与しない。
 `IN $FE` で相手の状態を読み、仕様書 1.15節の遷移表に記載された
 **到達値**（矢印の右側・`⇄`の右側の値）に達するまで待つ。
 
-具体的な待ちと目標値（1.15節の表をそのまま転記。矢印/`⇄`の右側の値を
-「到達したら抜ける」目標値として採用した——これは値そのものを変えない
-範囲でのポーリングコードの書き方の選択であり、5.1節「内部実装は自由」
-の範囲内である）:
+## $FE 待ちのビット判定（第10版で全面改訂。仕様書1.19節・3節・6節15項）
 
-| sub の待ち | 仕様書の遷移 | 目標値 |
-|---|---|---|
-| RECVプリミティブ・手順2（相手のデータ準備待ち） | `20→21` / `28→21` | `0x21` |
-| RECVプリミティブ・手順6（相手の受理解除待ち） | `41→40` | `0x40` |
-| SENDプリミティブ・手順1（相手の受信準備待ち） | `00→02` | `0x02` |
-| SENDプリミティブ・手順4（相手の受理確認待ち） | `12⇄14` | `0x14` |
+**第9版までの実装は「到達値との完全一致（`CP`命令）」でループを
+抜けていたが、これは実際に観測された範囲の値でしか正しく動かない。**
+混成ROM実走で main が `IN $FE pc=37DC`（1.13節「SEND前」）で
+1,041,413回、sub が `IN $FE pc=00CC`（1.17節「アイドル待ち」）で
+1,048,477回スピンしてデッドロックした。仕様書1.19節
+（`docs/notes/m6m-fe-bit-analysis.md`）は、既存ログの再解析
+（追加測定なし）により、これらの待ちが**単一ビットのテストで説明できる**
+ことを確定した——「意味を持つビットの隣で別のビットが動いている」ため、
+完全一致判定は観測されなかった値の組み合わせを取りこぼす。
+
+具体的な待ちとビット（1.19節の表をそのまま転記。`AND`命令でビットを
+取り出し、`Z`フラグでループを続けるか判定する）:
+
+| sub の待ち | 仕様書の遷移 | 効いているビット | 例外 |
+|---|---|---|---|
+| RECVプリミティブ・手順2（相手のデータ準備待ち） | `20→21` / `28→21` | `bit0=1` | 0件(4条件) |
+| RECVプリミティブ・手順6（相手の受理解除待ち） | `41→40` | `bit0=0` | 0件(4条件) |
+| SENDプリミティブ・手順1（相手の受信準備待ち） | `00→02` | `bit1=1` | 0件(4条件) |
+| SENDプリミティブ・手順4（相手の受理確認待ち） | `12⇄14` | `bit2=1`（`bit1=0`も同格） | 0件(4条件) |
 
 SENDプリミティブ手順6（「`IN $FE` でステータス相当を読む（スピン）」）は
-仕様書が「次に続く手順により抜け値が変わる境界的な待ち」と明記して
-おり（1.15節・3節、未確定のまま残されている）、確定した目標値が無い。
-**推測でループ条件を作らない**という規律に従い、ここは単発の
-`IN $FE` 読み捨て（ブロックしない）とする。main視点のSENDプリミティブ
-（1.10節）でも対応する最終手順は「`IN $FE`（結果ステータス）」と
-単発読みとして書かれており、待ちループとしては定義されていない
-ことと整合する。
+第9版までは「仕様書が境界的な待ちと明記しており確定した目標値が無い」
+として単発読み捨て（ブロックしない）にしていた。仕様書1.19節が
+定常状態の同型サイトを再解析した結果、**待ちの終了条件自体は
+`bit2=0`で単一ビット説明できる**ことが確定した（従来「単一の固定値
+読みではない」としていた記述の訂正——待ちの終了条件と、終了後の
+分岐先を決める値の2つの異なる情報が1バイトに同居していたための
+混同だった）。本版ではここも`bit2=0`へのビット待ちに変更する。
+終了後に何を返すか（結果値のbit1/bit3による後続分岐）はここでは
+使わない——呼び出し元（`IDLE_DISPATCH`）が改めて`$FE`を読んで
+決めるため、待ちを終えた時点の値そのものは捨ててよい。
+
+アイドル判別（`IDLE_DISPATCH`）のビット判定への置き換えは、上の
+「アイドル判別」節（第8版で追加、第10版で更新）を参照。
 """
 
 import argparse
@@ -208,15 +236,26 @@ PH_RECV_START_CLR = 0x0A
 PH_RECV_ACK_SET   = 0x0D
 PH_RECV_ACK_CLR   = 0x0C
 
-# ---- sub視点の $FE 待ち目標値（仕様書1.15節。上のdocstring表と同じ） ----
-FE_RECV_DATA_READY = 0x21   # RECVプリミティブ手順2（20→21 / 28→21）
-FE_RECV_ACK_DONE    = 0x40  # RECVプリミティブ手順6（41→40）
-FE_SEND_RECV_READY  = 0x02  # SENDプリミティブ手順1（00→02）
-FE_SEND_ACK_DONE     = 0x14  # SENDプリミティブ手順4（12⇄14。到達値を目標に採用）
+# ---- sub視点の $FE 待ちビットマスク（第10版。仕様書1.19節・
+#      docstring「$FE 待ちのビット判定」参照。完全一致(CP)からビット
+#      判定(AND)へ置き換えた。マスクは「テストするビット」、
+#      *_WANT_SET は「そのビットが1になったら抜けるか(True)/
+#      0になったら抜けるか(False)」）----
+FE_BIT_RECV_DATA_READY = 0x01   # bit0=1: RECVプリミティブ手順2(20→21 / 28→21)。0例外
+FE_RECV_DATA_READY_WANT_SET = True
+FE_BIT_RECV_ACK_DONE   = 0x01   # bit0=0: RECVプリミティブ手順6(41→40)。0例外
+FE_RECV_ACK_DONE_WANT_SET = False
+FE_BIT_SEND_RECV_READY = 0x02   # bit1=1: SENDプリミティブ手順1(00→02)。0例外
+FE_SEND_RECV_READY_WANT_SET = True
+FE_BIT_SEND_ACK_DONE   = 0x04   # bit2=1: SENDプリミティブ手順4(12⇄14。bit1=0も同格だがbit2採用)。0例外
+FE_SEND_ACK_DONE_WANT_SET = True
+FE_BIT_SEND_STATUS_CLEAR = 0x04  # bit2=0: SENDプリミティブ手順6(「境界的な待ち」)。定常サイトで0例外
+FE_SEND_STATUS_CLEAR_WANT_SET = False
 
-# ---- アイドル判別（上のdocstring「アイドル判別」節を参照。第8版で追加） ----
-FE_IDLE_TO_RECV = 0x08   # 確定: 1.17節「アイドル待ち(pc=00CC)」の到達値(4条件252件で例外なし)
-FE_IDLE_TO_SEND = FE_SEND_RECV_READY  # 未確定: SENDプリミティブ手順1の到達値からの類推(裏付け無し)
+# ---- アイドル判別（上のdocstring「アイドル判別のビット化」節を参照。
+#      第8版で追加、第10版でビット判定へ置き換え） ----
+FE_BIT_IDLE_RECV = 0x08   # 確定: bit3=1。1.17節「アイドル待ち(pc=00CC)」の到達条件(4条件252件で例外なし)
+FE_BIT_IDLE_SEND = FE_BIT_SEND_RECV_READY  # 未確定: bit1=1。SENDプリミティブ手順1と同じビットからの類推(pc=00CC自体では裏付け無し)
 
 # --------------------------------------------------------------------------
 # ごく小さな Z80 アセンブラ（src/l1_ipl/make_ipl_rom.py の Asm を踏襲）
@@ -383,30 +422,37 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     # の最大の変更点。
     # ====================================================================
 
-    # ---- IN $FE をポーリングし、指定の目標値に達するまで待つ ----
-    for name, target in (
-        ("WAIT_FE_RECV_DATA_READY", FE_RECV_DATA_READY),
-        ("WAIT_FE_RECV_ACK_DONE",   FE_RECV_ACK_DONE),
-        ("WAIT_FE_SEND_RECV_READY", FE_SEND_RECV_READY),
-        ("WAIT_FE_SEND_ACK_DONE",   FE_SEND_ACK_DONE),
+    # ---- IN $FE をポーリングし、指定のビットが確定条件を満たすまで待つ
+    #      （第10版。仕様書1.19節。完全一致(CP)からビット判定(AND)へ
+    #      置き換えた。want_set=Trueならビットが1になるまで、Falseなら
+    #      0になるまでループする） ----
+    for name, mask, want_set in (
+        ("WAIT_FE_RECV_DATA_READY",   FE_BIT_RECV_DATA_READY,   FE_RECV_DATA_READY_WANT_SET),
+        ("WAIT_FE_RECV_ACK_DONE",     FE_BIT_RECV_ACK_DONE,     FE_RECV_ACK_DONE_WANT_SET),
+        ("WAIT_FE_SEND_RECV_READY",   FE_BIT_SEND_RECV_READY,   FE_SEND_RECV_READY_WANT_SET),
+        ("WAIT_FE_SEND_ACK_DONE",     FE_BIT_SEND_ACK_DONE,     FE_SEND_ACK_DONE_WANT_SET),
+        ("WAIT_FE_SEND_STATUS_CLEAR", FE_BIT_SEND_STATUS_CLEAR, FE_SEND_STATUS_CLEAR_WANT_SET),
     ):
         a.label(name)
         a.label(name + "_LOOP")
         a.in_port(P_PIO_C)
-        a.cp_n(target)
-        a.jr_nz(name + "_LOOP")
+        a.and_a(mask)
+        if want_set:
+            a.jr_z(name + "_LOOP")    # ビットがまだ0ならループ続行
+        else:
+            a.jr_nz(name + "_LOOP")   # ビットがまだ1ならループ続行
         a.ret()
 
     # ---- RECV_BYTE: main の SEND を受け取る。結果は A ----
     # 仕様書1.15節「sub視点のRECVプリミティブ」の手順1〜7をそのまま。
     a.label("RECV_BYTE")
     a.out_imm(0xFF, PH_RECV_START_SET)      # 手順1: OUT $FF,0x0B
-    a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(→0x21)
+    a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(bit0=1)
     a.out_imm(0xFF, PH_RECV_START_CLR)      # 手順3: OUT $FF,0x0A
     a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）
     a.push_af()
     a.out_imm(0xFF, PH_RECV_ACK_SET)        # 手順5: OUT $FF,0x0D
-    a.call("WAIT_FE_RECV_ACK_DONE")         # 手順6: 相手の受理解除待ち(→0x40)
+    a.call("WAIT_FE_RECV_ACK_DONE")         # 手順6: 相手の受理解除待ち(bit0=0)
     a.out_imm(0xFF, PH_RECV_ACK_CLR)        # 手順7: OUT $FF,0x0C
     a.pop_af()
     a.ret()
@@ -417,19 +463,19 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     # ここでは書かない。
     a.label("SEND_BYTE")
     a.push_af()
-    a.call("WAIT_FE_SEND_RECV_READY")       # 手順1: 相手の受信準備待ち(→0x02)
+    a.call("WAIT_FE_SEND_RECV_READY")       # 手順1: 相手の受信準備待ち(bit1=1)
     a.pop_af()
     a.out_a(P_PIO_B)                        # 手順2: OUT $FD（main IN $FCと対応）
     a.out_imm(0xFF, PH_SEND_DATA_SET)       # 手順3: OUT $FF,0x09
-    a.call("WAIT_FE_SEND_ACK_DONE")         # 手順4: 相手の受理確認待ち(→0x14)
+    a.call("WAIT_FE_SEND_ACK_DONE")         # 手順4: 相手の受理確認待ち(bit2=1)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)       # 手順5: OUT $FF,0x08
-    a.in_port(P_PIO_C)                      # 手順6: ステータス相当を単発で読み捨てる
-    # ↑ 仕様書は手順6を「次に続く手順により抜け値が変わる境界的な待ち」
-    # と明記し、確定した目標値を示していない（3節）。推測でループ条件を
-    # 作らないため、ここではブロックしない単発読みに留める。main視点の
-    # SENDプリミティブ（1.10節）でも対応する最終手順は単発の
-    # 「IN $FE（結果ステータス）」であり、待ちループとしては定義されて
-    # いないことと矛盾しない。
+    a.call("WAIT_FE_SEND_STATUS_CLEAR")     # 手順6: ビット判定へ変更(第10版、bit2=0)
+    # ↑ 第9版までは「境界的な待ち」として単発読み捨てだった。仕様書1.19節
+    # （定常サイトの再解析）により、待ちの終了条件自体はbit2=0で単一ビット
+    # 説明できることが確定した——1.15節の「単一の固定値読みではない」と
+    # いう記述はこの点を訂正する。終了後に何を返すか（結果値のbit1/bit3
+    # による後続分岐）はここでは使わない。呼び出し元(IDLE_DISPATCH)が
+    # 改めて$FEを読んで次の動作を決めるため、読み捨ててよい。
     a.ret()
 
     # ====================================================================
@@ -582,10 +628,12 @@ def build_subrom(break_response=False, break_dispatch_return=False):
 
         a.label("IDLE_DISPATCH")
         a.in_port(P_PIO_C)
-        a.cp_n(FE_IDLE_TO_SEND)
-        a.jr_z("IDLE_SEND_BRANCH")
-        a.cp_n(FE_IDLE_TO_RECV)
-        a.jr_z("REQ_HEADER_RECV")
+        a.ld_b_a()                       # 元の値をBに退避(AND破壊対策)
+        a.and_a(FE_BIT_IDLE_RECV)        # bit3=1なら確定済みのRECV分岐(第10版)
+        a.jr_nz("REQ_HEADER_RECV")
+        a.ld_a_b()
+        a.and_a(FE_BIT_IDLE_SEND)        # bit1=1なら未確定のSEND分岐(判定方式のみビット化)
+        a.jr_nz("IDLE_SEND_BRANCH")
         a.jr("IDLE_DISPATCH")
 
         a.label("IDLE_SEND_BRANCH")
@@ -656,16 +704,19 @@ def build_subrom(break_response=False, break_dispatch_return=False):
 
     # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
     # $FF へ何も書かずに $FE を読み、どちらの側かが確定するまで待つ。
-    # 0x08 は確定済みの観測値（1.17節「アイドル待ち」）、0x02 は
-    # 1.15節SEND手順1の到達値からの類推であり未確定（docstring参照）。
+    # bit3=1 は確定済みの条件（1.17・1.19節「アイドル待ち」）、bit1=1 は
+    # 1.15節SEND手順1と同じビットからの類推であり未確定（docstring参照）。
+    # 第10版で完全一致(CP)からビット判定(AND)へ置き換えた。
     # どのプリミティブ(RECV_DISPATCH/SEND_DISPATCH)を1回終えても、
     # 必ずここへ戻ってくる——次に何をするかは毎回ここが決める。
     a.label("IDLE_DISPATCH")
     a.in_port(P_PIO_C)
-    a.cp_n(FE_IDLE_TO_SEND)
-    a.jr_z("SEND_DISPATCH")
-    a.cp_n(FE_IDLE_TO_RECV)
-    a.jr_z("RECV_DISPATCH")
+    a.ld_b_a()                       # 元の値をBに退避(AND破壊対策)
+    a.and_a(FE_BIT_IDLE_RECV)        # bit3=1なら確定済みのRECV分岐
+    a.jr_nz("RECV_DISPATCH")
+    a.ld_a_b()
+    a.and_a(FE_BIT_IDLE_SEND)        # bit1=1なら未確定のSEND分岐(判定方式のみビット化)
+    a.jr_nz("SEND_DISPATCH")
     a.jr("IDLE_DISPATCH")
 
     # ---- RECV_DISPATCH: RECVを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
