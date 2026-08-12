@@ -1240,7 +1240,21 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
     a.ld_mem_a(RUN_LEN)
-    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
+    # ---- ここにあった`a.ld_e(0x00); a.call("FDC_RECALIBRATE")`(ドライブ0)は
+    #      第20版で削除した。由来: 最初の実装(2491385)時点ではBOOT_HANDSHAKE
+    #      に起動時FDC初期化が無く、ここがFDC初期化の唯一の箇所だった。
+    #      その後1.22節（第16〜19版、batch1〜7）でBOOT_HANDSHAKE側に
+    #      起動時FDC初期化区間[event 15,112)を実装したが、この古い呼び出しは
+    #      消し忘れて残っていた。1.22節はこの区間がbatch1〜7（RECALIBRATE
+    #      ドライブ0×2＋ドライブ1×2＋ドライブ2×1・SEEKドライブ0/1×1ずつ）で
+    #      尽きること、区間終了直後は1.17節のアイドル待ち（$FE/$FF
+    #      ハンドシェイク）へ遷移することを確定させており、MAIN_LOOP入口での
+    #      追加RECALIBRATEは仕様上不要。混成ROM実走診断（19:23版）でも、
+    #      基準側は分岐点93(IN $FB, batch7のSENSE INT完了)の直後の分岐点94で
+    #      IN $FEへ進むのに対し、この行が残っていた混成subは分岐点94で
+    #      IN $FA（FDC_RECALIBRATEのMSRポーリング開始）を出し、以降
+    #      OUT $FB×3（RECALIBRATEコマンド2バイト+SENSE INTERRUPT STATUS
+    #      コマンド1バイト）を続けて基準から外れていた。基準に合わせて削除。
 
     # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
     # $FF へ何も書かずに $FE を読み、どちらの側かが確定するまで待つ。
