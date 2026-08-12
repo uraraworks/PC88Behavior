@@ -286,22 +286,19 @@ python3 "$CHECK" "$WORK/sense_int_broken.iolog.txt" --requests "$REQUESTS" \
     >"$WORK/sense_int_broken.check.txt" 2>&1 || true
 
 # 正直に書く: この版でも256バイト×3件の内容自体は一致し得る
-# （$WORK/sense_int_broken.check.txt を参照）。来ないはずの2バイト目を
-# FDC_IN_timeoutが黙って諦めて代わりに読む先はFDCがコマンド受付待ち
-# （WAITフェーズ）に戻った直後のIN $FBであり、この状態でのIN $FBは
-# vendor/quasi88-libretro/src/pc88sub.c 経由でFDCの内部コマンドキューを
-# 消費しない読み取り専用アクセスなので、後続のRECALIBRATE/SEEK/READが
-# 壊れずに続行できてしまう（＝実害は「タイムアウト1回ぶんの遅延」に
-# 収まる）。したがって check_l3_response.py の一致判定はこのバグの
-# 検出力を持たない——検出できるのはタイムアウトマーカーの有無であり、
-# それを次で確認する。
+# （$WORK/sense_int_broken.check.txt を参照）。
+#
+# 第12版の追記: 上のsense_int_brokenは--break-sense-int-result-countのみ
+# （FDC_IN自体は本版の修正済み実装のまま）で生成している。本版のFDC_IN
+# は、待つ前に「RQM=1かつDIO=0（μPD765/8272データシートの規定で、結果
+# フェーズが終わりコマンドフェーズへ戻った状態）」を検出すると、
+# タイムアウトの65,535回はおろかFDC_WAIT_TIMEOUT回のポーリングすら
+# 待たずに即座に中断する。したがって来ないはずの2バイト目を待つこの
+# シナリオでは、$F9（タイムアウトマーカー）はもはや**一度も**現れない
+# ——これは退行ではなく、本版のDIO判定がタイムアウトより先に効いている
+# ことの証拠である。下で確認する。
 
-say "FDCステータス待ちタイムアウトが記録されるか（サイレントに握り潰さないことの確認）"
-# $F9 は FDC_TIMEOUT_MARK が到達したことを示すためだけの未デコードポート
-# （make_subrom.py のP_FDC_TIMEOUT_MARKのdocstring参照）。無限スピンする
-# はずだった旧実装の版でだけ、subのイベント列にこのポートへのOUTが
-# 現れることを確認する。正常な新実装の版では一度も現れないはずである。
-# これが「--break-sense-int-result-count」の検出力そのものである。
+say "SENSE INTERRUPT STATUSの結果バイト数バグ単体では、タイムアウトを待たずにDIO判定で即座に中断するか"
 sense_int_ok_timeouts="$(awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && $5=="OUT" && $6=="00F9"' "$WORK/sense_int_ok.iolog.txt" | wc -l | tr -d ' ')"
 sense_int_broken_timeouts="$(awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && $5=="OUT" && $6=="00F9"' "$WORK/sense_int_broken.iolog.txt" | wc -l | tr -d ' ')"
 if [ "$sense_int_ok_timeouts" = "0" ]; then
@@ -310,10 +307,74 @@ else
   ng "修正後の実装でもFDCステータス待ちタイムアウトが $sense_int_ok_timeouts 件発生した"
   overall_rc=1
 fi
-if [ "$sense_int_broken_timeouts" != "0" ]; then
-  ok "修正前相当の版ではFDCステータス待ちタイムアウトが $sense_int_broken_timeouts 件記録された（サイレントに握り潰していない）"
+if [ "$sense_int_broken_timeouts" = "0" ]; then
+  ok "結果バイト数バグ単体でもDIO判定が先に効き、タイムアウトが1件も記録されなかった（想定どおり）"
 else
-  ng "修正前相当の版なのにFDCステータス待ちタイムアウトが1件も記録されなかった（想定と異なる）"
+  ng "結果バイト数バグ単体なのにFDCステータス待ちタイムアウトが $sense_int_broken_timeouts 件記録された（DIO判定が効いていない）"
+  overall_rc=1
+fi
+
+# --------------------------------------------------------------------
+# 8. タイムアウト時・DIO不一致検出時に読み書きしない（第12版）
+# --------------------------------------------------------------------
+# 背景: ユーザーが2026-08-12に公式環境の混成ROM実走で報告した症状
+# （commit ce3bd5b時点）は、「IN $FAを65,535回ポーリング→タイムアウト
+# して$F9を記録→タイムアウトしたのにそのままIN $FBを読む」という3つ組が
+# 15回繰り返され、測定イベント上限を食い潰すというものだった。
+# 原因はFDC_IN/FDC_OUTの構造そのもの（タイムアウト分岐と正常分岐が
+# 同じ着地点に合流しており、タイムアウト後も無条件で$FBに触れていた）
+# にあった。上のセクション7で見たとおり、通常このバグはDIO判定で
+# タイムアウトより先に検出されてしまうため、「本当にタイムアウトが
+# 発生し、なおかつタイムアウト後に読んでしまう」旧構造そのものを
+# 再現するには --break-fdc-timeout-reads-anyway でDIO判定自体を
+# 無効化する必要がある。
+say "検出力の確認: 旧構造（--break-fdc-timeout-reads-anyway）はタイムアウト後もIN \$FB を読んでしまうか"
+mkdir -p "$WORK/rom_fdc_timeout_broken"
+python3 "$GEN_SUB" "$WORK/rom_fdc_timeout_broken" \
+    --inject-spurious-sense-int --break-sense-int-result-count \
+    --break-fdc-timeout-reads-anyway || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_fdc_timeout_broken" --requests "$REQUESTS" || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_fdc_timeout_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/fdc_timeout_broken.iolog.txt" \
+    >"$WORK/fdc_timeout_broken.stdout.txt" 2>"$WORK/fdc_timeout_broken.stderr.txt"
+
+# 「OUT $F9の直後にIN $FBが来る」パターン(=タイムアウトしたのにそのまま
+# 読む旧構造の指紋)がsubのイベント列に現れるかを確認する。
+fdc_timeout_broken_spurious="$(awk '
+  /^# sub$/{f=1;next} /^# main$/{f=0}
+  f {
+    if (prev5=="OUT" && prev6=="00F9" && $5=="IN" && $6=="00FB") c++
+    prev5=$5; prev6=$6
+  }
+  END{print c+0}
+' "$WORK/fdc_timeout_broken.iolog.txt")"
+fdc_timeout_broken_marks="$(awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && $5=="OUT" && $6=="00F9"' "$WORK/fdc_timeout_broken.iolog.txt" | wc -l | tr -d ' ')"
+if [ "$fdc_timeout_broken_marks" != "0" ] && [ "$fdc_timeout_broken_spurious" != "0" ]; then
+  ok "旧構造では実際にタイムアウトが発生し($fdc_timeout_broken_marks 件)、直後に \$FB を読んでいた($fdc_timeout_broken_spurious 件)——検出力を確認した"
+else
+  ng "旧構造の再現版でタイムアウト後の読み取りパターンを検出できなかった(marks=$fdc_timeout_broken_marks spurious=$fdc_timeout_broken_spurious)"
+  overall_rc=1
+fi
+
+say "修正後の実装は、同じ強制シナリオでもタイムアウト後に \$FB を読まないか"
+# rom_sense_int_broken（--inject-spurious-sense-int --break-sense-int-result-count
+# のみ、本版のFDC_IN）は上のセクション7で確認したとおりタイムアウト自体が
+# 発生しないので、ここでは「タイムアウト直後のIN $FB」パターンが0件で
+# あることを、そのログ上で確認する（本版はタイムアウトを待たずに中断
+# する分、なおのこと$FBを読まない）。
+sense_int_broken_spurious="$(awk '
+  /^# sub$/{f=1;next} /^# main$/{f=0}
+  f {
+    if (prev5=="OUT" && prev6=="00F9" && $5=="IN" && $6=="00FB") c++
+    prev5=$5; prev6=$6
+  }
+  END{print c+0}
+' "$WORK/sense_int_broken.iolog.txt")"
+if [ "$sense_int_broken_spurious" = "0" ]; then
+  ok "修正後の実装では「タイムアウト直後にIN \$FB を読む」パターンが1件も現れなかった"
+else
+  ng "修正後の実装でも「タイムアウト直後にIN \$FB を読む」パターンが $sense_int_broken_spurious 件現れた"
   overall_rc=1
 fi
 

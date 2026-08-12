@@ -239,6 +239,52 @@ mainが`bit1=1`を待ってスピンしている場合があるため、武装�
 （直接再武装のケースは`$FE`/`$FF`を経由せず無条件に分岐する）とは
 異なる**自作subの暫定的な設計選択**であり、確定した判別条件では
 ない（仕様書1.20節・3節・6節16項）。
+
+## FDC結果/コマンドフェーズの終了判定とタイムアウト時の中止（第12版で修正）
+
+コミット`ce3bd5b`（SENSE INTERRUPT STATUSの結果バイト数修正＋FDCステータス
+待ちタイムアウト追加）を公式環境の混成ROMで実走したところ、mainの構造的
+一致プレフィックスは179件のまま前進せず、sub側は「`IN $FA`を65,535回
+ポーリング→タイムアウトして`OUT $F9`を記録→**タイムアウトしたのにそのまま
+`IN $FB`を読む**」という3つ組を15回繰り返して測定イベント上限を食い潰して
+いた。
+
+**原因は`FDC_IN`/`FDC_OUT`の構造そのものにあった。** 旧実装はタイムアウト
+時の分岐と正常時の分岐が同じ着地点（同じラベル）に合流しており、
+タイムアウトを記録した**直後に無条件で`IN $FB`（またはOUT）を実行して
+いた**。μPD765/8272データシートの規定では、結果フェーズのバイトを読める
+のは`RQM=1`かつ`DIO=1`（bit6、FDC→CPU方向）のときだけであり、最後の結果
+バイトを読み終えると`RQM=1`のまま`DIO`はCPU→FDC方向（0）に戻り、FDCは次の
+コマンドバイトを待つ状態（コマンドフェーズ）に入る。旧実装は`RQM`と`DIO`の
+両方を待ち条件には使っていたが、**待ちを諦めた後の分岐（タイムアウト
+処理）では読み書きをせずに中止する、という設計になっていなかった**。
+
+本版では次の3点を直す（すべてμPD765/8272データシートの規定のみを根拠とし、
+`vendor/quasi88-libretro/src/fdc.c`は参照していない。経緯は
+`docs/notes/fdc-datasheet-only-going-forward.md`）:
+
+1. **タイムアウト時は読み書きしない。** `FDC_IN`/`FDC_OUT`のタイムアウト
+   分岐と正常分岐を完全に分離し、タイムアウト側は`$FB`に一切触れずに戻る。
+2. **結果/データフェーズが待たずに終わっていた場合も同様に中止する。**
+   `FDC_IN`側で`RQM=1`かつ`DIO=0`を観測した場合（＝待つ前に既に
+   コマンドフェーズへ戻っている＝呼び出し側が期待したバイトはもう無い）、
+   `FDC_OUT`側で`RQM=1`かつ`DIO=1`を観測した場合（＝コマンドを受け付ける
+   状態ではなく結果データが溜まっている＝呼び出し側との食い違い）は、
+   タイムアウトを待たずに即座に中止する。
+3. **同一コマンド内でタイムアウト／中止が繰り返し発生しないようにする。**
+   RAM上に1バイトの中断フラグ（`FDC_ABORT`）を置き、FDCコマンド1つ分の
+   呼び出し列（`FDC_SPECIFY`・`FDC_SENSE_INT`・`FDC_RECALIBRATE`・
+   `FDC_SENSE_DRIVE_STATUS`・`FDC_SEEK`・`FDC_READ_SECTOR`の各入口）で
+   クリアする。一度中断すると、そのコマンドの残りの`FDC_IN`/`FDC_OUT`
+   呼び出しはポートに一切触れずに即座に戻る（ポーリングも記録も発生
+   しない）ため、1コマンドあたり実際にタイムアウトのポーリングが起こる
+   のは最大1回だけになる。タイムアウト回数自体も0xFFFFから
+   `FDC_WAIT_TIMEOUT`（下のdocstring参照）へ大幅に縮小した。
+
+いずれも仕様書に根拠のある値ではなく、この実装だけの判断であることを
+コード中のコメントに明記した。$F9への記録（診断用マーカー）は残すが、
+公式subには存在しないイベントなので適合テストに出すROMでは無効化できる
+オプション（`--disable-fdc-timeout-mark`）を追加した（既定は有効のまま）。
 """
 
 import argparse
@@ -436,6 +482,13 @@ REQ_HDR    = 0x4200    # 8バイトの要求ヘッダ（byte0..7）
 HDR_PTR     = 0x4300   # 2バイト: ヘッダ受信中の書き込み位置(REQ_HDR..REQ_HDR+8)
 RESP_PTR    = 0x4302   # 2バイト: 応答送信中の読み出し位置(SECTOR_BUF..SECTOR_BUF+256)
 RESP_ACTIVE = 0x4304   # 1バイト: 0=応答フェーズでない、非0=応答送信中
+# ---- 第12版で追加。FDC_IN/FDC_OUTが「タイムアウトした／待たずに相手が
+#      フェーズを終えていた」ことを検出したら1を立てる。同一FDCコマンド
+#      呼び出し列の残りのFDC_IN/FDC_OUTはこれを見て即座に戻り、ポートに
+#      触れない（上のモジュールdocstring「FDC結果/コマンドフェーズの
+#      終了判定とタイムアウト時の中止」節参照）。仕様書に根拠の無い、
+#      この実装だけの判断。 ----
+FDC_ABORT   = 0x4305   # 1バイト: 0=正常、非0=このFDCコマンドは中断済み
 
 ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x2000,...)）
 
@@ -443,7 +496,9 @@ ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x20
 def build_subrom(break_response=False, break_dispatch_return=False,
                   break_run_continuation=False,
                   inject_spurious_sense_int=False,
-                  break_sense_int_result_count=False):
+                  break_sense_int_result_count=False,
+                  break_fdc_timeout_reads_anyway=False,
+                  disable_fdc_timeout_mark=False):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -476,7 +531,19 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     break_sense_int_result_count: FDC_SENSE_INTを「ST0のInterrupt Code
     フィールドを見ずに常に2バイト読む」旧実装（本版で修正した挙動）に
     戻す。inject_spurious_sense_intと組み合わせ、この場合に無いはずの
-    2バイト目を待つ状態を作って検出力を確認するためだけに使う。"""
+    2バイト目を待つ状態を作って検出力を確認するためだけに使う。
+
+    break_fdc_timeout_reads_anyway: 第12版で修正したバグ（FDC_IN/FDC_OUT
+    がタイムアウトした後、あるいは待たずに相手が既にフェーズを終えて
+    いたことを検出した後も、そのまま$FBを読み書きしていた旧構造）を
+    意図的に再現するフラグ。tools/verify_l3.shの回帰テストが検出力を
+    持つことを確認するためだけに使う。既定（False）では新構造
+    （タイムアウト／中止時は一切ポートに触れない）を使う。
+
+    disable_fdc_timeout_mark: $F9（FDC_TIMEOUT_MARK）への書き込みを
+    無効化する。このポートは公式subには存在しない診断専用のイベントで
+    あり、適合テストに提出するROMでは立てるべきではない。既定（False）
+    では有効（$F9への記録を残す）のまま。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -617,63 +684,135 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # ---- FDCステータス待ちのタイムアウト回数。μPD765データシートには
     #      根拠が無い、この実装だけの判断（下のFDC_IN/FDC_OUTのdocstring
     #      参照）。0xFFFF回のポーリングでも実機を模す時間ではなく、単に
-    #      「有限回で必ず抜ける」ことだけを保証する値として選んだ。 ----
-    FDC_WAIT_TIMEOUT = 0xFFFF
+    #      「有限回で必ず抜ける」ことだけを保証する値として選んでいた
+    #      （前版）。第12版で0x0400へ大幅に縮小した。理由: 中断フラグ
+    #      （FDC_ABORT）の導入により、1つのFDCコマンド呼び出し列の中で
+    #      実際にポーリングしてタイムアウトし得るのは最大1回だけになった
+    #      （一度中断すると残りのFDC_IN/FDC_OUTは即座に戻り、ポートに
+    #      触れない）。したがって上限を小さくしても「タイムアウトが繰り
+    #      返し発生して測定イベント上限を食い潰す」問題は再発しない一方、
+    #      正常な待ち時間（実測上、数百回程度のポーリングで揃うことが
+    #      多い）を誤って打ち切らない余裕は残すため、0xFFFFより十分小さく
+    #      かつ0を大きく上回る値として選んだ。実機のタイミングを表す値
+    #      ではない。 ----
+    FDC_WAIT_TIMEOUT = 0x0400
 
     # ---- タイムアウト発生を記録するだけの補助ルーチン。
     #      仕様書のどこにも根拠が無い、実装上の判断（このファイルだけの
     #      追加。P_FDC_TIMEOUT_MARK のdocstring参照）。AFのみ使い、
-    #      呼び出し元のDE/HL/BCには触れない。 ----
+    #      呼び出し元のDE/HL/BCには触れない。
+    #      disable_fdc_timeout_mark=True の場合は $F9 への書き込みを
+    #      行わない（$F9は公式subに存在しない診断専用ポートであり、
+    #      適合テストへ提出するROMではこのイベント自体を出さない選択肢
+    #      を用意する）。 ----
     a.label("FDC_TIMEOUT_MARK")
+    if not disable_fdc_timeout_mark:
+        a.push_af()
+        a.out_imm(P_FDC_TIMEOUT_MARK, FDC_TIMEOUT_MARK_VALUE)
+        a.pop_af()
+    a.ret()
+
+    # ---- FDCコマンド1つ分の呼び出し列の先頭で FDC_ABORT をクリアする
+    #      補助ルーチン（第12版で追加）。FDC_SPECIFY/FDC_SENSE_INT/
+    #      FDC_RECALIBRATE/FDC_SENSE_DRIVE_STATUS/FDC_SEEK/
+    #      FDC_READ_SECTORの各入口で呼ぶ。呼ばないと、過去に別のFDC
+    #      コマンドで一度中断したフラグが残ったまま次のコマンドも
+    #      即座に中断扱いになってしまう。AFのみ使う。 ----
+    a.label("FDC_BEGIN")
     a.push_af()
-    a.out_imm(P_FDC_TIMEOUT_MARK, FDC_TIMEOUT_MARK_VALUE)
+    a.ld_a(0x00)
+    a.ld_mem_a(FDC_ABORT)
     a.pop_af()
     a.ret()
 
     # ---- FDC がホストへデータを渡す準備ができるまで待って IN する。
-    #      **タイムアウト（実装判断・仕様書に根拠なし）**: RQM=1かつ
-    #      DIO=1になるまで無条件に待ち続けると、想定外にFDCが結果フェーズ
-    #      のバイトを持っていない場合（例: SENSE INTERRUPT STATUSを
-    #      割り込み保留無しで呼んだ時のように、期待した結果バイト数より
-    #      少ないバイトしか無い場合）に無限スピンする。有限回で必ず抜け、
-    #      タイムアウトを記録した上でそのまま IN して返す（値は不定だが
-    #      「無限に止まる」よりは進める、という実装判断）。 ----
+    #      第12版で全面書き直し（上のモジュールdocstring「FDC結果/
+    #      コマンドフェーズの終了判定とタイムアウト時の中止」節参照）。
+    #      **中止条件（いずれもタイムアウトを待たず、$FBに一切触れずに
+    #      戻る）**:
+    #        - 既にこのFDCコマンド呼び出し列内で中断済み（FDC_ABORT≠0）
+    #        - μPD765/8272データシートの規定により、RQM=1かつDIO=0を
+    #          観測した場合。これは「相手が待たずに結果/データフェーズを
+    #          終えてコマンドフェーズへ戻った」ことを意味し、呼び出し側が
+    #          期待していたバイトはもう無い（例: SENSE INTERRUPT STATUSを
+    #          割り込み保留無しで呼んだ直後の2バイト目のように、期待した
+    #          結果バイト数より少ないバイトしか無い場合）
+    #        - FDC_WAIT_TIMEOUT回ポーリングしてもRQM=1にならない
+    #      （旧実装はタイムアウト分岐と正常分岐が同じ着地点に合流して
+    #      おり、タイムアウト後も無条件で$FBを読んでいた——これが
+    #      ce3bd5b実走で観測された「タイムアウト直後にIN $FBを読む」
+    #      挙動の原因） ----
     a.label("FDC_IN")
     a.push_de()
+    a.ld_a_mem(FDC_ABORT)
+    a.or_a()
+    a.jr_nz("_fdc_in_aborted")     # 既に中断済み: ポートに触れず戻る
     a.ld_de_imm(FDC_WAIT_TIMEOUT)
     a.label("_fdc_in_wait")
     a.in_port(P_FDC_STAT)
     a.and_a(RQM | DIO)
     a.cp_n(RQM | DIO)
-    a.jr_z("_fdc_in_ready")
+    a.jr_z("_fdc_in_ready")         # RQM=1,DIO=1: データレディ
+    if not break_fdc_timeout_reads_anyway:
+        a.cp_n(RQM)
+        a.jr_z("_fdc_in_abort")     # RQM=1,DIO=0: フェーズは既に終わっている
     a.dec_de()
     a.ld_a_d()
     a.or_e()
     a.jr_nz("_fdc_in_wait")
     a.call("FDC_TIMEOUT_MARK")
+    if break_fdc_timeout_reads_anyway:
+        # 検出力確認用（tools/verify_l3.sh用）。ce3bd5b時点の旧挙動を
+        # 再現する: タイムアウトしても中断せず、そのまま$FBを読みに行く。
+        a.jr("_fdc_in_ready")
+    a.label("_fdc_in_abort")
+    a.ld_a(0x01)
+    a.ld_mem_a(FDC_ABORT)
+    a.label("_fdc_in_aborted")
+    a.pop_de()
+    a.ret()
     a.label("_fdc_in_ready")
     a.pop_de()
     a.in_port(P_FDC_DATA)
     a.ret()
 
     # ---- ホストから FDC へ1バイト送る（コマンド/パラメータ共通）。
-    #      タイムアウトの考え方は FDC_IN と同じ（実装判断・仕様書に
-    #      根拠なし）。送ろうとしていた値(A)はPUSH済みなので、タイムアウト
-    #      後もその値をそのまま OUT する。 ----
+    #      第12版で全面書き直し。考え方はFDC_INと対称:
+    #        - 既に中断済みなら$FBに触れず戻る
+    #        - RQM=1かつDIO=1（μPD765/8272データシートの規定で、コマンド
+    #          バイトを受け付ける状態ではなく、読まれるべき結果データが
+    #          残っている状態）を観測したら、書き込まずに即座に中断する
+    #        - タイムアウトしたら書き込まずに中断する（旧実装は送ろうと
+    #          していた値をタイムアウト後もそのままOUTしていた） ----
     a.label("FDC_OUT")               # 引数: A = 送る値
     a.push_af()
     a.push_de()
+    a.ld_a_mem(FDC_ABORT)
+    a.or_a()
+    a.jr_nz("_fdc_out_aborted")
     a.ld_de_imm(FDC_WAIT_TIMEOUT)
     a.label("_fdc_out_wait")
     a.in_port(P_FDC_STAT)
     a.and_a(RQM | DIO)
     a.cp_n(RQM)
-    a.jr_z("_fdc_out_ready")
+    a.jr_z("_fdc_out_ready")        # RQM=1,DIO=0: コマンド/パラメータを受付可能
+    if not break_fdc_timeout_reads_anyway:
+        a.cp_n(RQM | DIO)
+        a.jr_z("_fdc_out_abort")    # RQM=1,DIO=1: 結果データが残っている食い違い
     a.dec_de()
     a.ld_a_d()
     a.or_e()
     a.jr_nz("_fdc_out_wait")
     a.call("FDC_TIMEOUT_MARK")
+    if break_fdc_timeout_reads_anyway:
+        a.jr("_fdc_out_ready")
+    a.label("_fdc_out_abort")
+    a.ld_a(0x01)
+    a.ld_mem_a(FDC_ABORT)
+    a.label("_fdc_out_aborted")
+    a.pop_de()
+    a.pop_af()
+    a.ret()
     a.label("_fdc_out_ready")
     a.pop_de()
     a.pop_af()
@@ -683,6 +822,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # ---- SPECIFY（起動時に1回。SRT/HUT/HLT の値は公開仕様のパラメータで、
     #      ROM由来ではない。タイミング固定値は自由に選べる） ----
     a.label("FDC_SPECIFY")
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x03); a.call("FDC_OUT")     # コマンド: SPECIFY
     a.ld_a(0xDF); a.call("FDC_OUT")     # SRT/HUT
     a.ld_a(0x02); a.call("FDC_OUT")     # HLT/ND
@@ -700,6 +840,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # r0のIC field(bit7-6)を確認し、Invalid Command(10xxxxxx)でなければ
     # （＝正常に割り込みを拾えた場合）だけ2バイト目を読む。 ----
     a.label("FDC_SENSE_INT")
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x08); a.call("FDC_OUT")
     a.call("FDC_IN")     # r0 = ST0
     if break_sense_int_result_count:
@@ -717,6 +858,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
 
     # ---- RECALIBRATE（ドライブ0をトラック0へ）----
     a.label("FDC_RECALIBRATE")
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x07); a.call("FDC_OUT")     # コマンド: RECALIBRATE
     a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
     a.call("FDC_SENSE_INT")
@@ -731,6 +873,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # に関わらず一意に定義された結果が返るため、他のFDCシーケンスの
     # 副作用を気にせず独立に呼べる。結果（ST3）はAレジスタに残す。
     a.label("FDC_SENSE_DRIVE_STATUS")
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x04); a.call("FDC_OUT")     # コマンド: SENSE DRIVE STATUS
     a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
     a.call("FDC_IN")                    # 結果フェーズ: ST3（1バイト、Aに残る）
@@ -739,6 +882,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # ---- SEEK（引数: A=目的シリンダ） ----
     a.label("FDC_SEEK")
     a.push_af()
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x0F); a.call("FDC_OUT")     # コマンド: SEEK
     a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
     a.pop_af();  a.call("FDC_OUT")      # 目的シリンダ
@@ -749,6 +893,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      引数: (REQ_C)=シリンダ, (REQ_R)=セクタ番号。
     #      結果は SECTOR_BUF の256バイトに入る。 ----
     a.label("FDC_READ_SECTOR")
+    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     # コマンド: READ DATA。MF(bit6)=1 必須——このハーネスの FDC は
     # sec_buf.density(セクタのID部の密度)と command.MF の一致を見る
     # （vendor src/fdc.c sector_density_mismatch()）。
@@ -996,12 +1141,16 @@ def build_subrom(break_response=False, break_dispatch_return=False,
 def build(break_response=False, break_dispatch_return=False,
           break_run_continuation=False,
           inject_spurious_sense_int=False,
-          break_sense_int_result_count=False):
+          break_sense_int_result_count=False,
+          break_fdc_timeout_reads_anyway=False,
+          disable_fdc_timeout_mark=False):
     a = build_subrom(break_response=break_response,
                       break_dispatch_return=break_dispatch_return,
                       break_run_continuation=break_run_continuation,
                       inject_spurious_sense_int=inject_spurious_sense_int,
-                      break_sense_int_result_count=break_sense_int_result_count)
+                      break_sense_int_result_count=break_sense_int_result_count,
+                      break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
+                      disable_fdc_timeout_mark=disable_fdc_timeout_mark)
     a.resolve()
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
@@ -1037,12 +1186,25 @@ def main():
                           "常に2バイト読む旧実装に戻す（tools/verify_l3.sh の"
                           "回帰テストの検出力確認用。--inject-spurious-sense-intと"
                           "組み合わせて使う）。")
+    ap.add_argument("--break-fdc-timeout-reads-anyway", action="store_true",
+                     help="第12版で修正したバグ（FDC_IN/FDC_OUTがタイムアウト、"
+                          "または待たずに相手がフェーズを終えていたことを検出した"
+                          "後も、そのまま$FBを読み書きしていた旧構造）をわざと"
+                          "再現するフラグ（tools/verify_l3.sh の回帰テストの"
+                          "検出力確認用）。")
+    ap.add_argument("--disable-fdc-timeout-mark", action="store_true",
+                     help="$F9（FDC_TIMEOUT_MARK、診断専用の未デコードポート。"
+                          "公式subには存在しない）への書き込みを無効化する。"
+                          "適合テストへ提出するROMではこのイベント自体を"
+                          "出したくない場合に使う。")
     args = ap.parse_args()
     rom, used = build(break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
                        break_run_continuation=args.break_run_continuation,
                        inject_spurious_sense_int=args.inject_spurious_sense_int,
-                       break_sense_int_result_count=args.break_sense_int_result_count)
+                       break_sense_int_result_count=args.break_sense_int_result_count,
+                       break_fdc_timeout_reads_anyway=args.break_fdc_timeout_reads_anyway,
+                       disable_fdc_timeout_mark=args.disable_fdc_timeout_mark)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
