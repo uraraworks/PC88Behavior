@@ -623,9 +623,10 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     再武装してbit0/bit1をポーリングする、上のモジュールdocstring
     「run境界の判別」節参照）を使う。
 
-    inject_spurious_sense_int: 起動直後・RECALIBRATE/SEEKを一度も発行
-    していない時点（＝FDC側に保留中の割り込みが1件も無いことが保証
-    できる時点）で SENSE INTERRUPT STATUS を1回よけいに呼ぶ。μPD765
+    inject_spurious_sense_int: 起動時FDC初期化（batch1・batch2）が
+    それぞれ自分のSENSE INTERRUPT STATUSで保留中の割り込みを使い切った
+    直後（＝FDC側に保留中の割り込みが1件も無いことが保証できる時点）で
+    SENSE INTERRUPT STATUS を1回よけいに呼ぶ。μPD765
     データシートの規定により、この状況では結果フェーズがST0(Invalid
     Command)の1バイトだけで終わり、通常の2バイト目（PCN）は来ない。
     tools/verify_l3.sh がこの状況を意図的に作り出し、FDC_SENSE_INTの
@@ -802,25 +803,40 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
-    # ---- 仕様書1.22節（第16版）で確定した起動時FDC初期化batch1
-    #      （SPECIFY+RECALIBRATE+SENSE INTERRUPT STATUS、write=6バイト・
-    #      read=2バイト）を再現する。FDC_RECALIBRATEは内部で
+    # ---- 仕様書1.22節（第16版・第17版）で確定した起動時FDC初期化の
+    #      batch1・batch2（ドライブ0向け）を再現する。
+    #      batch1: SPECIFY+RECALIBRATE+SENSE INTERRUPT STATUS
+    #      （write=6バイト・read=2バイト）。FDC_RECALIBRATEは内部で
     #      FDC_SENSE_INTまで呼ぶ既存ルーチン。直後の単発`OUT $F8,0x07`は
     #      1.22節で確認した「三つ組みの1バイト目のみ、$F7/IN $F8を
     #      伴わない簡略形」をそのまま再現する（1.21節のFDC_TC
     #      サブルーチンは使わない——あちらは`OUT $F7`/`IN $F8`まで
     #      含む完全な三つ組み用）。
-    #      batch2以降（1.22節、SPECIFYかSEEKかが未確定）は実装しない。
-    #      未確定のコマンドを飛ばして後続だけ実装すると実際の並びと
-    #      異なる推測実装になるため、ここで止める（仕様書3節・6節22項）。
     a.call("FDC_RECALIBRATE")
     a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（$F7/IN $F8は伴わない）
+    #      batch2: SEEK+SENSE INTERRUPT STATUS（write=4バイト・
+    #      read=2バイト）。第17版（`docs/notes/m6r-specify-vs-seek.md`）
+    #      でSPECIFYではなくSEEKと確定した——MSR($FA)のSeek Busyビット
+    #      （対照群RECALIBRATE=batch3/4/6/7で先に妥当性確認済み）が、
+    #      batch2の最終コマンドバイト送信後にドライブ0分立っており、
+    #      SPECIFYは決してこのビットを立てないため。
+    #      目標シリンダは`0x00`固定（任意値でよい）: 同ノート5節の
+    #      とおり、この結果はmainへ渡らずsub内部で消費され、かつ直後の
+    #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
+    #      上書きされるため、値は区間の最終観測可能状態に影響しない
+    #      （batch3自体は未実装。ドライブ1・2向けのbatch4以降を含め、
+    #      現行の`FDC_RECALIBRATE`/`FDC_SEEK`がドライブ番号引数を
+    #      取らないため——別スコープの変更が要る。仕様書3節・6節22項）。
+    a.ld_a(0x00); a.call("FDC_SEEK")
+    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（batch2直後、1.22節）
     if inject_spurious_sense_int:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
-        # RECALIBRATE/SEEKをまだ一度も発行していないこの時点では、FDC側に
-        # 保留中の割り込みは1件も無いことが構造上保証できる。ここで
-        # SENSE INTERRUPT STATUSを呼ぶと、μPD765データシートの規定により
-        # 結果フェーズはST0(Invalid Command)の1バイトのみで終わる。
+        # batch1（RECALIBRATE）・batch2（SEEK）はどちらも内部で
+        # FDC_SENSE_INTまで呼び、その時点で保留中だった割り込みを
+        # 使い切っている。この時点では、FDC側に保留中の割り込みは1件も
+        # 無いことが構造上保証できる。ここでさらにSENSE INTERRUPT
+        # STATUSを呼ぶと、μPD765データシートの規定により結果フェーズは
+        # ST0(Invalid Command)の1バイトのみで終わる。
         a.call("FDC_SENSE_INT")
     a.jp("MAIN_LOOP")
 
