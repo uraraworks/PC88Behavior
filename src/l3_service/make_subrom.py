@@ -82,10 +82,40 @@ subが先に「RECVする（＝mainが送る番だと決め打つ）」と宣言
 `0x02`に達したら`SEND_BYTE`を1回呼んで`IDLE_DISPATCH`へ戻る
 （送るバイトの値は`0x00`固定。**値の正しさは目標ではない**——
 このバイトの意味論は未確定であり、正しい値を推測して埋めることは
-しない。目的はデッドロックの回避のみ）。`0x08`に達したら従来どおり
-8バイトヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。どちらでもない
+しない。目的はデッドロックの回避のみ）。`0x08`に達したら8バイト
+ヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。どちらでもない
 中間値のあいだはポーリングを続ける（`WAIT_FE_*`と同じ、目標値に
 達するまで単純に回すスタイル）。
+
+## プリミティブ1回ごとにディスパッチャへ戻る（第9版で修正）
+
+**第8版の実装には別のバグがあった。** `IDLE_DISPATCH`は導入したものの、
+`REQ_HEADER_RECV`（8バイトヘッダ受信）と応答送信（256バイト）を
+それぞれ「一塊」として実装し、塊の**途中**では`IDLE_DISPATCH`に戻らず
+`RECV_BYTE`/`SEND_BYTE`を機械的に8回・256回連続で呼んでいた。
+
+ユーザーが2026-08-12に報告した公式環境での混成ROM実走で、これが
+デッドロックを起こすことが分かった。sub側のイベント列（畳み込み後）は、
+起動時RECV1回のあとIDLE_DISPATCHが1回だけ働いて8バイトヘッダ受信に
+入り、1バイト目のRECVは成立した（`IN $FC`でデータを受け取り
+`OUT $FF 0x0C`でRECVプリミティブの手順7まで完了）。ところが**その直後、
+`IDLE_DISPATCH`に戻らず**、`_hdr_loop`のDJNZがそのまま2バイト目の
+RECV開始（`OUT $FF 0x0B`）に落ち、そのまま`$FE`待ちで永久停止した。
+同じ時刻、公式mainは`OUT $FF`（1.10節main側RECVプリミティブの開始
+＝「subが送る番」）を出して`IN $FE`でスピンし、タイムアウトしていた。
+つまり**mainは8バイト連続で送るとは限らず、1バイトだけ送って
+RECVへ切り替えることがある**——sub側が「一度RECVに入ったら8バイト
+連続で来る」と決め打ちしていたこと自体が誤りだった。
+
+**確定している範囲だけで直す。** `REQ_HEADER_RECV`・応答送信を
+「塊」として実装するのをやめ、RAM上のポインタ（`HDR_PTR`・
+`RESP_PTR`・`RESP_ACTIVE`）で進行状態を持たせ、**`RECV_BYTE`/
+`SEND_BYTE`を1回呼ぶたびに必ず`IDLE_DISPATCH`へ戻る**構造にした。
+8バイト集まったら（あるいは256バイト送り終えたら）その場で
+次の処理（シーク・読み出し・応答準備、または応答フェーズの終了）を
+行うが、**次に何をするか（RECVを続けるかSENDに切り替わるか）は
+毎回`IDLE_DISPATCH`が`$FE`を読んで決める**。アイドル判別条件
+そのもの（`0x02`が未確定であること）は変えていない。
 
 ## $FA/$FB のポート番号について
 
@@ -255,6 +285,8 @@ class Asm:
     def pop_bc(self):     self.db(0xC1)
     def push_hl(self):    self.db(0xE5)
     def pop_hl(self):     self.db(0xE1)
+    def or_a(self):        self.db(0xB7)   # OR A（キャリーを0にするためだけに使う）
+    def sbc_hl_de(self):    self.db(0xED, 0x52)   # SBC HL,DE（ED 42はSBC HL,BC。取り違え注意）
 
     def ld_a(self, n):    self.db(0x3E, n)
     def ld_b(self, n):    self.db(0x06, n)
@@ -263,7 +295,12 @@ class Asm:
     def or_n(self, n):    self.db(0xF6, n)
     def cp_n(self, n):    self.db(0xFE, n)
     def ld_sp(self, nn):  self.db(0x31, nn & 0xFF, (nn >> 8) & 0xFF)
+    def ld_de_imm(self, nn): self.db(0x11, nn & 0xFF, (nn >> 8) & 0xFF)
     def ld_hl_imm(self, nn): self.db(0x21, nn & 0xFF, (nn >> 8) & 0xFF)
+    def ld_hl_mem(self, addr): self.db(0x2A, addr & 0xFF, (addr >> 8) & 0xFF)  # LD HL,(nn)
+    def ld_mem_hl(self, addr): self.db(0x22, addr & 0xFF, (addr >> 8) & 0xFF)  # LD (nn),HL
+    def ld_a_mem(self, addr):  self.db(0x3A, addr & 0xFF, (addr >> 8) & 0xFF)  # LD A,(nn)
+    def ld_mem_a(self, addr):  self.db(0x32, addr & 0xFF, (addr >> 8) & 0xFF)  # LD (nn),A
     def ld_hl(self, name):   self.db(0x21); self._abs(name)
     def call(self, name):    self.db(0xCD); self._abs(name)
     def jp(self, name):      self.db(0xC3); self._abs(name)
@@ -295,14 +332,27 @@ STACK      = 0x6000
 SECTOR_BUF = 0x4000    # 256バイトのセクタ読み出しバッファ
 REQ_HDR    = 0x4200    # 8バイトの要求ヘッダ（byte0..7）
 
+# ---- ディスパッチャの進行状態（第9版で追加。上のdocstring「プリミティブ
+#      1回ごとにディスパッチャへ戻る」参照）----
+HDR_PTR     = 0x4300   # 2バイト: ヘッダ受信中の書き込み位置(REQ_HDR..REQ_HDR+8)
+RESP_PTR    = 0x4302   # 2バイト: 応答送信中の読み出し位置(SECTOR_BUF..SECTOR_BUF+256)
+RESP_ACTIVE = 0x4304   # 1バイト: 0=応答フェーズでない、非0=応答送信中
+
 ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x2000,...)）
 
 
-def build_subrom(break_response=False):
+def build_subrom(break_response=False, break_dispatch_return=False):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
-    ROM由来ではなく、自作の応答データに対する自己テスト用の変更。"""
+    ROM由来ではなく、自作の応答データに対する自己テスト用の変更。
+
+    break_dispatch_return: 第9版で修正したバグ（RECV_BYTE/SEND_BYTEを
+    1回終えてもIDLE_DISPATCHへ戻らず、8バイトヘッダ・256バイト応答を
+    「一塊」として決め打ちしていた旧構造）を意図的に再現するフラグ。
+    tools/verify_l3.sh の回帰テストが検出力を持つことを確認するためだけ
+    に使う。既定（False）では新構造（プリミティブ1回ごとに
+    IDLE_DISPATCHへ戻る）を使う。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -498,6 +548,63 @@ def build_subrom(break_response=False):
         a.call("FDC_IN")
     a.ret()
 
+    if break_dispatch_return:
+        # ====================================================================
+        # 第9版で修正したバグをわざと再現する版（tools/verify_l3.sh の
+        # 回帰テストが検出力を持つことを確認するためだけに使う。上の
+        # build_subrom() docstring・第9版のモジュールdocstring参照）。
+        # RECV_BYTE/SEND_BYTEを1回終えてもIDLE_DISPATCHへ戻らず、
+        # 8バイトヘッダ・256バイト応答を「一塊」として決め打ちしていた
+        # 旧構造をそのまま復元する。
+        # ====================================================================
+        a.label("MAIN_LOOP")
+        a.call("FDC_RECALIBRATE")
+        a.label("REQ_LOOP")
+
+        a.label("IDLE_DISPATCH")
+        a.in_port(P_PIO_C)
+        a.cp_n(FE_IDLE_TO_SEND)
+        a.jr_z("IDLE_SEND_BRANCH")
+        a.cp_n(FE_IDLE_TO_RECV)
+        a.jr_z("REQ_HEADER_RECV")
+        a.jr("IDLE_DISPATCH")
+
+        a.label("IDLE_SEND_BRANCH")
+        a.ld_a(0x00)
+        a.call("SEND_BYTE")
+        a.jr("IDLE_DISPATCH")
+
+        a.label("REQ_HEADER_RECV")
+        a.ld_hl_imm(REQ_HDR)
+        a.ld_b(8)
+        a.label("_hdr_loop")
+        a.call("RECV_BYTE")
+        a.ld_hl_a()
+        a.inc_hl()
+        a.djnz("_hdr_loop")
+
+        a.ld_hl_imm(REQ_HDR + 3)
+        a.ld_a_hl()
+        a.call("FDC_SEEK")
+
+        a.call("FDC_READ_SECTOR")
+        if break_response:
+            a.ld_hl_imm(SECTOR_BUF)
+            a.ld_a_hl()
+            a.db(0xEE, 0x01)
+            a.ld_hl_a()
+        a.ld_hl_imm(SECTOR_BUF)
+        a.ld_b(0x00)
+        a.label("_resp_loop")
+        a.ld_a_hl()
+        a.call("SEND_BYTE")
+        a.inc_hl()
+        a.djnz("_resp_loop")
+
+        a.jr("REQ_LOOP")
+
+        return a
+
     # ====================================================================
     # メインループ（仕様書 1.11節: 固定8バイトヘッダの読み出し要求）
     #
@@ -507,47 +614,62 @@ def build_subrom(break_response=False):
     # 読み飛ばす——固定値チェックの有無は「mainが受け取るデータ列」
     # （適合条件、5.1節）に影響しないため、内部実装として単純な方を選ぶ。
     # byte3/byte4 をシリンダ・セクタとして扱う（独自解釈、6節6項）。
+    #
+    # 第9版で修正: 8バイトヘッダ受信・256バイト応答送信を「一塊」として
+    # 扱わない。RAM上の進行状態（HDR_PTR/RESP_PTR/RESP_ACTIVE）を使い、
+    # RECV_BYTE/SEND_BYTEを1回呼ぶたびに必ずIDLE_DISPATCHへ戻る
+    # （上のモジュールdocstring「プリミティブ1回ごとにディスパッチャへ
+    # 戻る」参照）。
     # ====================================================================
     a.label("MAIN_LOOP")
+    # 進行状態を初期化する（起動直後の1回だけ）
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_mem_hl(HDR_PTR)
+    a.ld_a(0x00)
+    a.ld_mem_a(RESP_ACTIVE)
     a.call("FDC_RECALIBRATE")
-    a.label("REQ_LOOP")
 
     # ---- アイドル判別（上のdocstring「アイドル判別」節を参照） ----
     # $FF へ何も書かずに $FE を読み、どちらの側かが確定するまで待つ。
     # 0x08 は確定済みの観測値（1.17節「アイドル待ち」）、0x02 は
     # 1.15節SEND手順1の到達値からの類推であり未確定（docstring参照）。
+    # どのプリミティブ(RECV_DISPATCH/SEND_DISPATCH)を1回終えても、
+    # 必ずここへ戻ってくる——次に何をするかは毎回ここが決める。
     a.label("IDLE_DISPATCH")
     a.in_port(P_PIO_C)
     a.cp_n(FE_IDLE_TO_SEND)
-    a.jr_z("IDLE_SEND_BRANCH")
+    a.jr_z("SEND_DISPATCH")
     a.cp_n(FE_IDLE_TO_RECV)
-    a.jr_z("REQ_HEADER_RECV")
+    a.jr_z("RECV_DISPATCH")
     a.jr("IDLE_DISPATCH")
 
-    a.label("IDLE_SEND_BRANCH")
-    # 未確定構造（docstring参照）: 送るバイトの値そのものは仕様書に
-    # 根拠が無いため 0x00 固定とする。値の正しさは目標ではない——
-    # デッドロックを起こさず SEND プリミティブへ応答することだけが目的。
-    a.ld_a(0x00)
-    a.call("SEND_BYTE")
-    a.jr("IDLE_DISPATCH")
-
-    a.label("REQ_HEADER_RECV")
-    # 8バイトのヘッダを RECV で受け取り、REQ_HDR に順に格納する
-    a.ld_hl_imm(REQ_HDR)
-    a.ld_b(8)
-    a.label("_hdr_loop")
-    a.call("RECV_BYTE")
-    a.ld_hl_a()
+    # ---- RECV_DISPATCH: RECVを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
+    #      HDR_PTRがREQ_HDR+8に達したら8バイト集まったということなので、
+    #      その場でシーク・読み出し・応答フェーズの準備を行う
+    #      （これも「決め打ちで次にSENDへ進む」のではなく、応答準備が
+    #      整うだけ——実際にSENDするかどうかは次回以降のIDLE_DISPATCHが
+    #      $FEを読んで決める）。 ----
+    a.label("RECV_DISPATCH")
+    a.call("RECV_BYTE")               # A = 受け取ったバイト
+    a.ld_hl_mem(HDR_PTR)
+    a.ld_hl_a()                       # (HDR_PTR位置) <- A
     a.inc_hl()
-    a.djnz("_hdr_loop")
+    a.ld_mem_hl(HDR_PTR)
+    a.ld_de_imm(REQ_HDR + 8)
+    a.or_a()
+    a.sbc_hl_de()                     # HDR_PTR(更新後) - (REQ_HDR+8)
+    a.jr_nz("IDLE_DISPATCH")          # まだ8バイト集まっていない
+
+    # 8バイト集まった: 次のヘッダ受信に備えてポインタを巻き戻す
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_mem_hl(HDR_PTR)
 
     # シリンダへシーク
     a.ld_hl_imm(REQ_HDR + 3)
     a.ld_a_hl()
     a.call("FDC_SEEK")
 
-    # セクタを読み出し、256バイトを SEND で送り返す
+    # セクタを読み出し、応答フェーズを開始する（実際のSENDは行わない）
     a.call("FDC_READ_SECTOR")
     if break_response:
         a.ld_hl_imm(SECTOR_BUF)
@@ -555,20 +677,50 @@ def build_subrom(break_response=False):
         a.db(0xEE, 0x01)          # XOR A,0x01（先頭1バイトを1ビット反転）
         a.ld_hl_a()
     a.ld_hl_imm(SECTOR_BUF)
-    a.ld_b(0x00)
-    a.label("_resp_loop")
+    a.ld_mem_hl(RESP_PTR)
+    a.ld_a(0x01)
+    a.ld_mem_a(RESP_ACTIVE)
+    a.jr("IDLE_DISPATCH")
+
+    # ---- SEND_DISPATCH: SENDを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
+    #      応答フェーズ中(RESP_ACTIVE!=0)ならSECTOR_BUFの次の1バイトを
+    #      送る。応答フェーズでなければ、従来どおり暫定の0x00を送る
+    #      （docstring「アイドル判別」節参照。値の正しさは目標ではない）。
+    a.label("SEND_DISPATCH")
+    a.ld_a_mem(RESP_ACTIVE)
+    a.or_a()
+    a.jr_z("SEND_DISPATCH_IDLE")
+
+    a.ld_hl_mem(RESP_PTR)
     a.ld_a_hl()
     a.call("SEND_BYTE")
+    a.ld_hl_mem(RESP_PTR)
     a.inc_hl()
-    a.djnz("_resp_loop")
+    a.ld_mem_hl(RESP_PTR)
+    a.ld_de_imm(SECTOR_BUF + 256)
+    a.or_a()
+    a.sbc_hl_de()                     # RESP_PTR(更新後) - (SECTOR_BUF+256)
+    a.jr_nz("IDLE_DISPATCH")          # まだ256バイト送り終えていない
 
-    a.jr("REQ_LOOP")
+    # 256バイト送り終えた: 応答フェーズを終了する
+    a.ld_a(0x00)
+    a.ld_mem_a(RESP_ACTIVE)
+    a.jr("IDLE_DISPATCH")
+
+    a.label("SEND_DISPATCH_IDLE")
+    # 未確定構造（docstring参照）: 送るバイトの値そのものは仕様書に
+    # 根拠が無いため 0x00 固定とする。値の正しさは目標ではない——
+    # デッドロックを起こさず SEND プリミティブへ応答することだけが目的。
+    a.ld_a(0x00)
+    a.call("SEND_BYTE")
+    a.jr("IDLE_DISPATCH")
 
     return a
 
 
-def build(break_response=False):
-    a = build_subrom(break_response=break_response)
+def build(break_response=False, break_dispatch_return=False):
+    a = build_subrom(break_response=break_response,
+                      break_dispatch_return=break_dispatch_return)
     a.resolve()
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
@@ -585,8 +737,13 @@ def main():
     ap.add_argument("--break-response", action="store_true",
                      help="検証器をわざと壊すためのフラグ（tools/verify_l3.sh 用）。"
                           "応答256バイトの先頭を1ビット反転させる。")
+    ap.add_argument("--break-dispatch-return", action="store_true",
+                     help="第9版で修正したバグ（RECV/SEND完遂後にIDLE_DISPATCHへ"
+                          "戻らない旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
+                          "の回帰テストの検出力確認用）。")
     args = ap.parse_args()
-    rom, used = build(break_response=args.break_response)
+    rom, used = build(break_response=args.break_response,
+                       break_dispatch_return=args.break_dispatch_return)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

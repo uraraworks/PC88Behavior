@@ -120,7 +120,56 @@ else
 fi
 
 # --------------------------------------------------------------------
-# 5. わざと壊して検出できることを確認する（このリポジトリの規律）
+# 5. ディスパッチャの戻り先（make_subrom.py 第9版の回帰テスト）
+# --------------------------------------------------------------------
+# 背景: 公式環境での混成ROM実走で、RECV/SENDプリミティブを1回終えても
+# IDLE_DISPATCHへ戻らず「8バイトヘッダ・256バイト応答は一塊」と
+# 決め打ちしていた旧構造がデッドロックを起こすことが分かった
+# （src/l3_service/make_subrom.py 第9版のモジュールdocstring参照）。
+# 上の1〜3の通常シナリオは、自作main・自作subの両方が同じ「8バイト→
+# 256バイトの塊」という前提を共有しているため、この種のバグを検出
+# できない（このスクリプトの構造上の限界、上の「この検証の限界」参照）。
+# tools/make_l3_test_main.py --dispatch-switch-test は、仕様書1.10節の
+# 範囲内（SEND/RECVプリミティブは自由に組み合わせられる）で「8バイトの
+# ヘッダをSENDしたあと、応答は1バイト目だけRECVしてすぐ次へ進む」
+# 割り込みを挟み、そのあとで通常の要求列(REQUESTS)が壊れずに完了するかを
+# 見る。
+say "ディスパッチャの戻り先: 割り込みシナリオを挟んでも通常の要求列が壊れないか"
+mkdir -p "$WORK/rom_dispatch_ok"
+python3 "$GEN_SUB" "$WORK/rom_dispatch_ok" || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_dispatch_ok" --requests "$REQUESTS" --dispatch-switch-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_dispatch_ok" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/dispatch_ok.iolog.txt" \
+    >"$WORK/dispatch_ok.stdout.txt" 2>"$WORK/dispatch_ok.stderr.txt"
+
+if python3 "$CHECK" "$WORK/dispatch_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 1; then
+  ok "割り込み後も通常の3要求が正しく完了した（プリミティブごとにディスパッチャへ戻る現行実装）"
+else
+  ng "割り込みシナリオを挟むと現行実装でも要求列が壊れた"
+  overall_rc=1
+fi
+
+say "検出力の確認: 修正前と同型の版（--break-dispatch-return）で同じシナリオが落ちるか"
+mkdir -p "$WORK/rom_dispatch_broken"
+python3 "$GEN_SUB" "$WORK/rom_dispatch_broken" --break-dispatch-return || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_dispatch_broken" --requests "$REQUESTS" --dispatch-switch-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_dispatch_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/dispatch_broken.iolog.txt" \
+    >"$WORK/dispatch_broken.stdout.txt" 2>"$WORK/dispatch_broken.stderr.txt"
+
+if python3 "$CHECK" "$WORK/dispatch_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 1 >"$WORK/dispatch_broken.check.txt" 2>&1; then
+  ng "修正前相当の版が割り込みシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
+  cat "$WORK/dispatch_broken.check.txt"
+  overall_rc=1
+else
+  ok "修正前相当の版は割り込みシナリオで正しく不一致/未達として検出された"
+  grep -m5 "不一致\|足りない" "$WORK/dispatch_broken.check.txt" | sed 's/^/       /'
+fi
+
+# --------------------------------------------------------------------
+# 6. わざと壊して検出できることを確認する（このリポジトリの規律）
 # --------------------------------------------------------------------
 say "わざと壊す: 応答の先頭バイトを1ビット反転させた版で検証が落ちるか"
 mkdir -p "$WORK/rom_broken"

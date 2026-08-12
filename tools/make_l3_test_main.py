@@ -54,6 +54,29 @@ SEND/RECV 手順を、そのまま Z80 コードに書き起こしただけの�
 （`src/l3_service/make_subrom.py`）の実装に合わせて調整することは
 しない**——それは今回の失敗の再生産になる。両者が別々に仕様書だけを
 見て書かれ、それでも組んで動く、という一致だけが検証の意味を持つ。
+
+## `--dispatch-switch-test`（第9版で追加）
+
+`src/l3_service/make_subrom.py` の第9版で見つかったバグ（RECV/SEND
+プリミティブを1回終えてもディスパッチャへ戻らない）の回帰テスト用。
+
+**厳守**: このシナリオは自作サブROMの実装を見ずに、仕様書1.10節が
+定義する main 側の SEND/RECV プリミティブの**組み合わせ方**だけを
+根拠に書く。1.10節はSEND/RECVを独立した1バイト単位のプリミティブとして
+定義しており、「ヘッダは必ず8バイト連続で送らなければならない」という
+制約はどこにも書かれていない——それは自作サブROM側の内部実装の
+都合（5.1節、内部実装は自由）に過ぎない。ユーザーが2026-08-12に
+報告した公式環境での混成ROM実走では、公式mainが実際に「1バイトだけ
+SENDしたところでRECVへ切り替える」挙動を示した。本シナリオは
+それを、mainの手順として正当な範囲内（1.10節の範囲内で任意の順序に
+SEND/RECVを組み合わせられる）で再現したものであり、「1バイトだけ」
+ではなく「8バイトのSEND（＝妥当な読み出し要求ヘッダそのもの）を
+送ったあと、応答の1バイト目だけRECVしてすぐ次へ進む」という形を
+取る（応答を256バイト全部受け取らずに次の操作へ移る、という点が
+「まだ何かの途中でも次のプリミティブへ切り替わりうる」ことの
+モデル化になっている）。これにより、以降で送る本来のヘッダ要求列の
+バイト境界を汚さずに、旧実装（8バイト・256バイトを「一塊」として
+決め打ちする構造）だけが引っかかる状況を作れる。
 """
 
 import argparse
@@ -139,8 +162,13 @@ class Asm:
 HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突しない番地）
 
 
-def build(requests):
-    """requests: [(cyl, sec), ...] の列。それぞれヘッダを送り256バイト受ける。"""
+def build(requests, dispatch_switch_test=False):
+    """requests: [(cyl, sec), ...] の列。それぞれヘッダを送り256バイト受ける。
+
+    dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
+    起動直後のSEND1回のあと、通常の要求ループへ入る前に「8バイトの
+    ヘッダをSENDし、応答の1バイト目だけRECVしてすぐ次へ進む」割り込み
+    シナリオを1回挟む。"""
     a = Asm(0x0000)
     a.di()
     a.ld_sp(STACK)
@@ -205,6 +233,17 @@ def build(requests):
         a.label(name)
         a.db(0x02, 0x01, 0x00, cyl, sec, 0x06, 0x12, 0x60)
 
+    # ---- --dispatch-switch-test 用の割り込みヘッダ（上のdocstring参照）。
+    #      requests[0] と同じ (cyl,sec) を使う——値そのものに意味は無く、
+    #      単に「有効な読み出し要求として成立するヘッダを送る」ことだけが
+    #      目的（FDCシークが失敗しない範囲に収める）。 ----
+    dispatch_switch_hdr = None
+    if dispatch_switch_test:
+        cyl0, sec0 = requests[0]
+        dispatch_switch_hdr = "DISPATCH_SWITCH_HDR"
+        a.label(dispatch_switch_hdr)
+        a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
+
     # ---- 本編 ----
     a.label("MAIN")
     # ポートCの明示的なモード設定は行わない（0x99は仕様書に根拠が無い旧版の
@@ -215,6 +254,19 @@ def build(requests):
     # 追随」参照）。subはこれをRECVプリミティブで受け取り、応答は返さない。
     a.ld_a(0x00)
     a.call("SEND_MAIN")
+
+    if dispatch_switch_test:
+        # 割り込みシナリオ（上のdocstring「--dispatch-switch-test」参照）:
+        # 8バイトのヘッダをSENDし、応答は1バイト目だけRECVしてすぐ次へ
+        # 進む（256バイト全部は受け取らない）。
+        a.ld_hl(dispatch_switch_hdr)
+        a.ld_b(8)
+        a.label("_dsw_hdrsend")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_dsw_hdrsend")
+        a.call("RECV_MAIN")   # 応答の1バイト目だけ受けて捨てる
 
     for name in hdr_labels:
         # ヘッダ8バイトを SEND で送る
@@ -250,6 +302,9 @@ def main():
     ap.add_argument("outdir")
     ap.add_argument("--requests", default="0:1,0:2,3:5",
                      help="cyl:sec のカンマ区切り列（既定: 0:1,0:2,3:5）")
+    ap.add_argument("--dispatch-switch-test", action="store_true",
+                     help="上のdocstring「--dispatch-switch-test」参照。"
+                          "make_subrom.py 第9版の回帰テスト用シナリオを挟む。")
     args = ap.parse_args()
 
     requests = []
@@ -257,7 +312,7 @@ def main():
         c, s = tok.split(":")
         requests.append((int(c), int(s)))
 
-    a = build(requests)
+    a = build(requests, dispatch_switch_test=args.dispatch_switch_test)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
