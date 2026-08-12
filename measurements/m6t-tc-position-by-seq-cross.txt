@@ -1,0 +1,181 @@
+# M6t: 起動時FDC初期化区間 batch境界・TC位置のseq単位確定 (cross)
+
+### d0-boot
+
+区間: index[15:112) seq範囲=[16,112]
+
+batch境界とTC(単発含む)の位置:
+  batch1: OUT run seq=[17,29] (len=6) -> IN run seq=[32,34] (len=2)
+      直後: OUT $F8 seq=35 pc=06D5
+  batch2: OUT run seq=[37,44] (len=4) -> IN run seq=[47,49] (len=2)
+      直後: (F7/F8イベント無し)
+  batch3: OUT run seq=[51,56] (len=3) -> IN run seq=[59,61] (len=2)
+      直後: (F7/F8イベント無し)
+  batch4: OUT run seq=[63,68] (len=3) -> IN run seq=[71,73] (len=2)
+      直後: OUT $F8 seq=74 pc=06D5
+  batch5: OUT run seq=[76,83] (len=4) -> IN run seq=[86,88] (len=2)
+      直後: (F7/F8イベント無し)
+  batch6: OUT run seq=[90,95] (len=3) -> IN run seq=[98,100] (len=2)
+      直後: (F7/F8イベント無し)
+  batch7: OUT run seq=[102,107] (len=3) -> IN run seq=[110,112] (len=2)
+      直後: (F7/F8イベント無し)
+
+参照: seq 45-55 の生イベント列(このログでの対応番号。実走ログとは
+別採取のため絶対値の一致は保証されないが、構造(直前直後の並び)は
+比較できる):
+    seq=40 OUT $FB pc=02B1
+    seq=41 IN $FA pc=02A8
+    seq=42 OUT $FB pc=02B1
+    seq=43 IN $FA pc=02A8
+    seq=44 OUT $FB pc=02B1
+    seq=45 IN $FA pc=029A
+    seq=46 IN $FA pc=029A
+    seq=47 IN $FB pc=02A1
+    seq=48 IN $FA pc=029A
+    seq=49 IN $FB pc=02A1
+    seq=50 IN $FA pc=02A8
+    seq=51 OUT $FB pc=02B1
+    seq=52 IN $FA pc=02A8
+    seq=53 IN $FA pc=02A8
+    seq=54 OUT $FB pc=02B1
+    seq=55 IN $FA pc=02A8
+    seq=56 OUT $FB pc=02B1
+    seq=57 IN $FA pc=029A
+    seq=58 IN $FA pc=029A
+    seq=59 IN $FB pc=02A1
+    seq=60 IN $FA pc=029A
+
+### d1-files
+
+区間: index[15:112) seq範囲=[16,112]
+
+batch境界とTC(単発含む)の位置:
+  batch1: OUT run seq=[17,29] (len=6) -> IN run seq=[32,34] (len=2)
+      直後: OUT $F8 seq=35 pc=06D5
+  batch2: OUT run seq=[37,44] (len=4) -> IN run seq=[47,49] (len=2)
+      直後: (F7/F8イベント無し)
+  batch3: OUT run seq=[51,56] (len=3) -> IN run seq=[59,61] (len=2)
+      直後: (F7/F8イベント無し)
+  batch4: OUT run seq=[63,68] (len=3) -> IN run seq=[71,73] (len=2)
+      直後: OUT $F8 seq=74 pc=06D5
+  batch5: OUT run seq=[76,83] (len=4) -> IN run seq=[86,88] (len=2)
+      直後: (F7/F8イベント無し)
+  batch6: OUT run seq=[90,95] (len=3) -> IN run seq=[98,100] (len=2)
+      直後: (F7/F8イベント無し)
+  batch7: OUT run seq=[102,107] (len=3) -> IN run seq=[110,112] (len=2)
+      直後: (F7/F8イベント無し)
+
+参照: seq 45-55 の生イベント列(このログでの対応番号。実走ログとは
+別採取のため絶対値の一致は保証されないが、構造(直前直後の並び)は
+比較できる):
+    seq=40 OUT $FB pc=02B1
+    seq=41 IN $FA pc=02A8
+    seq=42 OUT $FB pc=02B1
+    seq=43 IN $FA pc=02A8
+    seq=44 OUT $FB pc=02B1
+    seq=45 IN $FA pc=029A
+    seq=46 IN $FA pc=029A
+    seq=47 IN $FB pc=02A1
+    seq=48 IN $FA pc=029A
+    seq=49 IN $FB pc=02A1
+    seq=50 IN $FA pc=02A8
+    seq=51 OUT $FB pc=02B1
+    seq=52 IN $FA pc=02A8
+    seq=53 IN $FA pc=02A8
+    seq=54 OUT $FB pc=02B1
+    seq=55 IN $FA pc=02A8
+    seq=56 OUT $FB pc=02B1
+    seq=57 IN $FA pc=029A
+    seq=58 IN $FA pc=029A
+    seq=59 IN $FB pc=02A1
+    seq=60 IN $FA pc=029A
+
+### d2-save
+
+区間: index[15:112) seq範囲=[16,112]
+
+batch境界とTC(単発含む)の位置:
+  batch1: OUT run seq=[17,29] (len=6) -> IN run seq=[32,34] (len=2)
+      直後: OUT $F8 seq=35 pc=06D5
+  batch2: OUT run seq=[37,44] (len=4) -> IN run seq=[47,49] (len=2)
+      直後: (F7/F8イベント無し)
+  batch3: OUT run seq=[51,56] (len=3) -> IN run seq=[59,61] (len=2)
+      直後: (F7/F8イベント無し)
+  batch4: OUT run seq=[63,68] (len=3) -> IN run seq=[71,73] (len=2)
+      直後: OUT $F8 seq=74 pc=06D5
+  batch5: OUT run seq=[76,83] (len=4) -> IN run seq=[86,88] (len=2)
+      直後: (F7/F8イベント無し)
+  batch6: OUT run seq=[90,95] (len=3) -> IN run seq=[98,100] (len=2)
+      直後: (F7/F8イベント無し)
+  batch7: OUT run seq=[102,107] (len=3) -> IN run seq=[110,112] (len=2)
+      直後: (F7/F8イベント無し)
+
+参照: seq 45-55 の生イベント列(このログでの対応番号。実走ログとは
+別採取のため絶対値の一致は保証されないが、構造(直前直後の並び)は
+比較できる):
+    seq=40 OUT $FB pc=02B1
+    seq=41 IN $FA pc=02A8
+    seq=42 OUT $FB pc=02B1
+    seq=43 IN $FA pc=02A8
+    seq=44 OUT $FB pc=02B1
+    seq=45 IN $FA pc=029A
+    seq=46 IN $FA pc=029A
+    seq=47 IN $FB pc=02A1
+    seq=48 IN $FA pc=029A
+    seq=49 IN $FB pc=02A1
+    seq=50 IN $FA pc=02A8
+    seq=51 OUT $FB pc=02B1
+    seq=52 IN $FA pc=02A8
+    seq=53 IN $FA pc=02A8
+    seq=54 OUT $FB pc=02B1
+    seq=55 IN $FA pc=02A8
+    seq=56 OUT $FB pc=02B1
+    seq=57 IN $FA pc=029A
+    seq=58 IN $FA pc=029A
+    seq=59 IN $FB pc=02A1
+    seq=60 IN $FA pc=029A
+
+### d5-seqfile
+
+区間: index[15:112) seq範囲=[16,112]
+
+batch境界とTC(単発含む)の位置:
+  batch1: OUT run seq=[17,29] (len=6) -> IN run seq=[32,34] (len=2)
+      直後: OUT $F8 seq=35 pc=06D5
+  batch2: OUT run seq=[37,44] (len=4) -> IN run seq=[47,49] (len=2)
+      直後: (F7/F8イベント無し)
+  batch3: OUT run seq=[51,56] (len=3) -> IN run seq=[59,61] (len=2)
+      直後: (F7/F8イベント無し)
+  batch4: OUT run seq=[63,68] (len=3) -> IN run seq=[71,73] (len=2)
+      直後: OUT $F8 seq=74 pc=06D5
+  batch5: OUT run seq=[76,83] (len=4) -> IN run seq=[86,88] (len=2)
+      直後: (F7/F8イベント無し)
+  batch6: OUT run seq=[90,95] (len=3) -> IN run seq=[98,100] (len=2)
+      直後: (F7/F8イベント無し)
+  batch7: OUT run seq=[102,107] (len=3) -> IN run seq=[110,112] (len=2)
+      直後: (F7/F8イベント無し)
+
+参照: seq 45-55 の生イベント列(このログでの対応番号。実走ログとは
+別採取のため絶対値の一致は保証されないが、構造(直前直後の並び)は
+比較できる):
+    seq=40 OUT $FB pc=02B1
+    seq=41 IN $FA pc=02A8
+    seq=42 OUT $FB pc=02B1
+    seq=43 IN $FA pc=02A8
+    seq=44 OUT $FB pc=02B1
+    seq=45 IN $FA pc=029A
+    seq=46 IN $FA pc=029A
+    seq=47 IN $FB pc=02A1
+    seq=48 IN $FA pc=029A
+    seq=49 IN $FB pc=02A1
+    seq=50 IN $FA pc=02A8
+    seq=51 OUT $FB pc=02B1
+    seq=52 IN $FA pc=02A8
+    seq=53 IN $FA pc=02A8
+    seq=54 OUT $FB pc=02B1
+    seq=55 IN $FA pc=02A8
+    seq=56 OUT $FB pc=02B1
+    seq=57 IN $FA pc=029A
+    seq=58 IN $FA pc=029A
+    seq=59 IN $FB pc=02A1
+    seq=60 IN $FA pc=029A
