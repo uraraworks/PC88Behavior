@@ -99,6 +99,52 @@ else
     fail "a. RECVロール判定が出ない(前後\$FF文脈の対応付けが機能していない疑い)" # cleanroom-lint:ignore
 fi
 
+# --- a2. 効いているビット判定(bit_significance, 第10版で追加)の検出力 -----
+# 正常フィクスチャでは pc=2000(20->21) は bit0=1、pc=2001(41->40) は bit0=0
+# が「exit/loop継続を分離する」と判定されるはず(20=0b00100000,
+# 21=0b00100001; 41=0b01000001,40=0b01000000のいずれもbit0のみが変わる)。
+if grep -A9 'pc=2000' "$BASE_OUT" | grep -q '効いているビット.*bit0=1'; then
+    pass "a2. pc=2000でbit0=1が単一ビット判定される(正常フィクスチャ)"
+else
+    fail "a2. pc=2000のビット判定が期待どおりでない: $(grep -A9 'pc=2000' "$BASE_OUT" | grep '効いているビット')"
+fi
+if grep -A9 'pc=2001' "$BASE_OUT" | grep -q '効いているビット.*bit0=0'; then
+    pass "a2. pc=2001でbit0=0が単一ビット判定される(正常フィクスチャ)"
+else
+    fail "a2. pc=2001のビット判定が期待どおりでない: $(grep -A9 'pc=2001' "$BASE_OUT" | grep '効いているビット')"
+fi
+
+# 検出力確認: pc=2000のexit値集合に、loop継続値と同じbit0を持つ値
+# (0x20, bit0=0)を1件だけ「即抜けのスピン」として混入させる。これは
+# 「途中では0x20を読んで回り続けるが、別のあるスピンでは0x20を読んだ
+# 瞬間に抜けた」という矛盾した観測を人工的に作ることに相当し、
+# bit0だけでは exit/loop継続 を分離できなくなるはず。
+python3 - "$FIXTURE" "$WORK/bitbreak.iolog.txt" <<'PYEOF'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+lines = open(src, encoding="utf-8").read().splitlines(keepends=True)
+# 末尾に、孤立した1回だけの IN $FE=20 (pc=2000) を追加する。前後を
+# 無関係のOUT $FFで挟んで独立した1件スピンとして扱われるようにする
+# (analyze_sub_fe.pyのスピン境界判定は「連続する同一pcのIN $FE」なので、
+# 前後を別イベントで挟めば別スピンになる)。
+extra = (
+    "  9001    9001      0 sub   OUT   00FF   99     9000\n"
+    "  9002    9002      0 sub   IN    00FE   20     2000\n"
+    "  9003    9003      0 sub   OUT   00FF   99     9000\n"
+)
+lines.append(extra)
+open(dst, "w", encoding="utf-8").write("".join(lines))
+PYEOF
+
+BITBREAK_OUT="$WORK/bitbreak_report.txt"
+python3 "$ANALYZE" --iolog "$WORK/bitbreak.iolog.txt" --out "$BITBREAK_OUT" --label bitbreak >/dev/null
+
+if grep -A9 'pc=2000' "$BITBREAK_OUT" | grep -q '単一ビットでは説明がつかない'; then
+    pass "a2. exit値にloop継続値と同じbit0の値を混ぜるとbit0判定が崩れる(検出力の確認)"
+else
+    fail "a2. bit0=0の孤立exitを混入させてもbit0判定が崩れなかった(検出力に疑いあり): $(grep -A9 'pc=2000' "$BITBREAK_OUT" | grep '効いているビット')"
+fi
+
 # --- b. clockシャッフル: スピン単位の遷移集計が崩れること ------------------
 python3 - "$FIXTURE" "$WORK/shuffled.iolog.txt" <<'PYEOF'
 import re, random, sys

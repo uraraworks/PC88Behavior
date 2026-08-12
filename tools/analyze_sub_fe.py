@@ -114,28 +114,32 @@ class LoopStats:
     transitions: Counter  # (prev,val) -> count
     entry_values: Counter  # スピン最初の値
     exit_values: Counter  # スピン最後の値
-    prev_ff: Counter  # スピン開始直前の直近 sub OUT $FF 値
-    next_ff: Counter  # スピン終了直後の直近 sub OUT $FF 値
+    prev_ff: Counter  # スピン開始直前の直近 (同cpu) OUT $FF 値
+    next_ff: Counter  # スピン終了直後の直近 (同cpu) OUT $FF 値
     post_kind_port: Counter  # スピン終了直後、直近OUT $FF「の次」に来たイベントの (cpu違反なし) kind+port
 
 
-def analyze_sub_fe(rows: list[Ev]) -> dict[str, LoopStats]:
-    """sub の IN $FE をpc別に分類し、遷移と前後の$FFコンテキストを集計する。
+def analyze_sub_fe(rows: list[Ev], cpu: str = "sub") -> dict[str, LoopStats]:
+    """cpu視点の IN $FE をpc別に分類し、遷移と前後の$FFコンテキストを集計する。
 
-    「スピン」= clock順で連続する、同一pcの sub IN $FE 読み取りの並び。
+    第10版で main視点にも適用できるよう `cpu` 引数を追加した(既定値は
+    従来どおり"sub"で後方互換)。関数本体のロジックは変えていない
+    (二重実装を避けるための一般化)。
+
+    「スピン」= clock順で連続する、同一pcの(同cpu) IN $FE 読み取りの並び。
     実データ(06DD/06FC等)で、スピン中に他ポートのイベントが割り込む
     事例は無いことを確認済み(手動検査)。スピンの前後にある直近の
-    sub OUT $FF イベントを、全イベント列上の前方/後方走査で1回だけ
+    (同cpu) OUT $FF イベントを、全イベント列上の前方/後方走査で1回だけ
     求める(O(n))。
     """
-    sub_rows = [e for e in rows if e.cpu == "sub"]
-    n = len(sub_rows)
+    cpu_rows = [e for e in rows if e.cpu == cpu]
+    n = len(cpu_rows)
 
-    # 各indexについて「直前の直近 sub OUT $FF 値」「直後の直近 sub OUT $FF 値」
+    # 各indexについて「直前の直近 (同cpu) OUT $FF 値」「直後の直近 OUT $FF 値」
     # をO(n)の前後2パスで求める。
     prev_ff_at = [None] * n
     cur = None
-    for i, e in enumerate(sub_rows):
+    for i, e in enumerate(cpu_rows):
         prev_ff_at[i] = cur
         if e.kind == "OUT" and e.port == "00FF" and e.value is not None:
             cur = e.value
@@ -147,13 +151,13 @@ def analyze_sub_fe(rows: list[Ev]) -> dict[str, LoopStats]:
     for i in range(n - 1, -1, -1):
         next_ff_at[i] = cur
         next_ff_event_idx[i] = cur_idx
-        e = sub_rows[i]
+        e = cpu_rows[i]
         if e.kind == "OUT" and e.port == "00FF" and e.value is not None:
             cur = e.value
             cur_idx = i
 
     fe_counts: Counter[str] = Counter(
-        e.pc for e in sub_rows if e.kind == "IN" and e.port == "00FE"
+        e.pc for e in cpu_rows if e.kind == "IN" and e.port == "00FE"
     )
     candidate_pcs = {pc for pc, c in fe_counts.items() if c >= MIN_LOOP_COUNT}
 
@@ -164,18 +168,18 @@ def analyze_sub_fe(rows: list[Ev]) -> dict[str, LoopStats]:
 
     idx = 0
     while idx < n:
-        e = sub_rows[idx]
+        e = cpu_rows[idx]
         if e.kind == "IN" and e.port == "00FE" and e.pc in candidate_pcs:
             pc = e.pc
             j = idx
             vals: list[int | None] = []
             while (
                 j < n
-                and sub_rows[j].kind == "IN"
-                and sub_rows[j].port == "00FE"
-                and sub_rows[j].pc == pc
+                and cpu_rows[j].kind == "IN"
+                and cpu_rows[j].port == "00FE"
+                and cpu_rows[j].pc == pc
             ):
-                vals.append(sub_rows[j].value)
+                vals.append(cpu_rows[j].value)
                 j += 1
             st = stats[pc]
             st.n_events += len(vals)
@@ -194,7 +198,7 @@ def analyze_sub_fe(rows: list[Ev]) -> dict[str, LoopStats]:
             # 直後のOUT $FF「の次」に来た実イベント(データがIN $FCかOUT $FDか等)
             ff_idx = next_ff_event_idx[j - 1]
             if ff_idx is not None and ff_idx + 1 < n:
-                nxt = sub_rows[ff_idx + 1]
+                nxt = cpu_rows[ff_idx + 1]
                 st.post_kind_port[f"{nxt.kind} ${nxt.port[-2:]}"] += 1
             else:
                 st.post_kind_port["(無し)"] += 1
@@ -202,6 +206,52 @@ def analyze_sub_fe(rows: list[Ev]) -> dict[str, LoopStats]:
         else:
             idx += 1
     return stats
+
+
+def bit_significance(st: "LoopStats") -> list[tuple[int, int]]:
+    """このループについて「単一ビットの値だけで、抜けたか(exit)/まだ
+    スピン中(loop継続)かを完全に分離できるか」を機械的に判定する。
+
+    - exit_vals: スピンの最終読み取り値の集合(そこで実際にループを
+      離れた=次に別のイベントへ進んだ値)。
+    - loop_vals: transitions の「遷移前(prev)」側に出た値の集合
+      (その値を読んだ直後にもう一度同じpcを読みに行った=まだ
+      ループを抜けていない値)。同じ値がスピンによって exit にも
+      loop にもなりうる(例: 20/28→21のように途中値と最終値が
+      別れているとは限らない)。
+
+    各ビットについて、exit_vals 側のそのビットの値が単一(0か1で
+    揃っている)かつ、loop_vals 側に同じビット値を持つものが
+    一つも無ければ、「そのビットがtへ変化した/なったことが抜けた
+    ことと矛盾なく対応する」と言える。これを満たすビットだけを
+    返す(複数見つかれば全部候補として返し、記述側で明記する)。
+    0件なら「単一ビットでは説明がつかない」という結果になる。
+
+    推測ではなく、観測された値集合どうしの集合演算だけで判定する。
+    """
+    exit_vals = {v for v in st.exit_values if v is not None}
+    loop_vals = {a for (a, _b) in st.transitions if a is not None}
+    if not exit_vals:
+        return []
+    candidates: list[tuple[int, int]] = []
+    for bit in range(8):
+        mask = 1 << bit
+        exit_bits = {(1 if (v & mask) else 0) for v in exit_vals}
+        if len(exit_bits) != 1:
+            continue
+        (t,) = exit_bits
+        loop_bits = {(1 if (v & mask) else 0) for v in loop_vals}
+        if t not in loop_bits:
+            candidates.append((bit, t))
+    return candidates
+
+
+def fmt_bit_significance(st: "LoopStats") -> str:
+    cands = bit_significance(st)
+    if not cands:
+        return "単一ビットでは説明がつかない(exit値とloop中値でビットが分離できない)"
+    parts = [f"bit{b}={t}" for b, t in sorted(cands)]
+    return "、".join(parts) + " が exit/loop継続を分離する(観測範囲でこのビットのみで説明可能)"
 
 
 def classify_role(st: LoopStats) -> str:
@@ -240,9 +290,9 @@ def fmt_value_counter(c: Counter, top: int = 6) -> str:
     return ", ".join(parts)
 
 
-def write_single_report(rows: list[Ev], label: str, out, masked: dict | None = None) -> dict[str, LoopStats]:
-    stats = analyze_sub_fe(rows)
-    print(f"# sub視点 $FE 待ち状態解析: {label}", file=out)
+def write_single_report(rows: list[Ev], label: str, out, masked: dict | None = None, cpu: str = "sub") -> dict[str, LoopStats]:
+    stats = analyze_sub_fe(rows, cpu=cpu)
+    print(f"# {cpu}視点 $FE 待ち状態解析: {label}", file=out)
     print(file=out)
     if masked:
         total = sum(masked.values())
@@ -252,11 +302,11 @@ def write_single_report(rows: list[Ev], label: str, out, masked: dict | None = N
             f"件数のみ記録)",
             file=out,
         )
-        for (cpu, port, kind), cnt in sorted(masked.items()):
-            print(f"    {cpu} {kind} ${port[-2:]}: {cnt}件", file=out)
+        for (mcpu, port, kind), cnt in sorted(masked.items()):
+            print(f"    {mcpu} {kind} ${port[-2:]}: {cnt}件", file=out)
         print(file=out)
 
-    print(f"## 候補待ちループ(sub IN $FE, pc別, 件数>={MIN_LOOP_COUNT}): {len(stats)}種", file=out)
+    print(f"## 候補待ちループ({cpu} IN $FE, pc別, 件数>={MIN_LOOP_COUNT}): {len(stats)}種", file=out)
     print(file=out)
     # 件数(n_events)が同点のpcが複数あると、Pythonのset反復順が
     # PYTHONHASHSEEDに依存して実行ごとに変わりうる(文字列ハッシュの
@@ -270,34 +320,36 @@ def write_single_report(rows: list[Ev], label: str, out, masked: dict | None = N
         print(f"  遷移: {fmt_transitions(st.transitions)}", file=out)
         print(f"  スピン開始値: {fmt_value_counter(st.entry_values)}", file=out)
         print(f"  スピン終了値: {fmt_value_counter(st.exit_values)}", file=out)
-        print(f"  直前の sub OUT $FF 値: {fmt_value_counter(st.prev_ff)}", file=out)
-        print(f"  直後の sub OUT $FF 値: {fmt_value_counter(st.next_ff)}", file=out)
+        print(f"  直前の {cpu} OUT $FF 値: {fmt_value_counter(st.prev_ff)}", file=out)
+        print(f"  直後の {cpu} OUT $FF 値: {fmt_value_counter(st.next_ff)}", file=out)
         print(
             f"  直後のOUT $FFの次に来た実イベント: "
             f"{', '.join(f'{k}({n})' for k, n in st.post_kind_port.most_common(4))}",
             file=out,
         )
+        print(f"  効いているビット(exit値とloop継続値の分離): {fmt_bit_significance(st)}", file=out)
         print(file=out)
     return stats
 
 
-def write_cross_report(all_rows: dict[str, list[Ev]], out) -> None:
-    print("# 条件横断比較: sub視点 $FE 待ち状態", file=out)
+def write_cross_report(all_rows: dict[str, list[Ev]], out, cpu: str = "sub") -> None:
+    print(f"# 条件横断比較: {cpu}視点 $FE 待ち状態", file=out)
     print(file=out)
     per_label_stats: dict[str, dict[str, LoopStats]] = {}
     for label, rows in all_rows.items():
-        per_label_stats[label] = analyze_sub_fe(rows)
+        per_label_stats[label] = analyze_sub_fe(rows, cpu=cpu)
 
     all_pcs = set()
     for stats in per_label_stats.values():
         all_pcs |= set(stats.keys())
 
-    print(f"## pc別、条件横断での一致確認(同一sub ROMなら全条件で同じpc集合・同じ遷移語彙が出るはず)", file=out)
+    print(f"## pc別、条件横断での一致確認(同一ROMなら全条件で同じpc集合・同じ遷移語彙が出るはず)", file=out)
     print(file=out)
     for pc in sorted(all_pcs):
         print(f"### pc={pc}", file=out)
         roles = set()
         trans_sets = []
+        bit_sig_sets = []
         for label, stats in per_label_stats.items():
             st = stats.get(pc)
             if st is None:
@@ -307,18 +359,22 @@ def write_cross_report(all_rows: dict[str, list[Ev]], out) -> None:
             roles.add(role)
             trs = set(st.transitions.keys())
             trans_sets.append(trs)
+            bit_sig_sets.append(frozenset(bit_significance(st)))
             print(
                 f"  {label}: n={st.n_events} ロール={role} "
-                f"遷移語彙={sorted(f'{a:02X}->{b:02X}' for a,b in trs)}",
+                f"遷移語彙={sorted(f'{a:02X}->{b:02X}' for a,b in trs)} "
+                f"効いているビット={fmt_bit_significance(st)}",
                 file=out,
             )
         if trans_sets:
             common = set.intersection(*trans_sets) if len(trans_sets) == len(all_rows) else set()
             union = set.union(*trans_sets)
+            bit_sig_consistent = len(set(bit_sig_sets)) == 1 if bit_sig_sets else False
             print(
                 f"  条件横断: 全条件共通の遷移={sorted(f'{a:02X}->{b:02X}' for a,b in common)}"
                 f" / 全条件の和集合={sorted(f'{a:02X}->{b:02X}' for a,b in union)}"
-                f" / ロール一致={'YES' if len(roles) == 1 else 'NO(' + str(roles) + ')'}",
+                f" / ロール一致={'YES' if len(roles) == 1 else 'NO(' + str(roles) + ')'}"
+                f" / 効いているビットの一致={'YES' if bit_sig_consistent else 'NO'}",
                 file=out,
             )
         print(file=out)
@@ -330,6 +386,8 @@ def main() -> None:
     ap.add_argument("--iolog", nargs="+", required=True, type=Path)
     ap.add_argument("--label", nargs="*", default=None)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--cpu", choices=["main", "sub"], default="sub",
+                     help="第10版で追加。どちらのCPU視点の IN $FE を解析するか(既定: sub、従来どおり)")
     args = ap.parse_args()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -341,7 +399,7 @@ def main() -> None:
         label = args.label[0] if args.label else args.iolog[0].name
         rows, masked = parse_iolog(args.iolog[0])
         with args.out.open("w", encoding="utf-8") as out:
-            write_single_report(rows, label, out, masked)
+            write_single_report(rows, label, out, masked, cpu=args.cpu)
     else:
         labels = args.label or [p.name for p in args.iolog]
         if len(labels) != len(args.iolog):
@@ -352,7 +410,7 @@ def main() -> None:
             rows, _masked = parse_iolog(p)
             all_rows[label] = rows
         with args.out.open("w", encoding="utf-8") as out:
-            write_cross_report(all_rows, out)
+            write_cross_report(all_rows, out, cpu=args.cpu)
 
     print(f"written: {args.out}")
 
