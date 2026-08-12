@@ -103,6 +103,34 @@ subが何も書かずに待つだけなので、相互デッドロックして�
 はずである。**このシナリオが実際に旧実装（本コミット直前の版）で
 落ちることを確認してから、`tools/verify_l3.sh`に組み込んだ**
 （下のモジュール末尾コメント・`tools/verify_l3.sh`参照）。
+
+## `--fixed-byte-cutoff-test`（第13版で追加）
+
+`src/l3_service/make_subrom.py` 第13版で見つかったバグ
+（`docs/notes/m6k-mixed-divergence.md`第10部が診断した「サブが
+ラウンド境界を無視して受信バイトを通算8バイト貯めてから8バイト
+ヘッダとして解釈してしまう」旧構造）の回帰テスト用。仕様書1.18節が
+確定した「起動シーケンスは可変長ラウンドのSEND→RECV往復で、
+256バイト応答が返る3ラウンドのSEND側バイト数は8/6/8とばらついた」
+という構造（各ラウンドはそれ単独で完結し、8バイトぴったりとは限らない）
+を根拠にする。
+
+**厳守**: このシナリオも自作サブROMの実装を見ずに、仕様書1.10節
+「SEND/RECVは独立した1バイト単位のプリミティブ」の記述**だけ**を
+根拠に書く。「8バイトの読み出し要求ヘッダは必ず1つの連続SEND runで
+送らなければならない」という制約はどこにも無い——1.18節はむしろ
+逆に、8バイトちょうどではないラウンド（2バイト・1バイト・5バイト等）
+が実在することを確定させている。本シナリオは、2バイト・1バイト・
+5バイトの3つの独立したラウンド（それぞれSENDで送り、直後に1バイトの
+RECVで応答を受ける——1.18節が確定した「ラウンドごとに応答が返る」
+構造そのもの）を送り、合計すると（値の並びだけを見れば）8バイトの
+読み出し要求ヘッダと同じ形になるように仕組む。旧実装（ラウンド境界を
+無視し、通算8バイトで打ち切る構造）は、この3ラウンド目の応答として
+本来のST3（1バイト）ではなく256バイトの応答フェーズを開始してしまい、
+mainが1バイトしかRECVしないまま次のラウンド（通常のREQUESTS列）へ
+進むため、以降のプロトコルが壊れる。新実装（run境界＝bit1の観測で
+打ち切る構造）は各ラウンドを独立に扱うため、3ラウンドいずれも
+1バイトのST3応答で完結し、後続のREQUESTSは正常に完了するはずである。
 """
 
 import argparse
@@ -188,7 +216,8 @@ class Asm:
 HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突しない番地）
 
 
-def build(requests, dispatch_switch_test=False, run_continuation_test=False):
+def build(requests, dispatch_switch_test=False, run_continuation_test=False,
+          fixed_byte_cutoff_test=False):
     """requests: [(cyl, sec), ...] の列。それぞれヘッダを送り256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
@@ -199,7 +228,11 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False):
     run_continuation_test: 上のdocstring「--run-continuation-test」参照。
     8バイトヘッダの1バイト目だけ通常のSEND(`OUT $FF 0F`あり)、
     2〜8バイト目は`OUT $FF 0F`を省略したSENDで送り、応答256バイトを
-    全部RECVしてから通常の要求ループへ入る。"""
+    全部RECVしてから通常の要求ループへ入る。
+
+    fixed_byte_cutoff_test: 上のdocstring「--fixed-byte-cutoff-test」参照。
+    2バイト・1バイト・5バイトの3つの独立したラウンド（それぞれSEND後に
+    1バイトRECV）を送り、通常の要求ループへ入る前に挟む。"""
     a = Asm(0x0000)
     a.di()
     a.ld_sp(STACK)
@@ -319,6 +352,25 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False):
         a.label(run_cont_hdr)
         a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
 
+    # ---- --fixed-byte-cutoff-test 用の3ラウンド（上のdocstring参照）。
+    #      値の並びを通しで見ると requests[0] と同じ8バイトヘッダになる
+    #      ように仕組む（byte3/byte4=cyl/secが有効な範囲に収まるように
+    #      requests[0]の値を使う——旧実装が誤って読み出し要求として
+    #      解釈してしまってもFDCシークが失敗せず、検出したい protocol
+    #      の食い違いだけが明確に出るようにするため）。 ----
+    fbc_round_a = fbc_round_b = fbc_round_c = None
+    if fixed_byte_cutoff_test:
+        cyl0, sec0 = requests[0]
+        fbc_round_a = "FBC_ROUND_A"   # 2バイト
+        a.label(fbc_round_a)
+        a.db(0x02, 0x01)
+        fbc_round_b = "FBC_ROUND_B"   # 1バイト
+        a.label(fbc_round_b)
+        a.db(0x00)
+        fbc_round_c = "FBC_ROUND_C"   # 5バイト（先頭2バイトがcyl/sec）
+        a.label(fbc_round_c)
+        a.db(cyl0, sec0, 0x06, 0x12, 0x60)
+
     # ---- 本編 ----
     a.label("MAIN")
     # ポートCの明示的なモード設定は行わない（0x99は仕様書に根拠が無い旧版の
@@ -363,6 +415,20 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False):
         a.call("RECV_MAIN")
         a.djnz("_rct_resprecv")
 
+    if fixed_byte_cutoff_test:
+        # 3つの独立したラウンド（上のdocstring「--fixed-byte-cutoff-test」
+        # 参照）: それぞれSENDで送り、直後に1バイトだけRECVする
+        # （1.18節が確定した「ラウンドごとに応答が返る」構造そのもの）。
+        for name, length in ((fbc_round_a, 2), (fbc_round_b, 1), (fbc_round_c, 5)):
+            a.ld_hl(name)
+            a.ld_b(length)
+            a.label(f"_fbc_send_{name}")
+            a.ld_a_hl()
+            a.call("SEND_MAIN")
+            a.inc_hl()
+            a.djnz(f"_fbc_send_{name}")
+            a.call("RECV_MAIN")   # ラウンド応答（旧実装ならST3のはずが256バイト応答の先頭バイトに化ける）
+
     for name in hdr_labels:
         # ヘッダ8バイトを SEND で送る
         a.ld_hl(name)
@@ -404,6 +470,10 @@ def main():
                      help="上のdocstring「--run-continuation-test」参照。"
                           "make_subrom.py 第11版の回帰テスト用シナリオ"
                           "（0F省略の連続SEND run）を挟む。")
+    ap.add_argument("--fixed-byte-cutoff-test", action="store_true",
+                     help="上のdocstring「--fixed-byte-cutoff-test」参照。"
+                          "make_subrom.py 第13版の回帰テスト用シナリオ"
+                          "（2+1+5バイトの独立した3ラウンド）を挟む。")
     args = ap.parse_args()
 
     requests = []
@@ -412,7 +482,8 @@ def main():
         requests.append((int(c), int(s)))
 
     a = build(requests, dispatch_switch_test=args.dispatch_switch_test,
-              run_continuation_test=args.run_continuation_test)
+              run_continuation_test=args.run_continuation_test,
+              fixed_byte_cutoff_test=args.fixed_byte_cutoff_test)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")

@@ -379,6 +379,54 @@ else
 fi
 
 # --------------------------------------------------------------------
+# 9. run境界を「通算8バイト」ではなくbit1の観測で決めているか
+#    （make_subrom.py 第13版の回帰テスト）
+# --------------------------------------------------------------------
+# 背景: 公式環境での混成ROM実走で、自作subがラウンド境界を無視して
+# 受信バイトを通算8バイト貯めてから8バイトヘッダとして解釈していたため、
+# 起動シーケンスのラウンド0〜2（2+1+5=8バイト、仕様書1.18節）を1つの
+# 256バイト読み出し要求ヘッダに取り違え、mainとsubが両方「送る側」に
+# なって固着することが分かった（docs/notes/m6k-mixed-divergence.md
+# 第10部）。tools/make_l3_test_main.py --fixed-byte-cutoff-test は、
+# 2バイト・1バイト・5バイトの独立した3ラウンド（それぞれSEND直後に
+# 1バイトRECV、1.18節が確定した「ラウンドごとに応答が返る」構造）を
+# 送り、値の並びだけを見れば8バイトの読み出し要求ヘッダと同じ形になる
+# ように仕組む。
+say "run境界: 2+1+5バイトの独立した3ラウンドを挟んでも通算8バイトに取り違えないか"
+mkdir -p "$WORK/rom_fbc_ok"
+python3 "$GEN_SUB" "$WORK/rom_fbc_ok" || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_fbc_ok" --requests "$REQUESTS" --fixed-byte-cutoff-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_fbc_ok" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/fbc_ok.iolog.txt" \
+    >"$WORK/fbc_ok.stdout.txt" 2>"$WORK/fbc_ok.stderr.txt"
+
+if python3 "$CHECK" "$WORK/fbc_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 3; then
+  ok "2+1+5バイトの3ラウンドのあとも通常の3要求が正しく完了した（run境界駆動、現行実装）"
+else
+  ng "2+1+5バイトの3ラウンドを挟むと現行実装でも要求列が壊れた"
+  overall_rc=1
+fi
+
+say "検出力の確認: 修正前と同型の版（--fixed-byte-cutoff-test）で同じシナリオが落ちるか"
+mkdir -p "$WORK/rom_fbc_broken"
+python3 "$GEN_SUB" "$WORK/rom_fbc_broken" --fixed-byte-cutoff-test || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_fbc_broken" --requests "$REQUESTS" --fixed-byte-cutoff-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_fbc_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/fbc_broken.iolog.txt" \
+    >"$WORK/fbc_broken.stdout.txt" 2>"$WORK/fbc_broken.stderr.txt"
+
+if python3 "$CHECK" "$WORK/fbc_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 3 >"$WORK/fbc_broken.check.txt" 2>&1; then
+  ng "修正前相当の版が2+1+5バイトシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
+  cat "$WORK/fbc_broken.check.txt"
+  overall_rc=1
+else
+  ok "修正前相当の版は2+1+5バイトシナリオで正しく不一致/未達として検出された"
+  grep -m5 "不一致\|足りない" "$WORK/fbc_broken.check.txt" | sed 's/^/       /'
+fi
+
+# --------------------------------------------------------------------
 # 制限事項（正直に書く。ごまかさない）
 # --------------------------------------------------------------------
 say "制限事項（未検証のまま残すこと）"
