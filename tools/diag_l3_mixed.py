@@ -96,6 +96,23 @@ sub の pc は表示からは消さない——`(参考。比較キーに含ま�
   出す必要があり、これは cmp_io.py に無い機能なのでどのみち新規実装になる。
 
 終了コード: 分岐なし 0 / 分岐あり 1 / 使い方の誤り・書式エラー 2
+
+## --brief / --full（既定は --brief）
+
+このツールの実走結果は毎回そのままメインセッションのコンテキストに乗るため、
+「判断に使う情報」と「毎回同じで判断に使わない情報」を分けた。既定の
+--brief では以下だけを削る（消すのではなく「基準側は同じログから毎回
+同じ値が出るので、分岐点周辺以外は省く」という判断）。
+
+- 分岐点前後の窓を前後20件→前後5件に縮める
+- 基準側（公式ログ側）の畳み込み後「連長上位5件」「末尾10件」を省く
+  （基準はリポジトリ内の同じログから出るので毎回同一。混成側は
+  実行のたびに変わるので --brief でも従来どおり出す）
+
+一致プレフィックス・分岐点そのもの・回数差（[要注意]含む）・
+片側にしか現れない (kind,port) の一覧は --brief でも必ず出す
+（異常や不一致に関わる情報は省かない）。--full で従来どおりの
+全量表示に戻る。
 """
 
 import argparse
@@ -194,7 +211,7 @@ def find_first_divergence(seq_a: list, seq_b: list, key_fn) -> int | None:
     return None
 
 
-def print_window_strict(ref: list, mixed: list, idx: int, radius: int = 20) -> None:
+def print_window_strict(ref: list, mixed: list, idx: int, radius: int = 5) -> None:
     lo = max(0, idx - radius)
     hi = min(max(len(ref), len(mixed)), idx + radius + 1)
     print(f"  --- 基準側 index {lo + 1}〜{hi} ---")
@@ -210,7 +227,7 @@ def print_window_strict(ref: list, mixed: list, idx: int, radius: int = 20) -> N
 
 
 def print_window_folded(
-    ref_runs: list, mixed_runs: list, idx: int, cpu: str, sub_pc: bool = False, radius: int = 20
+    ref_runs: list, mixed_runs: list, idx: int, cpu: str, sub_pc: bool = False, radius: int = 5
 ) -> None:
     lo = max(0, idx - radius)
     hi = min(max(len(ref_runs), len(mixed_runs)), idx + radius + 1)
@@ -317,8 +334,18 @@ def print_count_diffs(diffs: list, cpu: str, sub_pc: bool = False, max_show: int
         print(_fmt_diff_row(i, rr, mr, ratio, cpu, sub_pc))
 
 
-def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, sub_pc: bool = False) -> int:
-    """1 CPU 分（main または sub）のレポートを表示する。戻り値: 分岐あり1/なし0。"""
+def report_cpu_section(
+    cpu: str, ref: list, mixed: list, strict: bool = False, sub_pc: bool = False, brief: bool = True
+) -> int:
+    """1 CPU 分（main または sub）のレポートを表示する。戻り値: 分岐あり1/なし0。
+
+    brief=True（既定）では、分岐点前後の窓を狭め（前後5件）、基準側の
+    連長上位5件・末尾10件（毎回同一ログから出るので判断に使わない）を
+    省く。一致プレフィックス・分岐点・回数差（[要注意]含む）・
+    片側にしか現れないポート一覧は brief でも必ず出す
+    （モジュールdocstring「--brief / --full」参照）。
+    """
+    radius = 5 if brief else 20
     print(f"\n===== {cpu} =====")
     print(f"  基準側 総イベント数: {len(ref)} 件 / 混成側 総イベント数: {len(mixed)} 件")
 
@@ -339,7 +366,7 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, s
         else:
             rc = 1
             print(f"  最初の分岐点(厳密比較): 通し番号 {idx + 1} 件目")
-            print_window_strict(ref, mixed, idx)
+            print_window_strict(ref, mixed, idx, radius=radius)
     else:
         ref_runs = fold_spins(ref, cpu, sub_pc)
         mixed_runs = fold_spins(mixed, cpu, sub_pc)
@@ -362,7 +389,7 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, s
         else:
             rc = 1
             print(f"  最初の構造的分岐点: 畳み込み後 通し番号 {idx + 1} 件目")
-            print_window_folded(ref_runs, mixed_runs, idx, cpu, sub_pc)
+            print_window_folded(ref_runs, mixed_runs, idx, cpu, sub_pc, radius=radius)
 
         print("\n  --- 回数差（構造一致・回数不一致の箇所、畳み込み後） ---")
         diffs = count_diff_report(ref_runs, mixed_runs, matched_prefix)
@@ -371,10 +398,20 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, s
         # 欠陥2対応: 分岐点の前後窓だけでは、分岐が起きない側で回っている
         # 巨大スピン(無限ループ疑い)の位置が視界に入らない。分岐の有無・
         # 位置と無関係に常に表示する。
-        print_top_runs("基準側", ref_runs, cpu, sub_pc)
+        # brief（既定）では基準側だけ省く: 基準はリポジトリ内の同じログ
+        # から出るので毎回同一で、判断には使わない（--full で表示）。
+        # 混成側は実行のたびに変わるので brief でも常に出す。
+        if not brief:
+            print_top_runs("基準側", ref_runs, cpu, sub_pc)
         print_top_runs("混成側", mixed_runs, cpu, sub_pc)
-        print_tail_runs("基準側", ref_runs, cpu, sub_pc)
+        if not brief:
+            print_tail_runs("基準側", ref_runs, cpu, sub_pc)
         print_tail_runs("混成側", mixed_runs, cpu, sub_pc)
+        if brief:
+            print(
+                "\n  （基準側の連長上位5件・末尾10件は --brief では省略。"
+                "--full で表示）"
+            )
 
     print("\n  --- 基準側 ポート別内訳（上位10件、(kind,port)） ---")
     for (kind, port), cnt in port_kind_breakdown(ref):
@@ -401,7 +438,15 @@ def report_cpu_section(cpu: str, ref: list, mixed: list, strict: bool = False, s
     return rc
 
 
-def run(ref_path: str, mixed_path: str, strict: bool = False, sub_pc: bool = False) -> int:
+def run(
+    ref_path: str, mixed_path: str, strict: bool = False, sub_pc: bool = False, brief: bool = True
+) -> int:
+    if brief:
+        note = "（--brief 既定: 分岐点前後の窓は前後5件"
+        if not strict:
+            note += "、基準側の連長上位5件・末尾10件は省略"
+        note += "。--full で従来どおり全て表示）"
+        print(note)
     overall_rc = 0
     for cpu in ("main", "sub"):
         try:
@@ -414,7 +459,7 @@ def run(ref_path: str, mixed_path: str, strict: bool = False, sub_pc: bool = Fal
         except cmp_io.FormatError as e:
             print(f"エラー: 混成ログの読み込みに失敗（{cpu}）: {e}", file=sys.stderr)
             return 2
-        rc = report_cpu_section(cpu, ref_events, mixed_events, strict=strict, sub_pc=sub_pc)
+        rc = report_cpu_section(cpu, ref_events, mixed_events, strict=strict, sub_pc=sub_pc, brief=brief)
         overall_rc = overall_rc or rc
     return overall_rc
 
@@ -442,10 +487,25 @@ def main() -> int:
         help="sub 側でも pc を比較キーに含める旧来の挙動に戻す"
         "(既定は sub の pc を比較キーから除外。上のdescription参照)",
     )
+    parser.add_argument(
+        "--brief",
+        dest="brief",
+        action="store_true",
+        help="出力を絞る(既定)。分岐点前後の窓を前後5件にし、基準側(公式ログ側、"
+        "毎回同一)の連長上位5件・末尾10件を省く。一致プレフィックス・分岐点・"
+        "回数差([要注意]含む)・片側限定ポート一覧は省かない",
+    )
+    parser.add_argument(
+        "--full",
+        dest="brief",
+        action="store_false",
+        help="従来どおりの全量表示に戻す(--brief の反対)",
+    )
+    parser.set_defaults(brief=True)
     args = parser.parse_args()
 
     try:
-        return run(args.ref, args.mixed, strict=args.strict, sub_pc=args.sub_pc)
+        return run(args.ref, args.mixed, strict=args.strict, sub_pc=args.sub_pc, brief=args.brief)
     except OSError as e:
         print(f"エラー: ファイルを読めない: {e}", file=sys.stderr)
         return 2
