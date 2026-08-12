@@ -1,0 +1,12 @@
+# M6o fc-send-path clockpair解析: m6g-d0-boot-run2.iolog.txt.gz
+
+sub OUT $FC (clock付き): 5635件
+main IN $FD (clock付き): 5635件
+
+clock差(main - sub)の分布(発生順に1:1対応させた場合):
+  delta=5: 5630件
+  delta=26: 3件
+  delta=25: 1件
+  delta=6: 1件
+
+最頻delta=5 が 5630/5635件 (99.91%) を占める。 subの書き込みが常に先行し、mainの読み出しがほぼ一定の遅延で追随するなら、両者は同一ラッチの書き手/読み手であることの直接証拠になる。
