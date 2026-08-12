@@ -80,12 +80,17 @@ subが先に「RECVする（＝mainが送る番だと決め打つ）」と宣言
   導いた暫定構造であり、値の裏付けは無い。**
 
 `0x02`に達したら`SEND_BYTE`を1回呼んで`IDLE_DISPATCH`へ戻る
-（送るバイトの値は`0x00`固定。**値の正しさは目標ではない**——
-このバイトの意味論は未確定であり、正しい値を推測して埋めることは
-しない。目的はデッドロックの回避のみ）。`0x08`に達したら8バイト
-ヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。どちらでもない
-中間値のあいだはポーリングを続ける（`WAIT_FE_*`と同じ、目標値に
-達するまで単純に回すスタイル）。
+（送るバイトの値は、第9版まで`0x00`固定だった。**値の正しさは
+目標ではない**という前提は変わらないが、仕様書6節14項（第9版で
+追加）により「でっちあげた値」を送ること自体を方針違反と判断し、
+第9版で`FDC_SENSE_DRIVE_STATUS`（μPD765 SENSE DRIVE STATUS、
+結果フェーズ1バイト=ST3）を実際に発行してその結果バイトを送る形に
+差し替えた。このバイトの意味論が未確定であることは変わらないので、
+正しい値を推測して埋めるのではなく「FDCへ実際に問い合わせて得た値を
+返す」構造にすることでデッドロック回避と方針の両方を満たす）。
+`0x08`に達したら8バイトヘッダのRECV受信（`REQ_HEADER_RECV`）へ進む。
+どちらでもない中間値のあいだはポーリングを続ける（`WAIT_FE_*`と同じ、
+目標値に達するまで単純に回すスタイル）。
 
 ## プリミティブ1回ごとにディスパッチャへ戻る（第9版で修正）
 
@@ -502,6 +507,20 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     a.call("FDC_SENSE_INT")
     a.ret()
 
+    # ---- SENSE DRIVE STATUS（第9版で追加。仕様書6節14項）。
+    # μPD765/8272 系データシートに定義されたコマンド0x04。他のコマンドと
+    # 違い割り込み待ち・実行フェーズ（データ転送）を持たず、コマンド
+    # フェーズ2バイト（コマンド＋unit/head）を送った直後に結果フェーズ
+    # 1バイト（ST3）を返す、もっとも単純な「コマンド→結果」の往復。
+    # 呼ぶたびに毎回ホスト側の状態（RECALIBRATE/SEEK/READ実行中かどうか）
+    # に関わらず一意に定義された結果が返るため、他のFDCシーケンスの
+    # 副作用を気にせず独立に呼べる。結果（ST3）はAレジスタに残す。
+    a.label("FDC_SENSE_DRIVE_STATUS")
+    a.ld_a(0x04); a.call("FDC_OUT")     # コマンド: SENSE DRIVE STATUS
+    a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
+    a.call("FDC_IN")                    # 結果フェーズ: ST3（1バイト、Aに残る）
+    a.ret()
+
     # ---- SEEK（引数: A=目的シリンダ） ----
     a.label("FDC_SEEK")
     a.push_af()
@@ -570,7 +589,13 @@ def build_subrom(break_response=False, break_dispatch_return=False):
         a.jr("IDLE_DISPATCH")
 
         a.label("IDLE_SEND_BRANCH")
-        a.ld_a(0x00)
+        # 仕様書6節14項: でっちあげた値ではなく、SENSE DRIVE STATUS
+        # の結果フェーズ(ST3)を実際に叩いて得た値をそのまま返す
+        # （下のSEND_DISPATCH_IDLEと同じ方針。この分岐は
+        # --break-dispatch-return の回帰専用でありディスパッチ復帰の
+        # 有無だけを検出対象にしているため、送る値自体はどちらでもよいが
+        # 本番構造と揃える）。
+        a.call("FDC_SENSE_DRIVE_STATUS")
         a.call("SEND_BYTE")
         a.jr("IDLE_DISPATCH")
 
@@ -708,10 +733,17 @@ def build_subrom(break_response=False, break_dispatch_return=False):
     a.jr("IDLE_DISPATCH")
 
     a.label("SEND_DISPATCH_IDLE")
-    # 未確定構造（docstring参照）: 送るバイトの値そのものは仕様書に
-    # 根拠が無いため 0x00 固定とする。値の正しさは目標ではない——
-    # デッドロックを起こさず SEND プリミティブへ応答することだけが目的。
-    a.ld_a(0x00)
+    # 第9版で変更: 応答フェーズ外（8バイトヘッダがまだ揃っていない
+    # 段階、たとえば仕様書1.18節のラウンド#0のような短い要求形式）で
+    # 1バイト応答を求められた場合、以前は 0x00 を決め打ちで返していた。
+    # 仕様書6節14項により、これは「でっちあげた値」であり方針違反と
+    # 判断した。ここでは値を推測する代わりに、FDC_SENSE_DRIVE_STATUS
+    # （SENSE DRIVE STATUS、コマンド0x04）を実際に発行し、μPD765が
+    # 結果フェーズで返す ST3 バイトをそのまま送る。値の中身が公式版と
+    # 一致するかどうかは分からないままでよい——分からないことを埋める
+    # のではなく「FDCへ実際に問い合わせて返す」構造を選ぶことで、
+    # 値を知らないまま構成上正しい返答経路にする（仕様書6節14項）。
+    a.call("FDC_SENSE_DRIVE_STATUS")
     a.call("SEND_BYTE")
     a.jr("IDLE_DISPATCH")
 
