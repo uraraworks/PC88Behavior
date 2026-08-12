@@ -1,0 +1,89 @@
+# M6q: 起動時FDC初期化シーケンスの構造解析 (cross)
+
+### d0-boot
+
+区間: index[15:112) (event数=97), seq範囲=[16, 112]
+
+run列 (OUT=書き/コマンドフェーズ相当, IN=読み/結果or実行フェーズ相当):
+  [0] OUT run 長=6 seq=[17,29]
+  [1] IN run 長=2 seq=[32,34]  <- (write=6,read=2) 候補: 該当なし(未確定)
+  [2] OUT run 長=4 seq=[37,44]
+  [3] IN run 長=2 seq=[47,49]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [4] OUT run 長=3 seq=[51,56]
+  [5] IN run 長=2 seq=[59,61]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [6] OUT run 長=3 seq=[63,68]
+  [7] IN run 長=2 seq=[71,73]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [8] OUT run 長=4 seq=[76,83]
+  [9] IN run 長=2 seq=[86,88]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [10] OUT run 長=3 seq=[90,95]
+  [11] IN run 長=2 seq=[98,100]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [12] OUT run 長=3 seq=[102,107]
+  [13] IN run 長=2 seq=[110,112]  <- (write=3,read=2) 候補: 該当なし(未確定)
+
+区間内TC三つ組み検出数: 0
+
+### d1-files
+
+区間: index[15:112) (event数=97), seq範囲=[16, 112]
+
+run列 (OUT=書き/コマンドフェーズ相当, IN=読み/結果or実行フェーズ相当):
+  [0] OUT run 長=6 seq=[17,29]
+  [1] IN run 長=2 seq=[32,34]  <- (write=6,read=2) 候補: 該当なし(未確定)
+  [2] OUT run 長=4 seq=[37,44]
+  [3] IN run 長=2 seq=[47,49]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [4] OUT run 長=3 seq=[51,56]
+  [5] IN run 長=2 seq=[59,61]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [6] OUT run 長=3 seq=[63,68]
+  [7] IN run 長=2 seq=[71,73]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [8] OUT run 長=4 seq=[76,83]
+  [9] IN run 長=2 seq=[86,88]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [10] OUT run 長=3 seq=[90,95]
+  [11] IN run 長=2 seq=[98,100]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [12] OUT run 長=3 seq=[102,107]
+  [13] IN run 長=2 seq=[110,112]  <- (write=3,read=2) 候補: 該当なし(未確定)
+
+区間内TC三つ組み検出数: 0
+
+### d2-save
+
+区間: index[15:112) (event数=97), seq範囲=[16, 112]
+
+run列 (OUT=書き/コマンドフェーズ相当, IN=読み/結果or実行フェーズ相当):
+  [0] OUT run 長=6 seq=[17,29]
+  [1] IN run 長=2 seq=[32,34]  <- (write=6,read=2) 候補: 該当なし(未確定)
+  [2] OUT run 長=4 seq=[37,44]
+  [3] IN run 長=2 seq=[47,49]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [4] OUT run 長=3 seq=[51,56]
+  [5] IN run 長=2 seq=[59,61]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [6] OUT run 長=3 seq=[63,68]
+  [7] IN run 長=2 seq=[71,73]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [8] OUT run 長=4 seq=[76,83]
+  [9] IN run 長=2 seq=[86,88]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [10] OUT run 長=3 seq=[90,95]
+  [11] IN run 長=2 seq=[98,100]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [12] OUT run 長=3 seq=[102,107]
+  [13] IN run 長=2 seq=[110,112]  <- (write=3,read=2) 候補: 該当なし(未確定)
+
+区間内TC三つ組み検出数: 0
+
+### d5-seqfile
+
+区間: index[15:112) (event数=97), seq範囲=[16, 112]
+
+run列 (OUT=書き/コマンドフェーズ相当, IN=読み/結果or実行フェーズ相当):
+  [0] OUT run 長=6 seq=[17,29]
+  [1] IN run 長=2 seq=[32,34]  <- (write=6,read=2) 候補: 該当なし(未確定)
+  [2] OUT run 長=4 seq=[37,44]
+  [3] IN run 長=2 seq=[47,49]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [4] OUT run 長=3 seq=[51,56]
+  [5] IN run 長=2 seq=[59,61]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [6] OUT run 長=3 seq=[63,68]
+  [7] IN run 長=2 seq=[71,73]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [8] OUT run 長=4 seq=[76,83]
+  [9] IN run 長=2 seq=[86,88]  <- (write=4,read=2) 候補: 該当なし(未確定)
+  [10] OUT run 長=3 seq=[90,95]
+  [11] IN run 長=2 seq=[98,100]  <- (write=3,read=2) 候補: 該当なし(未確定)
+  [12] OUT run 長=3 seq=[102,107]
+  [13] IN run 長=2 seq=[110,112]  <- (write=3,read=2) 候補: 該当なし(未確定)
+
+区間内TC三つ組み検出数: 0
