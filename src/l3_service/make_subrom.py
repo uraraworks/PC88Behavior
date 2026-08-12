@@ -806,7 +806,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
-    # ---- 仕様書1.22節（第16版〜第18版）で確定した起動時FDC初期化の
+    # ---- 仕様書1.22節（第16版〜第19版）で確定した起動時FDC初期化の
     #      batch1〜7を再現する。ドライブ割り当て（1.22節・
     #      `docs/notes/m6r-specify-vs-seek.md`）: batch1/2/3=ドライブ0、
     #      batch4/5/6=ドライブ1、batch7=ドライブ2。第18版で
@@ -833,7 +833,11 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
     #      上書きされるため、値は区間の最終観測可能状態に影響しない。
     a.ld_e(0x00); a.ld_a(0x00); a.call("FDC_SEEK")   # ドライブ0, シリンダ0
-    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（batch2直後、1.22節）
+    #      batch2の直後にはTCを発行しない。1.22節第19版（m6s、既存ログの
+    #      seq番号レベル再解析で実走診断が反証）で訂正済み：TCが来るのは
+    #      batch1・batch4の直後のみで、batch2の直後には来ない。旧版
+    #      （第16〜18版）はTCの出現順序（区間内で1番目・2番目に見つかる
+    #      こと）とbatch番号（1番目・2番目のbatch）を取り違えていた。
     if inject_spurious_sense_int:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
         # batch1（RECALIBRATE）・batch2（SEEK）はどちらも内部で
@@ -843,12 +847,16 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # STATUSを呼ぶと、μPD765データシートの規定により結果フェーズは
         # ST0(Invalid Command)の1バイトのみで終わる。
         a.call("FDC_SENSE_INT")
-    #      batch3〜7: 1.22節が確定した「TCはbatch1・batch2の直後にのみ
-    #      現れ、batch3〜7の後には一度も現れない」に従い、TCは発行しない。
-    #      batch3: RECALIBRATE（ドライブ0、write=3バイト・read=2バイト）。
+    #      batch3: 1.22節第19版が確定したとおりTCを発行しない
+    #      （RECALIBRATE、ドライブ0、write=3バイト・read=2バイト）。
     a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
-    #      batch4: RECALIBRATE（ドライブ1）。
+    #      batch4: RECALIBRATE（ドライブ1）。1.22節第19版で訂正した
+    #      とおり、この直後にTCが来る（旧版がbatch2直後としていたのは
+    #      誤りで、正しくはbatch4直後。単発TC、$F7/IN $F8は伴わない）。
     a.ld_e(0x01); a.call("FDC_RECALIBRATE")   # ドライブ1
+    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（batch4直後、1.22節第19版）
+    #      batch5〜7: TCは発行しない（1.22節第19版でbatch1・4以外に
+    #      TCが無いことを確定済み）。
     #      batch5: SEEK（ドライブ1、write=4バイト・read=2バイト）。
     #      目標シリンダはbatch2と同じ理由で`0x00`固定（直後のbatch6
     #      RECALIBRATEが無条件にトラック0へ戻すため、値は区間の最終
