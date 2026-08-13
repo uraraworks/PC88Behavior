@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第35版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第44版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -573,6 +573,7 @@ class Asm:
     def jr_nc(self, name):   self.db(0x30); self._rel(name)   # JR NC,e（第13版で追加。run長カウンタの上限判定に使う）
     def jr_c(self, name):    self.db(0x38); self._rel(name)
     def inc_a(self):         self.db(0x3C)   # INC A（第13版で追加）
+    def dec_a(self):         self.db(0x3D)   # DEC A（第44版、高速バルクの256件ブロック数）
     def djnz(self, name):    self.db(0x10); self._rel(name)
 
     def in_port(self, port):
@@ -629,6 +630,7 @@ BOOT_SINGLE_RESPONSE_COUNT = 0x430B  # 1バイト: 起動時交換順序（値�
 BOOT_READ_PAIR_STAGE = 0x430C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち, 2=交換#7待ち, 3=交換#11待ち, 4=交換#12待ち, 5=完了
 REQ_H = 0x430D       # 第42版: READ DATAのH。交換#11以外は0
 REQ_UNIT_HEAD = 0x430E  # 第42版: drive=0 | (REQ_H bit0 << 2)
+BULK_BLOCKS = 0x430F    # 第44版: 高速バルクの残り256件ブロック数
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
@@ -1518,6 +1520,16 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.cp_n(8)
         a.jp_z("_exchange11_prepare_sector")
         a.label("_recv_dispatch_after_exchange11_check")
+        # 第44版1.34節: 三組目のREAD対完了後に来る交換#14の12件要求だけを
+        # 高速バルク入口へ接続する。要求値には触れず、観測済み交換順序と
+        # run長だけで限定する。
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(0x05)
+        a.jr_nz("_recv_dispatch_after_exchange14_check")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(12)
+        a.jp_z("BULK_SEND")
+        a.label("_recv_dispatch_after_exchange14_check")
         a.ld_a_mem(SECTOR_READY)
         a.or_a()
         a.jp_nz("_recv_dispatch_maybe_exchange4")
@@ -1660,6 +1672,47 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.ld_a(0x00)
         a.ld_mem_a(SECTOR_READY)
         a.jp("IDLE_DISPATCH")
+
+    # ---- 第44版1.14節・1.34節: 高速バルク入口と5635件の定常周期。
+    # データポート値は仕様化せず、FDC_READ_SECTORが読み取ったSECTOR_BUFを
+    # 加工せず流す。22*256+3=5635件。現段階では交換#14の5回READ座標の
+    # 生成式が未確定なので、既存FDCバッファを周期的に読むところまでとする。
+    a.label("BULK_SEND")
+    a.out_imm(0xFF, 0x81)
+    a.out_imm(0xFF, 0x08)
+    a.out_imm(0xFF, 0x0A)
+    a.out_imm(0xFF, 0x0C)
+    a.out_imm(0xFF, 0x0E)
+    a.ld_a(22)
+    a.ld_mem_a(BULK_BLOCKS)
+    a.label("_bulk_block")
+    a.ld_hl_imm(SECTOR_BUF)
+    a.ld_b(0x00)                       # DJNZで256周期
+    a.label("_bulk_block_item")
+    a.call("BULK_SEND_ONE")
+    a.djnz("_bulk_block_item")
+    a.ld_a_mem(BULK_BLOCKS)
+    a.dec_a()
+    a.ld_mem_a(BULK_BLOCKS)
+    a.jr_nz("_bulk_block")
+    a.ld_hl_imm(SECTOR_BUF)
+    a.ld_b(3)
+    a.label("_bulk_tail_item")
+    a.call("BULK_SEND_ONE")
+    a.djnz("_bulk_tail_item")
+    a.jp("IDLE_DISPATCH")
+
+    a.label("BULK_SEND_ONE")
+    a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
+    a.out_imm(0xFF, PH_SEND_DATA_SET)    # 09
+    a.call("WAIT_FE_RECV_DATA_READY")   # bit0=1
+    a.ld_a_hl()
+    a.out_a(P_PIO_A)                    # OUT $FC（main IN $FD）
+    a.out_a(P_PIO_B)                    # OUT $FD（並行データ経路）
+    a.inc_hl()
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)    # 08
+    a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
+    a.ret()
 
     # ---- SEND_DISPATCH: SENDを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
     #      優先順位は交換#4の256バイト応答、交換#3の内部状態1バイト応答、
