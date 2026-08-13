@@ -92,6 +92,14 @@ def vector(source: list[int], reads: list[Command], p: int) -> str:
     return "".join(bits) + f" ({sum(b == '1' for b in bits)}/5)"
 
 
+def prefix_len(a: list[int], b: list[int]) -> int:
+    n = min(len(a), len(b))
+    for i in range(n):
+        if a[i] != b[i]:
+            return i
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("iolog", type=Path)
@@ -170,6 +178,85 @@ def main() -> int:
             print(f"{name}: {''.join(bits)} ({bits.count('1')}/4)")
         lengths = [len(r.inputs) - 7 for r in reads]
         print("データ部長: " + ",".join(str(n) for n in lengths) + "件")
+
+        print("\n## 公式main IN $FD 5635件との位置対応")
+        expected = [need(e.value) for e in rows
+                    if e.cpu == "main" and e.kind == "IN" and e.port == "00FD"]
+        if len(expected) != 5635:
+            raise SafeError("公式main IN $FDが5635件でない")
+        head, body = expected[:3], expected[3:]
+        data = [r.inputs[:-7] for r in reads]
+        for i, d in enumerate(data, start=1):
+            print(f"READ#{i}先頭 vs 公式先頭3件: {prefix_len(head, d)}/3")
+            print(f"READ#{i}先頭 vs 公式定常5632件: {prefix_len(body, d)}件")
+            needle = body[:16]
+            offsets = [j for j in range(max(0, len(d) - len(needle) + 1))
+                       if d[j:j + len(needle)] == needle]
+            if offsets:
+                print(f"READ#{i}内の公式定常先頭16件一致: {len(offsets)}箇所、先頭offset={offsets[0]}")
+            else:
+                print(f"READ#{i}内の公式定常先頭16件一致: 0箇所")
+        concatenated = [v for d in data for v in d]
+        print(f"READデータ単純連結 vs 公式先頭3件: {prefix_len(head, concatenated)}/3")
+        print(f"READデータ単純連結 vs 公式定常5632件: {prefix_len(body, concatenated)}件")
+
+        for i, value in enumerate(head):
+            req_hits = [k for k, v in enumerate(req) if v == value]
+            param_hits = [(ri + 1, p) for ri, r in enumerate(reads)
+                          for p, v in enumerate(r.params) if v == value]
+            result_hits = [(ri + 1, p) for ri, r in enumerate(reads)
+                           for p, v in enumerate(r.inputs[-7:]) if v == value]
+            print(f"公式先頭[{i}]一致元: req={req_hits} READparam={param_hits} READresult={result_hits}")
+
+        parallel = [need(e.value) for e in rows if e.cpu == "main" and e.kind == "IN"
+                    and e.port == "00FC" and e.pc == "C269"]
+        print("\n## 並行main IN $FC定常5632件との位置対応")
+        print(f"並行定常件数: {len(parallel)}")
+        for i, d in enumerate(data, start=1):
+            print(f"READ#{i}先頭 vs 並行定常: {prefix_len(parallel, d)}件")
+        print(f"READデータ単純連結 vs 並行定常: {prefix_len(parallel, concatenated)}件")
+        payload = [v for d in data for v in d[256:]]
+        even = payload[0::2]
+        odd = payload[1::2]
+        print("\n## 各READ先頭1セクタ除外＋偶奇分離候補")
+        print(f"候補総長: {len(payload)}件 / 偶数位置: {len(even)}件 / 奇数位置: {len(odd)}件")
+        print(f"main IN $FD定常 vs 偶数位置: {prefix_len(body, even)}件")
+        print(f"main IN $FD定常 vs 奇数位置: {prefix_len(body, odd)}件")
+        print(f"main IN $FC定常 vs 偶数位置: {prefix_len(parallel, even)}件")
+        print(f"main IN $FC定常 vs 奇数位置: {prefix_len(parallel, odd)}件")
+        half = len(payload) // 2
+        print(f"main IN $FD定常 vs 前半: {prefix_len(body, payload[:half])}件")
+        print(f"main IN $FD定常 vs 後半: {prefix_len(body, payload[half:])}件")
+        print(f"main IN $FC定常 vs 前半: {prefix_len(parallel, payload[:half])}件")
+        print(f"main IN $FC定常 vs 後半: {prefix_len(parallel, payload[half:])}件")
+        semantic = {
+            "READ回数": len(reads),
+            "除外セクタ数": len(reads),
+            "転送組数": len(body) // 256,
+            "両ポート転送セクタ数": len(payload) // 256,
+            "転送件数下位": len(body) & 0xFF,
+            "転送件数上位": (len(body) >> 8) & 0xFF,
+            "全受信件数下位": len(expected) & 0xFF,
+            "全受信件数上位": (len(expected) >> 8) & 0xFF,
+            "両ポート総件数下位": len(payload) & 0xFF,
+            "両ポート総件数上位": (len(payload) >> 8) & 0xFF,
+            "セクタ長下位": 256 & 0xFF,
+            "セクタ長上位": (256 >> 8) & 0xFF,
+            "READデータ総セクタ数": sum(len(d) for d in data) // 256,
+            "入口phase[0]": 0x81,
+            "入口phase[1]": 0x08,
+            "入口phase[2]": 0x0A,
+            "入口phase[3]": 0x0C,
+            "入口phase[4]": 0x0E,
+            "定常送信phase": 0x09,
+            "固定N": 0x01,
+            "固定GPL": 0x2A,
+            "固定DTL": 0xFF,
+        }
+        print("\n## 公式先頭3件と構造量候補")
+        for i, value in enumerate(head):
+            labels = [label for label, candidate in semantic.items() if value == candidate]
+            print(f"公式先頭[{i}]一致規則候補: {labels}")
         return 0
     except (SafeError, OSError, ValueError) as exc:
         print(f"エラー: {exc}", file=sys.stderr)
