@@ -155,7 +155,8 @@ fi
 
 # --- d. verify_analyzer_corruption.py: 伏せ字ログでSKIP・非伏せ字ログでは走る --
 VERIFY_MASKED_OUT="$WORK/verify_masked.txt"
-python3 "$VERIFY" --iolog "$MASKED_IO" --intlog "$INTLOG" --workdir "$WORK/vac_masked" \
+env -u PC88_REF_ROM_DIR -u PC88_REF_DISK_DIR \
+    python3 "$VERIFY" --iolog "$MASKED_IO" --intlog "$INTLOG" --workdir "$WORK/vac_masked" \
     > "$VERIFY_MASKED_OUT" 2>&1
 if grep -q 'SKIP: (b) offset-value' "$VERIFY_MASKED_OUT"; then
     pass "d. verify_analyzer_corruption.py は伏せ字ログで(b)をSKIPする"
@@ -164,7 +165,8 @@ else
 fi
 
 VERIFY_UNMASKED_OUT="$WORK/verify_unmasked.txt"
-python3 "$VERIFY" --iolog "$UNMASKED_IO" --intlog "$INTLOG" --workdir "$WORK/vac_unmasked" \
+env -u PC88_REF_ROM_DIR -u PC88_REF_DISK_DIR \
+    python3 "$VERIFY" --iolog "$UNMASKED_IO" --intlog "$INTLOG" --workdir "$WORK/vac_unmasked" \
     > "$VERIFY_UNMASKED_OUT" 2>&1
 if grep -q 'SKIP' "$VERIFY_UNMASKED_OUT"; then
     fail "d. verify_analyzer_corruption.py が非伏せ字ログでもSKIPしてしまった"
