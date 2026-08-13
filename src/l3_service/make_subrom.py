@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第29版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第30版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -24,8 +24,9 @@ make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相�
 - 交換#3/#4の応答対応（1.11・1.23節・6節6項）。交換#3の固定8バイト
   要求では実データ応答を開始せず、内部状態から作る1バイト応答を返す。
   続く交換#4の2バイト要求で、先にFDCから得て保持した実データ256バイトを
-  `RESP_ACTIVE`経路へ接続する。交換#3の1バイトは意味未特定・生成規則
-  未確定なので、実装内に明示的なTODOを残す。
+  `RESP_ACTIVE`経路へ接続する。交換#3の1バイトは意味未特定であり、
+  ブラックボックス介入から再構成した観測応答を返す。意味が判明した場合に
+  ルール生成へ差し替えるTODOを残す。
 - μPD765 相当の FDC（`$FA`=ステータス、`$FB`=データ）を使ったセクタ
   読み出し。**コマンド体系は公開仕様（μPD765/8272データシート）に
   従って自分で書く**。公式ROMと同じFDCコマンド列を出す必要はない
@@ -308,8 +309,8 @@ sub側は256バイト応答フェーズを開始してしまう一方、mainは�
 FDCデータを`SECTOR_BUF`へ準備しても`RESP_ACTIVE`を立てず、内部状態
 1バイト応答を保留する。続く交換#4の2バイト要求が完了したとき初めて、
 準備済み`SECTOR_BUF`を`RESP_ACTIVE`へ接続する。交換#3の内部状態応答は
-意味未特定・生成規則未確定なので、専用RAMセルとTODOだけを置き、公式値を
-書かない。
+意味未特定であり、第30版のブラックボックス介入で挙動から再構成した観測値を
+返す。意味が判明した場合はルール生成へ差し替える。
 
 **run開始時の状態初期化（第13版で追加）。** `RECV_DISPATCH`への
 進入時（＝`IDLE_DISPATCH`が`bit3=1`を観測し新しいrunが始まる時点）に
@@ -622,10 +623,9 @@ RUN_LEN     = 0x4306   # 1バイト: 現在のrunで受け取ったバイト数�
 #      時点でSECTOR_BUFの256バイト応答を開始する。 ----
 SECTOR_READY = 0x4307  # 1バイト: 交換#4へ渡す256バイトがSECTOR_BUFに準備済み
 EXCHANGE3_RESPONSE_PENDING = 0x4308  # 1バイト: 交換#3の内部状態応答が未送信
-EXCHANGE3_STATE_RESPONSE = 0x4309
-# TODO(仕様第29版): 交換#3応答の意味・生成規則は未確定。このRAMは内部の
-# 保持状態・構成状態から生成した1バイトを置く境界だけを定義する。公式値を
-# 書かず、規則が確定するまで生成処理は実装しない。
+EXCHANGE3_OBSERVED_RESPONSE = 0xC0
+# TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
+# 意味が判明した場合は、この定数を意味に基づくルール生成へ差し替える。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
 #      SEND_DISPATCH_IDLE/IDLE_SEND_BRANCHへ渡すRAM）は、第22版で
 #      両ラベルをFDC_SENSE_DRIVE_STATUS実発行構造へ戻したことで
@@ -1483,12 +1483,12 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.or_a()
     a.jr_z("SEND_DISPATCH_IDLE")
 
-    # 交換#3: 意味未特定・生成規則未確定の内部状態応答を1バイトだけ送る。
-    # TODO(仕様第29版): EXCHANGE3_STATE_RESPONSEを確定した生成規則で更新する。
-    # 公式応答値は書かず、未確定の保持状態セルから送る構造だけを実装する。
+    # 交換#3: 意味未特定の内部状態応答を1バイトだけ送る。
+    # TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
+    # 意味が判明した場合は、意味に基づくルール生成へ差し替える。
     a.ld_a(0x00)
     a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-    a.ld_a_mem(EXCHANGE3_STATE_RESPONSE)
+    a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
     a.call("SEND_BYTE")
     a.jp("IDLE_DISPATCH")
 
