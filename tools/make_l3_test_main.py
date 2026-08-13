@@ -19,6 +19,7 @@ SEND/RECV 手順を、そのまま Z80 コードに書き起こしただけの�
 
 やること: 固定した (シリンダ, セクタ) の列について、8バイトヘッダ
 （`02 01 00 <cyl> <sec> 06 12 60`。仕様書1.11節）を SEND で送り、
+交換#3の1バイト応答をRECVする。続けて交換#4の2バイト要求をSENDし、
 256バイトの応答を RECV で受け取って、その場で捨てて次へ進む。
 受け取った値そのものは `--io-log` の main 側 IN $FC 列に残るので、
 判定は verify_l3.sh 側（ログを読む）で行う。
@@ -218,7 +219,7 @@ HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突�
 
 def build(requests, dispatch_switch_test=False, run_continuation_test=False,
           fixed_byte_cutoff_test=False):
-    """requests: [(cyl, sec), ...] の列。それぞれヘッダを送り256バイト受ける。
+    """requests: [(cyl, sec), ...] の列。交換#3/#4を経て256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
     起動直後のSEND1回のあと、通常の要求ループへ入る前に「8バイトの
@@ -330,6 +331,12 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.label(name)
         a.db(0x02, 0x01, 0x00, cyl, sec, 0x06, 0x12, 0x60)
 
+    # 仕様書1.23節で確定している交換#4要求の長さは2バイトである。
+    # 値の意味は未確定なので、この自己検証治具では任意の固定値を用いる。
+    # 自作同士の試験に過ぎず公式mainとの適合根拠にはしない。
+    a.label("EXCHANGE4_REQUEST")
+    a.db(0x00, 0x00)
+
     # ---- --dispatch-switch-test 用の割り込みヘッダ（上のdocstring参照）。
     #      requests[0] と同じ (cyl,sec) を使う——値そのものに意味は無く、
     #      単に「有効な読み出し要求として成立するヘッダを送る」ことだけが
@@ -398,7 +405,8 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     if run_continuation_test:
         # runシナリオ（上のdocstring「--run-continuation-test」参照）:
         # 1バイト目だけ通常のSEND(0Fあり)、2〜8バイト目は0Fを省略した
-        # SENDでヘッダを送り、応答256バイトを全部RECVする。
+        # SENDでヘッダを送り、交換#3の1バイトを受ける。交換#4の2バイト
+        # 要求を続け、256バイトを全部RECVする。
         a.ld_hl(run_cont_hdr)
         a.ld_a_hl()
         a.call("SEND_MAIN")          # 1バイト目(先頭): 0Fあり
@@ -409,6 +417,15 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.call("SEND_MAIN_CONT")     # 2〜8バイト目(継続): 0Fを省略
         a.inc_hl()
         a.djnz("_rct_hdrsend_cont")
+
+        a.call("RECV_MAIN")
+        a.ld_hl("EXCHANGE4_REQUEST")
+        a.ld_b(2)
+        a.label("_rct_exchange4_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_rct_exchange4_send")
 
         a.ld_b(0x00)
         a.label("_rct_resprecv")
@@ -439,7 +456,20 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.inc_hl()
         a.djnz(f"_hdrsend_{name}")
 
-        # 応答256バイトを RECV で受け取る（内容は iolog に残るので破棄でよい）
+        # 交換#3の意味未特定応答を1バイトRECVする。
+        a.call("RECV_MAIN")
+
+        # 交換#4の2バイト要求をSENDする。値は未確定だが、現行仕様と実装が
+        # 確定している交換境界・応答長を自己検証するため長さを厳密に守る。
+        a.ld_hl("EXCHANGE4_REQUEST")
+        a.ld_b(2)
+        a.label(f"_exchange4_send_{name}")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz(f"_exchange4_send_{name}")
+
+        # 交換#4応答256バイトを RECV する（内容は iolog に残る）。
         a.ld_b(0x00)
         a.label(f"_resprecv_{name}")
         a.call("RECV_MAIN")

@@ -15,7 +15,8 @@
 #
 # 検証すること（仕様書6節の実装要件のうち、公式ROM無しで検証できる範囲）:
 #   1. SEND/RECV の1バイト送受信ハンドシェイクが正しく機能すること
-#   2. 256バイト単位の読み出し要求（固定8バイトヘッダ）を解釈できること
+#   2. 交換#3（固定8バイト要求→1バイト応答）と交換#4
+#      （2バイト要求→256バイト応答）の境界を解釈できること
 #   3. μPD765経由のセクタ読み出しが、自作テストディスクの内容と
 #      機械的に一致する256バイトを返すこと
 #   4. ディスク無しではサブCPUが1命令も実行されないこと（仕様書1.1節・
@@ -88,9 +89,9 @@ say "走らせる（${FRAMES} フレーム、要求: ${REQUESTS}）"
     --frames "$FRAMES" --io-log "$WORK/ok.iolog.txt" \
     >"$WORK/ok.stdout.txt" 2>"$WORK/ok.stderr.txt"
 
-say "main が受け取った256バイト×3件を判定する"
+say "main が受け取った交換#3/#4応答を判定する"
 if python3 "$CHECK" "$WORK/ok.iolog.txt" --requests "$REQUESTS"; then
-  ok "SEND/RECVハンドシェイク・256バイト読み出し要求・FDCセクタ読み出しが一致"
+  ok "SEND/RECV・交換#3/#4境界・FDCセクタ読み出しが一致"
 else
   ng "自作サブROMの応答が自作テストディスクの内容と一致しない"
   overall_rc=1
@@ -191,7 +192,7 @@ python3 "$GEN_MAIN" "$WORK/rom_run_cont" --requests "$REQUESTS" --run-continuati
     --frames "$FRAMES" --io-log "$WORK/run_cont.iolog.txt" \
     >"$WORK/run_cont.stdout.txt" 2>"$WORK/run_cont.stderr.txt"
 
-if python3 "$CHECK" "$WORK/run_cont.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 256; then
+if python3 "$CHECK" "$WORK/run_cont.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 257; then
   ok "0F省略runのあとも通常の3要求が正しく完了した（run境界判別、現行実装）"
 else
   ng "0F省略runを挟むと現行実装でも要求列が壊れた/デッドロックした"
@@ -207,7 +208,7 @@ python3 "$GEN_MAIN" "$WORK/rom_run_cont_broken" --requests "$REQUESTS" --run-con
     --frames "$FRAMES" --io-log "$WORK/run_cont_broken.iolog.txt" \
     >"$WORK/run_cont_broken.stdout.txt" 2>"$WORK/run_cont_broken.stderr.txt"
 
-if python3 "$CHECK" "$WORK/run_cont_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 256 >"$WORK/run_cont_broken.check.txt" 2>&1; then
+if python3 "$CHECK" "$WORK/run_cont_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 257 >"$WORK/run_cont_broken.check.txt" 2>&1; then
   ng "修正前相当の版が0F省略runシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
   cat "$WORK/run_cont_broken.check.txt"
   overall_rc=1
@@ -456,8 +457,12 @@ cat <<'EOF'
   足せば満たせる可能性がある——次のマイルストーンの宿題として残す。
 
   ここで検証したのは、仕様書6節1〜3・5・6項（SEND/RECVハンドシェイク・
-  256バイト読み出し要求・FDC経由のセクタ読み出し）が、仕様書に書かれた
+  交換#3/#4の応答境界・FDC経由のセクタ読み出し）が、仕様書に書かれた
   手順を行う相手に対して正しく機能することの、公式ROM無しでの確認である。
+
+  交換#3/#4の訂正根拠はm7kの公式側交換境界と混成側状態遷移である。
+  この自己検証は自作mainと自作subの組み合わせなので、同じ誤解が両側へ
+  入る危険を排除できない。公式mainを片側にした混成実走を最終根拠とする。
 EOF
 
 echo
