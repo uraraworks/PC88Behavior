@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第7版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第29版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -21,10 +21,11 @@ make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相�
   main 側の手順（1.10節）に **サブ側から見て正しく応答する**こと
   （6節5項。main のコードは自作できないので、mainが期待する外部
   インタフェースとしてここは固定である）。
-- 256バイト単位の読み出し要求（固定8バイトヘッダ＋2バイト引数、1.11節）
-  の解釈。ヘッダの2バイト引数をどう解釈してどの256バイトを返すかは
-  内部実装が自由（5.1節）なので、本実装では byte3=シリンダ、byte4=
-  セクタとして扱う（独自解釈。仕様書はこの対応を断定していない）。
+- 交換#3/#4の応答対応（1.11・1.23節・6節6項）。交換#3の固定8バイト
+  要求では実データ応答を開始せず、内部状態から作る1バイト応答を返す。
+  続く交換#4の2バイト要求で、先にFDCから得て保持した実データ256バイトを
+  `RESP_ACTIVE`経路へ接続する。交換#3の1バイトは意味未特定・生成規則
+  未確定なので、実装内に明示的なTODOを残す。
 - μPD765 相当の FDC（`$FA`=ステータス、`$FB`=データ）を使ったセクタ
   読み出し。**コマンド体系は公開仕様（μPD765/8272データシート）に
   従って自分で書く**。公式ROMと同じFDCコマンド列を出す必要はない
@@ -298,24 +299,17 @@ sub側は256バイト応答フェーズを開始してしまう一方、mainは�
 判別条件）そのものを、応答をいつ・どの形式で返すかの駆動条件に
 格上げする。固定バイト数（8バイト）での打ち切りを廃し、bit0が
 立ち続ける限りrunは何バイトでも継続を許す。runが終わった時点で
-初めて、そのrunで受け取ったバイト数（`RUN_LEN`、本版で新設したRAM
-カウンタ）を見て応答形式を判断する:
+初めて、そのrunを一つの要求として確定する。この判断に使うビット
+（`bit0`＝RECVプリミティブ手順2、`bit1`＝SENDプリミティブ手順1）は
+16項から変えていない。
 
-- `RUN_LEN==8` → 1.11節の固定8バイトヘッダとして扱い、従来どおり
-  シーク・読み出し・応答フェーズの準備を行う。
-- `RUN_LEN!=8` → 応答フェーズには入らない（`RESP_ACTIVE`は0のまま）。
-  `bit1`は立ったままIDLE_DISPATCHへ戻るため、次に`IDLE_DISPATCH`が
-  改めて`$FE`を読んだ時点で`SEND_DISPATCH_IDLE`（ST3の1バイト応答、
-  第9版）へ自然に落ちる——「応答しない」ための特別な分岐は要らない。
-
-この判断に使うビット（`bit0`＝RECVプリミティブ手順2で確定済み、
-`bit1`＝SENDプリミティブ手順1で確定済み、いずれも仕様書1.19節）は
-16項から変えていない。**新しい推測を追加したのは「run長==8」を
-「1.11節の固定8バイトヘッダ」と等値視する部分だけであり、これは
-1.18節が確認した「256バイト応答を返す3ラウンドのSEND側バイト数は
-8/6/8とばらついた」という事実に照らせば不完全（6バイトのケースを
-取りこぼす）である。この不完全さは推測で埋めず、仕様書3節に
-未確定として明記した。**
+**第29版で応答形式の対応を訂正した。** 第13版の「`RUN_LEN==8`なら
+256バイト応答」という規則は撤回する。交換#3の固定8バイト要求では
+FDCデータを`SECTOR_BUF`へ準備しても`RESP_ACTIVE`を立てず、内部状態
+1バイト応答を保留する。続く交換#4の2バイト要求が完了したとき初めて、
+準備済み`SECTOR_BUF`を`RESP_ACTIVE`へ接続する。交換#3の内部状態応答は
+意味未特定・生成規則未確定なので、専用RAMセルとTODOだけを置き、公式値を
+書かない。
 
 **run開始時の状態初期化（第13版で追加）。** `RECV_DISPATCH`への
 進入時（＝`IDLE_DISPATCH`が`bit3=1`を観測し新しいrunが始まる時点）に
@@ -623,6 +617,15 @@ FDC_ABORT   = 0x4305   # 1バイト: 0=正常、非0=このFDCコマンドは中
 #      カウンタ自体は0xFFで飽和するまで増え続ける（上のモジュールdocstring
 #      「run境界駆動への書き換え」節参照）。 ----
 RUN_LEN     = 0x4306   # 1バイト: 現在のrunで受け取ったバイト数（run開始時に0へ初期化）
+# ---- 第29版で追加。交換#3ではSECTOR_BUFを直接RESP_ACTIVEへ接続せず、
+#      内部状態1バイトの応答を先に返す。続く交換#4の2バイト要求が完了した
+#      時点でSECTOR_BUFの256バイト応答を開始する。 ----
+SECTOR_READY = 0x4307  # 1バイト: 交換#4へ渡す256バイトがSECTOR_BUFに準備済み
+EXCHANGE3_RESPONSE_PENDING = 0x4308  # 1バイト: 交換#3の内部状態応答が未送信
+EXCHANGE3_STATE_RESPONSE = 0x4309
+# TODO(仕様第29版): 交換#3応答の意味・生成規則は未確定。このRAMは内部の
+# 保持状態・構成状態から生成した1バイトを置く境界だけを定義する。公式値を
+# 書かず、規則が確定するまで生成処理は実装しない。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
 #      SEND_DISPATCH_IDLE/IDLE_SEND_BRANCHへ渡すRAM）は、第22版で
 #      両ラベルをFDC_SENSE_DRIVE_STATUS実発行構造へ戻したことで
@@ -769,7 +772,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      REQ_HDR_CAPACITY（16バイト）に達したら以降は格納しない
     #      （HDR_PTRは進めない）が、RUN_LENのカウント自体は0xFFで
     #      飽和するまで続ける——run長がバッファ容量を超えても受信は
-    #      止めず、呼び出し側が「run長==8」を正しく判定できるようにする
+    #      止めず、呼び出し側が完成したrunを分類できるようにする
     #      （上のモジュールdocstring「run境界駆動への書き換え」節参照）。
     #      第11版から変わらず、run境界判別ループから複数箇所で呼ぶため
     #      切り出している（二重実装しない）。 ----
@@ -1254,14 +1257,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         return a
 
     # ====================================================================
-    # メインループ（仕様書 1.11節: 固定8バイトヘッダの読み出し要求）
+    # メインループ（仕様書 1.11・1.23節: 交換#3/#4の状態機械）
     #
     #   02 01 00 <b3> <b4> 06 12 60
     #
-    # byte0/1/2/5/6/7 は全件で固定（1.11節）。本実装はこれらを検査せず
-    # 読み飛ばす——固定値チェックの有無は「mainが受け取るデータ列」
-    # （適合条件、5.1節）に影響しないため、内部実装として単純な方を選ぶ。
-    # byte3/byte4 をシリンダ・セクタとして扱う（独自解釈、6節6項）。
+    # byte0/1/2/5/6/7 は全件で固定（1.11節）。本実装はこれらを検査しない。
+    # 第29版では固定8バイト要求を256バイト応答へ直接結び付けず、交換#3の
+    # 1バイト内部状態応答を挟んだ後、交換#4の2バイト要求で実データ応答を
+    # 開始する。
     #
     # 第9版で修正: 8バイトヘッダ受信・256バイト応答送信を「一塊」として
     # 扱わない。RAM上の進行状態（HDR_PTR/RESP_PTR/RESP_ACTIVE）を使い、
@@ -1276,6 +1279,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
     a.ld_mem_a(RUN_LEN)
+    a.ld_mem_a(SECTOR_READY)
+    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
     # 第21版で追加したLAST_FDC_RESULTの起動時初期化は、第22版でこの
     # RAM機構自体を削除したため不要になった。
     # ---- ここにあった`a.ld_e(0x00); a.call("FDC_RECALIBRATE")`(ドライブ0)は
@@ -1320,16 +1325,12 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      「bit1=1（相手がSEND待ちに転じたこと）を先に観測したこと」で
     #      決める。** bit0が先に立ち続ける限り、8バイトを超えても
     #      受信を続ける（1.18節: ラウンドは1〜12バイトと幅がある）。
-    #      run終了時点のrun長（RUN_LEN）を見て、その形式を判断する:
-    #        - run長==8 → 1.11節の固定8バイトヘッダとして扱い、シーク・
-    #          読み出し・応答フェーズの準備を行う
-    #        - run長!=8 → 応答フェーズには入らない(RESP_ACTIVE=0のまま)。
-    #          IDLE_DISPATCHへ戻った直後、bit1はまだ立っているので
-    #          SEND_DISPATCH_IDLE経路(ST3を1バイト返す)に落ちる
-    #      run長==8ルールが1.18節の「256バイト応答を返した3ラウンドの
-    #      SEND側バイト数は8/6/8とばらついた」という確定事実に照らして
-    #      不完全である(6バイトのケースを取りこぼす)ことは、未確定として
-    #      docs/spec/l3-subrom.md 3節に明記している。 ----
+    #      第29版では交換状態も見る:
+    #        - 交換#3の固定8バイト要求: FDC実データをSECTOR_BUFへ準備するが
+    #          RESP_ACTIVEには接続せず、内部状態1バイト応答を保留する
+    #        - 続く交換#4の2バイト要求: 準備済みSECTOR_BUFをRESP_ACTIVEへ
+    #          接続し、256バイト応答を開始する
+    #      これにより「交換#3で実データ先頭を返す」旧構造を除去する。 ----
     a.label("RECV_DISPATCH")
     # run開始: 進行状態を初期化する。RESP_ACTIVEもここで明示的にクリア
     # する——応答送信の途中でmainが送り手へ戻った場合の残留状態を断ち、
@@ -1399,50 +1400,67 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
 
     if not break_fixed_byte_cutoff:
-        # ---- run終了(bit1観測)。RUN_LENで応答形式を判断する ----
+        # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
         a.label("_recv_dispatch_run_done")
+        a.ld_a_mem(SECTOR_READY)
+        a.or_a()
+        a.jp_nz("_recv_dispatch_maybe_exchange4")
+
+        # 交換#3: 固定8バイト要求。ここではFDC実データ応答を開始しない。
         a.ld_a_mem(RUN_LEN)
         a.cp_n(8)
-        a.jp_nz("IDLE_DISPATCH")    # run長!=8: 応答フェーズに入らない（遠方分岐のためJP）。
-                                     # bit1は立ったままなのでIDLE_DISPATCHが
-                                     # 改めて$FEを読み、SEND_DISPATCH_IDLE
-                                     # (ST3応答)へ委ねる
-        # run長==8: そのまま_recv_dispatch_hdr_doneへ落ちて固定8バイト
-        # ヘッダとして処理する
+        a.jp_nz("IDLE_DISPATCH")
+        # run長==8: _recv_dispatch_hdr_doneへ落ち、データ準備だけを行う。
 
-    # 8バイト到達（固定8バイトヘッダ）: 次のヘッダ受信に備えて
-    # ポインタを巻き戻す
+    # 固定8バイト要求の完了: 次の要求受信に備えてポインタを巻き戻す。
+    # break_fixed_byte_cutoffの検出力用旧構造もここへ入る。
     a.label("_recv_dispatch_hdr_done")
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
 
-    # シリンダへシーク
+    # FDCから256バイトを読み出して保持する。ただし交換#3では
+    # RESP_ACTIVEを立てない。応答は下のEXCHANGE3_RESPONSE_PENDING経路で
+    # 内部状態1バイトだけを返す。
     a.ld_hl_imm(REQ_HDR + 3)
     a.ld_a_hl()
-    a.ld_e(0x00)          # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
+    a.ld_e(0x00)
     a.call("FDC_SEEK")
 
-    # セクタを読み出し、応答フェーズを開始する（実際のSENDは行わない）
     a.call("FDC_READ_SECTOR")
     if break_response:
         a.ld_hl_imm(SECTOR_BUF)
         a.ld_a_hl()
-        a.db(0xEE, 0x01)          # XOR A,0x01（先頭1バイトを1ビット反転）
+        a.db(0xEE, 0x01)
         a.ld_hl_a()
-    a.ld_hl_imm(SECTOR_BUF)
-    a.ld_mem_hl(RESP_PTR)
     a.ld_a(0x01)
-    a.ld_mem_a(RESP_ACTIVE)
-    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
+    a.ld_mem_a(SECTOR_READY)
+    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    a.jp("IDLE_DISPATCH")
+
+    if not break_fixed_byte_cutoff:
+        # 交換#4: 交換#3で実データが準備済みの場合だけ、続く2バイト要求を
+        # 256バイト応答開始のトリガーとして扱う。
+        a.label("_recv_dispatch_maybe_exchange4")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(2)
+        a.jp_nz("IDLE_DISPATCH")
+
+        a.ld_hl_imm(SECTOR_BUF)
+        a.ld_mem_hl(RESP_PTR)
+        a.ld_a(0x01)
+        a.ld_mem_a(RESP_ACTIVE)
+        a.ld_a(0x00)
+        a.ld_mem_a(SECTOR_READY)
+        a.jp("IDLE_DISPATCH")
 
     # ---- SEND_DISPATCH: SENDを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
-    #      応答フェーズ中(RESP_ACTIVE!=0)ならSECTOR_BUFの次の1バイトを
-    #      送る。応答フェーズでなければ、従来どおり暫定の0x00を送る
-    #      （docstring「アイドル判別」節参照。値の正しさは目標ではない）。
+    #      優先順位は交換#4の256バイト応答、交換#3の内部状態1バイト応答、
+    #      その他の従来単発応答。交換#3をRESP_ACTIVEへ入れないことが
+    #      第29版の修正点である。
     a.label("SEND_DISPATCH")
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
-    a.jr_z("SEND_DISPATCH_IDLE")
+    a.jr_z("SEND_DISPATCH_ONE_BYTE")
 
     a.ld_hl_mem(RESP_PTR)
     a.ld_a_hl()
@@ -1459,6 +1477,20 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
     a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
+
+    a.label("SEND_DISPATCH_ONE_BYTE")
+    a.ld_a_mem(EXCHANGE3_RESPONSE_PENDING)
+    a.or_a()
+    a.jr_z("SEND_DISPATCH_IDLE")
+
+    # 交換#3: 意味未特定・生成規則未確定の内部状態応答を1バイトだけ送る。
+    # TODO(仕様第29版): EXCHANGE3_STATE_RESPONSEを確定した生成規則で更新する。
+    # 公式応答値は書かず、未確定の保持状態セルから送る構造だけを実装する。
+    a.ld_a(0x00)
+    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    a.ld_a_mem(EXCHANGE3_STATE_RESPONSE)
+    a.call("SEND_BYTE")
+    a.jp("IDLE_DISPATCH")
 
     a.label("SEND_DISPATCH_IDLE")
     # 第22版で再訂正: 第20版→第21版の変遷は以下の通り。
