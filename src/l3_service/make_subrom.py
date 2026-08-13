@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第30版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第33版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -1521,6 +1521,10 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # 最後の1件はFDC完了後に別のRECVとして受けるため、要求ポインタと
         # RUN_LENは保持し、ここでは単発応答をまだ有効にしない。
         a.label("_exchange3_prepare_sector")
+        # 第33版1.26節: 5件目の受理解除OUT $FFと、FDC READ系最初の
+        # IN $FAの間に置く単発TC。結果後の三つ組みとは異なり、ここでは
+        # OUT $F7 / IN $F8を伴わせない。
+        a.out_imm(P_TC, FDC_TC_VALUE)
         a.ld_hl_imm(REQ_HDR + 3)
         a.ld_a_hl()
         a.ld_e(0x00)
