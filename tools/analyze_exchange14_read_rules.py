@@ -348,6 +348,99 @@ def main() -> int:
         print(f"一意/同値候補を含む位置一致件数: {byte_hits}/{len(body)}")
         print(f"出力セクタ同値グループ数: {len({tuple(x) for x in body_sectors})} / READ側: {len({tuple(x) for x in source_sectors})}")
 
+        print("\n## 全出力位置からREAD座標への値なし対応")
+        # 値そのものは一切表示せず、同値な入力座標だけを列挙する。座標は
+        # (READ回, READ内セクタ, セクタ内位置) で、いずれも1始まり。
+        by_value: dict[int, list[tuple[int, int, int]]] = {}
+        for ri, d in enumerate(data, 1):
+            for off, value in enumerate(d):
+                by_value.setdefault(value, []).append(
+                    (ri, off // 256 + 1, off % 256 + 1))
+        candidate_counts = [len(by_value.get(value, [])) for value in body]
+        unique_coords = [by_value[value][0] if len(by_value.get(value, [])) == 1 else None
+                         for value in body]
+        print(f"一意対応位置: {sum(c is not None for c in unique_coords)}/{len(body)}")
+        print(f"候補なし位置: {candidate_counts.count(0)}/{len(body)}")
+        print(f"複数候補位置: {sum(n > 1 for n in candidate_counts)}/{len(body)}")
+        # 一意位置は値を伴わない完全な対応表として機械可読に出す。
+        for oi, coord in enumerate(unique_coords, 1):
+            if coord is not None:
+                print(f"map output={oi} read={coord[0]} sector={coord[1]} byte={coord[2]}")
+
+        # 出力列全体がREAD座標列の単純な射影かを、代表的な走査規則で判定。
+        scans: dict[str, list[int]] = {}
+        for ri, d in enumerate(data):
+            for si in range(len(d) // 256):
+                sec = d[si * 256:(si + 1) * 256]
+                scans[f"READ順/セクタ順/R#{ri+1}S#{si+1}"] = sec
+        flattened = [v for d in data for v in d]
+        scans["READ単純連結"] = flattened
+        scans["READ単純連結逆順"] = list(reversed(flattened))
+        # 5回のREADをセクタ単位・バイト単位で横断する候補も調べる。
+        max_secs = max(len(d) // 256 for d in data)
+        for rev_r in (False, True):
+            rr = list(range(len(data)))
+            if rev_r:
+                rr.reverse()
+            seq: list[int] = []
+            for si in range(max_secs):
+                for ri in rr:
+                    sec = data[ri][si * 256:(si + 1) * 256]
+                    seq.extend(sec)
+            scans[f"セクタ番号優先/READ{'逆' if rev_r else '正'}順"] = seq
+        for name, seq in scans.items():
+            print(f"規則候補 {name}: 先頭一致={prefix_len(body, seq)}/{len(body)}")
+
+        print("\n## 定常2ポート列のREAD内等差走査対応")
+        targets = {"main-FD": body, "main-FC": parallel}
+        for target_name, target in targets.items():
+            for stride in (1, -1, 2, -2, 256, -256):
+                hits: list[tuple[int, int, int, int]] = []
+                needle_len = min(16, len(target))
+                for ri, d in enumerate(data, 1):
+                    for start in range(len(d)):
+                        end = start + (needle_len - 1) * stride
+                        if 0 <= end < len(d) and all(
+                                d[start + k * stride] == target[k]
+                                for k in range(needle_len)):
+                            hits.append((ri, start // 256 + 1,
+                                         start % 256 + 1, stride))
+                if hits:
+                    print(f"{target_name} stride={stride}: 16件一致座標={hits}")
+
+        # 2ポートを一組として、READデータの隣接2バイトに対応するか調べる。
+        for order_name, pairs_out in (
+                ("FD,FC", list(zip(body, parallel))),
+                ("FC,FD", list(zip(parallel, body)))):
+            hits: list[tuple[int, int, int]] = []
+            for ri, d in enumerate(data, 1):
+                for start in range(max(0, len(d) - 32 + 1)):
+                    if all((d[start + 2*k], d[start + 2*k + 1]) == pairs_out[k]
+                           for k in range(16)):
+                        hits.append((ri, start // 256 + 1, start % 256 + 1))
+            print(f"隣接組 {order_name}: 先頭16組一致座標={hits}")
+
+        combined = [v for pair in zip(parallel, body) for v in pair]
+        start_ri, start_off = 1, 4 * 256 + 1  # READ#2, sector#5, byte#2
+        tail_stream = data[start_ri][start_off:] + [v for d in data[start_ri + 1:] for v in d]
+        print(f"既知先頭からFC,FD交互 vs READ残部: {prefix_len(combined, tail_stream)}/{len(combined)}")
+        if combined and tail_stream:
+            print("末尾不足位置の既知座標一致: "
+                  f"直前座標={int(combined[-1] == tail_stream[-1])} "
+                  f"バルク位置3座標={int(combined[-1] == data[1][4 * 256])} "
+                  f"走査開始座標={int(combined[-1] == data[1][4 * 256 + 1])}")
+        # 一致部分の全座標表。出力位置は定常部1始まり、portは値を含まない。
+        coord_stream: list[tuple[int, int, int]] = []
+        for ri in range(start_ri, len(data)):
+            begin = start_off if ri == start_ri else 0
+            for off in range(begin, len(data[ri])):
+                coord_stream.append((ri + 1, off // 256 + 1, off % 256 + 1))
+        for flat_i in range(min(prefix_len(combined, tail_stream), len(coord_stream))):
+            out_i = flat_i // 2 + 1
+            port = "FC" if flat_i % 2 == 0 else "FD"
+            ri, si, bi = coord_stream[flat_i]
+            print(f"pairmap output={out_i} port={port} read={ri} sector={si} byte={bi}")
+
         def compare(label: str, other_path: Path) -> None:
             try:
                 _, other_head, other_body, other_reads = load_extract(other_path)
