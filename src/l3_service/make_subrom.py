@@ -1199,11 +1199,11 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # （最初 MF=0 で送っていたら Missing Address Mark で毎回失敗した）。
     a.ld_a(0x46); a.call("FDC_OUT")
     a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
-    a.ld_hl_imm(REQ_HDR + 3); a.ld_a_hl(); a.call("FDC_OUT")   # C = シリンダ(byte3)
+    a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # C = 直前SEEK対象(byte4)
     a.ld_a(0x00); a.call("FDC_OUT")     # H = 0
-    a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # R = セクタ(byte4)
+    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # R = 要求末尾位置(byte6)
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
-    a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # EOT = R（このセクタで終わり）
+    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # EOT = R（このセクタで終わり）
     a.ld_a(0x2A); a.call("FDC_OUT")     # GPL
     a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
 
@@ -1272,7 +1272,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.inc_hl()
         a.djnz("_hdr_loop")
 
-        a.ld_hl_imm(REQ_HDR + 3)
+        a.ld_hl_imm(REQ_HDR + 4)
         a.ld_a_hl()
         a.ld_e(0x00)          # ドライブ0（第18版でドライブ番号引数化。意味は変えない）
         a.call("FDC_SEEK")
@@ -1500,7 +1500,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # FDCから256バイトを読み出して保持する。ただし交換#3では
     # RESP_ACTIVEを立てない。応答は下のEXCHANGE3_RESPONSE_PENDING経路で
     # 内部状態1バイトだけを返す。
-    a.ld_hl_imm(REQ_HDR + 3)
+    a.ld_hl_imm(REQ_HDR + 4)
     a.ld_a_hl()
     a.ld_e(0x00)
     a.call("FDC_SEEK")
@@ -1525,7 +1525,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # IN $FAの間に置く単発TC。結果後の三つ組みとは異なり、ここでは
         # OUT $F7 / IN $F8を伴わせない。
         a.out_imm(P_TC, FDC_TC_VALUE)
-        a.ld_hl_imm(REQ_HDR + 3)
+        a.ld_hl_imm(REQ_HDR + 4)
         a.ld_a_hl()
         a.ld_e(0x00)
         a.call("FDC_SEEK")

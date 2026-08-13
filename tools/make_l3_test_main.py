@@ -18,7 +18,7 @@ SEND/RECV 手順を、そのまま Z80 コードに書き起こしただけの�
   `tools/verify_l1.sh` が公式ROM無しで検証できているのと同じ型）。
 
 やること: 固定した (シリンダ, セクタ) の列について、8バイトヘッダ
-（`02 01 00 <cyl> <sec> 06 12 60`。仕様書1.11節）を SEND で送り、
+（座標は仕様書1.29節の位置4/6へ置く）を SEND で送り、
 交換#3の1バイト応答をRECVする。続けて交換#4の2バイト要求をSENDし、
 256バイトの応答を RECV で受け取って、その場で捨てて次へ進む。
 受け取った値そのものは `--io-log` の main 側 IN $FC 列に残るので、
@@ -323,13 +323,13 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.pop_af()
     a.ret()
 
-    # ---- 要求ヘッダ（仕様書1.11節: 02 01 00 <cyl> <sec> 06 12 60） ----
+    # ---- 要求ヘッダ（仕様書1.29節: 位置4=C、位置6=R/EOT） ----
     hdr_labels = []
     for i, (cyl, sec) in enumerate(requests):
         name = f"HDR_{i}"
         hdr_labels.append(name)
         a.label(name)
-        a.db(0x02, 0x01, 0x00, cyl, sec, 0x06, 0x12, 0x60)
+        a.db(0x02, 0x01, 0x00, 0x00, cyl, 0x00, sec, 0x06)
 
     # 仕様書1.23節で確定している交換#4要求の長さは2バイトである。
     # 値の意味は未確定なので、この自己検証治具では任意の固定値を用いる。
@@ -346,7 +346,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         dispatch_switch_hdr = "DISPATCH_SWITCH_HDR"
         a.label(dispatch_switch_hdr)
-        a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
+        a.db(0x02, 0x01, 0x00, 0x00, cyl0, 0x00, sec0, 0x06)
 
     # ---- --run-continuation-test 用のヘッダ（上のdocstring参照）。
     #      requests[0] と同じ (cyl,sec) を使う——dispatch_switch_hdrと
@@ -357,11 +357,11 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         run_cont_hdr = "RUN_CONT_HDR"
         a.label(run_cont_hdr)
-        a.db(0x02, 0x01, 0x00, cyl0, sec0, 0x06, 0x12, 0x60)
+        a.db(0x02, 0x01, 0x00, 0x00, cyl0, 0x00, sec0, 0x06)
 
     # ---- --fixed-byte-cutoff-test 用の3ラウンド（上のdocstring参照）。
     #      値の並びを通しで見ると requests[0] と同じ8バイトヘッダになる
-    #      ように仕組む（byte3/byte4=cyl/secが有効な範囲に収まるように
+    #      ように仕組む（位置4/6のcyl/secが有効な範囲に収まるように
     #      requests[0]の値を使う——旧実装が誤って読み出し要求として
     #      解釈してしまってもFDCシークが失敗せず、検出したい protocol
     #      の食い違いだけが明確に出るようにするため）。 ----
@@ -376,7 +376,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.db(0x00)
         fbc_round_c = "FBC_ROUND_C"   # 5バイト（先頭2バイトがcyl/sec）
         a.label(fbc_round_c)
-        a.db(cyl0, sec0, 0x06, 0x12, 0x60)
+        a.db(0x00, cyl0, 0x00, sec0, 0x06)
 
     # ---- 本編 ----
     a.label("MAIN")
