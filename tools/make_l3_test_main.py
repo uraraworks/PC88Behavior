@@ -323,6 +323,25 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.pop_af()
     a.ret()
 
+    # ---- RECV_MAIN_PAIR: 交換#4多バイト応答の連続2位置を1フェーズで受信 ----
+    # 仕様書1.31節。値は保持せず、2回のIN $FCをI/Oログへ残す。
+    a.label("RECV_MAIN_PAIR")
+    a.out_imm(0xFF, 0x0B)
+    a.label("_recv_pair_wait1")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_RECV_BEFORE)
+    a.jr_z("_recv_pair_wait1")
+    a.out_imm(0xFF, 0x0A)
+    a.in_port(0xFC)                      # 位置1
+    a.out_imm(0xFF, 0x0D)
+    a.label("_recv_pair_wait2")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_RECV_AFTER)
+    a.jr_nz("_recv_pair_wait2")
+    a.in_port(0xFC)                      # 位置2（受理解除後のラッチ）
+    a.out_imm(0xFF, 0x0C)
+    a.ret()
+
     # ---- 要求ヘッダ（仕様書1.29節: 位置4=C、位置6=R/EOT） ----
     hdr_labels = []
     for i, (cyl, sec) in enumerate(requests):
@@ -391,8 +410,9 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
 
     if dispatch_switch_test:
         # 割り込みシナリオ（上のdocstring「--dispatch-switch-test」参照）:
-        # 8バイトのヘッダをSENDし、応答は1バイト目だけRECVしてすぐ次へ
-        # 進む（256バイト全部は受け取らない）。
+        # 交換#3/#4を1組完遂してから次へ進む。第38版以前は8バイト要求の
+        # 直後に256バイト応答が来る旧境界を前提に途中で打ち切っていたが、
+        # 現仕様では交換#4の2バイト要求なしに多バイト応答を始めてはならない。
         a.ld_hl(dispatch_switch_hdr)
         a.ld_b(8)
         a.label("_dsw_hdrsend")
@@ -400,7 +420,18 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.call("SEND_MAIN")
         a.inc_hl()
         a.djnz("_dsw_hdrsend")
-        a.call("RECV_MAIN")   # 応答の1バイト目だけ受けて捨てる
+        a.call("RECV_MAIN")   # 交換#3の単発応答
+        a.ld_hl("EXCHANGE4_REQUEST")
+        a.ld_b(2)
+        a.label("_dsw_exchange4_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_dsw_exchange4_send")
+        a.ld_b(0x80)
+        a.label("_dsw_exchange4_recv")
+        a.call("RECV_MAIN_PAIR")
+        a.djnz("_dsw_exchange4_recv")
 
     if run_continuation_test:
         # runシナリオ（上のdocstring「--run-continuation-test」参照）:
@@ -427,9 +458,9 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.inc_hl()
         a.djnz("_rct_exchange4_send")
 
-        a.ld_b(0x00)
+        a.ld_b(0x80)
         a.label("_rct_resprecv")
-        a.call("RECV_MAIN")
+        a.call("RECV_MAIN_PAIR")
         a.djnz("_rct_resprecv")
 
     if fixed_byte_cutoff_test:
@@ -470,9 +501,9 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.djnz(f"_exchange4_send_{name}")
 
         # 交換#4応答256バイトを RECV する（内容は iolog に残る）。
-        a.ld_b(0x00)
+        a.ld_b(0x80)
         a.label(f"_resprecv_{name}")
-        a.call("RECV_MAIN")
+        a.call("RECV_MAIN_PAIR")
         a.djnz(f"_resprecv_{name}")
 
     a.label("DONE")

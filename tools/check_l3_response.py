@@ -57,9 +57,9 @@ def main() -> int:
                      help="cyl:sec のカンマ区切り列（make_l3_test_main.py と同じ列を渡すこと）")
     ap.add_argument("--skip-prefix-bytes", type=int, default=0,
                      help="main の IN $FC 列の先頭Nバイトを比較対象から除外する。"
-                          "tools/make_l3_test_main.py --dispatch-switch-test が"
-                          "本来の要求列の前に割り込みシナリオの応答1バイトを"
-                          "挟むため、その分だけ読み飛ばすのに使う。")
+                          "tools/make_l3_test_main.py --dispatch-switch-test などが"
+                          "本来の要求列の前に完結した応答を挟むため、その厳密な"
+                          "件数だけ読み飛ばすのに使う。")
     args = ap.parse_args()
 
     requests = []

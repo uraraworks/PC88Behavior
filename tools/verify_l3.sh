@@ -144,7 +144,7 @@ python3 "$GEN_MAIN" "$WORK/rom_dispatch_ok" --requests "$REQUESTS" --dispatch-sw
     --frames "$FRAMES" --io-log "$WORK/dispatch_ok.iolog.txt" \
     >"$WORK/dispatch_ok.stdout.txt" 2>"$WORK/dispatch_ok.stderr.txt"
 
-if python3 "$CHECK" "$WORK/dispatch_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 1; then
+if python3 "$CHECK" "$WORK/dispatch_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 257; then
   ok "割り込み後も通常の3要求が正しく完了した（プリミティブごとにディスパッチャへ戻る現行実装）"
 else
   ng "割り込みシナリオを挟むと現行実装でも要求列が壊れた"
@@ -160,7 +160,7 @@ python3 "$GEN_MAIN" "$WORK/rom_dispatch_broken" --requests "$REQUESTS" --dispatc
     --frames "$FRAMES" --io-log "$WORK/dispatch_broken.iolog.txt" \
     >"$WORK/dispatch_broken.stdout.txt" 2>"$WORK/dispatch_broken.stderr.txt"
 
-if python3 "$CHECK" "$WORK/dispatch_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 1 >"$WORK/dispatch_broken.check.txt" 2>&1; then
+if python3 "$CHECK" "$WORK/dispatch_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 257 >"$WORK/dispatch_broken.check.txt" 2>&1; then
   ng "修正前相当の版が割り込みシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
   cat "$WORK/dispatch_broken.check.txt"
   overall_rc=1
