@@ -632,8 +632,18 @@ BOOT_READ_PAIR_STAGE = 0x430C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち,
 REQ_H = 0x430D       # 第42版: READ DATAのH。交換#11以外は0
 REQ_UNIT_HEAD = 0x430E  # 第42版: drive=0 | (REQ_H bit0 << 2)
 BULK_BLOCKS = 0x430F    # 第44版: 高速バルクの残り256件ブロック数
+BULK_DEST = 0x4310      # 2バイト: 交換#14複数セクタREADの格納先
+BULK_SECTORS = 0x4312   # 1バイト: 同READのデータ部セクタ数
+BULK_EOT = 0x4313       # 1バイト: 同READのEOT
+BULK_C = 0x4314         # 1バイト: 同READのC/SEEK対象
+BULK_H = 0x4315         # 1バイト: 同READのH
+BULK_R = 0x4316         # 1バイト: 同READの開始R
+BULK_UNIT_HEAD = 0x4317 # 1バイト: 同READのunit/head
+BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
+BULK_READ_INTERVENTION_LIMIT = int(
+    os.environ.get("PC88_BULK_READ_INTERVENTION_LIMIT", "1"), 0)
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
@@ -1237,6 +1247,36 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.call("FDC_TC")
     a.ret()
 
+    # 交換#14専用の複数セクタREAD。公開FDCパラメータは上のBULK_*から取り、
+    # データ部だけをBULK_DESTから連続格納する。
+    a.label("FDC_READ_BULK")
+    a.call("FDC_BEGIN")
+    a.ld_a(0x46); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_C); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_H); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_R); a.call("FDC_OUT")
+    a.ld_a(0x01); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_EOT); a.call("FDC_OUT")
+    a.ld_a(0x2A); a.call("FDC_OUT")
+    a.ld_a(0xFF); a.call("FDC_OUT")
+    a.ld_hl_mem(BULK_DEST)
+    a.label("_bulk_read_sector")
+    a.ld_b(0x00)
+    a.label("_bulk_read_byte")
+    a.call("FDC_IN")
+    a.ld_hl_a()
+    a.inc_hl()
+    a.djnz("_bulk_read_byte")
+    a.ld_a_mem(BULK_SECTORS)
+    a.dec_a()
+    a.ld_mem_a(BULK_SECTORS)
+    a.jr_nz("_bulk_read_sector")
+    for _ in range(7):
+        a.call("FDC_IN")
+    a.call("FDC_TC")
+    a.ret()
+
     if break_dispatch_return:
         # ====================================================================
         # 第9版で修正したバグをわざと再現する版（tools/verify_l3.sh の
@@ -1500,6 +1540,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.ld_a_mem(RUN_LEN)
             a.cp_n(7)
             a.jp_z("_exchange14_prepare_first_read")
+            a.cp_n(11)
+            a.jp_z("_exchange14_prepare_remaining_reads")
             a.cp_n(12)
             a.jp_z("BULK_SEND")
             a.label("_recv_dispatch_after_cont_bulk_check")
@@ -1730,6 +1772,50 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # データポート値は仕様化せず、FDC_READ_SECTORが読み取ったSECTOR_BUFを
     # 加工せず流す。22*256+3=5635件。現段階では交換#14の5回READ座標の
     # 生成式が未確定なので、既存FDCバッファを周期的に読むところまでとする。
+    a.label("_exchange14_prepare_remaining_reads")
+    # 第49版: 既定では介入で確定した第2 READだけを実行する。後続タプルは
+    # 第3〜第5 READの非表示介入用候補で、既定値1では実装へ入らない。
+    for read_no, c_pos, r_pos, sectors, dest in (
+            (2, 2, 3, 14, BULK_DATA),
+            (3, 2, 1, 16, BULK_DATA + 14 * 256),
+            (4, 1, 1, 16, BULK_DATA + 30 * 256),
+            (5, 1, 1, 2, BULK_DATA + 46 * 256))[:BULK_READ_INTERVENTION_LIMIT]:
+        a.out_imm(P_TC, FDC_TC_VALUE)
+        a.ld_hl_imm(REQ_HDR + c_pos)
+        a.ld_a_hl()
+        a.ld_mem_a(BULK_C)
+        a.ld_e(0x00)
+        a.call("FDC_SEEK")
+        a.call("FDC_SENSE_DRIVE_STATUS")
+        a.ld_hl_imm(REQ_HDR + 1)
+        a.ld_a_hl()
+        if read_no in (2, 4):
+            a.db(0xEE, 0x01)  # XOR 1: 直前READからHを反転
+        a.ld_mem_a(BULK_H)
+        a.and_a(0x01)
+        a.jr_z(f"_bulk_unit_zero_{read_no}")
+        a.ld_a(0x04)
+        a.jr(f"_bulk_unit_done_{read_no}")
+        a.label(f"_bulk_unit_zero_{read_no}")
+        a.ld_a(0x00)
+        a.label(f"_bulk_unit_done_{read_no}")
+        a.ld_mem_a(BULK_UNIT_HEAD)
+        a.ld_hl_imm(REQ_HDR + r_pos)
+        a.ld_a_hl()
+        a.ld_mem_a(BULK_R)
+        a.db(0xC6, sectors - 1)  # ADD A,n: EOT=R+セクタ数-1
+        a.ld_mem_a(BULK_EOT)
+        a.ld_hl_imm(dest)
+        a.ld_mem_hl(BULK_DEST)
+        a.ld_a(sectors)
+        a.ld_mem_a(BULK_SECTORS)
+        a.out_imm(P_STROBE, BOOT_F7_VALUE)
+        a.call("FDC_READ_BULK")
+    if break_run_continuation:
+        a.jp("IDLE_DISPATCH")
+    else:
+        a.jp("_recv_dispatch_continue")
+
     a.label("BULK_SEND")
     a.out_imm(0xFF, 0x81)
     a.out_imm(0xFF, 0x08)
@@ -1740,10 +1826,11 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 観測応答。環境変数は全候補介入時だけ使い、公式ROMは読まない。
     a.call("BULK_SEND_POSITION1")
     a.call("BULK_SEND_POSITION2")
-    a.ld_a(22)
+    a.ld_hl_imm(BULK_DATA + 4 * 256)
+    a.call("BULK_SEND_POSITION3")
+    a.ld_a(21)
     a.ld_mem_a(BULK_BLOCKS)
     a.label("_bulk_block")
-    a.ld_hl_imm(SECTOR_BUF)
     a.ld_b(0x00)                       # DJNZで256周期
     a.label("_bulk_block_item")
     a.call("BULK_SEND_ONE")
@@ -1752,23 +1839,50 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.dec_a()
     a.ld_mem_a(BULK_BLOCKS)
     a.jr_nz("_bulk_block")
-    a.ld_hl_imm(SECTOR_BUF)
-    a.ld_b(1)                         # 先頭2件を上で送ったため残り5633件
+    a.ld_b(255)                       # 21*256+255=5631組
     a.label("_bulk_tail_item")
     a.call("BULK_SEND_ONE")
     a.djnz("_bulk_tail_item")
+    a.call("BULK_SEND_FINAL_DUPLICATE")
     a.jp("IDLE_DISPATCH")
 
     a.label("BULK_SEND_ONE")
     a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
     a.out_imm(0xFF, PH_SEND_DATA_SET)    # 09
     a.call("WAIT_FE_RECV_DATA_READY")   # bit0=1
-    a.ld_a_hl()
-    a.out_a(P_PIO_A)                    # OUT $FC（main IN $FD）
-    a.out_a(P_PIO_B)                    # OUT $FD（並行データ経路）
+    a.ld_a_hl()                          # 偶数側（main IN $FC）をCへ退避
+    a.ld_c_a()
+    a.inc_hl()
+    a.ld_a_hl()                          # 奇数側（main IN $FD）
+    a.out_a(P_PIO_A)
+    a.ld_a_c()
+    a.out_a(P_PIO_B)
     a.inc_hl()
     a.out_imm(0xFF, PH_SEND_DATA_CLR)    # 08
     a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
+    a.ret()
+
+    a.label("BULK_SEND_POSITION3")
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_RECV_DATA_READY")
+    a.ld_a_hl()
+    a.out_a(P_PIO_A)
+    a.out_a(P_PIO_B)
+    a.inc_hl()
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.ret()
+
+    a.label("BULK_SEND_FINAL_DUPLICATE")
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_RECV_DATA_READY")
+    a.ld_a_hl()
+    a.out_a(P_PIO_A)
+    a.out_a(P_PIO_B)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.call("WAIT_FE_RECV_ACK_DONE")
     a.ret()
 
     a.label("BULK_SEND_POSITION1")
