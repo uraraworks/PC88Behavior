@@ -391,6 +391,7 @@ FDCデータを`SECTOR_BUF`へ準備しても`RESP_ACTIVE`を立てず、内部�
 """
 
 import argparse
+import os
 import pathlib
 import sys
 
@@ -631,6 +632,8 @@ BOOT_READ_PAIR_STAGE = 0x430C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち,
 REQ_H = 0x430D       # 第42版: READ DATAのH。交換#11以外は0
 REQ_UNIT_HEAD = 0x430E  # 第42版: drive=0 | (REQ_H bit0 << 2)
 BULK_BLOCKS = 0x430F    # 第44版: 高速バルクの残り256件ブロック数
+BULK_POSITION1_OBSERVED_RESPONSE = int(
+    os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
@@ -1733,6 +1736,10 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.out_imm(0xFF, 0x0A)
     a.out_imm(0xFF, 0x0C)
     a.out_imm(0xFF, 0x0E)
+    # 第48版: 意味未特定の位置1。既定値はブラックボックス介入で確定した
+    # 観測応答。環境変数は全候補介入時だけ使い、公式ROMは読まない。
+    a.call("BULK_SEND_POSITION1")
+    a.call("BULK_SEND_POSITION2")
     a.ld_a(22)
     a.ld_mem_a(BULK_BLOCKS)
     a.label("_bulk_block")
@@ -1746,7 +1753,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_mem_a(BULK_BLOCKS)
     a.jr_nz("_bulk_block")
     a.ld_hl_imm(SECTOR_BUF)
-    a.ld_b(3)
+    a.ld_b(1)                         # 先頭2件を上で送ったため残り5633件
     a.label("_bulk_tail_item")
     a.call("BULK_SEND_ONE")
     a.djnz("_bulk_tail_item")
@@ -1762,6 +1769,28 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.inc_hl()
     a.out_imm(0xFF, PH_SEND_DATA_CLR)    # 08
     a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
+    a.ret()
+
+    a.label("BULK_SEND_POSITION1")
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_RECV_DATA_READY")
+    a.ld_a(BULK_POSITION1_OBSERVED_RESPONSE)
+    a.out_a(P_PIO_A)
+    a.out_a(P_PIO_B)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.ret()
+
+    a.label("BULK_SEND_POSITION2")
+    a.call("WAIT_FE_RECV_ACK_DONE")
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_RECV_DATA_READY")
+    a.ld_a(5632 // 256)                # 第46版: 定常転送組数
+    a.out_a(P_PIO_A)
+    a.out_a(P_PIO_B)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.call("WAIT_FE_RECV_ACK_DONE")
     a.ret()
 
     # ---- SEND_DISPATCH: SENDを1回だけ行い、必ずIDLE_DISPATCHへ戻る。
