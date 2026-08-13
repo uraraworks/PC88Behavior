@@ -624,6 +624,8 @@ RUN_LEN     = 0x4306   # 1バイト: 現在のrunで受け取ったバイト数�
 SECTOR_READY = 0x4307  # 1バイト: 交換#4へ渡す256バイトがSECTOR_BUFに準備済み
 EXCHANGE3_RESPONSE_PENDING = 0x4308  # 1バイト: 交換#3の内部状態応答が未送信
 ROUND0_RESPONSE_PENDING = 0x4309  # 1バイト: 起動系列最初の観測応答が未送信
+EXCHANGE3_REQUEST_ACTIVE = 0x430A  # 1バイト: 第32版の2/5/1分節要求を受信中
+BOOT_SINGLE_RESPONSE_COUNT = 0x430B  # 1バイト: 起動時交換順序（値に依存しない）
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
@@ -832,6 +834,27 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # いう記述はこの点を訂正する。終了後に何を返すか（結果値のbit1/bit3
     # による後続分岐）はここでは使わない。呼び出し元(IDLE_DISPATCH)が
     # 改めて$FEを読んで次の動作を決めるため、読み捨ててよい。
+    a.ret()
+
+    # ---- SEND_BOOT_SINGLE_TRACKED: 起動時の単発応答を1件送り、交換順序を
+    #      数える。第32版1.25節の分節開始は要求値ではなく、交換#0〜#2の
+    #      3応答を完遂したという外部構造だけで決める。引数Aは送信値。 ----
+    a.label("SEND_BOOT_SINGLE_TRACKED")
+    a.push_af()
+    a.ld_a_mem(BOOT_SINGLE_RESPONSE_COUNT)
+    a.inc_a()
+    a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
+    a.cp_n(3)
+    a.jr_nz("_boot_single_track_done")
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_mem_hl(HDR_PTR)
+    a.ld_a(0x00)
+    a.ld_mem_a(RUN_LEN)
+    a.ld_a(0x01)
+    a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
+    a.label("_boot_single_track_done")
+    a.pop_af()
+    a.call("SEND_BYTE")
     a.ret()
 
     # ====================================================================
@@ -1297,6 +1320,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_mem_a(RUN_LEN)
     a.ld_mem_a(SECTOR_READY)
     a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
+    a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
     a.ld_a(0x01)
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     # 第21版で追加したLAST_FDC_RESULTの起動時初期化は、第22版でこの
@@ -1331,7 +1356,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.jr_nz("RECV_DISPATCH")
     a.ld_a_b()
     a.and_a(FE_BIT_IDLE_SEND)        # bit1=1なら未確定のSEND分岐(判定方式のみビット化)
-    a.jr_nz("SEND_DISPATCH")
+    a.jp_nz("SEND_DISPATCH")
     a.jr("IDLE_DISPATCH")
 
     # ---- RECV_DISPATCH: 1つのrun（mainがsubへ送り手であり続ける区間）を
@@ -1357,13 +1382,34 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 通算で貯め込む」旧構造を忠実に再現する——HDR_PTR/RUN_LENは
     # MAIN_LOOP起動時の1回と、8バイト到達後の巻き戻ししか行わない)。
     if not break_fixed_byte_cutoff:
+        # 第32版1.25節: 交換#3の要求は2/5/1境界をまたいで同じ8件を
+        # 蓄積する。アイドル復帰によるRECV_DISPATCH再入では状態を消さない。
+        a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
+        a.or_a()
+        a.jr_nz("_recv_dispatch_state_ready")
         a.ld_hl_imm(REQ_HDR)
         a.ld_mem_hl(HDR_PTR)
         a.ld_a(0x00)
         a.ld_mem_a(RUN_LEN)
         a.ld_mem_a(RESP_ACTIVE)
+        a.label("_recv_dispatch_state_ready")
     a.call("RECV_BYTE")               # A = 受け取ったバイト
     a.call("HDR_STORE_AND_CHECK")     # REQ_HDRへ格納しRUN_LENを進める
+
+    if not break_fixed_byte_cutoff:
+        # 第32版1.25節の分節境界。値ではなく、起動時交換順序で立てた
+        # EXCHANGE3_REQUEST_ACTIVEと観測件数だけを使う。
+        a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
+        a.or_a()
+        a.jr_z("_recv_dispatch_after_first_progress")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(2)
+        a.jp_z("IDLE_DISPATCH")
+        a.cp_n(7)
+        a.jp_z("_exchange3_prepare_sector")
+        a.cp_n(8)
+        a.jp_z("_exchange3_request_done")
+        a.label("_recv_dispatch_after_first_progress")
 
     if break_fixed_byte_cutoff:
         # tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが
@@ -1415,11 +1461,26 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: ポーリングを繰り返す
             # Z: 8バイト到達。そのまま_recv_dispatch_hdr_doneへ落ちる
         else:
+            # 最初の受信と同じ2/5/1境界判定。2件後はアイドルへ戻り、
+            # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
+            a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
+            a.or_a()
+            a.jr_z("_recv_dispatch_continue")
+            a.ld_a_mem(RUN_LEN)
+            a.cp_n(2)
+            a.jp_z("IDLE_DISPATCH")
+            a.cp_n(7)
+            a.jp_z("_exchange3_prepare_sector")
+            a.cp_n(8)
+            a.jp_z("_exchange3_request_done")
             a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
 
     if not break_fixed_byte_cutoff:
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
         a.label("_recv_dispatch_run_done")
+        a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
+        a.or_a()
+        a.jp_nz("IDLE_DISPATCH")
         a.ld_a_mem(SECTOR_READY)
         a.or_a()
         a.jp_nz("_recv_dispatch_maybe_exchange4")
@@ -1454,6 +1515,34 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_mem_a(SECTOR_READY)
     a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
     a.jp("IDLE_DISPATCH")
+
+    if not break_fixed_byte_cutoff:
+        # 第32版1.25節: 2+5件を受信した時点でFDC実データを準備する。
+        # 最後の1件はFDC完了後に別のRECVとして受けるため、要求ポインタと
+        # RUN_LENは保持し、ここでは単発応答をまだ有効にしない。
+        a.label("_exchange3_prepare_sector")
+        a.ld_hl_imm(REQ_HDR + 3)
+        a.ld_a_hl()
+        a.ld_e(0x00)
+        a.call("FDC_SEEK")
+        a.call("FDC_READ_SECTOR")
+        if break_response:
+            a.ld_hl_imm(SECTOR_BUF)
+            a.ld_a_hl()
+            a.db(0xEE, 0x01)
+            a.ld_hl_a()
+        a.ld_a(0x01)
+        a.ld_mem_a(SECTOR_READY)
+        a.jp("IDLE_DISPATCH")
+
+        # FDC完了後の最後の1件を受信した。交換#3の単発応答だけを保留し、
+        # 交換#4が来るまでSECTOR_READYは維持する。
+        a.label("_exchange3_request_done")
+        a.ld_a(0x00)
+        a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
+        a.ld_a(0x01)
+        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+        a.jp("IDLE_DISPATCH")
 
     if not break_fixed_byte_cutoff:
         # 交換#4: 交換#3で実データが準備済みの場合だけ、続く2バイト要求を
@@ -1519,7 +1608,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_a(0x00)
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     a.ld_a(ROUND0_OBSERVED_RESPONSE)
-    a.call("SEND_BYTE")
+    a.call("SEND_BOOT_SINGLE_TRACKED")
     a.jp("IDLE_DISPATCH")
 
     # m7hの要求グループ→応答グループ決定関数。意味未特定の観測応答であり、
@@ -1548,7 +1637,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.cp_n(0x06)
     a.jp_nz("_observed_request_next_2")
     a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1])
-    a.call("SEND_BYTE")
+    a.call("SEND_BOOT_SINGLE_TRACKED")
     a.jp("IDLE_DISPATCH")
     a.label("_observed_request_next_2")
     a.ld_a_mem(RUN_LEN)
@@ -1575,7 +1664,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.cp_n(0x01)
     a.jp_nz("_observed_request_next_3")
     a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[2][1])
-    a.call("SEND_BYTE")
+    a.call("SEND_BOOT_SINGLE_TRACKED")
     a.jp("IDLE_DISPATCH")
     a.label("_observed_request_next_3")
     a.ld_a_mem(RUN_LEN)
