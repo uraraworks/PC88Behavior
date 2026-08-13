@@ -626,7 +626,9 @@ EXCHANGE3_RESPONSE_PENDING = 0x4308  # 1バイト: 交換#3の内部状態応答
 ROUND0_RESPONSE_PENDING = 0x4309  # 1バイト: 起動系列最初の観測応答が未送信
 EXCHANGE3_REQUEST_ACTIVE = 0x430A  # 1バイト: 第32版の2/5/1分節要求を受信中
 BOOT_SINGLE_RESPONSE_COUNT = 0x430B  # 1バイト: 起動時交換順序（値に依存しない）
-BOOT_READ_PAIR_STAGE = 0x430C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち, 2=交換#7待ち, 3=完了
+BOOT_READ_PAIR_STAGE = 0x430C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち, 2=交換#7待ち, 3=交換#11待ち, 4=交換#12待ち, 5=完了
+REQ_H = 0x430D       # 第42版: READ DATAのH。交換#11以外は0
+REQ_UNIT_HEAD = 0x430E  # 第42版: drive=0 | (REQ_H bit0 << 2)
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
@@ -1199,9 +1201,9 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 相当）に対しては MF=1（倍密度コマンド）が要る。実測して確かめた
     # （最初 MF=0 で送っていたら Missing Address Mark で毎回失敗した）。
     a.ld_a(0x46); a.call("FDC_OUT")
-    a.ld_a(0x00); a.call("FDC_OUT")     # unit=0, head=0
+    a.ld_a_mem(REQ_UNIT_HEAD); a.call("FDC_OUT")  # unit/head（第42版）
     a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # C = 直前SEEK対象(byte4)
-    a.ld_a(0x00); a.call("FDC_OUT")     # H = 0
+    a.ld_a_mem(REQ_H); a.call("FDC_OUT")  # H（交換#11以外は0）
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # R = 要求末尾位置(byte6)
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # EOT = R（このセクタで終わり）
@@ -1324,6 +1326,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
     a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
     a.ld_mem_a(BOOT_READ_PAIR_STAGE)
+    a.ld_mem_a(REQ_H)
+    a.ld_mem_a(REQ_UNIT_HEAD)
     a.ld_a(0x01)
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     # 第21版で追加したLAST_FDC_RESULTの起動時初期化は、第22版でこの
@@ -1505,6 +1509,15 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.cp_n(6)
         a.jp_z("_exchange6_prepare_sector")
         a.label("_recv_dispatch_after_exchange6_check")
+        # 第41版1.33節: 二組目完了後の交換#11だけを三組目のREAD準備と
+        # して扱う。要求値ではなく交換順序と観測長8で限定する。
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(0x03)
+        a.jr_nz("_recv_dispatch_after_exchange11_check")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(8)
+        a.jp_z("_exchange11_prepare_sector")
+        a.label("_recv_dispatch_after_exchange11_check")
         a.ld_a_mem(SECTOR_READY)
         a.or_a()
         a.jp_nz("_recv_dispatch_maybe_exchange4")
@@ -1567,12 +1580,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.ld_hl_a()
         a.ld_a(0x01)
         a.ld_mem_a(SECTOR_READY)
-        # 交換#6もREAD完了後に既存の観測済み単発応答を1件返し、保持した
-        # 256件は交換#7まで遅延する。交換#3と交換#6の観測応答グループは
-        # 仕様第31版で同一と確定済み。
+        # 交換#6/#11もREAD完了後に既存の観測済み単発応答を1件返し、
+        # 保持した256件はそれぞれ交換#7/#12まで遅延する。
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.cp_n(0x02)
+        a.jr_z("_sector_prepare_response_pending")
+        a.cp_n(0x04)
         a.jr_nz("_sector_prepare_done")
+        a.label("_sector_prepare_response_pending")
         a.ld_a(0x01)
         a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
         a.label("_sector_prepare_done")
@@ -1589,6 +1604,33 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_hl_a()
         a.ld_hl_imm(REQ_HDR + 0)
+        a.ld_a_hl()
+        a.ld_hl_imm(REQ_HDR + 6)
+        a.ld_hl_a()
+        a.jp("_exchange3_prepare_sector")
+
+        # 第42版1.33節: 交換#11は要求位置3をSEEK/C/H、位置5をR/EOTへ
+        # 転記し、unit/headをHから公開FDC符号化で作る。
+        # 既存FDC_READ_SECTORが読む位置4/6へC/Rを正規化して、
+        # 交換#3/#6と同じ569件の準備経路を共有する。
+        a.label("_exchange11_prepare_sector")
+        a.ld_a(0x04)
+        a.ld_mem_a(BOOT_READ_PAIR_STAGE)
+        a.ld_hl_imm(REQ_HDR + 3)
+        a.ld_a_hl()
+        a.ld_mem_a(REQ_H)
+        a.ld_hl_imm(REQ_HDR + 4)
+        a.ld_hl_a()
+        a.ld_a_mem(REQ_H)
+        a.and_a(0x01)
+        a.jr_z("_exchange11_unit_head_zero")
+        a.ld_a(0x04)
+        a.jr("_exchange11_unit_head_done")
+        a.label("_exchange11_unit_head_zero")
+        a.ld_a(0x00)
+        a.label("_exchange11_unit_head_done")
+        a.ld_mem_a(REQ_UNIT_HEAD)
+        a.ld_hl_imm(REQ_HDR + 5)
         a.ld_a_hl()
         a.ld_hl_imm(REQ_HDR + 6)
         a.ld_hl_a()
@@ -1669,10 +1711,19 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # 256バイト送り終えた: 応答フェーズを終了する
     a.ld_a(0x00)
     a.ld_mem_a(RESP_ACTIVE)
-    # 第39版1.32節: 0→1で交換#6待ち、2→3で二組目完了となる。
+    # 第41版1.33節: 0→1で交換#6待ち、2→3で交換#11待ち、
+    # 4→5で三組目完了となる。
     a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+    a.cp_n(0x00)
+    a.jr_z("_advance_boot_read_pair_stage")
+    a.cp_n(0x02)
+    a.jr_z("_advance_boot_read_pair_stage")
+    a.cp_n(0x04)
+    a.jr_nz("_boot_read_pair_stage_done")
+    a.label("_advance_boot_read_pair_stage")
     a.inc_a()
     a.ld_mem_a(BOOT_READ_PAIR_STAGE)
+    a.label("_boot_read_pair_stage_done")
     a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
 
     a.label("SEND_DISPATCH_ONE_BYTE")
