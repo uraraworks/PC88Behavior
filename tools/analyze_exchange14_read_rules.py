@@ -100,9 +100,53 @@ def prefix_len(a: list[int], b: list[int]) -> int:
     return n
 
 
+def fold_sum(xs: list[int]) -> int:
+    return sum(xs) & 0xFF
+
+
+def fold_xor(xs: list[int]) -> int:
+    out = 0
+    for x in xs:
+        out ^= x
+    return out
+
+
+def extract(rows: list[m2s.Ev]) -> tuple[list[int], list[int], list[int], list[Command]]:
+    tx = m2s.classify_transactions(rows)
+    runs = boot.group_runs(tx)
+    _, bulk_run = boot.split_boot_and_bulk(runs)
+    pairs = boot.pair_rounds(runs)
+    if len(pairs) < 15 or bulk_run is None:
+        raise SafeError("交換#14または公式バルク区間を特定できない")
+    req_run, response_run = pairs[14]
+    if len(req_run.events) != 12:
+        raise SafeError("交換#14の要求長が12件でない")
+    req = [need(e.value) for e in req_run.events]
+    cmds = commands(rows, req_run.lo, response_run.lo)
+    reads = [c for c in cmds if c.opcode == 0x06]
+    if len(reads) != 5 or any(len(r.params) != 8 or len(r.inputs) < 7 for r in reads):
+        raise SafeError("交換#14のREAD DATA 5回を完全に抽出できない")
+    expected = [need(e.value) for e in rows
+                if e.cpu == "main" and e.kind == "IN" and e.port == "00FD"]
+    if len(expected) != 5635:
+        raise SafeError("公式main IN $FDが5635件でない")
+    return req, expected[:3], expected[3:], reads
+
+
+def load_extract(path: Path) -> tuple[list[int], list[int], list[int], list[Command]]:
+    rows, masked = m2s.parse_iolog(path)
+    if sum(masked.values()):
+        raise SafeError("伏せ字ログでは位置対応を測定できない")
+    return extract(rows)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("iolog", type=Path)
+    ap.add_argument("--disk-compare", type=Path,
+                    help="内容差し替え媒体の生ログ（値は出力しない）")
+    ap.add_argument("--config-compare", action="append", type=Path, default=[],
+                    help="構成変更条件の生ログ（複数指定可、値は出力しない）")
     args = ap.parse_args()
     try:
         rows, masked = m2s.parse_iolog(args.iolog)
@@ -253,10 +297,75 @@ def main() -> int:
             "固定GPL": 0x2A,
             "固定DTL": 0xFF,
         }
+        all_data = [v for d in data for v in d]
+        all_params = [v for r in reads for v in r.params]
+        all_results = [v for r in reads for v in r.inputs[-7:]]
+        semantic.update({
+            "要求加算和": fold_sum(req), "要求XOR": fold_xor(req),
+            "READパラメータ加算和": fold_sum(all_params),
+            "READパラメータXOR": fold_xor(all_params),
+            "FDC結果加算和": fold_sum(all_results),
+            "FDC結果XOR": fold_xor(all_results),
+            "READデータ加算和": fold_sum(all_data),
+            "READデータXOR": fold_xor(all_data),
+            "転送組数-1": len(body) // 256 - 1,
+            "転送組数+1": len(body) // 256 + 1,
+            "転送総セクタ数": len(body) // 256,
+            "残余バイト数": len(body) % 256,
+            "READ総セクタ数-転送組数": len(all_data) // 256 - len(body) // 256,
+            "READ総セクタ数-両ポート転送セクタ数": len(all_data) // 256 - len(payload) // 256,
+            "除外後データ加算和": fold_sum(payload),
+            "除外後データXOR": fold_xor(payload),
+            "定常出力加算和": fold_sum(body),
+            "定常出力XOR": fold_xor(body),
+        })
+        for ri, d in enumerate(data, 1):
+            semantic[f"READ#{ri}セクタ数"] = len(d) // 256
+            semantic[f"READ#{ri}加算和"] = fold_sum(d)
+            semantic[f"READ#{ri}XOR"] = fold_xor(d)
+            for si in range(0, len(d), 256):
+                sec = d[si:si + 256]
+                semantic[f"READ#{ri} sector{si // 256 + 1}加算和"] = fold_sum(sec)
+                semantic[f"READ#{ri} sector{si // 256 + 1}XOR"] = fold_xor(sec)
         print("\n## 公式先頭3件と構造量候補")
+        print(f"先頭3位置の同値グループ数: {len(set(head))}")
         for i, value in enumerate(head):
             labels = [label for label, candidate in semantic.items() if value == candidate]
-            print(f"公式先頭[{i}]一致規則候補: {labels}")
+            print(f"公式先頭位置{i + 1}: 一致候補数={len(labels)} 同値候補群数={len(set(semantic[x] for x in labels))} 候補={labels}")
+
+        print("\n## ヘッダ後の256件境界によるREADデータ位置対応")
+        source_sectors = [d[o:o + 256] for d in data for o in range(0, len(d), 256)]
+        body_sectors = [body[o:o + 256] for o in range(0, len(body), 256)]
+        hit_counts = [sum(s == t for s in source_sectors) for t in body_sectors]
+        unique = sum(n == 1 for n in hit_counts)
+        any_hit = sum(n > 0 for n in hit_counts)
+        byte_hits = 0
+        for target, n in zip(body_sectors, hit_counts):
+            if n:
+                source = next(s for s in source_sectors if s == target)
+                byte_hits += sum(a == b for a, b in zip(target, source))
+        print(f"出力セクタ一致: {any_hit}/{len(body_sectors)}、一意対応: {unique}/{len(body_sectors)}")
+        print(f"一意/同値候補を含む位置一致件数: {byte_hits}/{len(body)}")
+        print(f"出力セクタ同値グループ数: {len({tuple(x) for x in body_sectors})} / READ側: {len({tuple(x) for x in source_sectors})}")
+
+        def compare(label: str, other_path: Path) -> None:
+            try:
+                _, other_head, other_body, other_reads = load_extract(other_path)
+            except SafeError as exc:
+                print(f"{label}: 比較不能（{exc}）")
+                return
+            same = [a == b for a, b in zip(head, other_head)]
+            changed_fdc = sum(a != b for a, b in zip(all_data,
+                [v for r in other_reads for v in r.inputs[:-7]]))
+            print(f"{label}: 位置1={'同一' if same[0] else '相違'} 位置2={'同一' if same[1] else '相違'} 位置3={'同一' if same[2] else '相違'}、先頭一致={sum(same)}/3、同値グループ数={len(set(other_head))}、FDCデータ相違={changed_fdc}件、定常位置一致={sum(a == b for a, b in zip(body, other_body))}/{len(body)}")
+
+        if args.disk_compare:
+            print("\n## 説D 媒体差し替え連動")
+            compare("媒体差し替え", args.disk_compare)
+        if args.config_compare:
+            print("\n## 説C 構成連動")
+            for i, path in enumerate(args.config_compare, 1):
+                compare(f"構成条件{i}", path)
         return 0
     except (SafeError, OSError, ValueError) as exc:
         print(f"エラー: {exc}", file=sys.stderr)

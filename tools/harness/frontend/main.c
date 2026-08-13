@@ -110,6 +110,7 @@ typedef struct { unsigned start, end; uint16_t key; int shift; } keyev_t;
 static keyev_t  g_keyev[MAX_KEYSTROKES];
 static int      g_n_keyev = 0;
 static unsigned g_frame   = 0;
+static const char *g_basic_mode = NULL;
 
 /* PC-88 のキーボードで SHIFT が要る文字と、その土台になるキー。
  *
@@ -208,6 +209,11 @@ static bool environment_cb(unsigned cmd, void *data)
         return true;   /* 画面は捨てるので何でもよい */
 
     case RETRO_ENVIRONMENT_GET_VARIABLE:
+        if (g_basic_mode && !strcmp(((struct retro_variable *)data)->key,
+                                    "q88_basic_mode")) {
+            ((struct retro_variable *)data)->value = g_basic_mode;
+            return true;
+        }
         ((struct retro_variable *)data)->value = NULL;  /* 既定値を使わせる */
         return false;
 
@@ -744,6 +750,7 @@ static void usage(void)
     fprintf(stderr,
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
+        "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
         "                   [--key-hold N] [--key-gap N]\n"
         "                   [--expect-exec ADDR] [--expect-read ADDR]\n"
@@ -790,6 +797,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--disk")    && i + 1 < argc) disk = argv[++i];
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--basic-mode") && i + 1 < argc) g_basic_mode = argv[++i];
         else if (!strcmp(argv[i], "--rom-dir") && i + 1 < argc)
             snprintf(g_rom_dir, sizeof(g_rom_dir), "%s", argv[++i]);
         /* --type-at で打ち始めるフレームを決め、--type で打つ。
