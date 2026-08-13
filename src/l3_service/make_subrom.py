@@ -1430,6 +1430,15 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.cp_n(8)
         a.jp_z("_exchange3_request_done")
         a.label("_recv_dispatch_after_first_progress")
+        # 第44版1.34節・m7z第一実装診断: 交換#14は12件目の通常RECV完遂
+        # 直後に入口へ進み、run終了bit1を待たない。
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(0x05)
+        a.jr_nz("_recv_dispatch_after_first_bulk_check")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(12)
+        a.jp_z("BULK_SEND")
+        a.label("_recv_dispatch_after_first_bulk_check")
 
     if break_fixed_byte_cutoff:
         # tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが
@@ -1481,6 +1490,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: ポーリングを繰り返す
             # Z: 8バイト到達。そのまま_recv_dispatch_hdr_doneへ落ちる
         else:
+            # 第44版: 交換#14累積12件目はrun終了待ちへ戻さず直接バルク入口。
+            a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+            a.cp_n(0x05)
+            a.jr_nz("_recv_dispatch_after_cont_bulk_check")
+            a.ld_a_mem(RUN_LEN)
+            a.cp_n(12)
+            a.jp_z("BULK_SEND")
+            a.label("_recv_dispatch_after_cont_bulk_check")
             # 最初の受信と同じ2/5/1境界判定。2件後はアイドルへ戻り、
             # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
             a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
