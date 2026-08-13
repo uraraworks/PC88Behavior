@@ -1352,6 +1352,18 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.label("IDLE_DISPATCH")
     a.in_port(P_PIO_C)
     a.ld_b_a()                       # 元の値をBに退避(AND破壊対策)
+    # 第37版1.30節: 応答バッファ接続中は、SEND準備bitを待ったうえで
+    # SENDだけを許す。無条件送信ではmainの受理前に次位置へ進んでしまい、
+    # 汎用RECV優先では同時成立する過渡bitで次要求へ再入してしまう。
+    a.ld_a_mem(RESP_ACTIVE)
+    a.or_a()
+    a.jr_z("_idle_dispatch_generic")
+    a.ld_a_b()
+    a.and_a(FE_BIT_IDLE_SEND)
+    a.jp_nz("SEND_DISPATCH")
+    a.jr("IDLE_DISPATCH")
+    a.label("_idle_dispatch_generic")
+    a.ld_a_b()
     a.and_a(FE_BIT_IDLE_RECV)        # bit3=1なら確定済みのRECV分岐
     a.jr_nz("RECV_DISPATCH")
     a.ld_a_b()
@@ -1577,14 +1589,41 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     a.label("SEND_DISPATCH")
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
-    a.jr_z("SEND_DISPATCH_ONE_BYTE")
+    a.jr_nz("_send_dispatch_buffer")
 
+    # 第37版1.30節: 交換#3の単発応答を送り終え、READデータが保持済みの
+    # 状態で次のSEND要求へ来た時点が交換#4応答開始である。RECV側のrun長は
+    # PIOの境界再入で保持されない場合があるため、送信直前にも確定済みの
+    # 状態組を検査してSECTOR_BUFを接続する。
+    a.ld_a_mem(SECTOR_READY)
+    a.or_a()
+    a.jr_z("SEND_DISPATCH_ONE_BYTE")
+    a.ld_a_mem(EXCHANGE3_RESPONSE_PENDING)
+    a.or_a()
+    a.jr_nz("SEND_DISPATCH_ONE_BYTE")
+    a.ld_hl_imm(SECTOR_BUF)
+    a.ld_mem_hl(RESP_PTR)
+    a.ld_a(0x01)
+    a.ld_mem_a(RESP_ACTIVE)
+    a.ld_a(0x00)
+    a.ld_mem_a(SECTOR_READY)
+
+    a.label("_send_dispatch_buffer")
+    # 第38版1.31節: 多バイト応答はSENDフェーズ1回につき連続2位置。
+    # 位置1は受信準備確認後、位置2は受理確認後・解除前に出力する。
+    a.call("WAIT_FE_SEND_RECV_READY")
     a.ld_hl_mem(RESP_PTR)
     a.ld_a_hl()
-    a.call("SEND_BYTE")
-    a.ld_hl_mem(RESP_PTR)
+    a.out_a(P_PIO_B)
+    a.inc_hl()
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_SEND_ACK_DONE")
+    a.ld_a_hl()
+    a.out_a(P_PIO_B)
     a.inc_hl()
     a.ld_mem_hl(RESP_PTR)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.call("WAIT_FE_SEND_STATUS_CLEAR")
     a.ld_de_imm(SECTOR_BUF + 256)
     a.or_a()
     a.sbc_hl_de()                     # RESP_PTR(更新後) - (SECTOR_BUF+256)
