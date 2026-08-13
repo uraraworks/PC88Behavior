@@ -1495,6 +1495,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
             a.cp_n(0x05)
             a.jr_nz("_recv_dispatch_after_cont_bulk_check")
             a.ld_a_mem(RUN_LEN)
+            a.cp_n(7)
+            a.jp_z("_exchange14_prepare_first_read")
             a.cp_n(12)
             a.jp_z("BULK_SEND")
             a.label("_recv_dispatch_after_cont_bulk_check")
@@ -1664,6 +1666,37 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.ld_hl_imm(REQ_HDR + 6)
         a.ld_hl_a()
         a.jp("_exchange3_prepare_sector")
+
+        # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
+        # 従って準備する。unit/head・Rは要求位置4に直接一致し、C/Hは
+        # 同値候補の位置1/10のうち既存規約どおり早い位置1を採る。
+        # この選択は交換#14第1 READ限定の介入候補であり一般化しない。
+        # EOTは値を推測せず、FDC_READ_SECTOR既存の1セクタ終端(Rと同値)
+        # を維持する。READ後は同じ12件runの残りを待つため、アイドルへ
+        # 戻らず継続ポーリングへ復帰する。
+        a.label("_exchange14_prepare_first_read")
+        a.ld_hl_imm(REQ_HDR + 4)
+        a.ld_a_hl()
+        a.ld_mem_a(REQ_UNIT_HEAD)
+        a.ld_hl_imm(REQ_HDR + 6)
+        a.ld_hl_a()
+        a.ld_hl_imm(REQ_HDR + 1)
+        a.ld_a_hl()
+        a.ld_mem_a(REQ_H)
+        a.ld_hl_imm(REQ_HDR + 4)
+        a.ld_hl_a()
+        a.out_imm(P_TC, FDC_TC_VALUE)
+        a.ld_e(0x00)
+        a.call("FDC_SEEK")
+        a.call("FDC_SENSE_DRIVE_STATUS")
+        a.out_imm(P_STROBE, BOOT_F7_VALUE)
+        a.call("FDC_READ_SECTOR")
+        a.ld_a(0x01)
+        a.ld_mem_a(SECTOR_READY)
+        if break_run_continuation:
+            a.jp("IDLE_DISPATCH")
+        else:
+            a.jp("_recv_dispatch_continue")
 
         # FDC完了後の最後の1件を受信した。交換#3の単発応答だけを保留し、
         # 交換#4が来るまでSECTOR_READYは維持する。
