@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第34版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第35版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -1532,6 +1532,9 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         # 第34版1.27節: SEEK完遂後、READ DATA前にドライブ状態を1回
         # 問い合わせる。結果1バイトは外部応答へ使わず読み捨てる。
         a.call("FDC_SENSE_DRIVE_STATUS")
+        # 第35版1.28節: 状態結果の入力直後、READ DATA前に発行する
+        # 単発制御。ここではIN $F8を伴わせない。
+        a.out_imm(P_STROBE, BOOT_F7_VALUE)
         a.call("FDC_READ_SECTOR")
         if break_response:
             a.ld_hl_imm(SECTOR_BUF)
