@@ -1,8 +1,8 @@
 diff --git a/src/pc88sub.c b/src/pc88sub.c
-index 2cc5124..1688cd6 100644
+index 2cc5124..678c238 100644
 --- a/src/pc88sub.c
 +++ b/src/pc88sub.c
-@@ -382,17 +382,71 @@ void	sub_io_out_with_BP( byte port, byte data )
+@@ -382,17 +382,86 @@ void	sub_io_out_with_BP( byte port, byte data )
  /************************************************************************/
  /*									*/
  /************************************************************************/
@@ -19,10 +19,25 @@ index 2cc5124..1688cd6 100644
 +
 +static byte (*q88h_sub_inner_fetch)( word );
 +
++/* fetch した番地の実体が ROM (DISK.ROM) か RAM かを判定する。
++ *
++ * サブ CPU 側にはメインのようなバンク切替が無い（pc88sub.c 全体を見ても
++ * ext_ram_ctrl 相当の分岐が無い）。sub_romram は 0000-3FFF が DISK.ROM の
++ * 実体（2KB を 0800/1000/2000 で複製してミラーしてある）、4000-7FFF が
++ * RAM で固定。sub_mem_write が書き込みを許すのも (addr & 0xc000) == 0x4000
++ * のときだけで、これも同じ境界を裏付けている。バンク切替が無いぶん、
++ * メイン側のようなポインタ判定は要らず、番地だけで確定する。 */
++static int q88h_sub_addr_is_rom( word addr )
++{
++  return (addr & 0x7fff) < 0x4000;
++}
++
 +static byte q88h_sub_fetch( word addr )
 +{
 +  q88h_trace_t *t = retro_q88h_trace_sub();
 +  t->mem_exec[addr] = 1;
++  if( q88h_sub_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
++  else                                t->mem_exec_ram[addr] = 1;
 +  t->n_exec++;
 +  return q88h_sub_inner_fetch( addr );
 +}

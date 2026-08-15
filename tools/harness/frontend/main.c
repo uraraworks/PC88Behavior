@@ -470,6 +470,14 @@ static void write_cpu(FILE *fp, const char *who, const q88h_trace_t *t)
             (unsigned long long)t->n_out);
     snprintf(label, sizeof(label), "[%s 実行された番地 (fetch)]", who);
     dump_ranges(fp, label, t->mem_exec, Q88H_MEM_SIZE);
+    /* fetch の内訳。番地だけでは ROM 像を実行したのか、port $31 等で
+     * 差し替えられた RAM を実行したのかが分からない（PC-88 は 0000-7FFF
+     * を RAM に差し替えられる）ので、コアの実メモリマップを見て振り分けた
+     * ものを追加セクションとして出す。既存の [fetch] セクションは変えない。 */
+    snprintf(label, sizeof(label), "[%s 実行された番地 (fetch, ROM)]", who);
+    dump_ranges(fp, label, t->mem_exec_rom, Q88H_MEM_SIZE);
+    snprintf(label, sizeof(label), "[%s 実行された番地 (fetch, RAM)]", who);
+    dump_ranges(fp, label, t->mem_exec_ram, Q88H_MEM_SIZE);
     snprintf(label, sizeof(label), "[%s データとして読まれた番地]", who);
     dump_ranges(fp, label, t->mem_read, Q88H_MEM_SIZE);
     snprintf(label, sizeof(label), "[%s 書き込まれた番地]", who);

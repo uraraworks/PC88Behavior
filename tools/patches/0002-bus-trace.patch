@@ -1,8 +1,8 @@
 diff --git a/src/pc88main.c b/src/pc88main.c
-index d4f5524..e6a2374 100644
+index d4f5524..84c8299 100644
 --- a/src/pc88main.c
 +++ b/src/pc88main.c
-@@ -2943,17 +2943,78 @@ void	main_io_out_with_BP( byte port, byte data )
+@@ -2943,17 +2943,124 @@ void	main_io_out_with_BP( byte port, byte data )
  /************************************************************************/
  /*									*/
  /************************************************************************/
@@ -23,10 +23,56 @@ index d4f5524..e6a2374 100644
 +
 +static byte (*q88h_inner_fetch)( word );
 +
++/* ----------------------------------------------------------------------
++ * fetch した番地の実体が ROM 像か RAM かを判定する。
++ *
++ * PC-88 は port $31 等で 0000-7FFF を ROM/RAM/拡張RAM に差し替えられる。
++ * 番地だけでは実体が分からないので、上流がバンク切替のたびに更新している
++ * read_mem_* ポインタ（main_memory_mapping_* が設定する）を見て、
++ * それが指す配列がどれかで判定する。main_fetch / main_mem_read と同じ
++ * 範囲分岐をなぞっているのは、判定ロジックを二重実装しないため
++ * （分岐がずれると気づかないまま食い違う）。値は読まず、ポインタの
++ * 所属先だけを見る。
++ * ---------------------------------------------------------------------- */
++static int q88h_ptr_in_rom( const byte *p )
++{
++  if( !p ) return 0;
++  if( p >= main_rom   && p < main_rom   + 0x8000 ) return 1;
++  if( p >= main_rom_n && p < main_rom_n + 0x8000 ) return 1;
++  if( main_rom_ext &&
++      p >= (const byte *)main_rom_ext &&
++      p <  (const byte *)main_rom_ext + 0x2000*4 )   return 1;
++  if( p >= dummy_rom && p < dummy_rom + 0x8000 )     return 1;
++  if( jisho_rom &&
++      p >= (const byte *)jisho_rom &&
++      p <  (const byte *)jisho_rom + 0x4000*32 )     return 1;
++  /* それ以外（main_ram / main_high_ram / ext_ram / dummy_ram / main_vram）は RAM */
++  return 0;
++}
++
++static int q88h_addr_is_rom( word addr )
++{
++  if     ( addr < 0x6000 ) return q88h_ptr_in_rom( read_mem_0000_5fff );
++  else if( addr < 0x8000 ) return q88h_ptr_in_rom( read_mem_6000_7fff );
++  else if( addr < 0x8400 ) return 0;   /* window は main_ram/main_high_ram のみ */
++  else if( addr < 0xc000 ) return 0;   /* main_ram 固定 */
++  else{
++    switch( vram_access_way ){
++    case VRAM_ACCESS_ALU:
++    case VRAM_ACCESS_BANK: return 0;   /* VRAM は RAM 扱い */
++    default:
++      if( addr < 0xf000 ) return q88h_ptr_in_rom( read_mem_c000_efff );
++      else                 return q88h_ptr_in_rom( read_mem_f000_ffff );
++    }
++  }
++}
++
 +static byte q88h_fetch( word addr )
 +{
 +  q88h_trace_t *t = retro_q88h_trace();
 +  t->mem_exec[addr] = 1;
++  if( q88h_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
++  else                            t->mem_exec_ram[addr] = 1;
 +  t->n_exec++;
 +  return q88h_inner_fetch( addr );
 +}

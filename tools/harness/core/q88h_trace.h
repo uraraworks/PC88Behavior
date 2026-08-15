@@ -8,6 +8,13 @@
  * 実行アクセス (fetch) とデータアクセス (mem_read) を分けて数えるのが要点。
  * docs/PLAN.md 開発ループ ① が要求する区別がこれにあたる。
  *
+ * PC-88 は 0000-7FFF に RAM を差し替えられる（ポート $31 等）。
+ * 同じ番地でも fetch が ROM 像を実行したのか、差し替えられた RAM を
+ * 実行したのかは番地だけでは分からない。mem_exec_rom / mem_exec_ram は
+ * fetch の時点でコアの実メモリマップ（生きている read_mem_* ポインタが
+ * どの実体を指しているか）を見て、その場で振り分けたもの。
+ * mem_exec は従来どおり両方の和集合として残す（既存出力を壊さない）。
+ *
  * シンボル名を retro_ で始めているのは、上流の link.T が
  * `global: retro_*; local: *;` でエクスポートを絞っているため。
  * こうしないと Linux ビルドでフロントエンドから見えなくなる。
@@ -18,7 +25,7 @@
 #include <stdint.h>
 
 #define Q88H_TRACE_MAGIC   0x54423838u   /* "88BT" (LE) */
-#define Q88H_TRACE_VERSION 1u
+#define Q88H_TRACE_VERSION 2u
 
 #define Q88H_MEM_SIZE 0x10000
 #define Q88H_IO_SIZE  0x100
@@ -33,6 +40,13 @@ typedef struct {
     uint8_t mem_write[Q88H_MEM_SIZE];
     uint8_t io_in    [Q88H_IO_SIZE];
     uint8_t io_out   [Q88H_IO_SIZE];
+
+    /* mem_exec の内訳。fetch した瞬間の実体が ROM 像だったか RAM だったか。
+     * mem_exec[a] == mem_exec_rom[a] | mem_exec_ram[a] が常に成り立つ
+     * （バンク切替の途中で同じ番地が両方に立つことはあるので、和は等号ではなく
+     * 「rom か ram の少なくとも一方は立っている」という意味で読む）。 */
+    uint8_t mem_exec_rom[Q88H_MEM_SIZE];
+    uint8_t mem_exec_ram[Q88H_MEM_SIZE];
 
     /* 総アクセス回数（アドレス別ではなく合計）。フックが生きているかの確認用 */
     uint64_t n_exec, n_read, n_write, n_in, n_out;

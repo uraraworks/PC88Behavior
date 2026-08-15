@@ -11,10 +11,10 @@ index 84ba0a9..e7c02ff 100644
     $(CORE_DIR)/screen-16bpp.c \
     $(CORE_DIR)/screen-snapshot.c \
 diff --git a/src/pc88main.c b/src/pc88main.c
-index e6a2374..8af1e85 100644
+index 84c8299..2a72377 100644
 --- a/src/pc88main.c
 +++ b/src/pc88main.c
-@@ -2957,23 +2957,103 @@ void	main_io_out_with_BP( byte port, byte data )
+@@ -2957,8 +2957,33 @@ void	main_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -46,6 +46,10 @@ index e6a2374..8af1e85 100644
  static byte (*q88h_inner_fetch)( word );
 +static word  q88h_prev_fetch;   /* 直前に fetch() で要求された番地 */
  
+ /* ----------------------------------------------------------------------
+  * fetch した番地の実体が ROM 像か RAM かを判定する。
+@@ -3006,20 +3031,75 @@ static int q88h_addr_is_rom( word addr )
+ 
  static byte q88h_fetch( word addr )
  {
 -  q88h_trace_t *t = retro_q88h_trace();
@@ -55,6 +59,8 @@ index e6a2374..8af1e85 100644
 +  byte          ret;
 +
    t->mem_exec[addr] = 1;
+   if( q88h_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
+   else                            t->mem_exec_ram[addr] = 1;
    t->n_exec++;
 -  return q88h_inner_fetch( addr );
 +
@@ -123,10 +129,10 @@ index e6a2374..8af1e85 100644
  
  static void q88h_mem_write( word addr, byte data )
 diff --git a/src/pc88sub.c b/src/pc88sub.c
-index 1688cd6..3c4ebe8 100644
+index 678c238..4483770 100644
 --- a/src/pc88sub.c
 +++ b/src/pc88sub.c
-@@ -392,23 +392,83 @@ void	sub_io_out_with_BP( byte port, byte data )
+@@ -392,8 +392,16 @@ void	sub_io_out_with_BP( byte port, byte data )
   * ====================================================================== */
  
  #include "q88h_trace.h"
@@ -141,6 +147,10 @@ index 1688cd6..3c4ebe8 100644
  static byte (*q88h_sub_inner_fetch)( word );
 +static word  q88h_sub_prev_fetch;   /* 直前に fetch() で要求された番地 */
  
+ /* fetch した番地の実体が ROM (DISK.ROM) か RAM かを判定する。
+  *
+@@ -410,20 +418,72 @@ static int q88h_sub_addr_is_rom( word addr )
+ 
  static byte q88h_sub_fetch( word addr )
  {
 -  q88h_trace_t *t = retro_q88h_trace_sub();
@@ -150,6 +160,8 @@ index 1688cd6..3c4ebe8 100644
 +  byte          ret;
 +
    t->mem_exec[addr] = 1;
+   if( q88h_sub_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
+   else                                t->mem_exec_ram[addr] = 1;
    t->n_exec++;
 -  return q88h_sub_inner_fetch( addr );
 +
