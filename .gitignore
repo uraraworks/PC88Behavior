@@ -45,3 +45,4 @@ __pycache__/
 
 # ハーネスのビルド成果物
 tools/harness/frontend/q88measure
+tools/harness/frontend/q88measure.d
