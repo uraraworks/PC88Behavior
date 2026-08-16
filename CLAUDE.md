@@ -26,6 +26,11 @@
    読み出した実データがそのまま載るポート）。`tools/redact_iolog.py`
    で伏せてから gzip してコミットする。経緯は
    [docs/notes/disclosure-2026-08-10.md](docs/notes/disclosure-2026-08-10.md)。
+6. **自作ROMから公式の製品名バナー・著作権表示を出力しない。** 測定ログに
+   観測結果として載ることは許容だが、自作コードが同じ文字列を出すことは
+   別問題として禁止する。代わりに自作の名前とバージョンを名乗る。
+   判断基準と代替案は
+   [docs/notes/banner-attribution-2026-08-16.md](docs/notes/banner-attribution-2026-08-16.md)。
 
 ## やってよいこと
 
