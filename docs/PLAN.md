@@ -540,6 +540,17 @@ sub側RECV/SENDプリミティブの実装（`8e6a513`）、起動順序を仕�
 [docs/notes/fdc-datasheet-only-going-forward.md](notes/fdc-datasheet-only-going-forward.md)
 に記録済み。
 
+**ALPHA-DOS を M7 より手前の目標にできるか検討し、測定の結果 否定した
+（2026-08-16）。** 「MUCOM88が動く軽量OS」ALPHA-DOSが起動すれば
+N88-BASIC本体（L4/M7）を飛ばせないか検討したが、ALPHA-MINI DOS 1.5
+（BASIC常駐型と確定）・ALPHA-DOS 2.99系（MUCOM88em/voiceeditor）とも
+本体ROMへの依存度が高く、しかも踏む範囲はBASICが踏む範囲の内側 約95%で
+新規territoryがほぼ無いことが分かった。**近道にはならない。**
+ALPHA-DOSの位置づけを「近道」から「M8（適合性テストスイート）向けの
+受け入れテスト題材」へ変更する。マイルストーンはM6→M7の順のまま
+（検討していたM6.5は取り下げ）。詳細は
+[docs/notes/m3b-alphados-demand.md](notes/m3b-alphados-demand.md)。
+
 ### 運用上の課題（次セッションで対処）
 
 `measurements/m6e-diskB-boot*.iolog.txt` が **72MB 超**で、GitHub の推奨上限 50MB を
