@@ -2371,6 +2371,40 @@ def find_fetch_window_straddles(a, boundary=SUB_ROM_FETCH_WINDOW):
     return straddles
 
 
+# m7ao: 「跨がない」だけでは不十分で、「到達可能な命令はすべて境界未満」
+# という不変条件が要る。到達可能性は保守的に判定する
+# （明示的にここへ列挙したブロック以外は、すべて到達可能とみなす）。
+# 現時点では死んでいると確認できたブロックが無いため空集合のまま。
+# 将来、特定のラベル区間が測定・解析で「到達不能」と確認できた場合だけ
+# ここへ追加すること（推測で追加しない）。
+KNOWN_UNREACHABLE_LABELS = frozenset()
+
+
+def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
+                               known_unreachable=KNOWN_UNREACHABLE_LABELS):
+    """m7ao: ラベル区間（そのラベルから次のラベルの直前まで）の開始位置が
+    `boundary`以上にある区間を列挙する（境界を跨ぐだけでなく、丸ごと
+    境界の外に置かれてしまった区間も含む）。`known_unreachable`に含まれる
+    ラベル名の区間は除外する（明示的に到達不能と確認済みのものだけ）。
+    戻り値は(name, addr, size)のリストで、値（ROM内容）は一切含まない。
+    `resolve()`実行後の`a`に対して呼ぶこと。
+    """
+    # 同一アドレスの複数ラベル(例: X と X_LOOP)はグループ化して1区間として扱う
+    by_addr = {}
+    for name, addr in a.labels.items():
+        by_addr.setdefault(addr, []).append(name)
+    addrs = sorted(by_addr.keys())
+    out = []
+    for i, addr in enumerate(addrs):
+        names = by_addr[addr]
+        if known_unreachable and any(n in known_unreachable for n in names):
+            continue
+        nxt = addrs[i + 1] if i + 1 < len(addrs) else len(a.code)
+        if addr >= boundary:
+            out.append(("/".join(sorted(names)), addr, nxt - addr))
+    return out
+
+
 # m7an: 整列パディングを1バイトずつ増やしながら再アセンブルする際の
 # 上限。跨ぎが1回の増加で解消しない状況は通常起きない
 # （境界を跨ぐ命令は高々1個で、1バイト増やせば必ず「完全に前」か
