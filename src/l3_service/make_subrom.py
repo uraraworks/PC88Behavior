@@ -478,6 +478,13 @@ class Asm:
         self.org = org
         self.labels = {}
         self.fixups = []
+        # m7an: 命令1個ぶんの発行(db()の1呼び出し)ごとに(開始位置,バイト数)
+        # を記録する。すべての命令メソッドは自分の全バイトを1回のdb()
+        # 呼び出しで出す実装になっているため、これは「命令の境界」と一致する
+        # （オペコードとオペランドをまたいで別々のdb()に分けているのは
+        # `_abs`/`_rel`を使う分岐系だけで、そちらはfixups側で1バイト単位
+        # まで正確に追える。両方をfind_fetch_window_straddlesで併用する）。
+        self.instr_spans = []
 
     @property
     def pc(self):
@@ -489,6 +496,8 @@ class Asm:
         self.labels[name] = self.pc
 
     def db(self, *bs):
+        if bs:
+            self.instr_spans.append((len(self.code), len(bs)))
         for b in bs:
             if not 0 <= b <= 0xFF:
                 raise ValueError(f"バイト範囲外: {b:#x}")
@@ -675,7 +684,26 @@ OBSERVED_SINGLE_RESPONSE_BY_REQUEST = (
 #      使われなくなったため削除した（上のモジュールdocstring
 #      「第22版で再々訂正」節参照）。 ----
 
-ROM_SIZE = 0x2000      # DISK.ROM の上限（vendor memory.c: load_rom(...,0x2000,...)）
+ROM_SIZE = 0x2000      # DISK.ROM ファイル自体の上限（make_test_rom.py等が書き出す
+                       # コンテナのサイズ。vendor memory.c: load_rom(...,0x2000,...)
+                       # は「ファイルとして読める最大量」の話であり、下のフェッチ窓
+                       # とは別概念）
+# ---- 第51版・m7an: サブCPUが実際にフェッチできる窓は0x0800（2KB）で、
+# 0x2000ではない。根拠はharness自身のソース（公式ROMではなく、この
+# リポジトリのtools/patches/0001-cleanroom-harness.patchで見える自作の
+# 計測ハーネスコード。クリーンルーム規律上ここは読んでよい）:
+# `load_system_file(SUB_ROM, sub_romram, 0x00800)` がDISK.ROMを常に
+# 0x0800バイトだけ読み込み、それ以上はファイルに書いてあっても
+# ロードされない（読み込みバイト数がrom_sizeと一致しないと失敗扱いに
+# なる実装のため、0x0800を超えるファイルの超過分は単に無視される）。
+# 実測でも起動ログに`Loaded .../DISK.ROM (0x00000800)`と出る。
+# コード全体を0x0800未満に収める設計は取っていない（既存のLIMIT=1/2の
+# 到達済みコードも既に0x0800を超えている）。超えた領域は「ロードされない
+# 不定値」になるため、そこへ実際に分岐・呼び出しする命令（の一部でも）を
+# 置いてはならない。下のSUB_ROM_FETCH_WINDOWは、絶対番地命令
+# （`call`/`jp`/`jp_z`/`jp_nz`）・相対分岐命令のオペランドバイトが
+# この境界を跨がないことを検査するための定数（m7an）。
+SUB_ROM_FETCH_WINDOW = 0x0800
 
 
 def build_subrom(break_response=False, break_dispatch_return=False,
@@ -684,7 +712,8 @@ def build_subrom(break_response=False, break_dispatch_return=False,
                   break_sense_int_result_count=False,
                   break_fdc_timeout_reads_anyway=False,
                   disable_fdc_timeout_mark=False,
-                  break_fixed_byte_cutoff=False):
+                  break_fixed_byte_cutoff=False,
+                  align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -1818,18 +1847,25 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.ld_mem_a(BULK_SECTORS)
         a.out_imm(P_STROBE, BOOT_F7_VALUE)
         a.call("FDC_READ_BULK")
-    # ---- m7am診断専用: 詰め物対照。LIMIT=2→3で増える約70バイトぶんの
-    # 命令列を、絶対に実行されない詰め物（NOP列。JRで確実に飛び越す）に
-    # 差し替えた版を作るための一時的なフック。BULK_PADDING_BYTES環境変数が
-    # 0以外のときだけ、この位置（READループ直後・BULK_SENDより前）へ
-    # 到達不能なNOP列を挿入する。既定(0)ではコード生成に一切影響しない。
-    # 診断が終わったら削除する予定。
-    _padding_bytes = int(os.environ.get("PC88_BULK_PADDING_BYTES", "0"), 0)
-    if _padding_bytes > 0:
-        a.jr("_m7am_padding_skip")
-        for _ in range(_padding_bytes):
+    # ---- 第51版・m7an: サブROMフェッチ窓(0x0800)整列パディング。
+    # m7am/m7anの詰め物対照で、LIMIT>=3のREAD#4/#5追加後にmain `IN $FD`が
+    # 5635件到達から0件へ退行する原因は、READ#4/#5の命令内容ではなく
+    # 「READループ増分が後続コードのアドレスを動かし、ある`jp`命令の
+    # 3バイト目（絶対番地の上位バイト）が`SUB_ROM_FETCH_WINDOW`(0x0800)を
+    # 跨いでしまう」ことだと判明した（docs/notes/m7an-*.md）。跨いだ側の
+    # バイトは実機のDISK.ROM窓サイズに合わせたharnessのロード処理
+    # （tools/patches/0001-cleanroom-harness.patch、`load_system_file(SUB_ROM,
+    # sub_romram, 0x00800)`）によって一切読み込まれず、`jp`の飛び先が
+    # 不定値になる。この整列パディングは、`build()`が境界跨ぎを検出した
+    # ときだけ、跨ぎが解消するまで少しずつ増やしながらここへ到達不能な
+    # NOP列（`jr`で確実に飛び越す）を挿入し、後続コードのアドレスを
+    # ずらして跨ぎを解消する。align_padding_bytes=0（既定）ではコード
+    # 生成に一切影響しない。
+    if align_padding_bytes > 0:
+        a.jr("_align_padding_skip")
+        for _ in range(align_padding_bytes):
             a.nop()
-        a.label("_m7am_padding_skip")
+        a.label("_align_padding_skip")
     if break_run_continuation:
         a.jp("IDLE_DISPATCH")
     else:
@@ -2308,6 +2344,41 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     return a
 
 
+def find_fetch_window_straddles(a, boundary=SUB_ROM_FETCH_WINDOW):
+    """m7an: 命令1個ぶんのバイト列が`boundary`
+    （既定はSUB_ROM_FETCH_WINDOW=0x0800）を跨ぐ箇所を列挙する。
+    2種類の記録を両方見る:
+    - `a.instr_spans`: 全命令の(開始位置,バイト数)。`ld_hl_imm`等、
+      固定RAM番地を即値として埋め込む命令（fixupを経由しない）を含め、
+      db()の呼び出し単位で命令境界を追える。
+    - `a.fixups`: 絶対番地命令(call/jp/jp_z/jp_nz)・相対分岐命令(jr系)の
+      オペランド部分。ラベル名つきで報告できるのでこちらを優先する。
+    `resolve()`実行後の`a`に対して呼ぶこと（labelsが未解決だと判定できない）。
+    戻り値は(pos, name_or_None, kind)のリストで、値（ROM内容）は一切含まない。
+    """
+    straddles = []
+    fixup_positions = set()
+    for pos, name, kind in a.fixups:
+        width = 2 if kind == "abs" else 1
+        fixup_positions.add(pos)
+        if pos < boundary < pos + width:
+            straddles.append((pos, name, kind))
+    for pos, width in a.instr_spans:
+        if pos in fixup_positions:
+            continue  # 上でfixups側として既に報告済み
+        if pos < boundary < pos + width:
+            straddles.append((pos, None, "instr"))
+    return straddles
+
+
+# m7an: 整列パディングを1バイトずつ増やしながら再アセンブルする際の
+# 上限。跨ぎが1回の増加で解消しない状況は通常起きない
+# （境界を跨ぐ命令は高々1個で、1バイト増やせば必ず「完全に前」か
+# 「完全に後」のどちらかへ動くため）が、無限ループを避けるための
+# 安全弁として置く。
+MAX_ALIGN_PADDING_ATTEMPTS = 256
+
+
 def build(break_response=False, break_dispatch_return=False,
           break_run_continuation=False,
           inject_spurious_sense_int=False,
@@ -2315,15 +2386,31 @@ def build(break_response=False, break_dispatch_return=False,
           break_fdc_timeout_reads_anyway=False,
           disable_fdc_timeout_mark=False,
           break_fixed_byte_cutoff=False):
-    a = build_subrom(break_response=break_response,
-                      break_dispatch_return=break_dispatch_return,
-                      break_run_continuation=break_run_continuation,
-                      inject_spurious_sense_int=inject_spurious_sense_int,
-                      break_sense_int_result_count=break_sense_int_result_count,
-                      break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
-                      disable_fdc_timeout_mark=disable_fdc_timeout_mark,
-                      break_fixed_byte_cutoff=break_fixed_byte_cutoff)
-    a.resolve()
+    # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
+    # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
+    # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
+    # （LIMIT=1/2の既定コードなど）ではalign_padding_bytes=0のまま
+    # 1回で終わり、既存の出力に一切影響しない。
+    align_padding_bytes = 0
+    a = None
+    for _attempt in range(MAX_ALIGN_PADDING_ATTEMPTS + 1):
+        a = build_subrom(break_response=break_response,
+                          break_dispatch_return=break_dispatch_return,
+                          break_run_continuation=break_run_continuation,
+                          inject_spurious_sense_int=inject_spurious_sense_int,
+                          break_sense_int_result_count=break_sense_int_result_count,
+                          break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
+                          disable_fdc_timeout_mark=disable_fdc_timeout_mark,
+                          break_fixed_byte_cutoff=break_fixed_byte_cutoff,
+                          align_padding_bytes=align_padding_bytes)
+        a.resolve()
+        if not find_fetch_window_straddles(a):
+            break
+        align_padding_bytes += 1
+    else:
+        raise SystemExit(
+            f"サブROMフェッチ窓(0x{SUB_ROM_FETCH_WINDOW:04X})を跨ぐ命令を"
+            f"{MAX_ALIGN_PADDING_ATTEMPTS}回の整列パディングでも解消できなかった")
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {ROM_SIZE}")
