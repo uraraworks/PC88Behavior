@@ -561,6 +561,53 @@ ALPHA-DOSの位置づけを「近道」から「M8（適合性テストスイー
 `run_all_selftests.sh` に組み込んだ。詳細は
 [docs/notes/m3c-romram-classifier-fault-injection.md](notes/m3c-romram-classifier-fault-injection.md)。
 
+**上の「いま判明している次の一手（未着手）」は2026-08-17時点で古い（訂正して残す）。**
+ラウンド境界駆動への書き換え自体は既にずっと前に完了しており（run境界駆動、
+`docs/notes/m6l-boot-exchange.md`以降の版で反映済み）、以後の焦点は
+交換#14（起動時高速バルク転送、1.34節）のREAD座標へ移っていた。以下は
+2026-08-17の3サイクル（m7aj・m7ak・m7al）で分かったこと。
+
+- **交換#14第3〜第5 READの座標は位置対応で確定した（候補総当たり不要）。**
+  `analyze_exchange14_read_rules.py`の全数位置対応で、Rは第3〜第5READ全てが
+  要求位置1/10（同値）に一意一致し、Cは第2/第3READが要求位置2群、
+  第1/第4/第5READが要求位置1群と、READ回ごとに異なる要求位置群を参照する
+  ことを確認した。単一の代表位置に一般化できないだけで、位置自体は
+  確定している。根拠は[docs/notes/m7aj-exchange14-read3-position-map-and-protocol-block.md](notes/m7aj-exchange14-read3-position-map-and-protocol-block.md)。
+- **1282件（旧上限）は未知の分岐ではなく、READ#2が供給できる`$FD`件数の
+  上限だった。** データ部長（256/3584/4096/4096/512バイト）からの算術で、
+  1282/1283の境界＝READ#2データ部終端＝READ#3先頭バイトであることを
+  値を見ずに証明した（同note）。
+- **`PC88_BULK_READ_INTERVENTION_LIMIT=2`（READ#3有効化）の退行を修正し、
+  先頭一致を1282件→3330件へ伸ばした。** 原因は`STACK=0x6000`が
+  READ#3のデータ書き込み範囲0x5200-0x6200と重なり、データフェーズが
+  スタック（戻り番地含む）を破壊していたこと。`STACK`を書き込み可能範囲
+  （0x4000-0x7FFF）の未使用上端0x7FFEへ移して解決した。3330は同じ算術で
+  READ#3データ部終端＝READ#4先頭境界と確認済み。診断には未デコード
+  ポート`$F9`（FDC_TIMEOUT_MARK）を陽性対照つきで使い、「subがFDCチップ
+  待ちでタイムアウトした」という別仮説を否定に回した。根拠は
+  [docs/notes/m7ak-exchange14-read3-stack-overlap.md](notes/m7ak-exchange14-read3-stack-overlap.md)。
+- **READ#4（LIMIT=3）・READ#5（LIMIT=4）は未解決のクラッシュで0件に退行する。**
+  BULK_DATA/STACKのアドレス重複は机上で再確認したが無く（m7akと同型の
+  原因ではない）、sub側がexchange14のREADループへ到達する**前**の起動時
+  ハンドシェイク相当のアドレス列へ戻ってしまい、以後応答が無くなる。
+  `$F9`は0件（FDCチップ待ちタイムアウトではない）。原因未特定のまま
+  次サイクルへ持ち越す。根拠は
+  [docs/notes/m7al-exchange14-read4-read5-limit-regression.md](notes/m7al-exchange14-read4-read5-limit-regression.md)。
+- **既定`BULK_READ_INTERVENTION_LIMIT`は`1`のまま。** READ#3以降が
+  既定測定を無限ループ化させるため、READ#4/#5のクラッシュ原因を解いて
+  5635件到達を確認できるまで既定は上げない。
+
+**残る宿題の優先順（2026-08-17時点）:**
+1. **交換#14 READ#4/#5のクラッシュ原因**（m7al。exchange14到達前に起動時
+   ハンドシェイクへ戻る理由が未特定）。これが解ければ5635件到達＝
+   `tools/conform_l3.sh`の`[混成]`合格が視野に入る。
+2. **sub側752件の壁**（READ#2データフェーズ内の反復回数差。m7ak・m7ajで
+   帰属だけ確認し未着手のまま）。
+3. **適合条件4（ネガティブコントロール）**: ディスク無しでもsubが
+   11533件のI/Oを発行する既知の未達成（`tools/verify_l3.sh`のNG1件）。
+4. **書き込み経路（SAVE）**: 読み出し系が5635件へ到達してから着手する
+   （旧方針のまま変更なし）。
+
 ### 運用上の課題（次セッションで対処）
 
 `measurements/m6e-diskB-boot*.iolog.txt` が **72MB 超**で、GitHub の推奨上限 50MB を
