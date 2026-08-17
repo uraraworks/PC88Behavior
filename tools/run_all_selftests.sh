@@ -59,6 +59,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
   "tools/harness/iolog_selftest.sh:0"
+  "tools/harness/romram_selftest.sh:0"
   "tools/harness/selftest.sh:0"
   "tools/harness/trap_selftest.sh:0"
   "tools/run_all_selftests_selftest.sh:0"

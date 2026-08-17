@@ -71,6 +71,26 @@ VSYNC 割り込みは画面の垂直帰線を起点に常時発生している�
 レジスタ OUT[E6] 側でも許可しておかないとエミュレータ内部のフラグが
 立たない。両方 OUT する必要がある——これは PC-8801 のハード仕様であって
 ROM の中身とは無関係。
+
+--enable-ram-exec を指定すると、末尾を無限ループの代わりに
+「RAM に自前のコードを書き込んでそこへ JP する」処理にする
+（romram_selftest.sh 用。ROM/RAM 判定器の RAM 側の枝を実測で踏むため）:
+
+    123E  21 00 90       LD  HL,9000h     ; RAM_EXEC_ADDR (window/main_ram帯)
+    1241  36 3E          LD  (HL),3Eh     ; 書き込む1バイト目: LD A,n の opcode
+    1243  23             INC HL
+    1244  36 07          LD  (HL),07h     ;   n = 07h（任意値）
+    1246  23             INC HL
+    1247  36 18          LD  (HL),18h     ; 書き込む3バイト目: JR の opcode
+    1249  23             INC HL
+    124A  36 FE          LD  (HL),FEh     ;   その場で無限ループ (JR $)
+    124C  C3 00 90       JP  9000h        ; RAM へ飛ぶ → mem_exec_ram に立つはず
+
+0x9000 は q88h_addr_is_rom() で「window/main_ram 固定」として常に RAM 判定
+される番地帯（0x8400-0xBFFF）。port $31 等のバンク切替に頼らず、
+どんな配置でも RAM 実行を発生させられる。書き込む中身も自作の値
+（3E/07/18/FE という4バイトの自明な opcode 列）であって、ROM やディスクの
+バイト列とは無関係。
 """
 
 import argparse
@@ -91,6 +111,13 @@ INT_MASK_PORT  = 0xE6   # 割り込みマスクレジスタ（ハード仕様、
 INT_MASK_VAL   = 0x02   # VSYNC割り込みを許可するビット
 HALT_ADDR      = 0x1249 # --enable-int 時、HALT 命令そのものの番地
 
+# --enable-ram-exec 用。romram_selftest.sh が --expect-exec-ram などに使う。
+RAM_EXEC_ADDR  = 0x9000   # window/main_ram 固定帯（常に RAM 判定される番地）
+RAM_EXEC_OP1   = 0x3E     # 書き込む1バイト目: LD A,n の opcode
+RAM_EXEC_VAL   = 0x07     # LD A,n の n（任意値）
+RAM_EXEC_OP3   = 0x18     # 書き込む3バイト目: JR の opcode
+RAM_EXEC_OP4   = 0xFE     # JR -2（その場で無限ループ）
+
 N88_SIZE   = 0x8000
 DISK_SIZE  = 0x0800
 FONT_SIZE  = 0x1000   # font_mem 全体（ANK 2048 + グラフィック 2048）
@@ -102,7 +129,7 @@ def lo(v): return v & 0xFF
 def hi(v): return (v >> 8) & 0xFF
 
 
-def build_n88(enable_int: bool = False) -> bytearray:
+def build_n88(enable_int: bool = False, enable_ram_exec: bool = False) -> bytearray:
     rom = bytearray([FILL] * N88_SIZE)
 
     # 0000: JP SETUP
@@ -134,6 +161,18 @@ def build_n88(enable_int: bool = False) -> bytearray:
         ])
         # HALT の後ろに JR (2 bytes) が続くので、HALT の番地は末尾から3バイト目。
         assert ENTRY + len(prog) - 3 == HALT_ADDR, "HALT_ADDR がずれている"
+    elif enable_ram_exec:
+        prog += bytes([
+            0x21, lo(RAM_EXEC_ADDR), hi(RAM_EXEC_ADDR),   # LD HL,RAM_EXEC_ADDR
+            0x36, RAM_EXEC_OP1,                           # LD (HL),3Eh
+            0x23,                                         # INC HL
+            0x36, RAM_EXEC_VAL,                           # LD (HL),07h
+            0x23,                                         # INC HL
+            0x36, RAM_EXEC_OP3,                           # LD (HL),18h
+            0x23,                                         # INC HL
+            0x36, RAM_EXEC_OP4,                           # LD (HL),FEh
+            0xC3, lo(RAM_EXEC_ADDR), hi(RAM_EXEC_ADDR),   # JP RAM_EXEC_ADDR
+        ])
     else:
         prog += bytes([0x18, 0xFE])           # JR $
 
@@ -184,12 +223,15 @@ def main():
     ap.add_argument("--enable-font", action="store_true",
                      help="自作パターンの FONT.ROM (4096 bytes) も生成する"
                           "（fontsrc_selftest.sh 用）")
+    ap.add_argument("--enable-ram-exec", action="store_true",
+                     help="末尾でRAM(0x9000)へ自作コードを書き込みJPする"
+                          "（romram_selftest.sh 用。ROM/RAM判定器のRAM側の枝を踏む）")
     args = ap.parse_args()
 
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
 
-    (d / "N88.ROM").write_bytes(build_n88(args.enable_int))
+    (d / "N88.ROM").write_bytes(build_n88(args.enable_int, args.enable_ram_exec))
     (d / "DISK.ROM").write_bytes(build_disk())
 
     print(f"生成した: {d/'N88.ROM'} ({N88_SIZE} bytes)")
@@ -212,6 +254,10 @@ def main():
     if args.enable_int:
         print(f"  --enable-int: HALT_ADDR=0x{HALT_ADDR:04X}"
               f"  INT_LEVEL_PORT=0x{INT_LEVEL_PORT:02X}")
+    if args.enable_ram_exec:
+        print(f"  --enable-ram-exec: RAM_EXEC_ADDR=0x{RAM_EXEC_ADDR:04X}"
+              f"（(fetch, RAM) セクションに現れるはず。ENTRY=0x{ENTRY:04X} は"
+              f" (fetch, ROM) に現れるはず）")
 
 
 if __name__ == "__main__":

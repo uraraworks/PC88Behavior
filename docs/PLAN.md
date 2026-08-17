@@ -553,6 +553,14 @@ ALPHA-DOSの位置づけを「近道」から「M8（適合性テストスイー
 （検討していたM6.5は取り下げ）。詳細は
 [docs/notes/m3b-alphados-demand.md](notes/m3b-alphados-demand.md)。
 
+**m3bの宿題2（ROM/RAM判定器のRAM側の枝が実測で一度も踏まれていない）を
+故障注入で解消した（2026-08-17）。** 自作ROM(`make_test_rom.py --enable-ram-exec`)
+でRAM実行を発生させ、正常版で実測RAM側2件を確認。判定ロジックを壊した
+3種の故障注入版（常にROM/常にRAM/境界ずらし）すべてで期待どおり結果が
+変化することも確認し、`tools/harness/romram_selftest.sh` として
+`run_all_selftests.sh` に組み込んだ。詳細は
+[docs/notes/m3c-romram-classifier-fault-injection.md](notes/m3c-romram-classifier-fault-injection.md)。
+
 ### 運用上の課題（次セッションで対処）
 
 `measurements/m6e-diskB-boot*.iolog.txt` が **72MB 超**で、GitHub の推奨上限 50MB を
