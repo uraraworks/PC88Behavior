@@ -1818,6 +1818,18 @@ def build_subrom(break_response=False, break_dispatch_return=False,
         a.ld_mem_a(BULK_SECTORS)
         a.out_imm(P_STROBE, BOOT_F7_VALUE)
         a.call("FDC_READ_BULK")
+    # ---- m7am診断専用: 詰め物対照。LIMIT=2→3で増える約70バイトぶんの
+    # 命令列を、絶対に実行されない詰め物（NOP列。JRで確実に飛び越す）に
+    # 差し替えた版を作るための一時的なフック。BULK_PADDING_BYTES環境変数が
+    # 0以外のときだけ、この位置（READループ直後・BULK_SENDより前）へ
+    # 到達不能なNOP列を挿入する。既定(0)ではコード生成に一切影響しない。
+    # 診断が終わったら削除する予定。
+    _padding_bytes = int(os.environ.get("PC88_BULK_PADDING_BYTES", "0"), 0)
+    if _padding_bytes > 0:
+        a.jr("_m7am_padding_skip")
+        for _ in range(_padding_bytes):
+            a.nop()
+        a.label("_m7am_padding_skip")
     if break_run_continuation:
         a.jp("IDLE_DISPATCH")
     else:
