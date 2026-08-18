@@ -372,6 +372,64 @@ fi
 # -----------------------------------------------------------------------
 # 現状の到達点（正直に書く。ごまかさない）
 # -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# 適合条件4（ネガティブコントロール、5.2節4項）— m7ar で新設。
+#
+# なぜ verify_l3.sh ではなくここなのか: 条件4「ディスク無しでサブCPUが
+# 1命令も実行しない」は**相手役の main が公式でないと判定できない**。
+# m7ar の2×2実測（ディスク無し・30/120フレーム、いずれも同じ傾向）:
+#
+#   main側  sub側   sub の I/O 件数
+#   公式    公式    0            ← 仕様書1.1節の観測そのもの
+#   公式    自作    0            ← 自作サブROMも同じく無音
+#   自作    自作    2575         ← verify_l3.sh が NG と報告していた状態
+#   自作    公式    208437       ← **公式サブROMでも無音にならない**
+#
+# つまり verify_l3.sh のネガティブコントロールが測っていたのは自作サブROM
+# の性質ではなく、**試験用mainドライバがディスク無しでもサブを走らせて
+# しまうこと**だった（公式サブROMを同じドライバで動かすと20万件出る）。
+# 自作サブROMは0件で、無音になる/ならないは main 側で決まっている
+# （ディスクが無いと公式mainはサブを起動しない）。
+# 判定は公式mainを相手役にできるこの適合テスト層で行う。
+# -----------------------------------------------------------------------
+say "適合条件4のネガティブコントロール（ディスク無し・公式main + 自作サブROM）"
+NEG_FRAMES=30
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --frames "$NEG_FRAMES" \
+    --io-log "$WORK/nodisk_mixed.iolog.txt" \
+    >"$WORK/nodisk_mixed.stdout.txt" 2>"$WORK/nodisk_mixed.stderr.txt"
+count_sub_events() {
+  awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && !/^#/ && NF' "$1" | wc -l | tr -d ' '
+}
+neg_sub="$(count_sub_events "$WORK/nodisk_mixed.iolog.txt")"
+if [ "$neg_sub" = "0" ]; then
+  ok "混成(公式main + 自作サブROM)はディスク無しでsubのI/Oが0件（適合条件4を満たす）"
+else
+  ng "混成はディスク無しでもsubが $neg_sub 件のI/Oを発行した（適合条件4を満たさない）"
+  overall_rc=1
+fi
+
+# 検出力の確認（陽性対照）: 同じ数え方で、非0になる構成が実際に非0と出ること。
+# ディスク無しでもサブを走らせてしまう試験用mainドライバ + 自作サブROM。
+say "検出力の自己検査: 上の数え方が「非0」を検出できること（陽性対照）"
+POSCTL="$WORK/negctl_positive"
+mkdir -p "$POSCTL"
+if python3 "$REPO/src/l3_service/make_subrom.py" "$POSCTL" >/dev/null 2>&1 \
+   && python3 "$REPO/tools/make_l3_test_main.py" "$POSCTL" --requests "0:1" >/dev/null 2>&1; then
+  "$FRONTEND" --core "$CORE" --rom-dir "$POSCTL" --frames "$NEG_FRAMES" \
+      --io-log "$WORK/nodisk_posctl.iolog.txt" \
+      >"$WORK/nodisk_posctl.stdout.txt" 2>"$WORK/nodisk_posctl.stderr.txt"
+  pos_sub="$(count_sub_events "$WORK/nodisk_posctl.iolog.txt")"
+  if [ "$pos_sub" != "0" ]; then
+    ok "陽性対照: 試験用mainドライバ構成では $pos_sub 件と数えられた（0件判定は空検査ではない）"
+  else
+    ng "陽性対照: 非0になるはずの構成でも0件だった（数え方が壊れている可能性）"
+    overall_rc=1
+  fi
+else
+  ng "陽性対照の構成を組み立てられなかった"
+  overall_rc=1
+fi
+
 say "現状の到達点"
 cat <<'EOF'
   これまでの誤解（正直に書く）: 「本番」ステップ（公式ROM一式＝

@@ -16,11 +16,16 @@
 #
 # 今回の設計: スクリプトごとに「期待する終了コード」を宣言する。
 #   - 通常のスクリプトは期待rc=0（失敗したら即NG）。
-#   - tools/verify_l3.sh は既知の未達成（L3不適合）で rc=1 が正常なので
-#     期待rc=1 と明示する。これにより「想定内の失敗」であることが
-#     出力から一目で分かる。もし将来 rc=0 になったら、それも「宣言と
-#     食い違う」として検出する（＝L3が適合した時点で宣言側を更新する
-#     運用にする。握りつぶさない）。
+#   - tools/verify_l3.sh は長らく既知の未達成（L3不適合）で期待rc=1 と
+#     宣言していたが、2026-08-18（m7ar）に rc=0 へ変えた。唯一のNGだった
+#     「ディスク無しのネガティブコントロール（5.2条件4）」は、実は
+#     **この自己検証層では判定できない**条件だったことが2×2の実測で
+#     分かったため（数えていたのは試験用mainドライバの性質で、同じ
+#     ドライバでは公式サブROMも20万件規模を出す）。判定は
+#     tools/conform_l3.sh の「適合条件4のネガティブコントロール」へ
+#     移した（公式main + 自作サブROM、陽性対照つき）。**条件を消したの
+#     ではなく、判定できる層へ移した**。根拠は
+#     docs/notes/m7ar-negative-control-attribution.md。
 #
 # 失敗の条件（どちらか一方でも該当したら該当スクリプトはNG、ラッパはrc=1）:
 #   1. C ロケールと UTF-8 ロケールで rc が異なる（ロケール不一致）
@@ -56,7 +61,7 @@ SCRIPTS_EXPECTED=(
   "tools/diag_l3_mixed.sh:0"
   "tools/verify_l1.sh:0"
   "tools/verify_l2.sh:0"
-  "tools/verify_l3.sh:1"
+  "tools/verify_l3.sh:0"
   "tools/harness/clock_selftest.sh:0"
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
