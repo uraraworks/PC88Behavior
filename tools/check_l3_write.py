@@ -76,8 +76,28 @@ def main() -> int:
     coord_ok = (want == got)
     print(f"(3) 座標: C=track>>1・H=track&1・R=直前1バイト → "
           f"{'一致' if coord_ok else '不一致'}")
+
+    # (4) 応答: 書き込み1レコードにつきsubが1バイト返すか（1.36節・m7ay）。
+    #     公式は57/57すべて同一の値を、FDCの結果フェーズより後に送っていた。
+    # 窓を「WRITE発行〜次にsubが受信を始めるまで」に限る。ここを切らずに
+    # 「以降すべて」を数えると、応答を送らない版でも後続の通信を拾って
+    # しまい**検出力ゼロの検査**になる（第57版で実際に踏んだ）。
+    next_recv = [e.clock for e in sub_recv if e.clock > w.clock]
+    limit = next_recv[0] if next_recv else float("inf")
+    sub_send = [e for e in rows
+                if e.cpu == "sub" and e.port == "00FD" and e.kind == "OUT"
+                and w.clock < e.clock < limit]
+    # 件数だけでは足りない。**アイドルディスパッチャ経由でも1バイト出る**ので、
+    # 応答を送らない版でも件数1になり検出力ゼロになる（第57版で踏んだ）。
+    # 実測（m7ay）では57/57すべて同一の固定値だったので、値まで見る。
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src" / "l3_service"))
+    import make_subrom as sub_rom
+    ack_ok = (len(sub_send) == 1
+              and sub_send[0].value == sub_rom.WRITE_ACK_RESPONSE)
+    print(f"(4) 応答: WRITE後・次の受信までにsubが送ったバイト数 = {len(sub_send)}"
+          f"、値が書き込み応答の観測値と一致 = {'はい' if ack_ok else 'いいえ'}")
     if args.read_log is None:
-        return 0 if (same_window == 256 and coord_ok) else 1
+        return 0 if (same_window == 256 and coord_ok and ack_ok) else 1
 
     rrows, rmasked = m2s.parse_iolog(args.read_log)
     if sum(rmasked.values()):
@@ -92,7 +112,7 @@ def main() -> int:
     same_trip = sum(1 for a, b in zip(wrote, back) if a == b)
     print(f"(2) 往復: FDCへ流した256バイト vs 別実行で読み戻した256バイト"
           f" → {same_trip}/256 位置一致")
-    return 0 if (same_window == 256 and same_trip == 256 and coord_ok) else 1
+    return 0 if (same_window == 256 and same_trip == 256 and coord_ok and ack_ok) else 1
 
 
 if __name__ == "__main__":

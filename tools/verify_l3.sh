@@ -500,6 +500,21 @@ else
   ok "論理トラックからC/Hを導く規則を壊した版は正しく不一致として検出された"
 fi
 
+say "検出力の確認: 書き込み応答を送らない版が不一致として検出されること"
+mkdir -p "$WORK/rom_write_ack"
+python3 "$GEN_SUB" "$WORK/rom_write_ack" --break-write-ack || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write_ack" --requests "3:5" --write-test || exit 1
+cp "$WORK/test.d88" "$WORK/write_ack.d88"
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_ack" --disk "$WORK/write_ack.d88" \
+    --frames "$FRAMES" --io-log "$WORK/write_ack.iolog.txt" \
+    >"$WORK/write_ack.stdout.txt" 2>"$WORK/write_ack.stderr.txt"
+if python3 "$REPO/tools/check_l3_write.py" "$WORK/write_ack.iolog.txt" >/dev/null 2>&1; then
+  ng "応答を送らない版が合格してしまった（応答の検査に検出力が無い）"
+  overall_rc=1
+else
+  ok "書き込み応答を送らない版は正しく不一致として検出された"
+fi
+
 # ディスクへの反映（書いたものを読み戻せるか）は**このハーネスでは判定できない**。
 # 根拠: 公式ROM一式で SAVE を実行し WRITE DATA が15件発行された実測でも、
 # 与えたディスクイメージのファイルは1バイトも変化しなかった（m7av。

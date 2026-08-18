@@ -745,6 +745,10 @@ OBSERVED_SINGLE_RESPONSE_BY_REQUEST = (
 # エントリの添字。残りは SEND_BYTE で送る。第51版の即値比較チェーンと
 # 同じ振り分けであり、テーブル駆動化にあたって抽出しただけで変更は無い。
 OBSERVED_SINGLE_TRACKED_ENTRIES = frozenset((1, 2))
+# 第57版・m7ay: 書き込み（1.35節）1レコードに対する応答は1バイトで、
+# 57/57すべて同一の値だった。その値は**上の要求グループ2の応答と同一**で
+# あり、新しい値を持ち込むわけではない（意味は未確定のまま）。
+WRITE_ACK_RESPONSE = OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1]
 # TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
 # 意味が判明した場合は、この定数を意味に基づくルール生成へ差し替える。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
@@ -775,7 +779,8 @@ ROM_SIZE = 0x2000      # DISK.ROM ファイル自体の上限（make_test_rom.py
 SUB_ROM_FETCH_WINDOW = 0x0800
 
 
-def build_subrom(break_write_coords=False,
+def build_subrom(break_write_ack=False,
+                  break_write_coords=False,
                   break_write_data_window=False,
                   break_response=False, break_dispatch_return=False,
                   break_run_continuation=False,
@@ -1419,6 +1424,13 @@ def build_subrom(break_write_coords=False,
     # 一斉にNGになった（回帰として検出できた）。
     a.label("_recv_dispatch_write_sector")
     a.call("FDC_WRITE_SECTOR")
+    if not break_write_ack:
+        # 第57版・m7ay: 書き込み1レコードにつき1バイト返す。実測では
+        # 57/57すべて同一の値で、FDCの結果フェーズより**後**に送られていた
+        # （57/57）。値はST0/ST1/ST2・結果のC/R・要求のRのいずれとも一致
+        # しない固定値で、既に観測済みの要求グループ2の応答と同じ値。
+        a.ld_a(WRITE_ACK_RESPONSE)
+        a.call("SEND_BYTE")
     a.jp("IDLE_DISPATCH")
 
     # ---- 第55版・m7aw: 交換#14のREAD準備（共通ルーチン）。
@@ -2446,7 +2458,8 @@ def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
 MAX_ALIGN_PADDING_ATTEMPTS = 256
 
 
-def build(break_write_coords=False,
+def build(break_write_ack=False,
+          break_write_coords=False,
           break_write_data_window=False,
           break_response=False, break_dispatch_return=False,
           break_run_continuation=False,
@@ -2463,7 +2476,8 @@ def build(break_write_coords=False,
     align_padding_bytes = 0
     a = None
     for _attempt in range(MAX_ALIGN_PADDING_ATTEMPTS + 1):
-        a = build_subrom(break_write_coords=break_write_coords,
+        a = build_subrom(break_write_ack=break_write_ack,
+                          break_write_coords=break_write_coords,
                           break_write_data_window=break_write_data_window,
                           break_response=break_response,
                           break_dispatch_return=break_dispatch_return,
@@ -2512,6 +2526,9 @@ def main():
     ap = argparse.ArgumentParser(
         description="L3 サブROム（DISK.ROM相当）を組み立てる（docs/spec/l3-subrom.md）")
     ap.add_argument("outdir")
+    ap.add_argument("--break-write-ack", action="store_true",
+                     help="第57版で追加した書き込み応答（1レコード1バイト）の検証が"
+                          "検出力を持つことを確認するためのフラグ。応答を送らない。")
     ap.add_argument("--break-write-coords", action="store_true",
                      help="第56版で追加した座標導出（論理トラック→C,H）の検証が"
                           "検出力を持つことを確認するためのフラグ。論理トラックを"
@@ -2560,7 +2577,8 @@ def main():
                           "旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
                           "の回帰テストの検出力確認用）。")
     args = ap.parse_args()
-    rom, used = build(break_write_coords=args.break_write_coords,
+    rom, used = build(break_write_ack=args.break_write_ack,
+                       break_write_coords=args.break_write_coords,
                        break_write_data_window=args.break_write_data_window,
                        break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
