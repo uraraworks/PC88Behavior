@@ -1,0 +1,10 @@
+# tests/fixtures/cond3_selftest.intlog.txt
+# 適合条件3の判定器の対照用 合成割り込みログ(公式データ不使用)。
+# clock=50 の sub 割り込み受理点が1件だけある。上の2つのiologと
+# 組み合わせると、直前1件が sub 側／main 側に切り替わる。
+core      : (テスト用ダミー)
+frames    : 1
+
+# sub
+# seq    clock   frame  cpu   im  level  retpc  handlerpc
+     1     50      0  sub    1      0   0102   0038

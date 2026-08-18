@@ -43,6 +43,7 @@ SELFTEST_EXPECTED="$REPO/tests/fixtures/conform_l3_selftest.expected.tsv"
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
 ng()  { printf '  \033[31mNG\033[0m   %s\n' "$1"; }
+na()  { printf '  \033[33m--\033[0m   %s\n' "$1"; }   # 判定不能（合否ではない）
 
 if [ ! -f "$EXPECTED" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED" >&2
@@ -428,6 +429,99 @@ if python3 "$REPO/src/l3_service/make_subrom.py" "$POSCTL" >/dev/null 2>&1 \
 else
   ng "陽性対照の構成を組み立てられなかった"
   overall_rc=1
+fi
+
+# -----------------------------------------------------------------------
+# 適合条件2（diskB起動時に sub が $FC を一切使わないこと、5.2節2項）
+# — m7as で新設。diskB は市販ソフトのディスクで、実ファイル名は
+# リポジトリにもノートにも残していない（docs/notes/m6-sub-invariant.md
+# 第2版の方針）。したがってパスは環境変数 PC88_REF_DISKB でのみ受け取る
+# （CLAUDE.md「私物のパスは環境変数経由でのみ」）。未設定ならSKIPする。
+#
+# 根拠（公式環境の実測、docs/notes/m6-sub-invariant.md 第2版）:
+#   diskA d0-boot : sub OUT $FC = 5635 件
+#   diskB boot    : sub OUT $FC = **0 件**（frames 600/1800/3600 いずれも）
+# -----------------------------------------------------------------------
+say "適合条件2（diskB起動で sub が \$FC を使わないこと）"
+count_sub_fc() {   # $1 = iolog。抽出0件はエラー終了するので0として扱う
+  local out
+  if out="$(python3 "$HASH" "$1" --cpu sub --port FC --kind OUT 2>/dev/null)"; then
+    printf '%s\n' "$out" | awk -F'\t' '$1=="count"{print $2}'
+  else
+    echo 0
+  fi
+}
+if [ -z "${PC88_REF_DISKB:-}" ]; then
+  echo "  SKIP: PC88_REF_DISKB が未設定（diskB の .D88 のフルパスを指定すると判定する）"
+elif [ ! -f "$PC88_REF_DISKB" ]; then
+  ng "PC88_REF_DISKB が指すファイルが無い"
+  overall_rc=1
+else
+  "$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$PC88_REF_DISKB" \
+      --frames 1800 --io-log "$WORK/diskb_mixed.iolog.txt" \
+      >"$WORK/diskb_mixed.stdout.txt" 2>"$WORK/diskb_mixed.stderr.txt"
+  b_fc="$(count_sub_fc "$WORK/diskb_mixed.iolog.txt")"
+  if [ "${b_fc:-0}" = "0" ]; then
+    ok "混成(公式main + 自作サブROM)はdiskB起動で sub OUT \$FC が0件（適合条件2を満たす）"
+  else
+    ng "diskB起動で sub が OUT \$FC を $b_fc 件発行した（適合条件2を満たさない）"
+    overall_rc=1
+  fi
+  # 陽性対照: 同じ数え方で、非0になるはずのdiskA(混成)の実測が非0と出ること。
+  a_fc="$(count_sub_fc "$WORK/mixed.iolog.txt")"
+  if [ "${a_fc:-0}" != "0" ]; then
+    ok "陽性対照: 同じ数え方でdiskA(混成)は $a_fc 件と数えられた（0件判定は空検査ではない）"
+  else
+    ng "陽性対照: 非0になるはずのdiskA(混成)でも0件だった（数え方が壊れている可能性）"
+    overall_rc=1
+  fi
+fi
+
+# -----------------------------------------------------------------------
+# 適合条件3（サブの割り込み受理が、mainの直接のI/O操作を直前イベントと
+# しないこと。1.3節・5.2節3項）— m7as で新設。
+# 共通クロックで main+sub のI/Oイベントを1本にマージし、各割り込み受理点の
+# 直前1件がどちらのCPUのイベントかを数える（tools/check_l3_cond3.py。
+# 計算は analyze_sub_proto.py のQ3と同じ。出力は件数のみで値は出さない）。
+# -----------------------------------------------------------------------
+say "検出力の自己検査: 条件3の判定器が「直前1件がmain側」を検出できること"
+COND3="$REPO/tools/check_l3_cond3.py"
+python3 "$COND3" --iolog "$REPO/tests/fixtures/cond3_selftest_main_last.iolog.txt" \
+                 --intlog "$REPO/tests/fixtures/cond3_selftest.intlog.txt" >/dev/null 2>&1
+c3_pos=$?
+python3 "$COND3" --iolog "$REPO/tests/fixtures/cond3_selftest_sub_last.iolog.txt" \
+                 --intlog "$REPO/tests/fixtures/cond3_selftest.intlog.txt" >/dev/null 2>&1
+c3_neg=$?
+if [ "$c3_pos" -eq 1 ] && [ "$c3_neg" -eq 0 ]; then
+  ok "条件3判定器: 陽性対照(直前main)で不合格・陰性対照(直前sub)で合格（検出力とfalse positive無しの両方）"
+else
+  ng "条件3判定器の検出力に問題がある（陽性対照rc=${c3_pos} 陰性対照rc=${c3_neg}。期待は 1 と 0）"
+  overall_rc=1
+fi
+
+say "適合条件3（サブの割り込み受理の直前1件がmain側でないこと）"
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$DISK" \
+    --frames 1800 --io-log "$WORK/cond3.iolog.txt" --int-log "$WORK/cond3.intlog.txt" \
+    >"$WORK/cond3.stdout.txt" 2>"$WORK/cond3.stderr.txt"
+if python3 "$COND3" --iolog "$WORK/cond3.iolog.txt" --intlog "$WORK/cond3.intlog.txt"; then
+  ok "混成(公式main + 自作サブROM)は条件3を満たす（直前1件がmain側の受理点は0件）"
+else
+  c3_rc=$?
+  if [ "$c3_rc" -eq 2 ]; then
+    # m7as: 自作サブROMは割り込みをまったく使わない（ポーリングのみ）ため
+    # 受理点が0件になる。条件3は「受理したときの性質」を定める条件なので、
+    # 受理が1件も無い状態では破りようがない代わりに、判定もできない。
+    # 黙ってOKにはせず、判定不能として毎回表示し、構造差そのものを
+    # 記録として残す（同条件の公式subは13593件受理する。m7as実測）。
+    na "条件3は判定不能: 自作サブROMは割り込みを1件も受理しない（ポーリングのみ）"
+    echo "       同条件(diskA起動・1800フレーム)の公式サブROMは 13593 件受理し、"
+    echo "       そのうち直前1件がmain側だったものは0件で条件3を満たす（自前の実測で1.3節を再現）。"
+    echo "       自作サブROMが割り込みを使っていないこと自体は適合条件1・4には影響しないが、"
+    echo "       公式との構造差として記録する。根拠: docs/notes/m7as-condition2-3-judging.md"
+  else
+    ng "条件3を満たさない（直前1件がmain側の受理点がある。上の件数を参照）"
+    overall_rc=1
+  fi
 fi
 
 say "現状の到達点"

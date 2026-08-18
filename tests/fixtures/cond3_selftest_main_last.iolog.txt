@@ -1,0 +1,16 @@
+# tests/fixtures/cond3_selftest_main_last.iolog.txt
+# 適合条件3の判定器(tools/check_l3_cond3.py)の**陽性対照**用の合成
+# フィクスチャ(公式データ不使用)。割り込み受理点の直前1件がmain側の
+# イベントになるようclockを配置してある。値は意味を持たないダミー。
+core      : (テスト用ダミー)
+frames    : 1
+
+# main
+# seq    clock   frame  cpu   kind  port  value  pc
+     1     10      0  main  OUT   00FD   00   1000
+     2     45      0  main  OUT   00FD   00   1001
+
+# sub
+# seq    clock   frame  cpu   kind  port  value  pc
+     3     20      0  sub   IN    00FB   00   0100
+     4     30      0  sub   OUT   00FB   00   0101
