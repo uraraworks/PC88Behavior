@@ -68,38 +68,56 @@ else
   ok "LIMIT=1〜4のいずれもフェッチ窓を跨がない（build()の整列が効いている）"
 fi
 
-say "陽性対照1: 意図的に跨がせるとfind_fetch_window_straddlesが検出すること"
+say "陽性対照1: 命令の途中に境界を置くとfind_fetch_window_straddlesが検出すること"
+# 第52版・m7ap: 以前はLIMIT=2の既定ビルドが実際に持っていたstraddleを
+# 陽性対照に流用していたが、テーブル駆動化でコードが縮み跨ぎが消えたため
+# 陽性対照そのものが無効化された（検出力ゼロの検査が通り続ける状態）。
+# 実コードの偶然に依存しない形に作り直す: 幅2以上の命令の途中に境界を
+# 置けば必ず跨ぎになり、命令の先頭に置けば必ず跨がない。
 out="$(python3 - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/l3_service")
-os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "2"
+os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
 if "make_subrom" in sys.modules:
     del sys.modules["make_subrom"]
 import make_subrom as m
-# LIMIT=2の既定(align=0)は既にstraddleを1件持つ(m7an確認済み)ことを利用する。
-a = m.build_subrom(align_padding_bytes=0)
+a = m.build_subrom()
 a.resolve()
-s = m.find_fetch_window_straddles(a)
-print(f"align=0: straddles={len(s)}")
-sys.exit(0 if len(s) >= 1 else 1)
+# 幅2以上の命令を1つ選ぶ（どれでもよい。ここでは先頭から最初のもの）
+pos, width = next((p, w) for p, w in a.instr_spans if w >= 2)
+inside = m.find_fetch_window_straddles(a, boundary=pos + 1)   # 命令の途中
+at_start = m.find_fetch_window_straddles(a, boundary=pos)     # 命令の先頭
+print(f"命令の途中に境界: straddles={len(inside)}")
+print(f"命令の先頭に境界: straddles={len(at_start)}")
+sys.exit(0 if (len(inside) >= 1 and len(at_start) == 0) else 1)
 EOF
 )"
 echo "$out"
-if echo "$out" | grep -q "straddles=0"; then
-  ng "陽性対照1: 意図的な跨ぎが検出されなかった（検出力が無い）"
+if echo "$out" | grep -q "命令の途中に境界: straddles=0"; then
+  ng "陽性対照1: 命令の途中に置いた境界を検出しなかった（検出力が無い）"
+  overall_rc=1
+elif ! echo "$out" | grep -q "命令の先頭に境界: straddles=0"; then
+  ng "陽性対照1: 命令の先頭に置いた境界を誤検出した（false positive）"
   overall_rc=1
 else
-  ok "陽性対照1: 意図的な跨ぎ(align_padding_bytes=0の既知straddle)を検出した"
+  ok "陽性対照1: 命令の途中で検出・命令の先頭で非検出（検出力とfalse positive無しの両方）"
 fi
 
 say "陽性対照2: MAX_ALIGN_PADDING_ATTEMPTS=0でbuild()がSystemExitすること"
+# 第52版・m7ap: 陽性対照1と同じ理由で、実コードの偶然のstraddleに依存
+# しない形へ作り直した。SUB_ROM_FETCH_WINDOWを命令の途中へ動かして
+# 必ず跨ぎが起きる状況を作り、整列の上限0で失敗することを確認する。
 out="$(python3 - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/l3_service")
-os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "2"
+os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
 if "make_subrom" in sys.modules:
     del sys.modules["make_subrom"]
 import make_subrom as m
+a = m.build_subrom()
+a.resolve()
+pos, width = next((p, w) for p, w in a.instr_spans if w >= 2)
+m.SUB_ROM_FETCH_WINDOW = pos + 1   # 命令の途中に窓境界を置く
 m.MAX_ALIGN_PADDING_ATTEMPTS = 0
 try:
     m.build()
@@ -144,24 +162,22 @@ else
   overall_rc=1
 fi
 
-say "既定ビルド(LIMIT=1〜4)の窓超過量を報告する（値ではなくバイト数だけ）"
-# 第51版時点ではSUB_ROM_FETCH_WINDOW(0x0800)未満に収まっていない
-# (m7ao、docs/notes/m7ao-*.md)。ここではbuild()を境界超過で
-# 失敗させる強制はまだ入れていない（現状の全パイプラインを壊すため）。
-# 超過量を可視化するだけの報告に留め、削減は次サイクルの課題として
-# 明記する。
+say "既定ビルド(LIMIT=1〜4)が窓超過0バイトであること（第52版・m7apで報告から検査へ格上げ）"
+# m7aoの時点では既定でも9バイト超過しており報告に留めていた。m7apの
+# テーブル駆動化で全LIMITが窓内に収まったので、ここは検査にする。
 out="$(python3 - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/l3_service")
+fail = False
 for L in (1, 2, 3, 4):
     os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = str(L)
     if "make_subrom" in sys.modules:
         del sys.modules["make_subrom"]
     import make_subrom as m
-    rom, used = m.build()
-    align = 0
+    rom, used = m.build()   # build()自身が窓超過ならSystemExitする
     a = m.build_subrom(align_padding_bytes=0)
     a.resolve()
+    align = 0
     while m.find_fetch_window_straddles(a):
         align += 1
         a = m.build_subrom(align_padding_bytes=align)
@@ -169,10 +185,45 @@ for L in (1, 2, 3, 4):
     blocks = m.find_out_of_window_blocks(a)
     over = sum(sz for _, _, sz in blocks)
     print(f"LIMIT={L}: used={used} 窓超過={over}バイト ブロック数={len(blocks)}")
+    if over:
+        fail = True
+sys.exit(1 if fail else 0)
+EOF
+)"
+rc=$?
+echo "$out"
+if [ "$rc" -eq 0 ]; then
+  ok "LIMIT=1〜4のいずれも窓超過0バイト（build()の関門も通過）"
+else
+  ng "窓超過が残っている（または build() が関門で失敗した）"
+  overall_rc=1
+fi
+
+say "陽性対照4: 窓の外に到達可能コードがあるとbuild()がSystemExitすること"
+# 新設した関門（build()内のfind_out_of_window_blocks検査）の検出力確認。
+# 窓を意図的に小さくすれば必ず窓の外のブロックができる。
+out="$(python3 - <<'EOF'
+import sys, os
+sys.path.insert(0, "src/l3_service")
+os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
+if "make_subrom" in sys.modules:
+    del sys.modules["make_subrom"]
+import make_subrom as m
+m.SUB_ROM_FETCH_WINDOW = 0x0400   # 実コード(約1686バイト)より小さい窓
+try:
+    m.build()
+    print("NG: SystemExitが上がらなかった")
+except SystemExit as e:
+    print("OK: SystemExitが上がった" if "窓" in str(e) else f"NG: 別の理由で失敗: {e}")
 EOF
 )"
 echo "$out"
-ok "報告のみ（既知の未達成。docs/notes/m7ao-*.md参照）"
+if echo "$out" | grep -q "^OK"; then
+  ok "陽性対照4: 窓の外の到達可能コードをbuild()が関門で止めた"
+else
+  ng "陽性対照4: 窓外の関門が発火しなかった"
+  overall_rc=1
+fi
 
 echo
 if [ "$overall_rc" -eq 0 ]; then

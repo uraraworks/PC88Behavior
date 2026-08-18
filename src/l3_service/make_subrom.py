@@ -542,6 +542,11 @@ class Asm:
     def ld_a_c(self):     self.db(0x79)
     def ld_b_a(self):     self.db(0x47)
     def ld_c_a(self):     self.db(0x4F)
+    # ---- 第52版・m7ap: 要求グループ決定関数のテーブル駆動化で使う命令 ----
+    def ld_a_de(self):    self.db(0x1A)   # LD A,(DE)
+    def cp_hl(self):      self.db(0xBE)   # CP (HL)
+    def cp_c(self):       self.db(0xB9)   # CP C
+    def inc_de(self):     self.db(0x13)   # INC DE
     def push_af(self):    self.db(0xF5)
     def pop_af(self):     self.db(0xF1)
     def push_bc(self):    self.db(0xC5)
@@ -676,6 +681,11 @@ OBSERVED_SINGLE_RESPONSE_BY_REQUEST = (
     ((0x17, 0x0F, 0x02, 0x01, 0x00, 0x03, 0x03, 0x06), 0xC0),  # 要求グループ8 → 応答グループ4
     ((0x02, 0x01, 0x00, 0x25, 0x0D, 0x06), 0xC0),  # 要求グループ9 → 応答グループ4
 )
+# 第52版・m7ap: 上の9エントリのうち、応答を SEND_BOOT_SINGLE_TRACKED
+# (起動時交換順序カウンタ BOOT_SINGLE_RESPONSE_COUNT を進める版)で送る
+# エントリの添字。残りは SEND_BYTE で送る。第51版の即値比較チェーンと
+# 同じ振り分けであり、テーブル駆動化にあたって抽出しただけで変更は無い。
+OBSERVED_SINGLE_TRACKED_ENTRIES = frozenset((1, 2))
 # TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
 # 意味が判明した場合は、この定数を意味に基づくルール生成へ差し替える。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
@@ -2055,253 +2065,67 @@ def build_subrom(break_response=False, break_dispatch_return=False,
 
     # m7hの要求グループ→応答グループ決定関数。意味未特定の観測応答であり、
     # 意味が判明した場合は要求の意味に基づくルール生成へ差し替える。
+    #
+    # ---- 第52版・m7ap: 9段の即値比較チェーン(558バイト)を、ROM内の決定
+    # テーブル + その解釈器へ書き換えた。判定の順序・比較する番地・比較値・
+    # 応答値・送信ルーチンの選択はいずれも第51版と同一であり、**動作を
+    # 変えずにサブROMフェッチ窓(0x0800)の予算を作るためだけの書き換え**
+    # である(docs/notes/m7ap-*.md)。
+    #
+    # 表の1エントリ: run_len, 比較バイト数n, 期待値[n], 送信種別, 応答値
+    #   送信種別 0 = SEND_BYTE、1 = SEND_BOOT_SINGLE_TRACKED
+    # run_lenは第51版の9エントリすべてで比較バイト数と一致していたので
+    # len(hdr)から出す(抽出して確認済み。値そのものは下の定数にある)。
+    # 表の終端は run_len = 0(run_lenは1以上しか取らないので終端に使える)。
+    # どのエントリにも一致しなければ第51版と同じフォールバック
+    # (_observed_request_next_9)へ落ちる。
     a.label("_observed_single_by_request")
+    a.ld_hl("_observed_request_table")
+    a.label("_osbr_entry")
+    a.ld_a_hl()                      # A = 表のrun_len(0なら終端)
+    a.or_a()
+    a.jp_z("_observed_request_next_9")
+    a.ld_c_a()
+    a.inc_hl()
+    a.ld_a_hl()                      # A = 比較バイト数
+    a.ld_b_a()
+    a.inc_hl()                       # HL -> 期待値[0]
     a.ld_a_mem(RUN_LEN)
-    a.cp_n(2)
-    a.jp_nz("_observed_request_next_1")
-    a.ld_hl_imm(REQ_HDR + 0)
+    a.cp_c()
+    a.jr_nz("_osbr_skip")
+    a.ld_de_imm(REQ_HDR)
+    a.label("_osbr_cmp_loop")
+    a.ld_a_de()
+    a.cp_hl()
+    a.jr_nz("_osbr_skip")            # 不一致時のBは「未照合の残り件数」
+    a.inc_hl()
+    a.inc_de()
+    a.djnz("_osbr_cmp_loop")
+    # 全バイト一致: HL -> 送信種別、その次が応答値
     a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_1")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x07)
-    a.jp_nz("_observed_request_next_1")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[0][1])
+    a.inc_hl()
+    a.or_a()                         # 送信種別でフラグを立てる
+    a.ld_a_hl()                      # LD A,(HL)はフラグを変えないので応答値を先に載せる
+    a.jr_nz("_osbr_send_tracked")
     a.call("SEND_BYTE")
     a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_1")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(1)
-    a.jp_nz("_observed_request_next_2")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x06)
-    a.jp_nz("_observed_request_next_2")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1])
+    a.label("_osbr_send_tracked")
     a.call("SEND_BOOT_SINGLE_TRACKED")
     a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_2")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(5)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x0B)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x07)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0x5F)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_3")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[2][1])
-    a.call("SEND_BOOT_SINGLE_TRACKED")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_3")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(8)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x17)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x0F)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0x02)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 5)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 6)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_hl_imm(REQ_HDR + 7)
-    a.ld_a_hl()
-    a.cp_n(0x06)
-    a.jp_nz("_observed_request_next_4")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[3][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_4")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(6)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x02)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x02)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_hl_imm(REQ_HDR + 5)
-    a.ld_a_hl()
-    a.cp_n(0x06)
-    a.jp_nz("_observed_request_next_5")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[4][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_5")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(5)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x0B)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x07)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0xEF)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_6")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[5][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_6")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(5)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x0B)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x07)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0xEE)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_7")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[6][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_7")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(8)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x17)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x0F)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0x02)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 5)
-    a.ld_a_hl()
-    a.cp_n(0x03)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 6)
-    a.ld_a_hl()
-    a.cp_n(0x03)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_hl_imm(REQ_HDR + 7)
-    a.ld_a_hl()
-    a.cp_n(0x06)
-    a.jp_nz("_observed_request_next_8")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[7][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
-    a.label("_observed_request_next_8")
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(6)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 0)
-    a.ld_a_hl()
-    a.cp_n(0x02)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 1)
-    a.ld_a_hl()
-    a.cp_n(0x01)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 2)
-    a.ld_a_hl()
-    a.cp_n(0x00)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 3)
-    a.ld_a_hl()
-    a.cp_n(0x25)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()
-    a.cp_n(0x0D)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_hl_imm(REQ_HDR + 5)
-    a.ld_a_hl()
-    a.cp_n(0x06)
-    a.jp_nz("_observed_request_next_9")
-    a.ld_a(OBSERVED_SINGLE_RESPONSE_BY_REQUEST[8][1])
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
+    a.label("_osbr_skip")            # HL -> 未照合の期待値、B = 残り件数
+    a.inc_hl()
+    a.djnz("_osbr_skip")
+    a.inc_hl()                       # 送信種別を飛ばす
+    a.inc_hl()                       # 応答値を飛ばす
+    a.jr("_osbr_entry")
+    # 決定テーブル本体。データであって実行されない(上のjp/jr/callだけが
+    # 制御を持ち、ここへ落ちてくる経路は無い)。
+    a.label("_observed_request_table")
+    for _i, (_hdr, _resp) in enumerate(OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
+        _tracked = 1 if _i in OBSERVED_SINGLE_TRACKED_ENTRIES else 0
+        a.db(len(_hdr), len(_hdr), *_hdr, _tracked, _resp)
+    a.db(0x00)   # 表の終端
+
     a.label("_observed_request_next_9")
     # 第22版で再訂正: 第20版→第21版の変遷は以下の通り。
     #   第9版: FDC_SENSE_DRIVE_STATUSを実発行してST3を送る（5adf82e）。
@@ -2438,13 +2262,31 @@ def build(break_response=False, break_dispatch_return=False,
                           break_fixed_byte_cutoff=break_fixed_byte_cutoff,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
-        if not find_fetch_window_straddles(a):
+        # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
+        # SUB_ROM_FETCH_WINDOWを差し替えて検出力を確認できるようにするため）。
+        if not find_fetch_window_straddles(a, SUB_ROM_FETCH_WINDOW):
             break
         align_padding_bytes += 1
     else:
         raise SystemExit(
             f"サブROMフェッチ窓(0x{SUB_ROM_FETCH_WINDOW:04X})を跨ぐ命令を"
             f"{MAX_ALIGN_PADDING_ATTEMPTS}回の整列パディングでも解消できなかった")
+    # ---- 第52版・m7ap: 到達可能な命令がフェッチ窓(0x0800)の外に出ていない
+    # ことを無条件の不変条件として検査する。m7aoの時点では既定ビルドが
+    # 既に9バイト超過していたため報告のみに留めていたが、要求グループ
+    # 決定関数のテーブル駆動化でLIMIT=1〜4すべてが窓内に収まったので、
+    # ここで失敗させる関門へ格上げした（docs/notes/m7ap-*.md）。
+    # 到達可能性の判定は保守的（KNOWN_UNREACHABLE_LABELSに明示した
+    # ものだけを除外する）。 ----
+    out_of_window = find_out_of_window_blocks(a, SUB_ROM_FETCH_WINDOW)
+    if out_of_window:
+        over = sum(sz for _, _, sz in out_of_window)
+        names = ", ".join(n for n, _, _ in out_of_window)
+        raise SystemExit(
+            f"サブROMフェッチ窓(0x{SUB_ROM_FETCH_WINDOW:04X})の外に到達可能な"
+            f"コードが{over}バイトある（ブロック: {names}）。"
+            f"窓の外はロードされず0xFF埋め(RST 38)として実行されるため、"
+            f"ここへ分岐すると空転する（docs/notes/m7ao-*.md）")
     code = bytes(a.code)
     if len(code) > ROM_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {ROM_SIZE}")
