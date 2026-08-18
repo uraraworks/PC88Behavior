@@ -548,6 +548,13 @@ class Asm:
     def cp_c(self):       self.db(0xB9)   # CP C
     def ld_l_a(self):     self.db(0x6F)   # LD L,A（第54版・m7av: 256境界整列バッファの添字）
     def inc_l(self):      self.db(0x2C)   # INC L（同上。256境界で自然に巻き戻る）
+    # ---- 第55版・m7aw: 交換#14 READ準備のテーブル駆動化で使う命令 ----
+    def ld_de_a(self):    self.db(0x12)   # LD (DE),A
+    def inc_de2(self):    self.db(0x13)   # INC DE（inc_deと同義。既存名の重複を避ける）
+    def xor_b(self):      self.db(0xA8)   # XOR B
+    def add_a_b(self):    self.db(0x80)   # ADD A,B
+    def rlca(self):       self.db(0x07)   # RLCA
+    def ld_b_n(self, n):  self.db(0x06, n)  # LD B,n（ld_bと同義の明示名）
     def inc_de(self):     self.db(0x13)   # INC DE
     def push_af(self):    self.db(0xF5)
     def pop_af(self):     self.db(0xF1)
@@ -678,6 +685,26 @@ WRITE_IDX = 0x4318      # 1バイト: WRITE_BUFへの書き込み位置（256で
 WRITE_PREV = 0x4319     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
                         #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
 WRITE_TMP = 0x431A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
+# ---- 第55版・m7aw: 交換#14のREAD準備をテーブル駆動にしたときの作業領域。
+# ROM上の6バイトエントリ(c_pos, r_pos, sectors, dest_lo, dest_hi, h_xor)を
+# ここへ複写してから使う。 ----
+BR_CPOS = 0x431C
+BR_RPOS = 0x431D
+BR_SECT = 0x431E
+BR_DEST = 0x431F        # 2バイト
+BR_HXOR = 0x4321
+# 第55版・m7aw: 交換#14のREAD準備表。**ここが唯一の定義**である。
+# 呼び出し側と表本体の両方がこれを見る（第55版の最初の実装では両方に
+# タプルを書いてしまい、呼び出し側の値は使われない死んだ複製になっていた
+# ——故障注入がその死んだ側に当たって「壊したのにROMが1バイトも変わらない」
+# という形で顕在化した。単一定義にして再発を止める）。
+# 1エントリ: (c_pos, r_pos, sectors, dest, h_xor)
+BULK_READ_TABLE = (
+    (2, 3, 14, 0x4400, 1),
+    (2, 1, 16, 0x4400 + 14 * 256, 0),
+    (1, 1, 16, 0x4400 + 30 * 256, 1),
+    (1, 1, 2, 0x4400 + 46 * 256, 0),
+)
 WRITE_C = 0x431B        # 1バイト: 直前にSEEKした目的シリンダ。1.35節の実測で
                         #   WRITE DATAのCは直前SEEKのNCNと15/15一致した。
                         #   **REQ_HDR+4を見てはいけない**——書き込みrunの制御
@@ -1367,6 +1394,63 @@ def build_subrom(break_write_data_window=False,
     a.call("FDC_WRITE_SECTOR")
     a.jp("IDLE_DISPATCH")
 
+    # ---- 第55版・m7aw: 交換#14のREAD準備（共通ルーチン）。
+    #      引数: HL = 6バイトエントリ(c_pos, r_pos, sectors, dest_lo,
+    #      dest_hi, h_xor)の先頭。中身は上の呼び出し側の表と同じ。 ----
+    a.label("_bulk_read_do")
+    a.ld_de_imm(BR_CPOS)                 # エントリをRAMへ複写する
+    a.ld_b_n(6)
+    a.label("_bulk_read_copy")
+    a.ld_a_hl()
+    a.ld_de_a()
+    a.inc_hl()
+    a.inc_de()
+    a.djnz("_bulk_read_copy")
+
+    a.out_imm(P_TC, FDC_TC_VALUE)
+    a.ld_a_mem(BR_CPOS)
+    a.ld_hl_imm(REQ_HDR)                 # REQ_HDRは256境界に整列しているので
+    a.ld_l_a()                           # 下位バイトの差し替えだけで足りる
+    a.ld_a_hl()
+    a.ld_mem_a(BULK_C)
+    a.ld_e(0x00)
+    a.call("FDC_SEEK")
+    a.call("FDC_SENSE_DRIVE_STATUS")
+
+    a.ld_hl_imm(REQ_HDR + 1)
+    a.ld_a_hl()
+    a.ld_b_a()
+    a.ld_a_mem(BR_HXOR)
+    a.xor_b()                            # h_xor=1のREADだけ直前READからHを反転
+    a.ld_mem_a(BULK_H)
+    a.and_a(0x01)
+    a.rlca()                             # bit0 -> bit2（0または4）。第49版の
+    a.rlca()                             # 分岐2本ぶんを2命令で置き換える
+    a.ld_mem_a(BULK_UNIT_HEAD)
+
+    a.ld_a_mem(BR_RPOS)
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_l_a()
+    a.ld_a_hl()
+    a.ld_mem_a(BULK_R)
+    a.ld_b_a()
+    a.ld_a_mem(BR_SECT)
+    a.ld_mem_a(BULK_SECTORS)
+    a.dec_a()
+    a.add_a_b()                          # EOT = R + セクタ数 - 1
+    a.ld_mem_a(BULK_EOT)
+    a.ld_hl_mem(BR_DEST)
+    a.ld_mem_hl(BULK_DEST)
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)
+    a.call("FDC_READ_BULK")
+    a.ret()
+
+    # 表本体（データであって実行されない。直上は ret）
+    for _i, (_c, _r, _sec, _dst, _hx) in enumerate(
+            BULK_READ_TABLE[:BULK_READ_INTERVENTION_LIMIT]):
+        a.label(f"_bulk_read_entry_{_i}")
+        a.db(_c, _r, _sec, _dst & 0xFF, (_dst >> 8) & 0xFF, _hx)
+
     a.label("FDC_READ_SECTOR")
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     # コマンド: READ DATA。MF(bit6)=1 必須——このハーネスの FDC は
@@ -1943,42 +2027,18 @@ def build_subrom(break_write_data_window=False,
     a.label("_exchange14_prepare_remaining_reads")
     # 第49版: 既定では介入で確定した第2 READだけを実行する。後続タプルは
     # 第3〜第5 READの非表示介入用候補で、既定値1では実装へ入らない。
-    for read_no, c_pos, r_pos, sectors, dest in (
-            (2, 2, 3, 14, BULK_DATA),
-            (3, 2, 1, 16, BULK_DATA + 14 * 256),
-            (4, 1, 1, 16, BULK_DATA + 30 * 256),
-            (5, 1, 1, 2, BULK_DATA + 46 * 256))[:BULK_READ_INTERVENTION_LIMIT]:
-        a.out_imm(P_TC, FDC_TC_VALUE)
-        a.ld_hl_imm(REQ_HDR + c_pos)
-        a.ld_a_hl()
-        a.ld_mem_a(BULK_C)
-        a.ld_e(0x00)
-        a.call("FDC_SEEK")
-        a.call("FDC_SENSE_DRIVE_STATUS")
-        a.ld_hl_imm(REQ_HDR + 1)
-        a.ld_a_hl()
-        if read_no in (2, 4):
-            a.db(0xEE, 0x01)  # XOR 1: 直前READからHを反転
-        a.ld_mem_a(BULK_H)
-        a.and_a(0x01)
-        a.jr_z(f"_bulk_unit_zero_{read_no}")
-        a.ld_a(0x04)
-        a.jr(f"_bulk_unit_done_{read_no}")
-        a.label(f"_bulk_unit_zero_{read_no}")
-        a.ld_a(0x00)
-        a.label(f"_bulk_unit_done_{read_no}")
-        a.ld_mem_a(BULK_UNIT_HEAD)
-        a.ld_hl_imm(REQ_HDR + r_pos)
-        a.ld_a_hl()
-        a.ld_mem_a(BULK_R)
-        a.db(0xC6, sectors - 1)  # ADD A,n: EOT=R+セクタ数-1
-        a.ld_mem_a(BULK_EOT)
-        a.ld_hl_imm(dest)
-        a.ld_mem_hl(BULK_DEST)
-        a.ld_a(sectors)
-        a.ld_mem_a(BULK_SECTORS)
-        a.out_imm(P_STROBE, BOOT_F7_VALUE)
-        a.call("FDC_READ_BULK")
+    # ---- 第55版・m7aw: 第49版までは4回ぶんの準備コードを展開していた
+    # （READごとに約69バイト、LIMIT=4で計275バイト）。参照する要求位置と
+    # セクタ数・格納先・Hの反転有無しか違わないので、**ROM上の6バイト表 +
+    # 共通の準備ルーチン**へ書き換えた。判定の順序・参照位置・生成する
+    # FDCパラメータはいずれも第49版と同一で、**フェッチ窓(0x0800)の予算を
+    # 作るためだけの書き換え**である（m7ap で決定関数に対してやったのと
+    # 同じ手口。今回は適合テスト[混成]の5635件が検出力を持つ）。
+    #
+    # 表の1エントリ: c_pos, r_pos, sectors, dest_lo, dest_hi, h_xor
+    for _idx in range(len(BULK_READ_TABLE[:BULK_READ_INTERVENTION_LIMIT])):
+        a.ld_hl(f"_bulk_read_entry_{_idx}")
+        a.call("_bulk_read_do")
     # ---- 第51版・m7an: サブROMフェッチ窓(0x0800)整列パディング。
     # m7am/m7anの詰め物対照で、LIMIT>=3のREAD#4/#5追加後にmain `IN $FD`が
     # 5635件到達から0件へ退行する原因は、READ#4/#5の命令内容ではなく
