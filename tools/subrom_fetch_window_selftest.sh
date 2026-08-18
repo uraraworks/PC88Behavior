@@ -209,7 +209,15 @@ os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
 if "make_subrom" in sys.modules:
     del sys.modules["make_subrom"]
 import make_subrom as m
-m.SUB_ROM_FETCH_WINDOW = 0x0400   # 実コード(約1686バイト)より小さい窓
+# 窓を縮めるが、**命令の途中に境界を置かない**こと。命令の途中だと整列
+# パディングの側が先に働き、パディングが膨らんで整列用jrが届かなくなる
+# （第54版で実際に踏んだ）。ラベルの位置は必ず命令の先頭なので、
+# 0x0400付近のラベル位置を境界に選べば straddle は0のまま
+# 「窓の外に到達可能ブロックがある」状態だけを作れる。
+a = m.build_subrom()
+a.resolve()
+boundary = max(v for v in a.labels.values() if v <= 0x0400)
+m.SUB_ROM_FETCH_WINDOW = boundary
 try:
     m.build()
     print("NG: SystemExitが上がらなかった")

@@ -218,7 +218,7 @@ HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突�
 
 
 def build(requests, dispatch_switch_test=False, run_continuation_test=False,
-          fixed_byte_cutoff_test=False):
+          fixed_byte_cutoff_test=False, write_test=False):
     """requests: [(cyl, sec), ...] の列。交換#3/#4を経て256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
@@ -355,6 +355,23 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     # 自作同士の試験に過ぎず公式mainとの適合根拠にはしない。
     a.label("EXCHANGE4_REQUEST")
     a.db(0x00, 0x00)
+
+    # ---- --write-test 用（第54版・m7av。仕様書1.35節の書き込み経路）。
+    #      1つのrunとして「制御6バイト + データ256バイト」を送る。
+    #      1.35節の実測が確定した形:
+    #        - データ部は受信列の**末尾ちょうど256バイト**
+    #        - R（セクタ番号）はその**直前の1バイト**
+    #      制御バイトの内訳は未確定なので、Rの位置以外は0で埋める
+    #      （意味を推測して埋めない）。データは自作の式で作る。 ----
+    write_ctrl = write_data = None
+    if write_test:
+        cyl0, sec0 = requests[0]
+        write_ctrl = "WRITE_CTRL"
+        a.label(write_ctrl)
+        a.db(0x00, 0x00, 0x00, 0x00, 0x00, sec0)   # 末尾がR
+        write_data = "WRITE_DATA"
+        a.label(write_data)
+        a.db(*[((i * 7) + 0x5A) & 0xFF for i in range(256)])
 
     # ---- --dispatch-switch-test 用の割り込みヘッダ（上のdocstring参照）。
     #      requests[0] と同じ (cyl,sec) を使う——値そのものに意味は無く、
@@ -504,6 +521,46 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.call("RECV_MAIN_PAIR")
         a.djnz(f"_resprecv_{name}")
 
+    if write_test:
+        # ---- 書き込みシナリオ（第54版・m7av、仕様書1.35節）----
+        # 上の要求ループで requests[0] の読み出しが済んでおり、subは
+        # そのシリンダへSEEK済み（＝1.35節のCが確定している）状態にある。
+        # ここで「制御6 + データ256」を1つのrunとして送り、subに
+        # WRITE DATAを発行させる。そのあと同じセクタをもう一度読み出す。
+        # 書いた256バイトと読み戻した256バイトが一致すれば、書き込み経路が
+        # 端まで通ったことになる（判定は tools/check_l3_write.py）。
+        a.ld_hl(write_ctrl)
+        a.ld_b(6)
+        a.label("_wt_ctrl_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_wt_ctrl_send")
+        # HLはWRITE_DATAの先頭に来ている（表を隣接して置いてある）
+        a.ld_b(0x00)                 # 256回
+        a.label("_wt_data_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_wt_data_send")
+
+        # ---- ここで**送るのをやめて受信待ちに入る**。
+        # subのrun終端は「相手がSEND待ちに転じた」(bit1)で判定される
+        # （仕様書1.20節、src/l3_service/make_subrom.py の
+        # _recv_dispatch_poll）ので、mainが送り続けている限りrunは
+        # 終わらず、subは書き込みを始められない。最初これを忘れて
+        # 「データ256の直後に次の要求ヘッダを送る」形にしたら、runが
+        # 262ではなく270バイトに伸び、末尾256の窓がずれてRが別の値に
+        # なった（実測で確認。第54版で踏んだ）。
+        #
+        # 書き込みに対してsubが何か返すかは**未測定**なので、応答を
+        # 期待する形にはしない（推測でプロトコルを足さない）。ここで
+        # mainは受信待ちのまま止まる。**読み戻しの確認は、同じディスク
+        # ファイルに対して別の実行（通常の --requests 読み出し）を
+        # 行って突き合わせる**——ディスクは実行をまたいで残るので、
+        # プロトコルを推測せずに往復を確かめられる。
+        a.call("RECV_MAIN")
+
     a.label("DONE")
     a.db(0x18, 0xFE)   # JR $（その場停止）
 
@@ -529,6 +586,9 @@ def main():
                      help="上のdocstring「--run-continuation-test」参照。"
                           "make_subrom.py 第11版の回帰テスト用シナリオ"
                           "（0F省略の連続SEND run）を挟む。")
+    ap.add_argument("--write-test", action="store_true",
+                     help="第54版で追加した書き込み経路（仕様書1.35節）の検証シナリオ。"
+                          "制御6+データ256を1つのrunとして送り、同じセクタを読み戻す。")
     ap.add_argument("--fixed-byte-cutoff-test", action="store_true",
                      help="上のdocstring「--fixed-byte-cutoff-test」参照。"
                           "make_subrom.py 第13版の回帰テスト用シナリオ"
@@ -542,7 +602,8 @@ def main():
 
     a = build(requests, dispatch_switch_test=args.dispatch_switch_test,
               run_continuation_test=args.run_continuation_test,
-              fixed_byte_cutoff_test=args.fixed_byte_cutoff_test)
+              fixed_byte_cutoff_test=args.fixed_byte_cutoff_test,
+              write_test=args.write_test)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")

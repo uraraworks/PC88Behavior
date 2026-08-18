@@ -546,6 +546,8 @@ class Asm:
     def ld_a_de(self):    self.db(0x1A)   # LD A,(DE)
     def cp_hl(self):      self.db(0xBE)   # CP (HL)
     def cp_c(self):       self.db(0xB9)   # CP C
+    def ld_l_a(self):     self.db(0x6F)   # LD L,A（第54版・m7av: 256境界整列バッファの添字）
+    def inc_l(self):      self.db(0x2C)   # INC L（同上。256境界で自然に巻き戻る）
     def inc_de(self):     self.db(0x13)   # INC DE
     def push_af(self):    self.db(0xF5)
     def pop_af(self):     self.db(0xF1)
@@ -661,6 +663,26 @@ BULK_H = 0x4315         # 1バイト: 同READのH
 BULK_R = 0x4316         # 1バイト: 同READの開始R
 BULK_UNIT_HEAD = 0x4317 # 1バイト: 同READのunit/head
 BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
+# ---- 第54版・m7av: 書き込み経路（SAVE、仕様書1.35節）で使うRAM。
+# WRITE_BUFは**256バイト境界に整列**させる。受信バイトを
+# WRITE_BUF+(WRITE_IDX)へ順に格納し、WRITE_IDXは1バイトなので256で自然に
+# 巻き戻る——結果として「最後に受け取った256バイト」が常にバッファに
+# 残る循環バッファになる。1.35節が確定した「データ部は受信列の末尾
+# ちょうど256バイト」をそのまま表す構造で、長さを事前に知らなくてよい。
+# 置き場所は書き込み可能範囲(0x4000-0x7FFF)のうちBULK_DATA(末尾0x7400)と
+# STACK(0x7FFE、下向きに伸びる)のどちらとも重ならない0x7500。
+# （m7akでSTACKとBULK_DATAの重なりがデータフェーズでスタックを破壊した
+# 事故があったので、ここは重複の無いことを確認してから置いている）
+WRITE_BUF = 0x7500      # 256バイト・256境界整列の循環受信バッファ
+WRITE_IDX = 0x4318      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
+WRITE_PREV = 0x4319     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
+                        #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
+WRITE_TMP = 0x431A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
+WRITE_C = 0x431B        # 1バイト: 直前にSEEKした目的シリンダ。1.35節の実測で
+                        #   WRITE DATAのCは直前SEEKのNCNと15/15一致した。
+                        #   **REQ_HDR+4を見てはいけない**——書き込みrunの制御
+                        #   バイトがREQ_HDRを上書きするため（読み出し側は要求run
+                        #   の中で完結するので REQ_HDR+4 のままでよい）。
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
 # 第53版・m7aq: 既定を1→4へ上げた。m7ap でフェッチ窓(0x0800)の超過を
@@ -724,7 +746,8 @@ ROM_SIZE = 0x2000      # DISK.ROM ファイル自体の上限（make_test_rom.py
 SUB_ROM_FETCH_WINDOW = 0x0800
 
 
-def build_subrom(break_response=False, break_dispatch_return=False,
+def build_subrom(break_write_data_window=False,
+                  break_response=False, break_dispatch_return=False,
                   break_run_continuation=False,
                   inject_spurious_sense_int=False,
                   break_sense_int_result_count=False,
@@ -867,6 +890,26 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      第11版から変わらず、run境界判別ループから複数箇所で呼ぶため
     #      切り出している（二重実装しない）。 ----
     a.label("HDR_STORE_AND_CHECK")
+    # ---- 第54版・m7av: 書き込み経路（1.35節）。受け取ったバイトを
+    # 256バイト境界整列の循環バッファWRITE_BUFへ必ず1つ格納する。
+    # WRITE_IDXは1バイトなので256で自然に巻き戻り、runがどれだけ長くても
+    # 「最後に受け取った256バイト」だけが残る。追い出される直前の値
+    # （＝そのとき捨てるバイト）をWRITE_PREVへ退避しておくと、runの終端で
+    # WRITE_PREVは「データ部256バイトの直前の1バイト」になる——1.35節の
+    # 位置対応でR（セクタ番号）が全15件でその位置に一致した。
+    # runの長さを事前に知らなくても、末尾256とその直前1バイトが取れる。
+    a.ld_mem_a(WRITE_TMP)             # 受信バイトを一時退避（DEを壊さないため）
+    a.push_hl()
+    a.ld_hl_imm(WRITE_BUF)
+    a.ld_a_mem(WRITE_IDX)
+    a.ld_l_a()                        # HL = WRITE_BUF + WRITE_IDX（256境界整列なのでLだけで足りる）
+    a.inc_a()
+    a.ld_mem_a(WRITE_IDX)             # 次の位置へ（256で自然に巻き戻る）
+    a.ld_a_hl()                       # いま追い出される値
+    a.ld_mem_a(WRITE_PREV)
+    a.ld_a_mem(WRITE_TMP)
+    a.ld_hl_a()                       # WRITE_BUF[WRITE_IDX] <- 受信バイト
+    a.pop_hl()                        # HLを元に戻す（AだけがこのRAM操作で変わる）
     a.push_af()                       # 受け取ったバイトを退避
     a.ld_a_mem(RUN_LEN)
     a.cp_n(REQ_HDR_CAPACITY)
@@ -1250,6 +1293,7 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     #      第18版でドライブ番号引数化（FDC_RECALIBRATEと同じ根拠・
     #      同じビット割り当て。上のFDC_RECALIBRATEのコメント参照）。----
     a.label("FDC_SEEK")
+    a.ld_mem_a(WRITE_C)                 # 第54版・m7av: 目的シリンダを保持（1.35節のC）
     a.push_af()
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x0F); a.call("FDC_OUT")     # コマンド: SEEK
@@ -1261,6 +1305,68 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     # ---- READ DATA 1セクタ（256バイト固定・N=1）。
     #      引数: (REQ_C)=シリンダ, (REQ_R)=セクタ番号。
     #      結果は SECTOR_BUF の256バイトに入る。 ----
+    # ---- WRITE DATA 1セクタ（256バイト固定・N=1）。第54版・m7av。
+    #      仕様書1.35節（m7auの実測）に基づく:
+    #        - パラメータ8バイト・データ部256バイト・結果7バイト（15件すべて一様）
+    #        - **データ部は「受信列の末尾ちょうど256バイト」**（15/15で一致、余り0）
+    #          → 循環バッファWRITE_BUFのWRITE_IDXから256バイトを順に流す
+    #        - R（セクタ番号）は**データ部の直前の1バイト**（15/15で一致）
+    #          → WRITE_PREV
+    #        - C は直前SEEKの目的シリンダと15/15で一致 → 既存のREQ_HDR+4
+    #          （READ側が同じ位置をCとして使っている。1.30節系の座標保持）
+    #        - unit/head は drive0 | (H<<2) と15/15で一致 → 既存のREQ_UNIT_HEAD
+    #          （第42版が読み出し側で確定した規則と同じ）
+    #        - N/EOT/GPL/DTL は実測で単一値。READ側と同じ値を使う
+    #      **制御バイト6/12の内訳は未確定なので触れていない**（仕様書3節・
+    #      6節7項。推測で埋めない）。 ----
+    a.label("FDC_WRITE_SECTOR")
+    a.call("FDC_BEGIN")
+    a.ld_a(0x45); a.call("FDC_OUT")     # WRITE DATA + MF=1（READ側と同じ理由）
+    a.ld_a_mem(REQ_UNIT_HEAD); a.call("FDC_OUT")
+    a.ld_a_mem(WRITE_C); a.call("FDC_OUT")                      # C = 直前SEEKの目的シリンダ
+    a.ld_a_mem(REQ_H); a.call("FDC_OUT")                        # H
+    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # R = データ部の直前1バイト
+    a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
+    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # EOT = R（このセクタで終わり）
+    a.ld_a(0x2A); a.call("FDC_OUT")     # GPL
+    a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
+
+    # データフェーズ: WRITE_BUFのWRITE_IDX（＝最も古い＝末尾256の先頭）から
+    # 256バイト。Lだけを進めれば256境界で自然に巻き戻る。
+    a.ld_hl_imm(WRITE_BUF)
+    a.ld_a_mem(WRITE_IDX)
+    a.ld_l_a()
+    if break_write_data_window:
+        # tools/verify_l3.sh の書き込み検証が検出力を持つことを確認する
+        # ためだけの故障注入。データ部の開始位置を1バイトずらす
+        # （1.35節が確定した「末尾ちょうど256バイト」から外す）。
+        a.inc_l()
+    a.ld_b(0x00)
+    a.label("_write_loop")
+    a.ld_a_hl()
+    a.call("FDC_OUT")
+    a.inc_l()
+    a.djnz("_write_loop")
+
+    # 結果フェーズ（ST0,ST1,ST2,C,H,R,N の7バイト）は読み捨てる
+    for _ in range(7):
+        a.call("FDC_IN")
+    # TC三つ組み（1.21節）。読み出し側（FDC_READ_SECTOR）が1セクタ分の
+    # バッチの後に呼ぶのと同じ位置で呼ぶ。公式側でもWRITE直後30000クロック
+    # 以内に OUT $F8 が現れる（m7avで実測、15件すべて）。
+    a.call("FDC_TC")
+    a.ret()
+
+    # 長いrun（RUN_LEN飽和）の終端からの入口。受信列の末尾256バイトを
+    # そのままWRITE DATAのデータ部として流し、アイドルへ戻る。
+    # **フォールスルーが来ない位置**（直上はFDC_WRITE_SECTORのret）に置く
+    # こと——最初これを_recv_dispatch_hdr_doneの直前へ置いたら、run長8で
+    # そこへ「落ちてくる」既存経路を横取りしてしまい、自己検証層の5項目が
+    # 一斉にNGになった（回帰として検出できた）。
+    a.label("_recv_dispatch_write_sector")
+    a.call("FDC_WRITE_SECTOR")
+    a.jp("IDLE_DISPATCH")
+
     a.label("FDC_READ_SECTOR")
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     # コマンド: READ DATA。MF(bit6)=1 必須——このハーネスの FDC は
@@ -1616,6 +1722,14 @@ def build_subrom(break_response=False, break_dispatch_return=False,
     if not break_fixed_byte_cutoff:
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
         a.label("_recv_dispatch_run_done")
+        # ---- 第54版・m7av: 書き込み経路（1.35節）。RUN_LENは0xFFで飽和する
+        # ので、0xFF は「257バイト以上の長いrun」を意味する。実測した書き込み
+        # runは262/268バイトで、他の要求run（最長12）とは桁が違う。
+        # **判別に使っているのはrunの長さ（構造）だけで、値には触れていない。**
+        # 制御バイトの内訳は未確定なのでここでは解釈しない。
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(0xFF)
+        a.jp_z("_recv_dispatch_write_sector")
         a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
         a.or_a()
         a.jp_nz("IDLE_DISPATCH")
@@ -2245,7 +2359,8 @@ def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
 MAX_ALIGN_PADDING_ATTEMPTS = 256
 
 
-def build(break_response=False, break_dispatch_return=False,
+def build(break_write_data_window=False,
+          break_response=False, break_dispatch_return=False,
           break_run_continuation=False,
           inject_spurious_sense_int=False,
           break_sense_int_result_count=False,
@@ -2260,7 +2375,8 @@ def build(break_response=False, break_dispatch_return=False,
     align_padding_bytes = 0
     a = None
     for _attempt in range(MAX_ALIGN_PADDING_ATTEMPTS + 1):
-        a = build_subrom(break_response=break_response,
+        a = build_subrom(break_write_data_window=break_write_data_window,
+                          break_response=break_response,
                           break_dispatch_return=break_dispatch_return,
                           break_run_continuation=break_run_continuation,
                           inject_spurious_sense_int=inject_spurious_sense_int,
@@ -2307,6 +2423,10 @@ def main():
     ap = argparse.ArgumentParser(
         description="L3 サブROム（DISK.ROM相当）を組み立てる（docs/spec/l3-subrom.md）")
     ap.add_argument("outdir")
+    ap.add_argument("--break-write-data-window", action="store_true",
+                     help="第54版で追加した書き込み経路（仕様書1.35節）の検証が"
+                          "検出力を持つことを確認するためのフラグ。WRITE DATAの"
+                          "データ部の開始位置を1バイトずらす（tools/verify_l3.sh 用）。")
     ap.add_argument("--break-response", action="store_true",
                      help="検証器をわざと壊すためのフラグ（tools/verify_l3.sh 用）。"
                           "応答256バイトの先頭を1ビット反転させる。")
@@ -2347,7 +2467,8 @@ def main():
                           "旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
                           "の回帰テストの検出力確認用）。")
     args = ap.parse_args()
-    rom, used = build(break_response=args.break_response,
+    rom, used = build(break_write_data_window=args.break_write_data_window,
+                       break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
                        break_run_continuation=args.break_run_continuation,
                        inject_spurious_sense_int=args.inject_spurious_sense_int,

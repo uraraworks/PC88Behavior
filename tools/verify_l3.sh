@@ -452,6 +452,49 @@ fi
 # --------------------------------------------------------------------
 # 制限事項（正直に書く。ごまかさない）
 # --------------------------------------------------------------------
+# --------------------------------------------------------------------
+# 書き込み経路（仕様書1.35節、第54版・m7av）
+# --------------------------------------------------------------------
+say "書き込み経路: 受信列の末尾256バイトをそのままWRITE DATAへ流すか"
+mkdir -p "$WORK/rom_write"
+python3 "$GEN_SUB" "$WORK/rom_write" || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write" --requests "0:1" --write-test || exit 1
+cp "$WORK/test.d88" "$WORK/write.d88"
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write" --disk "$WORK/write.d88" \
+    --frames "$FRAMES" --io-log "$WORK/write.iolog.txt" \
+    >"$WORK/write.stdout.txt" 2>"$WORK/write.stderr.txt"
+if python3 "$REPO/tools/check_l3_write.py" "$WORK/write.iolog.txt"; then
+  ok "WRITE DATAのデータ部が、subがそのrunで最後に受け取った256バイトと全位置一致"
+else
+  ng "WRITE DATAのデータ部が受信列の末尾256バイトと一致しない（1.35節を満たさない）"
+  overall_rc=1
+fi
+
+say "検出力の確認: データ部の窓を1バイトずらした版が不一致として検出されること"
+mkdir -p "$WORK/rom_write_broken"
+python3 "$GEN_SUB" "$WORK/rom_write_broken" --break-write-data-window || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write_broken" --requests "0:1" --write-test || exit 1
+cp "$WORK/test.d88" "$WORK/write_broken.d88"
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_broken" --disk "$WORK/write_broken.d88" \
+    --frames "$FRAMES" --io-log "$WORK/write_broken.iolog.txt" \
+    >"$WORK/write_broken.stdout.txt" 2>"$WORK/write_broken.stderr.txt"
+if python3 "$REPO/tools/check_l3_write.py" "$WORK/write_broken.iolog.txt" >/dev/null 2>&1; then
+  ng "窓をずらした版が合格してしまった（この検査に検出力が無い）"
+  overall_rc=1
+else
+  ok "窓を1バイトずらした版は正しく不一致として検出された"
+fi
+
+# ディスクへの反映（書いたものを読み戻せるか）は**このハーネスでは判定できない**。
+# 根拠: 公式ROM一式で SAVE を実行し WRITE DATA が15件発行された実測でも、
+# 与えたディスクイメージのファイルは1バイトも変化しなかった（m7av。
+# 変化したのは事前にこちらが外したライトプロテクトの1バイトだけ）。
+# つまり書き込みがファイルへ落ちないのはハーネス側の性質であって、
+# 自作サブROMの性質ではない。ここで黙って「往復OK」とは言わない。
+na "書いた内容をディスクから読み戻せるかは、このハーネスでは判定不能"
+echo "       公式ROMのSAVE（WRITE DATA 15件）でもイメージファイルは変化しない。"
+echo "       根拠: docs/notes/m7av-write-path-implementation.md"
+
 say "制限事項（未検証のまま残すこと）"
 cat <<'EOF'
   diskA 起動時の高速バルクモード（sub OUT $FC が5635件連続、
