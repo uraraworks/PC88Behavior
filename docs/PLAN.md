@@ -656,12 +656,26 @@ straddle に依存していたためコードが縮んだ瞬間に**検出力ゼ
 作り直した。詳細は
 [docs/notes/m7ap-decision-table-and-window-budget.md](notes/m7ap-decision-table-and-window-budget.md)。
 
+**適合条件1を達成した（m7aq、2026-08-18）。** m7apで窓超過を解消した
+直後にLIMIT=3・4を測ったところ、交換#14のREAD#3〜#5がそのまま通り、
+混成ROM実走のmain `IN $FD` 先頭一致が
+**1282(LIMIT=1) → 3330(2) → 5378(3) → 5635/5635 全件一致(4)** となった。
+`tests/conformance/expected.tsv` を一切変更せずに `conform_l3.sh` の
+`[混成(自作サブROM)]` が件数・SHA-256とも合格
+（＝`docs/spec/l3-subrom.md` 5.2節1項）。**READ#4/#5のロジックは以前から
+正しく書けており、窓の外にあって実行できていなかっただけだった**
+——m7alが「未特定のクラッシュ」として残した現象は新規の不具合ではなく
+窓制約の影である。既定 `PC88_BULK_READ_INTERVENTION_LIMIT` は
+`1` → `4` へ上げた（m7akが上げない理由に挙げた「測定が長引く」問題は
+READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
+ただし**main側の構造的一致プレフィックスは258件・sub側752件のまま**で、
+適合条件2〜4は未達成。詳細は
+[docs/notes/m7aq-conformance-condition1-achieved.md](notes/m7aq-conformance-condition1-achieved.md)。
+
 **残る宿題の優先順（2026-08-18時点、更新）:**
 1. ~~既定ビルドの9バイト窓超過を解消する~~（m7apで解消。上記）
 2. ~~228バイトの削減~~（m7apで420バイト削減。上記）
-3. **LIMIT=3 → LIMIT=4** を一段ずつ測る。5635件（全件）到達
-   なら `tests/conformance/expected.tsv` を変更せずに `conform_l3.sh` の
-   `[混成]` が合格に変わるかを確認する。
+3. ~~LIMIT=3 → LIMIT=4 を一段ずつ測る~~（m7aqで全件一致・適合条件1達成。上記）
 4. **sub側752件の壁**（READ#2データフェーズ内の反復回数差。m7ak・m7ajで
    帰属だけ確認し未着手のまま）。
 5. **適合条件4（ネガティブコントロール）**: ディスク無しでもsubが

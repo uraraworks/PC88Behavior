@@ -663,8 +663,16 @@ BULK_UNIT_HEAD = 0x4317 # 1バイト: 同READのunit/head
 BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
+# 第53版・m7aq: 既定を1→4へ上げた。m7ap でフェッチ窓(0x0800)の超過を
+# 解消した結果、READ#3〜#5が初めて実行できるようになり、混成ROM実走で
+# main `IN $FD` の先頭一致が 1282(LIMIT=1) → 3330(2) → 5378(3) →
+# **5635/5635 全件一致(4)** まで伸びた。tools/conform_l3.sh の[混成]が
+# tests/conformance/expected.tsv を変更せずに件数・SHA-256とも合格する
+# （＝適合条件1を満たす）。m7ak が既定を上げない理由に挙げた「測定が
+# 無限ループ的に長引く」問題は、READ#4/#5が完走するようになったことで
+# 解消している（LIMIT=4の実走はLIMIT=1より短い）。
 BULK_READ_INTERVENTION_LIMIT = int(
-    os.environ.get("PC88_BULK_READ_INTERVENTION_LIMIT", "1"), 0)
+    os.environ.get("PC88_BULK_READ_INTERVENTION_LIMIT", "4"), 0)
 EXCHANGE3_OBSERVED_RESPONSE = 0xC0
 ROUND0_OBSERVED_RESPONSE = 0x3F
 # 後続単発応答は、m7hで確定した要求グループ→応答グループの決定関数。
