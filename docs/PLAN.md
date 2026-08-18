@@ -716,6 +716,20 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    書き換えを受け入れた。詳細は
    [docs/notes/m7aw-bulk-read-table.md](notes/m7aw-bulk-read-table.md)。
    詳細は[docs/notes/m7av-write-path-implementation.md](notes/m7av-write-path-implementation.md)。
+
+   **制御バイトの内訳も詰めた（m7ax、2026-08-18）。** m7auの1回SAVE
+   （WRITE 15件）では着目位置が2種の値しか取らず式を決められなかったので、
+   **8回SAVEする条件を新たに測ってWRITE DATA 64件**を得た（末尾256の規則も
+   64/64で再現）。制御部は**6バイトレコードの列**（測定開始直後の1件を除き
+   全て6の倍数）で、**データ部の直前レコードの末尾2バイトが
+   `[論理トラック(C*2+H), R]`**（どちらも63/63一致。`C==track>>1`・
+   `H==track&1` も63/63）。論理トラックは8種の値を取るので式を一つに絞れる。
+   実装のC/H導出を「直前SEEKのラッチ」「`REQ_H`」から**制御レコード由来**へ
+   変更し（`FDC_SEEK`のラッチは削除）、座標の検査と陽性対照
+   （`--break-write-coords`）を`verify_l3.sh`へ追加した。書き込みシナリオは
+   非ゼロ座標(cyl=3/sec=5)に変更。コードは1903バイト（残り145）。
+   **残る未確定はレコード先頭4バイトの意味と、データを伴わないレコードの役割。**
+   詳細は[docs/notes/m7ax-write-control-record.md](notes/m7ax-write-control-record.md)。
 6. ~~適合条件2（diskB起動時に`$FC`を一切使わないこと）~~ **達成**（m7as）。
    `conform_l3.sh` が陽性対照つきで判定する。パスは `PC88_REF_DISKB`
    経由（実ファイル名はリポジトリに残さない方針。未設定ならSKIPと明示）。

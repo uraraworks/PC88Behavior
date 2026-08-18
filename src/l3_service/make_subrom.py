@@ -554,6 +554,7 @@ class Asm:
     def xor_b(self):      self.db(0xA8)   # XOR B
     def add_a_b(self):    self.db(0x80)   # ADD A,B
     def rlca(self):       self.db(0x07)   # RLCA
+    def rra(self):        self.db(0x1F)   # RRA（第56版・m7ax: 論理トラック>>1）
     def ld_b_n(self, n):  self.db(0x06, n)  # LD B,n（ld_bと同義の明示名）
     def inc_de(self):     self.db(0x13)   # INC DE
     def push_af(self):    self.db(0xF5)
@@ -684,6 +685,9 @@ WRITE_BUF = 0x7500      # 256バイト・256境界整列の循環受信バッフ
 WRITE_IDX = 0x4318      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
 WRITE_PREV = 0x4319     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
                         #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
+WRITE_PREV2 = 0x4322    # 1バイト: WRITE_PREVの1つ前に追い出されたバイト
+                        #   ＝データ部の直前2バイト目。m7axの実測でここが
+                        #   論理トラック(C*2+H)であることが63/63で確定した。
 WRITE_TMP = 0x431A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
 # ---- 第55版・m7aw: 交換#14のREAD準備をテーブル駆動にしたときの作業領域。
 # ROM上の6バイトエントリ(c_pos, r_pos, sectors, dest_lo, dest_hi, h_xor)を
@@ -705,11 +709,9 @@ BULK_READ_TABLE = (
     (1, 1, 16, 0x4400 + 30 * 256, 1),
     (1, 1, 2, 0x4400 + 46 * 256, 0),
 )
-WRITE_C = 0x431B        # 1バイト: 直前にSEEKした目的シリンダ。1.35節の実測で
-                        #   WRITE DATAのCは直前SEEKのNCNと15/15一致した。
-                        #   **REQ_HDR+4を見てはいけない**——書き込みrunの制御
-                        #   バイトがREQ_HDRを上書きするため（読み出し側は要求run
-                        #   の中で完結するので REQ_HDR+4 のままでよい）。
+# WRITE_C(0x431B) は第54版で「直前SEEKの目的シリンダ」を保持していたが、
+# 第56版・m7axで C を制御レコード（データ部の直前2バイト目の論理トラック）から
+# 導くようにしたため不要になり削除した。番地は空きのまま残す。
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
 # 第53版・m7aq: 既定を1→4へ上げた。m7ap でフェッチ窓(0x0800)の超過を
@@ -773,7 +775,8 @@ ROM_SIZE = 0x2000      # DISK.ROM ファイル自体の上限（make_test_rom.py
 SUB_ROM_FETCH_WINDOW = 0x0800
 
 
-def build_subrom(break_write_data_window=False,
+def build_subrom(break_write_coords=False,
+                  break_write_data_window=False,
                   break_response=False, break_dispatch_return=False,
                   break_run_continuation=False,
                   inject_spurious_sense_int=False,
@@ -932,8 +935,14 @@ def build_subrom(break_write_data_window=False,
     a.ld_l_a()                        # HL = WRITE_BUF + WRITE_IDX（256境界整列なのでLだけで足りる）
     a.inc_a()
     a.ld_mem_a(WRITE_IDX)             # 次の位置へ（256で自然に巻き戻る）
+    a.push_bc()
+    a.ld_a_mem(WRITE_PREV)
+    a.ld_b_a()                        # 1つ前に追い出した値を退避
     a.ld_a_hl()                       # いま追い出される値
     a.ld_mem_a(WRITE_PREV)
+    a.ld_a_b()
+    a.ld_mem_a(WRITE_PREV2)           # 2バイトぶんのシフトレジスタになる
+    a.pop_bc()
     a.ld_a_mem(WRITE_TMP)
     a.ld_hl_a()                       # WRITE_BUF[WRITE_IDX] <- 受信バイト
     a.pop_hl()                        # HLを元に戻す（AだけがこのRAM操作で変わる）
@@ -1320,7 +1329,6 @@ def build_subrom(break_write_data_window=False,
     #      第18版でドライブ番号引数化（FDC_RECALIBRATEと同じ根拠・
     #      同じビット割り当て。上のFDC_RECALIBRATEのコメント参照）。----
     a.label("FDC_SEEK")
-    a.ld_mem_a(WRITE_C)                 # 第54版・m7av: 目的シリンダを保持（1.35節のC）
     a.push_af()
     a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     a.ld_a(0x0F); a.call("FDC_OUT")     # コマンド: SEEK
@@ -1349,9 +1357,28 @@ def build_subrom(break_write_data_window=False,
     a.label("FDC_WRITE_SECTOR")
     a.call("FDC_BEGIN")
     a.ld_a(0x45); a.call("FDC_OUT")     # WRITE DATA + MF=1（READ側と同じ理由）
-    a.ld_a_mem(REQ_UNIT_HEAD); a.call("FDC_OUT")
-    a.ld_a_mem(WRITE_C); a.call("FDC_OUT")                      # C = 直前SEEKの目的シリンダ
-    a.ld_a_mem(REQ_H); a.call("FDC_OUT")                        # H
+    a.ld_a_mem(WRITE_PREV2)             # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
+    a.and_a(0x01)
+    a.rlca()
+    a.rlca()
+    a.call("FDC_OUT")
+    # 第56版・m7ax: C と H は**データ部の直前2バイト目**（論理トラック）から
+    # 導く。実測で C == track>>1、H == track&1 が63/63で一致した。
+    # 第54版は C を直前SEEKの目的シリンダから、H を REQ_H から取っていたが、
+    # どちらも「たまたま一致していた」経路であり、制御レコードが持っている
+    # 値をそのまま使うほうが測定に忠実（かつSEEKのラッチが不要になる）。
+    if break_write_coords:
+        # 検出力確認用の故障注入: 論理トラックをそのままCとして使い、Hを0にする
+        a.ld_a_mem(WRITE_PREV2); a.call("FDC_OUT")
+        a.ld_a(0x00); a.call("FDC_OUT")
+    else:
+        a.ld_a_mem(WRITE_PREV2)
+        a.or_a()
+        a.rra()                                                 # C = track >> 1
+        a.call("FDC_OUT")
+        a.ld_a_mem(WRITE_PREV2)
+        a.and_a(0x01)                                           # H = track & 1
+        a.call("FDC_OUT")
     a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # R = データ部の直前1バイト
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
     a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # EOT = R（このセクタで終わり）
@@ -2419,7 +2446,8 @@ def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
 MAX_ALIGN_PADDING_ATTEMPTS = 256
 
 
-def build(break_write_data_window=False,
+def build(break_write_coords=False,
+          break_write_data_window=False,
           break_response=False, break_dispatch_return=False,
           break_run_continuation=False,
           inject_spurious_sense_int=False,
@@ -2435,7 +2463,8 @@ def build(break_write_data_window=False,
     align_padding_bytes = 0
     a = None
     for _attempt in range(MAX_ALIGN_PADDING_ATTEMPTS + 1):
-        a = build_subrom(break_write_data_window=break_write_data_window,
+        a = build_subrom(break_write_coords=break_write_coords,
+                          break_write_data_window=break_write_data_window,
                           break_response=break_response,
                           break_dispatch_return=break_dispatch_return,
                           break_run_continuation=break_run_continuation,
@@ -2483,6 +2512,10 @@ def main():
     ap = argparse.ArgumentParser(
         description="L3 サブROム（DISK.ROM相当）を組み立てる（docs/spec/l3-subrom.md）")
     ap.add_argument("outdir")
+    ap.add_argument("--break-write-coords", action="store_true",
+                     help="第56版で追加した座標導出（論理トラック→C,H）の検証が"
+                          "検出力を持つことを確認するためのフラグ。論理トラックを"
+                          "そのままCとして使いHを0にする。")
     ap.add_argument("--break-write-data-window", action="store_true",
                      help="第54版で追加した書き込み経路（仕様書1.35節）の検証が"
                           "検出力を持つことを確認するためのフラグ。WRITE DATAの"
@@ -2527,7 +2560,8 @@ def main():
                           "旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
                           "の回帰テストの検出力確認用）。")
     args = ap.parse_args()
-    rom, used = build(break_write_data_window=args.break_write_data_window,
+    rom, used = build(break_write_coords=args.break_write_coords,
+                       break_write_data_window=args.break_write_data_window,
                        break_response=args.break_response,
                        break_dispatch_return=args.break_dispatch_return,
                        break_run_continuation=args.break_run_continuation,

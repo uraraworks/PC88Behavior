@@ -458,7 +458,7 @@ fi
 say "書き込み経路: 受信列の末尾256バイトをそのままWRITE DATAへ流すか"
 mkdir -p "$WORK/rom_write"
 python3 "$GEN_SUB" "$WORK/rom_write" || exit 1
-python3 "$GEN_MAIN" "$WORK/rom_write" --requests "0:1" --write-test || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write" --disk "$WORK/write.d88" \
     --frames "$FRAMES" --io-log "$WORK/write.iolog.txt" \
@@ -473,7 +473,7 @@ fi
 say "検出力の確認: データ部の窓を1バイトずらした版が不一致として検出されること"
 mkdir -p "$WORK/rom_write_broken"
 python3 "$GEN_SUB" "$WORK/rom_write_broken" --break-write-data-window || exit 1
-python3 "$GEN_MAIN" "$WORK/rom_write_broken" --requests "0:1" --write-test || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write_broken" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write_broken.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_broken" --disk "$WORK/write_broken.d88" \
     --frames "$FRAMES" --io-log "$WORK/write_broken.iolog.txt" \
@@ -483,6 +483,21 @@ if python3 "$REPO/tools/check_l3_write.py" "$WORK/write_broken.iolog.txt" >/dev/
   overall_rc=1
 else
   ok "窓を1バイトずらした版は正しく不一致として検出された"
+fi
+
+say "検出力の確認: 座標の導出を壊した版が不一致として検出されること"
+mkdir -p "$WORK/rom_write_coords"
+python3 "$GEN_SUB" "$WORK/rom_write_coords" --break-write-coords || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_write_coords" --requests "3:5" --write-test || exit 1
+cp "$WORK/test.d88" "$WORK/write_coords.d88"
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_coords" --disk "$WORK/write_coords.d88" \
+    --frames "$FRAMES" --io-log "$WORK/write_coords.iolog.txt" \
+    >"$WORK/write_coords.stdout.txt" 2>"$WORK/write_coords.stderr.txt"
+if python3 "$REPO/tools/check_l3_write.py" "$WORK/write_coords.iolog.txt" >/dev/null 2>&1; then
+  ng "座標の導出を壊した版が合格してしまった（座標検査に検出力が無い）"
+  overall_rc=1
+else
+  ok "論理トラックからC/Hを導く規則を壊した版は正しく不一致として検出された"
 fi
 
 # ディスクへの反映（書いたものを読み戻せるか）は**このハーネスでは判定できない**。

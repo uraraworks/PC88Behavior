@@ -368,7 +368,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         write_ctrl = "WRITE_CTRL"
         a.label(write_ctrl)
-        a.db(0x00, 0x00, 0x00, 0x00, 0x00, sec0)   # 末尾がR
+        # 第56版・m7ax: 末尾2バイトは [論理トラック(C*2+H), R]。実測で
+        # C == track>>1、H == track&1、R == 末尾1バイトが63/63一致した。
+        # 先頭4バイトの意味は未確定なので0で埋める（推測で埋めない）。
+        a.db(0x00, 0x00, 0x00, 0x00, cyl0 * 2, sec0)
         write_data = "WRITE_DATA"
         a.label(write_data)
         a.db(*[((i * 7) + 0x5A) & 0xFF for i in range(256)])

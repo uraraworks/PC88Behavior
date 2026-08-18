@@ -62,6 +62,9 @@ class Command:
     # データ部の値。**位置対応の突き合わせに内部でのみ使う**。
     # __repr__ にも標準出力にも出さない（クリーンルーム規律）。
     data_values: list[int] | None = None
+    # パラメータ部の値。**位置対応の突き合わせに内部でのみ使う**。
+    # __repr__ にも標準出力にも出さない（クリーンルーム規律）。
+    param_values: list[int] | None = None
 
     def __repr__(self) -> str:      # 値を持たないが、事故防止に明示しておく
         return f"Command(op={self.opcode:#04x})"
@@ -84,9 +87,11 @@ def parse_commands(rows) -> list[Command]:
             raise SafeError(f"公開FDCコマンド表に無いコマンド語 {opcode:#04x}")
         if i + nparam >= len(fb):
             break                        # ログ末尾で切れている
+        params: list[int] = []
         for j in range(1, nparam + 1):
             if fb[i + j].kind != "OUT":
                 raise SafeError("パラメータ列の途中で方向が変化した")
+            params.append(fb[i + j].value)
         i += nparam + 1
         data_kind, data_bytes = None, 0
         data_values: list[int] = []
@@ -103,7 +108,8 @@ def parse_commands(rows) -> list[Command]:
             i += 1
         out.append(Command(opcode, nparam, data_bytes, data_kind,
                            result_bytes, first.clock, first.frame,
-                           data_values if data_kind == "OUT" else None))
+                           data_values if data_kind == "OUT" else None,
+                           params))
     return out
 
 

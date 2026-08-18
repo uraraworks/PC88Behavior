@@ -67,8 +67,17 @@ def main() -> int:
 
     print(f"(1) 窓の正しさ: FDCへ流した256バイト vs subが最後に受け取った256バイト"
           f" → {same_window}/256 位置一致")
+
+    # (3) 座標: WRITE DATA の C/H/R が、データ部の直前2バイト
+    #     [論理トラック, R] から導いた値と一致するか（1.35節・m7ax）。
+    track, sector = before[-258], before[-257]
+    want = (track >> 1, track & 1, sector)
+    got = (w.param_values[1], w.param_values[2], w.param_values[3])
+    coord_ok = (want == got)
+    print(f"(3) 座標: C=track>>1・H=track&1・R=直前1バイト → "
+          f"{'一致' if coord_ok else '不一致'}")
     if args.read_log is None:
-        return 0 if same_window == 256 else 1
+        return 0 if (same_window == 256 and coord_ok) else 1
 
     rrows, rmasked = m2s.parse_iolog(args.read_log)
     if sum(rmasked.values()):
@@ -83,7 +92,7 @@ def main() -> int:
     same_trip = sum(1 for a, b in zip(wrote, back) if a == b)
     print(f"(2) 往復: FDCへ流した256バイト vs 別実行で読み戻した256バイト"
           f" → {same_trip}/256 位置一致")
-    return 0 if (same_window == 256 and same_trip == 256) else 1
+    return 0 if (same_window == 256 and same_trip == 256 and coord_ok) else 1
 
 
 if __name__ == "__main__":
