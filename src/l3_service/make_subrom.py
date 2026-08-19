@@ -2403,12 +2403,16 @@ def build_subrom(break_write_ack=False,
     # 送る既存経路につながる）。これが無いと起動後の要求がすべて
     # fallback（SENSE DRIVE STATUS）に落ちる（m7beで実測。BASIC起動後に
     # 140回連発していた）。
+    # 第64版・m7bg: 種別の値ではなく**6バイトレコードであること**で判別する。
+    # 根拠: 既知の6バイト要求グループ（表の#5と#9）の応答はどちらも
+    # EXCHANGE3_OBSERVED_RESPONSE と同じ値であり、起動後のREADに対する
+    # 1バイト応答（実測11/11で同一値）と一致する。つまり**6バイトレコードは
+    # どれも「セクタを読んでackを返す」要求**と読める。第63版は種別値
+    # （起動後=0x02）で限定したため、バルク直後に来る種別0x01のレコードを
+    # 取りこぼして読み出しを行わず、mainがエラー経路へ入っていた（$F9診断で
+    # 「6バイトで来るのは13件すべて種別0x01」と確認）。
     a.ld_a_mem(RUN_LEN)
     a.cp_n(6)
-    a.jr_nz("_general_read_check_done")
-    a.ld_hl_imm(REQ_HDR + REQUEST_KIND_INDEX)
-    a.ld_a_hl()
-    a.cp_n(REQUEST_KIND_READ)
     a.jp_z("_general_read_request")
     a.label("_general_read_check_done")
     if DEBUG_RUNLEN_MARK:

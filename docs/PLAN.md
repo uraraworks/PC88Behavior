@@ -843,7 +843,24 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    違う**。順序は「バルク直後の応答が違う → mainが別経路へ → READ要求が発行
    されない → 一般経路の出番が来ない」。
 
-   **次の一手**: 応答列6416件目（バルク直後の最初の応答）の食い違いの特定。
+   **6バイトレコードは読み出し要求だった（m7bg、2026-08-19）。**
+   m7bfの経路が発火しなかったのは、**種別値0x02で限定**したせい——その値は
+   「BASIC起動後のREAD」しか見ていない測定から得たもので、バルク直後に来る
+   種別0x01のレコードを取りこぼしていた（`$F9`診断で「届く13件はすべて
+   種別0x01」と確認）。既知9グループのうち**6バイトのもの（#5・#9）の応答は
+   どちらも`EXCHANGE3_OBSERVED_RESPONSE`と同値**で、起動後READのack（11/11で
+   同値）とも一致する——つまり**6バイトレコードはどれも「セクタを読んでackを
+   返す」要求**で、表が単発応答に見えていたのはackだけを見て読み出しを
+   見落としていたからだった。判別を**レコード長6**へ変更。
+
+   効果: READ 8→**11回**、FDCコマンド 187→**59**（fallback連発が消滅）、
+   起動直後の`Syntax error`が**消えて公式と同じ`Ok`**、SAVE時のエラーが
+   `Bad allocation table`→**`Disk I/O error`**。適合条件1（5635件・SHA-256）
+   は維持、verify_l3全項目OK、conform rc=0。
+
+   **次の一手**: 応答列6416件目の食い違い（読んだセクタの座標か、ack後の
+   256バイトの返し方）。公式19回に対し自作11回というREAD数の差も同じ筋。
+   詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。
    詳細は[docs/notes/m7be-request-record-kind.md](notes/m7be-request-record-kind.md)。
    （第2チャンネルが自作の出力範囲で全一致した以上、次の食い違いは
