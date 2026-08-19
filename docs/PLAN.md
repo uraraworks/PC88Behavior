@@ -874,9 +874,21 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    フィールド割り当てで読んでいる**可能性がある。公式のC=18の出所と、
    受信5件で読み始める根拠は未確定。**推測で実装しない。**
 
-   **次の一手**: バルク直後の要求の**区切り方**を`$FF`のフェーズコードの並びから
-   測り直す。m7axの規則は書き込みで15/15・64/64で成立しているので規則自体の
-   誤りとは考えにくく、バルク直後だけ別形式の可能性を含めて測る。
+   **区切り方を2通りの独立な窓で検算した（m7bi、2026-08-19）。**
+   窓(a)（`sub OUT $FB/$FD`の割り込みで切る）と窓(b)（`$FF`の再アーム
+   0B/0C有無で切る）を`tools/analyze_record_boundaries.py`として実装し、
+   `measurements/m6g-d0-boot-run{1,2}.iolog.txt.gz`を解析した。**全体の
+   run長ヒストグラムは窓(a)(b)で不一致**（25件対27件、差はバルク前側）
+   だが、**バルク後のrun長は両窓とも`[5, 1, 1, 1]`で完全一致**し、
+   「5バイト目のあと再アームなしでTCへ」というm7bhの中心的な観測が
+   窓の取り方によらず成立することを確かめた。run1・run2は決定論的に
+   同一出力。値は一切扱っていないので、**5バイトレコードの各位置と
+   座標(C,H,R)の対応、種別値、C=18の出所は依然として未確定**——
+   推測で実装しない。詳細は
+   [docs/notes/m7bi-post-bulk-record-length.md](notes/m7bi-post-bulk-record-length.md)。
+
+   **次の一手**: 値まで見る再測定（`PC88_REF_ROM_DIR` / `PC88_REF_DISK_DIR`
+   が要る）で、5バイトレコードの各位置と(C,H,R)の全数位置対応を取る。
    詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。
