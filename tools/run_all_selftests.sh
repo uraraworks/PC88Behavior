@@ -55,6 +55,7 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_boot_exchange_selftest.sh:0"
   "tools/analyze_run_boundary_selftest.sh:0"
   "tools/analyze_record_boundaries_selftest.sh:0"
+  "tools/analyze_request_kinds_selftest.sh:0"
   "tools/refmeasure_selftest.sh:0"
   "tools/subrom_fetch_window_selftest.sh:0"
   "tools/observed_request_decision_selftest.sh:0"
