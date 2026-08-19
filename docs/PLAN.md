@@ -858,8 +858,26 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    `Bad allocation table`→**`Disk I/O error`**。適合条件1（5635件・SHA-256）
    は維持、verify_l3全項目OK、conform rc=0。
 
-   **次の一手**: 応答列6416件目の食い違い（読んだセクタの座標か、ack後の
-   256バイトの返し方）。公式19回に対し自作11回というREAD数の差も同じ筋。
+   **食い違いを座標まで絞った（m7bh、2026-08-19）。** バルク終端を基準に
+   測り直すと、**バルク後の受信は28件すべて一致**しているのに、**送信は2件目
+   までしか一致しない**——3件目＝256バイト応答の先頭データから違う＝
+   **読んだセクタが違う**。バルク後最初のREADを取り出すと:
+
+   | | 座標(C,H,R) | そのREADまでの受信件数 |
+   |---|---|---:|
+   | 公式 | **(18, 1, 13)** | **5** |
+   | 自作 | (6, 1, 6) | 6 |
+
+   自作はm7axで確定した規則どおり（レコード末尾2バイト=`[論理トラック13, R=6]`
+   → C=6, H=1, R=6）。公式は**受信5件の時点で**読み、座標も違う。
+   **公式のR(=13)が自作の論理トラック(13)と同じ**なので、**同じ列を別の
+   フィールド割り当てで読んでいる**可能性がある。公式のC=18の出所と、
+   受信5件で読み始める根拠は未確定。**推測で実装しない。**
+
+   **次の一手**: バルク直後の要求の**区切り方**を`$FF`のフェーズコードの並びから
+   測り直す。m7axの規則は書き込みで15/15・64/64で成立しているので規則自体の
+   誤りとは考えにくく、バルク直後だけ別形式の可能性を含めて測る。
+   詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。
    詳細は[docs/notes/m7be-request-record-kind.md](notes/m7be-request-record-kind.md)。
