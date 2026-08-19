@@ -721,6 +721,10 @@ BULK_POSITION1_OBSERVED_RESPONSE = int(
 # `main IN $FC` の一致プレフィックスが781で止まるのに対し、114だけが
 # 自作が出す全イベント(6414件)まで一致した。値の意味は未確定。
 # -1 を渡すと「従来どおり$FC側と同じ値を書く」（介入用）。
+# 第62版・m7bd: 一時的な診断。未デコードポート$F9へ、単発応答の判定に
+# 入った時点のRUN_LENを出す。既定は無効（公式subには存在しないイベントなので
+# 適合テストに出すROMには入れない。docs/PLAN.md「診断上の注意」）。
+DEBUG_RUNLEN_MARK = os.environ.get("PC88_DEBUG_RUNLEN_MARK", "0") not in ("0", "", "no")
 BULK_POSITION3_FD_CANDIDATE = int(
     os.environ.get("PC88_BULK_POSITION3_FD_CANDIDATE", "114"), 0)
 # 第53版・m7aq: 既定を1→4へ上げた。m7ap でフェッチ窓(0x0800)の超過を
@@ -2139,6 +2143,25 @@ def build_subrom(break_write_ack=False,
     a.call("BULK_SEND_ONE")
     a.djnz("_bulk_tail_item")
     a.call("BULK_SEND_FINAL_DUPLICATE")
+    # ---- 第62版・m7bd: バルクを送り終えたら**受信の進行状態を畳む**。
+    # 実測では、バルク直後にmainが送ってくる6バイト要求（既知の要求
+    # グループ9と同じ並び）に対し、公式subはそのグループの応答を返す。
+    # 自作subはfallback（SENSE DRIVE STATUSのST3）を返していた——交換#14の
+    # 受信で進んだRUN_LEN/HDR_PTRとEXCHANGE3_REQUEST_ACTIVEが残ったままで、
+    # RECV_DISPATCHの初期化条件（EXCHANGE3_REQUEST_ACTIVE==0）に掛からず、
+    # 新しいrunのRUN_LENが6にならなかったため。
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_mem_hl(HDR_PTR)
+    a.ld_a(0x00)
+    a.ld_mem_a(RUN_LEN)
+    a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
+    a.ld_mem_a(RESP_ACTIVE)
+    # SECTOR_READY と EXCHANGE3_RESPONSE_PENDING も畳む。前者が残っていると
+    # SEND_DISPATCH が「256バイト応答の開始」と判断し、6バイト要求への
+    # 応答の代わりにSECTOR_BUFを流し始める（$F9診断で実測。決定関数には
+    # 一度も入らず、SECTOR_BUFの先頭2バイトが送られていた）。
+    a.ld_mem_a(SECTOR_READY)
+    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
     a.jp("IDLE_DISPATCH")
 
     a.label("BULK_SEND_ONE")
@@ -2225,6 +2248,9 @@ def build_subrom(break_write_ack=False,
     #      その他の従来単発応答。交換#3をRESP_ACTIVEへ入れないことが
     #      第29版の修正点である。
     a.label("SEND_DISPATCH")
+    if DEBUG_RUNLEN_MARK:
+        a.ld_a_mem(RESP_ACTIVE)
+        a.out_a(0xF9)
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
     a.jr_nz("_send_dispatch_buffer")
@@ -2328,6 +2354,9 @@ def build_subrom(break_write_ack=False,
     # どのエントリにも一致しなければ第51版と同じフォールバック
     # (_observed_request_next_9)へ落ちる。
     a.label("_observed_single_by_request")
+    if DEBUG_RUNLEN_MARK:
+        a.ld_a_mem(RUN_LEN)
+        a.out_a(0xF9)
     a.ld_hl("_observed_request_table")
     a.label("_osbr_entry")
     a.ld_a_hl()                      # A = 表のrun_len(0なら終端)
