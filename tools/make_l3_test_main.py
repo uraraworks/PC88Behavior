@@ -218,7 +218,8 @@ HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突�
 
 
 def build(requests, dispatch_switch_test=False, run_continuation_test=False,
-          fixed_byte_cutoff_test=False, write_test=False):
+          fixed_byte_cutoff_test=False, write_test=False,
+          post_bulk_read_test=False):
     """requests: [(cyl, sec), ...] の列。交換#3/#4を経て256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
@@ -233,7 +234,18 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
 
     fixed_byte_cutoff_test: 上のdocstring「--fixed-byte-cutoff-test」参照。
     2バイト・1バイト・5バイトの3つの独立したラウンド（それぞれSEND後に
-    1バイトRECV）を送り、通常の要求ループへ入る前に挟む。"""
+    1バイトRECV）を送り、通常の要求ループへ入る前に挟む。
+
+    post_bulk_read_test: 仕様書1.36節（バルク直後の受信runは先頭バイトの
+    表引きでrun長・座標フィールド位置が決まる）の回帰テスト。8バイト
+    固定ヘッダの交換#3/#4経路とは別に、先頭バイト0x02・長さ5のrunを
+    直接送り、末尾2バイト([論理トラック,R])から作られる座標のセクタが
+    続く2バイト要求で正しく返るかを見る。requests[0]の(cyl,sec)を
+    論理トラック=cyl*2(H=0固定)・R=secへ変換して埋め込む。起動直後の
+    最初の単発応答はROUND0専用経路（仕様書1.11節、本節とは無関係）が
+    横取りするため、まず空の1バイトrunでそれを1回消費してから本題の
+    5バイトrunを送る。このシナリオを使うときは通常の要求ループ
+    （hdr_labels）は送らず、単独で完結させる。"""
     a = Asm(0x0000)
     a.di()
     a.ld_sp(STACK)
@@ -415,6 +427,19 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.label(fbc_round_c)
         a.db(0x0B, 0x07, 0x5F, 0x00, 0x01)
 
+    # ---- --post-bulk-read-test 用のrun（上のdocstring参照）。
+    #      仕様書1.36節: 先頭バイト0x02・長さ5・末尾2バイトが
+    #      [論理トラック=C*2+H, R]。requests[0]をH=0固定で埋め込む。
+    #      中間2バイト(位置1,2)は1.36節で未確定なので0で埋める
+    #      （推測で意味を割り当てない）。 ----
+    post_bulk_hdr = None
+    if post_bulk_read_test:
+        cyl0, sec0 = requests[0]
+        track0 = (cyl0 * 2) & 0xFF     # H=0固定なので論理トラック=cyl*2
+        post_bulk_hdr = "POST_BULK_HDR"
+        a.label(post_bulk_hdr)
+        a.db(0x02, 0x00, 0x00, track0, sec0 & 0xFF)
+
     # ---- 本編 ----
     a.label("MAIN")
     # ポートCの明示的なモード設定は行わない（0x99は仕様書に根拠が無い旧版の
@@ -495,34 +520,69 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
             a.djnz(f"_fbc_send_{name}")
             a.call("RECV_MAIN")   # ラウンド応答（旧実装ならST3のはずが256バイト応答の先頭バイトに化ける）
 
-    for name in hdr_labels:
-        # ヘッダ8バイトを SEND で送る
-        a.ld_hl(name)
-        a.ld_b(8)
-        a.label(f"_hdrsend_{name}")
-        a.ld_a_hl()
+    if post_bulk_read_test:
+        # 起動直後の最初の単発応答はROUND0専用経路（仕様書1.11節）が
+        # 横取りするため、本題と無関係な1バイトrunで先に1回消費する
+        # （値そのものは判定に使わない）。
+        a.ld_a(0xFF)
         a.call("SEND_MAIN")
-        a.inc_hl()
-        a.djnz(f"_hdrsend_{name}")
-
-        # 交換#3の意味未特定応答を1バイトRECVする。
         a.call("RECV_MAIN")
 
-        # 交換#4の2バイト要求をSENDする。値は未確定だが、現行仕様と実装が
-        # 確定している交換境界・応答長を自己検証するため長さを厳密に守る。
-        a.ld_hl("EXCHANGE4_REQUEST")
-        a.ld_b(2)
-        a.label(f"_exchange4_send_{name}")
+        # 1.36節の本題: 先頭バイト0x02・長さ5のrunを送る。
+        a.ld_hl(post_bulk_hdr)
+        a.ld_b(5)
+        a.label("_pbr_hdrsend")
         a.ld_a_hl()
         a.call("SEND_MAIN")
         a.inc_hl()
-        a.djnz(f"_exchange4_send_{name}")
+        a.djnz("_pbr_hdrsend")
 
-        # 交換#4応答256バイトを RECV する（内容は iolog に残る）。
+        # 直後の単発応答（意味未特定、1.36節・m7bjは値を見ていない）。
+        a.call("RECV_MAIN")
+
+        # 続く2バイト要求で256バイト応答を開始させる
+        # （_recv_dispatch_maybe_exchange4、交換#4と同じ一般機構）。
+        a.ld_hl("EXCHANGE4_REQUEST")
+        a.ld_b(2)
+        a.label("_pbr_exchange4_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_pbr_exchange4_send")
+
         a.ld_b(0x80)
-        a.label(f"_resprecv_{name}")
+        a.label("_pbr_resprecv")
         a.call("RECV_MAIN_PAIR")
-        a.djnz(f"_resprecv_{name}")
+        a.djnz("_pbr_resprecv")
+    else:
+        for name in hdr_labels:
+            # ヘッダ8バイトを SEND で送る
+            a.ld_hl(name)
+            a.ld_b(8)
+            a.label(f"_hdrsend_{name}")
+            a.ld_a_hl()
+            a.call("SEND_MAIN")
+            a.inc_hl()
+            a.djnz(f"_hdrsend_{name}")
+
+            # 交換#3の意味未特定応答を1バイトRECVする。
+            a.call("RECV_MAIN")
+
+            # 交換#4の2バイト要求をSENDする。値は未確定だが、現行仕様と実装が
+            # 確定している交換境界・応答長を自己検証するため長さを厳密に守る。
+            a.ld_hl("EXCHANGE4_REQUEST")
+            a.ld_b(2)
+            a.label(f"_exchange4_send_{name}")
+            a.ld_a_hl()
+            a.call("SEND_MAIN")
+            a.inc_hl()
+            a.djnz(f"_exchange4_send_{name}")
+
+            # 交換#4応答256バイトを RECV する（内容は iolog に残る）。
+            a.ld_b(0x80)
+            a.label(f"_resprecv_{name}")
+            a.call("RECV_MAIN_PAIR")
+            a.djnz(f"_resprecv_{name}")
 
     if write_test:
         # ---- 書き込みシナリオ（第54版・m7av、仕様書1.35節）----
@@ -596,6 +656,11 @@ def main():
                      help="上のdocstring「--fixed-byte-cutoff-test」参照。"
                           "make_subrom.py 第13版の回帰テスト用シナリオ"
                           "（2+1+5バイトの独立した3ラウンド）を挟む。")
+    ap.add_argument("--post-bulk-read-test", action="store_true",
+                     help="上のdocstring「post_bulk_read_test」参照。仕様書"
+                          "1.36節（先頭バイト0x02・長さ5のrun）の回帰テスト。"
+                          "requests[0]を座標として使い、通常の要求ループは"
+                          "送らず単独で完結する。")
     args = ap.parse_args()
 
     requests = []
@@ -606,7 +671,8 @@ def main():
     a = build(requests, dispatch_switch_test=args.dispatch_switch_test,
               run_continuation_test=args.run_continuation_test,
               fixed_byte_cutoff_test=args.fixed_byte_cutoff_test,
-              write_test=args.write_test)
+              write_test=args.write_test,
+              post_bulk_read_test=args.post_bulk_read_test)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")

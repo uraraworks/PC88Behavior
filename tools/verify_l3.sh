@@ -450,6 +450,53 @@ else
 fi
 
 # --------------------------------------------------------------------
+# 10. バルク直後の受信runは先頭バイトの表引きでrun長・座標が決まるか
+#    （仕様書1.36節、make_subrom.py 第65版・m7bjの回帰テスト）
+# --------------------------------------------------------------------
+# 背景: 自作subは「受信runが6バイトなら一般読み出し要求」で判別して
+# いたが（第64版・m7bg）、公式にレコード長6は1件も存在しない。1.36節が
+# 新規実測（148 run）で確定させたのは、受信runの先頭バイトがrun長を
+# 一意に決める表引きであり、直後に必ずREADが続き座標フィールド位置
+# （末尾相対: 論理トラック=位置-1、R=位置0）も確定しているのは先頭
+# バイト0x02・長さ5だけだった。tools/make_l3_test_main.py
+# --post-bulk-read-test は、この先頭バイト0x02・長さ5のrunを送り、
+# 末尾2バイトから作られる座標のセクタが正しく返るかを見る。
+POST_BULK_REQUEST="5:6"   # cyl:sec。make_l3_testdisk.pyの範囲内(cyl<8,sec 1-8)
+say "1.36節: 先頭バイト0x02・長さ5のrunから正しい座標([論理トラック,R])が作られるか"
+mkdir -p "$WORK/rom_pbr_ok"
+python3 "$GEN_SUB" "$WORK/rom_pbr_ok" || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_pbr_ok" --requests "$POST_BULK_REQUEST" --post-bulk-read-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_pbr_ok" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/pbr_ok.iolog.txt" \
+    >"$WORK/pbr_ok.stdout.txt" 2>"$WORK/pbr_ok.stderr.txt"
+
+if python3 "$CHECK" "$WORK/pbr_ok.iolog.txt" --requests "$POST_BULK_REQUEST" --skip-prefix-bytes 1; then
+  ok "先頭バイト0x02・長さ5のrunの末尾2バイトから正しいセクタが読めた（現行実装）"
+else
+  ng "先頭バイト0x02・長さ5のrunに対する読み出し座標が自作テストディスクの内容と一致しない"
+  overall_rc=1
+fi
+
+say "検出力の確認: 旧判別（受信runが6バイトなら一般読み出し要求）へ戻すと落ちるか"
+mkdir -p "$WORK/rom_pbr_broken"
+python3 "$GEN_SUB" "$WORK/rom_pbr_broken" --restore-request-kind-length6 || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_pbr_broken" --requests "$POST_BULK_REQUEST" --post-bulk-read-test || exit 1
+
+"$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_pbr_broken" --disk "$WORK/test.d88" \
+    --frames "$FRAMES" --io-log "$WORK/pbr_broken.iolog.txt" \
+    >"$WORK/pbr_broken.stdout.txt" 2>"$WORK/pbr_broken.stderr.txt"
+
+if python3 "$CHECK" "$WORK/pbr_broken.iolog.txt" --requests "$POST_BULK_REQUEST" --skip-prefix-bytes 1 >"$WORK/pbr_broken.check.txt" 2>&1; then
+  ng "旧判別（run長6）を復元した版でも誤ってPASSした（回帰テストが検出力を持たない）"
+  cat "$WORK/pbr_broken.check.txt"
+  overall_rc=1
+else
+  ok "旧判別（run長6）を復元した版は、長さ5のrunを一般読み出し要求と認識できず正しく不一致/未達として検出された"
+  grep -m5 "不一致\|足りない" "$WORK/pbr_broken.check.txt" | sed 's/^/       /'
+fi
+
+# --------------------------------------------------------------------
 # 制限事項（正直に書く。ごまかさない）
 # --------------------------------------------------------------------
 # --------------------------------------------------------------------

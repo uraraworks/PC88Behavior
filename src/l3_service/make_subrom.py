@@ -811,6 +811,7 @@ def build_subrom(break_write_ack=False,
                   break_fdc_timeout_reads_anyway=False,
                   disable_fdc_timeout_mark=False,
                   break_fixed_byte_cutoff=False,
+                  restore_request_kind_length6=False,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
@@ -867,7 +868,13 @@ def build_subrom(break_write_ack=False,
     tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが検出力を
     持つことを確認するためだけに使う。既定（False）では新構造（run終了
     〔bit1観測〕まで受信を続け、run長で応答形式を判断する、上の
-    モジュールdocstring「run境界駆動への書き換え」節参照）を使う。"""
+    モジュールdocstring「run境界駆動への書き換え」節参照）を使う。
+
+    restore_request_kind_length6: 第64版(m7bg)が使っていた「受信runが
+    6バイトなら一般読み出し要求」という判別を復元する（第65版・m7bjで
+    1.36節の先頭バイト表引き――0x02かつrun長5――へ置き換えた分の陽性
+    対照）。tools/verify_l3.sh の回帰テストが検出力を持つことを確認する
+    ためだけに使う。既定（False）では新構造（先頭バイトの表引き）を使う。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -1438,33 +1445,48 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_TC")
     a.ret()
 
-    # ---- 第63版・m7bf: 一般読み出し要求のハンドラ。
-    # レコードの末尾2バイト `[論理トラック, R]` から座標を作り、既存の
-    # FDC_SEEK / FDC_SENSE_DRIVE_STATUS / FDC_READ_SECTOR を使う。
+    # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
+    # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
+    # _general_read_check_done手前）で確定済み。1.36節が27/27・例外0で
+    # 確定した座標フィールド位置は末尾相対で「論理トラック=位置-1、
+    # R=位置0(末尾)」——run長5の実アドレスでは論理トラック=REQ_HDR+3、
+    # R=REQ_HDR+4になる。旧実装（第63版・m7bf〜第64版・m7bg）は
+    # run長を6と誤認していたため、同じ「末尾から2バイト」という位置公式の
+    # まま REQ_HDR+4/+5 を読んでおり、座標が1バイトずれていた（1.36節
+    # 「壊れていたのはレコード長のほう」）。
+    #
+    # 一方、FDC_SEEK/FDC_READ_SECTORは共有ルーチンで、C/Rの格納先を
+    # 固定アドレス REQ_HDR+4（C）・REQ_HDR+6（R）に決め打ちしている
+    # （旧8バイト形式`02 01 00 <b3> <b4> 06 12 60`の位置そのまま。
+    # FDC_READ_SECTORのコメント「C = 直前SEEK対象(byte4)」参照）。
+    # そのため計算したCの書き込み先(REQ_HDR+4)と、読み込んだ生のR
+    # (REQ_HDR+4)の位置が重なる。**Rを先に読み出してREQ_HDR+6へ退避
+    # してから、REQ_HDR+4をCで上書きする。**
     # 公式も READ の直前に SEEK→SENSE_INT→SENSE_DRV を出している（m7be）。
     # 応答の1バイトは実測で EXCHANGE3_OBSERVED_RESPONSE と同一値だった。
     # **フォールスルーが来ない位置**（直上はFDC_READ_SECTORのret）に置く。
     a.label("_general_read_request")
-    a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_a_hl()                       # 論理トラック
+    a.ld_hl_imm(REQ_HDR + 3)
+    a.ld_a_hl()                       # 論理トラック（1.36節: run長5の位置-1）
     a.ld_b_a()
     a.and_a(0x01)
     a.ld_mem_a(REQ_H)                 # H = track & 1
     a.rlca()
     a.rlca()
     a.ld_mem_a(REQ_UNIT_HEAD)         # unit/head = drive0 | (H<<2)
+    # R（1.36節: run長5の位置0=末尾）をCで上書きする前にREQ_HDR+6へ退避。
+    a.ld_hl_imm(REQ_HDR + 4)
+    a.ld_a_hl()
+    a.ld_hl_imm(REQ_HDR + 6)
+    a.ld_hl_a()
     a.ld_a_b()
     a.or_a()
     a.rra()                           # C = track >> 1
     a.ld_hl_imm(REQ_HDR + 4)
-    a.ld_hl_a()                       # FDC_SEEK/FDC_READ_SECTORが読む位置へ置く
+    a.ld_hl_a()                       # FDC_SEEK/FDC_READ_SECTORが読む共有位置へ置く
     a.ld_e(0x00)
     a.call("FDC_SEEK")                # A = C のまま
     a.call("FDC_SENSE_DRIVE_STATUS")
-    a.ld_hl_imm(REQ_HDR + 5)
-    a.ld_a_hl()                       # R
-    a.ld_hl_imm(REQ_HDR + 6)
-    a.ld_hl_a()
     a.call("FDC_READ_SECTOR")
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
@@ -2397,28 +2419,53 @@ def build_subrom(break_write_ack=False,
     # どのエントリにも一致しなければ第51版と同じフォールバック
     # (_observed_request_next_9)へ落ちる。
     a.label("_observed_single_by_request")
-    # ---- 第63版・m7bf: 起動後の一般読み出し要求。6バイトレコードで
-    # 種別(2バイト目)がREADのものは、論理トラックとRからFDCを叩いて
-    # SECTOR_BUFへ読み、単発応答を返す（続く2バイト要求で256バイトを
-    # 送る既存経路につながる）。これが無いと起動後の要求がすべて
-    # fallback（SENSE DRIVE STATUS）に落ちる（m7beで実測。BASIC起動後に
-    # 140回連発していた）。
-    # 第64版・m7bg: 種別の値ではなく**6バイトレコードであること**で判別する。
-    # 根拠: 既知の6バイト要求グループ（表の#5と#9）の応答はどちらも
-    # EXCHANGE3_OBSERVED_RESPONSE と同じ値であり、起動後のREADに対する
-    # 1バイト応答（実測11/11で同一値）と一致する。つまり**6バイトレコードは
-    # どれも「セクタを読んでackを返す」要求**と読める。第63版は種別値
-    # （起動後=0x02）で限定したため、バルク直後に来る種別0x01のレコードを
-    # 取りこぼして読み出しを行わず、mainがエラー経路へ入っていた（$F9診断で
-    # 「6バイトで来るのは13件すべて種別0x01」と確認）。
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(6)
-    a.jp_z("_general_read_request")
-    a.label("_general_read_check_done")
-    if DEBUG_RUNLEN_MARK:
-        # RUN_LEN==6 のときは種別バイトを、それ以外はRUN_LENを出す
+    # ---- 第65版・m7bj: 起動後の一般読み出し要求。1.36節が確定した
+    # 「受信runの先頭バイトがrun長を一意に決める（表引き）」を根拠に
+    # 判別する。表の10種のうち、直後に必ずREADが続くことが27/27・
+    # 例外0で確定し、かつ座標フィールド位置（末尾相対: 論理トラック=
+    # 位置-1、R=位置0）も確定しているのは先頭バイト0x02(run長5)だけ。
+    # 他の種別（0x17/0x0Eも100%READを伴うが座標位置が0x02と異なるか
+    # 未確定、0x0Dは論理トラックのみ確定でRの所在が未確定、0x0B/0x14/
+    # 0x00/0x06/0x07/0x12はREAD/WRITEいずれも伴わない）は1.36節が
+    # 明示的に未確定として残しており、推測で実装しない——表に無い
+    # 先頭バイトと同じく、この表引きでは何もせず既存のフォールバック
+    # （_general_read_check_done から先、_observed_request_table→
+    # SENSE DRIVE STATUS）へ落とす。
+    #
+    # 第63版(m7bf)・第64版(m7bg)は「受信6バイトであること」で判別して
+    # いたが、公式にレコード長6は1件も存在せず(1.36節)、バルク直後の
+    # 要求は長さ5(先頭バイト0x02)だった。自作が6バイト目まで待った
+    # せいで座標フィールドが1つずれていた——壊れていたのはレコード長の
+    # ほうだった。
+    #
+    # restore_request_kind_length6: tools/verify_l3.sh の陽性対照専用。
+    # 旧(第64版・m7bg)の「RUN_LEN==6」判別を復元する。1.36節の回帰
+    # テスト（先頭バイト0x02・run長5のレコード）は、run長が6ではなく
+    # 5なのでこのフラグ下では一致せず、読み出しが一度も発生しない
+    # （REQ_HDR+3/+4の座標も使われない）——新テストがこのフラグで
+    # 実際に落ちることを確認する。
+    if restore_request_kind_length6:
         a.ld_a_mem(RUN_LEN)
         a.cp_n(6)
+        a.jp_z("_general_read_request")
+    else:
+        a.ld_hl_imm(REQ_HDR)
+        a.ld_a_hl()
+        a.cp_n(0x02)                  # 1.36節: 表引きの唯一の実装済みエントリ
+        a.jr_nz("_general_read_check_done")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(5)                     # 0x02の確定run長（1.36節、27/27・例外0）
+        a.jp_z("_general_read_request")
+    a.label("_general_read_check_done")
+    if DEBUG_RUNLEN_MARK:
+        # 先頭バイト0x02・RUN_LEN==5(1.36節の実装済みエントリ)のときは
+        # 種別バイトを、それ以外はRUN_LENを出す
+        a.ld_hl_imm(REQ_HDR)
+        a.ld_a_hl()
+        a.cp_n(0x02)
+        a.jr_nz("_dbg_mark_runlen")
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(5)
         a.jr_nz("_dbg_mark_runlen")
         a.ld_hl_imm(REQ_HDR + REQUEST_KIND_INDEX)
         a.ld_a_hl()
@@ -2591,7 +2638,8 @@ def build(break_write_ack=False,
           break_sense_int_result_count=False,
           break_fdc_timeout_reads_anyway=False,
           disable_fdc_timeout_mark=False,
-          break_fixed_byte_cutoff=False):
+          break_fixed_byte_cutoff=False,
+          restore_request_kind_length6=False):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
@@ -2611,6 +2659,7 @@ def build(break_write_ack=False,
                           break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
                           disable_fdc_timeout_mark=disable_fdc_timeout_mark,
                           break_fixed_byte_cutoff=break_fixed_byte_cutoff,
+                          restore_request_kind_length6=restore_request_kind_length6,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
@@ -2700,6 +2749,11 @@ def main():
                           "通算8バイト受け取ったことだけでrunを打ち切っていた"
                           "旧構造）をわざと再現するフラグ（tools/verify_l3.sh "
                           "の回帰テストの検出力確認用）。")
+    ap.add_argument("--restore-request-kind-length6", action="store_true",
+                     help="第64版(m7bg)の「受信runが6バイトなら一般読み出し"
+                          "要求」という旧判別を復元する（第65版・m7bjが"
+                          "1.36節の先頭バイト表引きへ置き換えた分の陽性対照。"
+                          "tools/verify_l3.sh の回帰テストの検出力確認用）。")
     args = ap.parse_args()
     rom, used = build(break_write_ack=args.break_write_ack,
                        break_write_coords=args.break_write_coords,
@@ -2711,7 +2765,8 @@ def main():
                        break_sense_int_result_count=args.break_sense_int_result_count,
                        break_fdc_timeout_reads_anyway=args.break_fdc_timeout_reads_anyway,
                        disable_fdc_timeout_mark=args.disable_fdc_timeout_mark,
-                       break_fixed_byte_cutoff=args.break_fixed_byte_cutoff)
+                       break_fixed_byte_cutoff=args.break_fixed_byte_cutoff,
+                       restore_request_kind_length6=args.restore_request_kind_length6)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
