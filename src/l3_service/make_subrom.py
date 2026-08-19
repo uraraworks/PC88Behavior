@@ -762,6 +762,15 @@ OBSERVED_SINGLE_TRACKED_ENTRIES = frozenset((1, 2))
 # 57/57すべて同一の値だった。その値は**上の要求グループ2の応答と同一**で
 # あり、新しい値を持ち込むわけではない（意味は未確定のまま）。
 WRITE_ACK_RESPONSE = OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1]
+# ---- 第63版・m7bf: 要求レコードの「種別」フィールド。
+# m7beで、読み出し要求も書き込み要求も同じ6バイトレコード
+# `[?, 種別, ?, ?, 論理トラック(C*2+H), R]` を使い、**2バイト目だけが
+# 読み/書き/起動時の単発応答を分けている**ことを確定した。
+# 起動時の6バイトグループは種別=1で、下の2つとは衝突しない。
+REQUEST_KIND_INDEX = 1
+REQUEST_KIND_READ = 0x02   # 起動後の読み出し要求（実測11/11）
+REQUEST_KIND_WRITE = 0x11  # 書き込み要求（実測8/8。現在の実装はrun長で
+                           # 判別しているので未使用。将来ここへ寄せる）
 # TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
 # 意味が判明した場合は、この定数を意味に基づくルール生成へ差し替える。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
@@ -1428,6 +1437,40 @@ def build_subrom(break_write_ack=False,
     # 以内に OUT $F8 が現れる（m7avで実測、15件すべて）。
     a.call("FDC_TC")
     a.ret()
+
+    # ---- 第63版・m7bf: 一般読み出し要求のハンドラ。
+    # レコードの末尾2バイト `[論理トラック, R]` から座標を作り、既存の
+    # FDC_SEEK / FDC_SENSE_DRIVE_STATUS / FDC_READ_SECTOR を使う。
+    # 公式も READ の直前に SEEK→SENSE_INT→SENSE_DRV を出している（m7be）。
+    # 応答の1バイトは実測で EXCHANGE3_OBSERVED_RESPONSE と同一値だった。
+    # **フォールスルーが来ない位置**（直上はFDC_READ_SECTORのret）に置く。
+    a.label("_general_read_request")
+    a.ld_hl_imm(REQ_HDR + 4)
+    a.ld_a_hl()                       # 論理トラック
+    a.ld_b_a()
+    a.and_a(0x01)
+    a.ld_mem_a(REQ_H)                 # H = track & 1
+    a.rlca()
+    a.rlca()
+    a.ld_mem_a(REQ_UNIT_HEAD)         # unit/head = drive0 | (H<<2)
+    a.ld_a_b()
+    a.or_a()
+    a.rra()                           # C = track >> 1
+    a.ld_hl_imm(REQ_HDR + 4)
+    a.ld_hl_a()                       # FDC_SEEK/FDC_READ_SECTORが読む位置へ置く
+    a.ld_e(0x00)
+    a.call("FDC_SEEK")                # A = C のまま
+    a.call("FDC_SENSE_DRIVE_STATUS")
+    a.ld_hl_imm(REQ_HDR + 5)
+    a.ld_a_hl()                       # R
+    a.ld_hl_imm(REQ_HDR + 6)
+    a.ld_hl_a()
+    a.call("FDC_READ_SECTOR")
+    a.ld_a(0x01)
+    a.ld_mem_a(SECTOR_READY)
+    a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
+    a.call("SEND_BYTE")
+    a.jp("IDLE_DISPATCH")
 
     # 長いrun（RUN_LEN飽和）の終端からの入口。受信列の末尾256バイトを
     # そのままWRITE DATAのデータ部として流し、アイドルへ戻る。
@@ -2354,8 +2397,29 @@ def build_subrom(break_write_ack=False,
     # どのエントリにも一致しなければ第51版と同じフォールバック
     # (_observed_request_next_9)へ落ちる。
     a.label("_observed_single_by_request")
+    # ---- 第63版・m7bf: 起動後の一般読み出し要求。6バイトレコードで
+    # 種別(2バイト目)がREADのものは、論理トラックとRからFDCを叩いて
+    # SECTOR_BUFへ読み、単発応答を返す（続く2バイト要求で256バイトを
+    # 送る既存経路につながる）。これが無いと起動後の要求がすべて
+    # fallback（SENSE DRIVE STATUS）に落ちる（m7beで実測。BASIC起動後に
+    # 140回連発していた）。
+    a.ld_a_mem(RUN_LEN)
+    a.cp_n(6)
+    a.jr_nz("_general_read_check_done")
+    a.ld_hl_imm(REQ_HDR + REQUEST_KIND_INDEX)
+    a.ld_a_hl()
+    a.cp_n(REQUEST_KIND_READ)
+    a.jp_z("_general_read_request")
+    a.label("_general_read_check_done")
     if DEBUG_RUNLEN_MARK:
+        # RUN_LEN==6 のときは種別バイトを、それ以外はRUN_LENを出す
         a.ld_a_mem(RUN_LEN)
+        a.cp_n(6)
+        a.jr_nz("_dbg_mark_runlen")
+        a.ld_hl_imm(REQ_HDR + REQUEST_KIND_INDEX)
+        a.ld_a_hl()
+        a.or_n(0x80)                  # 種別であることが分かるよう最上位ビットを立てる
+        a.label("_dbg_mark_runlen")
         a.out_a(0xF9)
     a.ld_hl("_observed_request_table")
     a.label("_osbr_entry")
