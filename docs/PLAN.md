@@ -887,8 +887,35 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    推測で実装しない。詳細は
    [docs/notes/m7bi-post-bulk-record-length.md](notes/m7bi-post-bulk-record-length.md)。
 
-   **次の一手**: 値まで見る再測定（`PC88_REF_ROM_DIR` / `PC88_REF_DISK_DIR`
-   が要る）で、5バイトレコードの各位置と(C,H,R)の全数位置対応を取る。
+   **バルク直後の受信runを先頭バイト表引きで判別した（m7bj、`7c3be9e`、
+   2026-08-19）が、実走では効いていなかった。** 表引き自体（受信runの
+   先頭バイトがrun長を一意に決める、例外0件）はm7bjの新規実測148 runで
+   確定したが、`7c3be9e`はこれを「終わったrunの分類」（SEND側の後付け
+   判断）にしか結線しておらず、「受信を打ち切る判断」（RECV側）には
+   繋がっていなかった。公式main実走で再測定すると、バルク直後の受信run
+   長は`[6,1,1]`のまま・READ 0回・SENSE DRIVE STATUS 128回連発という、
+   m7bg時点（READ 11回）からの後退が起きていた。
+
+   **打ち切りをRECV側に結線し、バルク完走後に限定するゲートを追加した
+   （m7bk、`b1b0f3a`、2026-08-19）。** 無条件で打ち切りを結線すると、
+   起動時交換#6/#7/#11/#12/#14自身の要求（先頭バイトが0x02と衝突しうる）
+   まで誤って打ち切ってしまい、起動時バルク転送そのものが0件になる
+   致命的な後退が起きたため、バルク完走後にのみ1を立てるRAMフラグ
+   `POST_BULK_ACTIVE`を追加し、1.36節の打ち切りをこのフラグと
+   `EXCHANGE3_REQUEST_ACTIVE==0`の両方でバルク後に限定した。
+
+   結果、m7bhが観測した座標の食い違い（公式(18,1,13)対自作(6,1,6)）は
+   **解消**し、公式main実走で座標(18,1,13)・最初のREADまでの受信件数5件
+   ともに**完全一致**した。バルク後のイベント並び（送信1/受信5/FDC
+   コマンド4/FDC結果2/FDCコマンド2/FDC結果1/FDCコマンド9/FDC結果263/
+   受信1/送信1/受信1/送信256）は、自作は**FDC結果263まで完全に再現し、
+   そこで止まる**——食い違いは**READ完了後の応答**（ack 1バイト→受信
+   1バイト→256バイト送信）へ移った。詳細は
+   [docs/notes/m7bk-post-bulk-read-coordinates-fixed.md](notes/m7bk-post-bulk-read-coordinates-fixed.md)。
+
+   **次の一手**: READ完了後の応答を測る——受信1/送信1/受信1/送信256の
+   並びで、256バイト送信を起動する受信バイトが何か、ackの値は何かを
+   実測する（`PC88_REF_ROM_DIR` / `PC88_REF_DISK_DIR`が要る）。
    詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。
