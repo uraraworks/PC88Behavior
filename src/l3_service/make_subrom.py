@@ -2168,6 +2168,13 @@ def build_subrom(break_write_ack=False,
     a.out_a(P_PIO_A)
     a.out_a(P_PIO_B)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    # ---- 第59版・m7ba: バルク終端の合図。公式は最後のバイトを送ったあと
+    # `OUT $FF,0x08` に続けて **`OUT $FF,0x91`** を出す（4条件——独立3実行と
+    # 別条件のd3_rw——で1バイトも違わず一致）。この0x91は起動手順2
+    # （1.16節）と同じ値で、意味は未確定のまま。
+    # **これが無いとmainは次へ進まず、両者が$FEを互いにポーリングし合って
+    # 固着する**（混成実測で100万件超のポーリングを観測）。
+    a.out_imm(0xFF, BOOT_FF_VALUE)
     a.call("WAIT_FE_RECV_ACK_DONE")
     a.ret()
 
