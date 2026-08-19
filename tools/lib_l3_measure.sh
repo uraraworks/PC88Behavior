@@ -52,6 +52,52 @@ ensure_l3_frontend() {
 }
 
 # -----------------------------------------------------------------------
+# q88measure を実行する。**起動時クラッシュに限って**再試行する。
+#
+# 背景（m7az、2026-08-19）: 公式ROM一式を --rom-dir に与えると、
+# q88measure が起動時に `Abort trap: 6` で落ちることが **8回中3回** ある
+# （自作ROM一式では8回中0回。ロケールには依存せず、C でも UTF-8 でも起きる）。
+# 落ちるのは**フレームループへ入る前**で、ログファイルは1バイトも作られない
+# ——つまり「部分的な測定結果を拾ってしまう」危険は無い。
+#
+# **この再試行は失敗を隠すためのものではない。** 再試行したことは必ず標準
+# エラーへ出す。全部の試行が落ちたら失敗として返す。原因（第三者コア側の
+# 起動処理と見られる）は未修正の既知欠陥として
+# docs/notes/m7az-write-conformance.md に記録してある。
+#
+# $1 = 出力する iolog のパス（試行ごとに消してから走らせる）
+# $2 = q88measure の標準出力の保存先
+# $3 = q88measure の標準エラーの保存先
+# 残りの引数はそのまま q88measure へ渡す。
+#
+# **注記は呼び出し元の標準エラーへ出す**（q88measure の出力と一緒にファイルへ
+# 吸わせない）。最初の実装でそこを間違え、再試行が起きたことも全部失敗した
+# ことも画面に出ないまま「ログが無い」という別の例外だけが見える状態になった。
+# -----------------------------------------------------------------------
+Q88_MEASURE_ATTEMPTS="${Q88_MEASURE_ATTEMPTS:-4}"
+run_q88measure_retry() {
+  local out_iolog="$1" out_stdout="$2" out_stderr="$3"; shift 3
+  local frontend="$REPO/tools/harness/frontend/q88measure"
+  local attempt=1 rc=0
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    rm -f "$out_iolog"
+    "$frontend" "$@" >"$out_stdout" 2>>"$out_stderr"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      if [ "$attempt" -gt 1 ]; then
+        echo "  [注記] q88measure の起動時クラッシュのため ${attempt} 回目で成功した" \
+             "（既知欠陥。docs/notes/m7az-write-conformance.md）" >&2
+      fi
+      return 0
+    fi
+    echo "  [注記] q88measure が rc=${rc} で失敗した（${attempt}/${Q88_MEASURE_ATTEMPTS} 回目）" >&2
+    attempt=$((attempt + 1))
+  done
+  echo "エラー: q88measure が ${Q88_MEASURE_ATTEMPTS} 回とも失敗した" >&2
+  return 1
+}
+
+# -----------------------------------------------------------------------
 # 混成ROM(公式main + 自作サブROM)でdiskA起動を測定する。
 # conform_l3.sh の「混成ROM適合テスト」ステップと同条件
 # （frames 1800、diskは $rom_dir/../disk 引数ではなく $disk 引数そのもの）。
@@ -86,9 +132,9 @@ run_l3_mixed_measurement() {
     return 1
   fi
 
-  "$frontend" --core "$core" --rom-dir "$mixed_rom_dir" --disk "$disk" \
-      --frames 1800 --io-log "$out_iolog" \
-      >"$work/mixed.stdout.txt" 2>"$work/mixed.stderr.txt" || {
+  run_q88measure_retry "$out_iolog" "$work/mixed.stdout.txt" "$work/mixed.stderr.txt" \
+      --core "$core" --rom-dir "$mixed_rom_dir" --disk "$disk" \
+      --frames 1800 --io-log "$out_iolog" || {
     echo "エラー: 混成ROMでの q88measure が失敗した" >&2
     cat "$work/mixed.stderr.txt" >&2
     return 1

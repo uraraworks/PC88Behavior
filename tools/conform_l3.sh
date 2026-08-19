@@ -285,9 +285,9 @@ if [ ! -f "$DISK" ]; then
 fi
 
 say "diskA 起動を実測（frames 1800、measurements/m6g-d0-boot-run1.txt と同条件）"
-"$FRONTEND" --core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$DISK" \
-    --frames 1800 --io-log "$WORK/live.iolog.txt" \
-    >"$WORK/live.stdout.txt" 2>"$WORK/live.stderr.txt" || {
+run_q88measure_retry "$WORK/live.iolog.txt" "$WORK/live.stdout.txt" "$WORK/live.stderr.txt" \
+    --core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$DISK" \
+    --frames 1800 --io-log "$WORK/live.iolog.txt" || {
   echo "エラー: q88measure が失敗した" >&2
   cat "$WORK/live.stderr.txt" >&2
   exit 1
@@ -395,9 +395,9 @@ fi
 # -----------------------------------------------------------------------
 say "適合条件4のネガティブコントロール（ディスク無し・公式main + 自作サブROM）"
 NEG_FRAMES=30
-"$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --frames "$NEG_FRAMES" \
-    --io-log "$WORK/nodisk_mixed.iolog.txt" \
-    >"$WORK/nodisk_mixed.stdout.txt" 2>"$WORK/nodisk_mixed.stderr.txt"
+run_q88measure_retry "$WORK/nodisk_mixed.iolog.txt" "$WORK/nodisk_mixed.stdout.txt" "$WORK/nodisk_mixed.stderr.txt" \
+    --core "$CORE" --rom-dir "$WORK/mixed_rom" --frames "$NEG_FRAMES" \
+    --io-log "$WORK/nodisk_mixed.iolog.txt"
 count_sub_events() {
   awk '/^# sub$/{f=1;next} /^# main$/{f=0} f && !/^#/ && NF' "$1" | wc -l | tr -d ' '
 }
@@ -416,9 +416,9 @@ POSCTL="$WORK/negctl_positive"
 mkdir -p "$POSCTL"
 if python3 "$REPO/src/l3_service/make_subrom.py" "$POSCTL" >/dev/null 2>&1 \
    && python3 "$REPO/tools/make_l3_test_main.py" "$POSCTL" --requests "0:1" >/dev/null 2>&1; then
-  "$FRONTEND" --core "$CORE" --rom-dir "$POSCTL" --frames "$NEG_FRAMES" \
-      --io-log "$WORK/nodisk_posctl.iolog.txt" \
-      >"$WORK/nodisk_posctl.stdout.txt" 2>"$WORK/nodisk_posctl.stderr.txt"
+  run_q88measure_retry "$WORK/nodisk_posctl.iolog.txt" "$WORK/nodisk_posctl.stdout.txt" "$WORK/nodisk_posctl.stderr.txt" \
+      --core "$CORE" --rom-dir "$POSCTL" --frames "$NEG_FRAMES" \
+      --io-log "$WORK/nodisk_posctl.iolog.txt"
   pos_sub="$(count_sub_events "$WORK/nodisk_posctl.iolog.txt")"
   if [ "$pos_sub" != "0" ]; then
     ok "陽性対照: 試験用mainドライバ構成では $pos_sub 件と数えられた（0件判定は空検査ではない）"
@@ -457,9 +457,9 @@ elif [ ! -f "$PC88_REF_DISKB" ]; then
   ng "PC88_REF_DISKB が指すファイルが無い"
   overall_rc=1
 else
-  "$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$PC88_REF_DISKB" \
-      --frames 1800 --io-log "$WORK/diskb_mixed.iolog.txt" \
-      >"$WORK/diskb_mixed.stdout.txt" 2>"$WORK/diskb_mixed.stderr.txt"
+  run_q88measure_retry "$WORK/diskb_mixed.iolog.txt" "$WORK/diskb_mixed.stdout.txt" "$WORK/diskb_mixed.stderr.txt" \
+      --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$PC88_REF_DISKB" \
+      --frames 1800 --io-log "$WORK/diskb_mixed.iolog.txt"
   b_fc="$(count_sub_fc "$WORK/diskb_mixed.iolog.txt")"
   if [ "${b_fc:-0}" = "0" ]; then
     ok "混成(公式main + 自作サブROM)はdiskB起動で sub OUT \$FC が0件（適合条件2を満たす）"
@@ -500,9 +500,9 @@ else
 fi
 
 say "適合条件3（サブの割り込み受理の直前1件がmain側でないこと）"
-"$FRONTEND" --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$DISK" \
-    --frames 1800 --io-log "$WORK/cond3.iolog.txt" --int-log "$WORK/cond3.intlog.txt" \
-    >"$WORK/cond3.stdout.txt" 2>"$WORK/cond3.stderr.txt"
+run_q88measure_retry "$WORK/cond3.iolog.txt" "$WORK/cond3.stdout.txt" "$WORK/cond3.stderr.txt" \
+    --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$DISK" \
+    --frames 1800 --io-log "$WORK/cond3.iolog.txt" --int-log "$WORK/cond3.intlog.txt"
 if python3 "$COND3" --iolog "$WORK/cond3.iolog.txt" --intlog "$WORK/cond3.intlog.txt"; then
   ok "混成(公式main + 自作サブROM)は条件3を満たす（直前1件がmain側の受理点は0件）"
 else
@@ -520,6 +520,46 @@ else
     echo "       公式との構造差として記録する。根拠: docs/notes/m7as-condition2-3-judging.md"
   else
     ng "条件3を満たさない（直前1件がmain側の受理点がある。上の件数を参照）"
+    overall_rc=1
+  fi
+fi
+
+# -----------------------------------------------------------------------
+# 適合条件5（書き込み経路、1.35節）— m7az で新設。
+# 期待値は tests/conformance/expected_write.tsv（件数・バイト数・SHA-256のみ）。
+# **まだ到達しない見込み**: 混成ROMは公式diskAでBASICの起動途中までしか
+# 進まず、SAVEに届かない（m7azの実測でWRITE DATA 0件）。その場合は
+# 失格ではなく「未到達」として報告する——判定できないことを黙って
+# 合格にも失格にもしない。
+# -----------------------------------------------------------------------
+say "適合条件5（書き込み経路: 公式main + 自作サブROMでSAVEを実行）"
+WEXPECTED="$REPO/tests/conformance/expected_write.tsv"
+WDISK="$WORK/save.d88"
+cp "$DISK" "$WDISK"
+printf '\x00' | dd of="$WDISK" bs=1 seek=26 count=1 conv=notrunc status=none
+run_q88measure_retry "$WORK/save_mixed.iolog.txt" "$WORK/save_mixed.stdout.txt" "$WORK/save_mixed.stderr.txt" \
+    --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$WDISK" \
+    --frames 4200 --io-log "$WORK/save_mixed.iolog.txt" \
+    --type-at 300 --type '\n' --type-at 700 --type '10 PRINT "T"\nSAVE"TQ"\n' 
+w_out="$(python3 "$REPO/tools/hash_write_stream.py" "$WORK/save_mixed.iolog.txt" 2>/dev/null)"
+w_cmds="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="commands"{print $2}')"
+if [ "${w_cmds:-0}" = "0" ]; then
+  na "条件5は未到達: 混成ROMはSAVEまで進まない（WRITE DATA 0件）"
+  echo "       公式ROM一式なら同じ打鍵でWRITE DATAが8件出る。混成はBASICの起動途中"
+  echo "       （ファンクションキー行の表示まで）で止まる。読み出し側の適合条件1は"
+  echo "       満たしているので、ここは「次に進む先」を示す指標として置いておく。"
+  echo "       根拠: docs/notes/m7az-write-conformance.md"
+else
+  w_sha="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="sha256"{print $2}')"
+  w_bytes="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="bytes"{print $2}')"
+  e_line="$(grep -v '^#' "$WEXPECTED" | awk 'NF' | head -1)"
+  e_cmds="$(printf '%s\n' "$e_line" | cut -f2)"
+  e_bytes="$(printf '%s\n' "$e_line" | cut -f3)"
+  e_sha="$(printf '%s\n' "$e_line" | cut -f4)"
+  if [ "$w_cmds" = "$e_cmds" ] && [ "$w_bytes" = "$e_bytes" ] && [ "$w_sha" = "$e_sha" ]; then
+    ok "混成: 書き込みストリームが期待値と一致（件数 ${w_cmds}・${w_bytes}バイト・SHA-256）"
+  else
+    ng "混成: 書き込みストリームが期待値と一致しない（件数 ${w_cmds}/${e_cmds}、${w_bytes}/${e_bytes}バイト）"
     overall_rc=1
   fi
 fi

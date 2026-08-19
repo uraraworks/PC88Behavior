@@ -94,6 +94,45 @@ else
   overall_rc=1
 fi
 
+say "書き込みストリームのハッシュ器(tools/hash_write_stream.py)"
+gen "$WORK/h1.iolog.txt" 256 0
+gen "$WORK/h2.iolog.txt" 256 0
+gen "$WORK/h3.iolog.txt" 255 0
+h1="$(python3 tools/hash_write_stream.py "$WORK/h1.iolog.txt" | awk -F'\t' '$1=="sha256"{print $2}')"
+h2="$(python3 tools/hash_write_stream.py "$WORK/h2.iolog.txt" | awk -F'\t' '$1=="sha256"{print $2}')"
+h3="$(python3 tools/hash_write_stream.py "$WORK/h3.iolog.txt" | awk -F'\t' '$1=="sha256"{print $2}')"
+if [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+  ok "同じ内容の合成ログからは同じSHA-256が出る（決定論性）"
+else
+  ng "同じ内容なのにSHA-256が違う（またはハッシュが空）"
+  overall_rc=1
+fi
+if [ -n "$h3" ] && [ "$h1" != "$h3" ]; then
+  ok "陽性対照: データ部を1バイト減らすとSHA-256が変わる"
+else
+  ng "陽性対照: 中身を変えてもSHA-256が変わらない（検出力が無い）"
+  overall_rc=1
+fi
+# 書き込みが1件も無いログでは判定不能(rc=2)であること
+python3 - "$WORK/nowrite.iolog.txt" <<'EOF'
+import sys
+rows=["# tools/analyze_write_path_selftest.sh の合成フィクスチャ(書き込み無し)",
+      "core      : (テスト用ダミー)","frames    : 1","",
+      "# main","# seq    clock   frame  cpu   kind  port  value  pc","",
+      "# sub","# seq    clock   frame  cpu   kind  port  value  pc",
+      "     1      1      0  sub   OUT   00FB   03   0100",
+      "     2      2      0  sub   OUT   00FB   00   0101",
+      "     3      3      0  sub   OUT   00FB   00   0102"]
+open(sys.argv[1],"w").write("\n".join(rows)+"\n")
+EOF
+python3 tools/hash_write_stream.py "$WORK/nowrite.iolog.txt" >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  ok "書き込みが1件も無いログは判定不能(rc=2)として報告される"
+else
+  ng "書き込み0件なのに判定不能にならなかった（黙って合格に化ける）"
+  overall_rc=1
+fi
+
 echo
 if [ "$overall_rc" -eq 0 ]; then
   echo "analyze_write_path_selftest: OK（全項目）"

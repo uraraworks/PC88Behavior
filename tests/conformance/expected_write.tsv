@@ -1,0 +1,19 @@
+# tests/conformance/expected_write.tsv
+# 書き込み経路（仕様書1.35節・5.2節5項）の適合期待値。
+#
+# **値そのものは置かない。** 置くのは件数・総バイト数・SHA-256 だけで、
+# tests/conformance/expected.tsv と同じ方針（CLAUDE.md 禁止事項4）。
+# 生成元は公式ROM一式＋公式diskAの実測で、tools/hash_write_stream.py の出力。
+#
+# 対象: subがFDCへ発行したWRITE系コマンドの「パラメータ8バイト＋データ部」を
+# 発生順に連結した列。
+#
+# 測定条件（この通りに打鍵しないと再現しない）:
+#   frames 4200 / 使い捨て複製のライトプロテクト解除 /
+#   --type-at 300 --type '\n' --type-at 700 --type '10 PRINT "T"\nSAVE"TQ"\n'
+#
+# 決定論性: 同条件3回で件数・バイト数・SHA-256とも完全一致することを確認済み
+# （2026-08-19、m7az）。
+#
+# name	commands	bytes	sha256
+m7az-d3-save	8	2112	5a27064e4a395fa37a862215acd3dab4b474cf049b31c43f03f375e75c030eff
