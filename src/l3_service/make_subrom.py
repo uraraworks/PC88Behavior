@@ -711,7 +711,17 @@ BULK_READ_TABLE = (
 )
 # WRITE_C(0x431B) は第54版で「直前SEEKの目的シリンダ」を保持していたが、
 # 第56版・m7axで C を制御レコード（データ部の直前2バイト目の論理トラック）から
-# 導くようにしたため不要になり削除した。番地は空きのまま残す。
+# 導くようにしたため不要になり削除した。番地は第67版・m7bjで
+# POST_BULK_ACTIVEとして再利用する。
+POST_BULK_ACTIVE = 0x431B  # 第67版・1.36節: BULK_SEND完了後にのみ1を立てる。
+# 1.36節の先頭バイト表引き（0x02→run長5）は「バルク直後」の受信runで
+# 実測したものであり、起動時の交換#6/#7/#11/#12/#14（stage==5到達前、
+# または交換#14自身の12バイト要求。BOOT_READ_PAIR_STAGEだけではbulk前後を
+# 区別できない——交換#14の12バイト要求自体もstage==5の間に来る）と
+# 先頭バイトが衝突すると、bulk起動前の起動シーケンスを誤って打ち切って
+# しまう（公式main実走でbulk自体が0件になる形で発覚。診断は
+# docs/notes/m7bk-post-bulk-cutoff-scope.md）。BULK_SENDが実際に完了した
+# 後にだけ1を立て、1.36節の打ち切りをこのフラグでも限定する。
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
 # 第61版・m7bc: バルクのプリアンブル3件目の**$FD側**（main IN $FC）の値。
@@ -812,6 +822,7 @@ def build_subrom(break_write_ack=False,
                   disable_fdc_timeout_mark=False,
                   break_fixed_byte_cutoff=False,
                   restore_request_kind_length6=False,
+                  force_post_bulk_active=False,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
@@ -874,7 +885,17 @@ def build_subrom(break_write_ack=False,
     6バイトなら一般読み出し要求」という判別を復元する（第65版・m7bjで
     1.36節の先頭バイト表引き――0x02かつrun長5――へ置き換えた分の陽性
     対照）。tools/verify_l3.sh の回帰テストが検出力を持つことを確認する
-    ためだけに使う。既定（False）では新構造（先頭バイトの表引き）を使う。"""
+    ためだけに使う。既定（False）では新構造（先頭バイトの表引き）を使う。
+
+    force_post_bulk_active: POST_BULK_ACTIVE（第66版で追加。1.36節の
+    打ち切りをバルク完走後に限定するゲート、上のPOST_BULK_ACTIVE定義の
+    コメント参照）の起動時初期値を1にする。tools/make_l3_test_main.py の
+    試験用mainドライバは起動時バルクモード自体を再現しない（仕様書3節、
+    意図的に未着手）ため、実機のようにBULK_SENDを経由してPOST_BULK_ACTIVE
+    が立つことがない。tools/verify_l3.sh が1.36節の形式（先頭バイト0x02・
+    長さ5）を単独で検証するシナリオ（--post-bulk-read-test）のためだけに
+    使うテスト専用フラグ。既定（False）では実機と同じくBULK_SEND完走まで
+    0のままにする。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -1488,6 +1509,16 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_SEEK")                # A = C のまま
     a.call("FDC_SENSE_DRIVE_STATUS")
     a.call("FDC_READ_SECTOR")
+    if break_response:
+        # tools/verify_l3.sh の「わざと壊す」検出力確認用。旧8バイト形式
+        # （_recv_dispatch_hdr_done）と同じ故障注入をここにも置く——
+        # 1.36節の5バイト形式は_recv_dispatch_hdr_doneを経由しないため、
+        # break_responseがここに無いと故障注入が効かない（実際に検出力
+        # 0で発覚した）。
+        a.ld_hl_imm(SECTOR_BUF)
+        a.ld_a_hl()
+        a.db(0xEE, 0x01)
+        a.ld_hl_a()
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
@@ -1734,6 +1765,12 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(BOOT_READ_PAIR_STAGE)
     a.ld_mem_a(REQ_H)
     a.ld_mem_a(REQ_UNIT_HEAD)
+    if force_post_bulk_active:
+        a.ld_a(0x01)
+        a.ld_mem_a(POST_BULK_ACTIVE)   # テスト専用: bulkを経ずに1.36節の打ち切りを有効化
+    else:
+        a.ld_a(0x00)
+        a.ld_mem_a(POST_BULK_ACTIVE)   # 第67版: bulk完了までは1.36節の打ち切りを適用しない
     a.ld_a(0x01)
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     # 第21版で追加したLAST_FDC_RESULTの起動時初期化は、第22版でこの
@@ -1910,7 +1947,40 @@ def build_subrom(break_write_ack=False,
             # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
             a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
             a.or_a()
-            a.jr_z("_recv_dispatch_continue")
+            # ---- 第66版・1.36節: 表引きは「終わったrunの分類」ではなく
+            # 「受信を打ち切る判断」に結線する。EXCHANGE3_REQUEST_ACTIVE==0
+            # （起動時交換#3/#4の固定8バイト形式が終わった後）に限って、
+            # 先頭バイト0x02のrunはrun長5が確定している（27/27・例外0）
+            # ので、5バイト目を格納した直後・次のバイトを再アームする前に
+            # 確定させ、読み出し経路（_general_read_request）へ直接入る。
+            # RECV_BYTE_ARMEDが手順7（OUT $FF,0x0C、受信解除）まで済ませた
+            # 直後であり、ここで_recv_dispatch_continueへ戻らなければ
+            # 手順1の再アーム（OUT $FF,0x0B）が出ない——m7bjが観測した
+            # 「5バイト目の後は再アーム0Bを出さずOUT $F8でFDCへ入る」という
+            # 公式の打ち切り動作そのもの。
+            # **EXCHANGE3_REQUEST_ACTIVE==1のとき（起動時交換#3の固定8バイト
+            # 要求。自己検証層tools/make_l3_test_main.pyのhdr_labelsも同じ
+            # 先頭バイト0x02・長さ8を使う）はこの打ち切りを適用しない**——
+            # 1.36節の測定はバルク直後の受信runが対象であり、起動時交換#3の
+            # 8バイト形式（別の境界判定、下のRUN_LEN==2/7/8）を上書きしては
+            # ならない。restore_request_kind_length6（陽性対照）では
+            # 旧構造（打ち切らず8バイトまで続ける）を保つため無効化する。
+            if restore_request_kind_length6:
+                a.jr_z("_recv_dispatch_continue")
+            else:
+                a.jr_nz("_recv_dispatch_exchange3_active")
+                a.ld_a_mem(POST_BULK_ACTIVE)  # bulk完走前の交換#6/#7/#11/#12/#14
+                a.or_a()                      # (先頭バイトが0x02の可能性がある)
+                a.jr_z("_recv_dispatch_continue")  # と衝突しないよう、bulk完走後に限る
+                a.ld_hl_imm(REQ_HDR)
+                a.ld_a_hl()
+                a.cp_n(0x02)                  # 1.36節: 表引きの唯一の実装済みエントリ
+                a.jr_nz("_recv_dispatch_continue")
+                a.ld_a_mem(RUN_LEN)
+                a.cp_n(5)                     # 0x02の確定run長（27/27・例外0）
+                a.jp_z("_general_read_request")   # 打ち切り: 再アームせず読み出しへ
+                a.jr("_recv_dispatch_continue")
+                a.label("_recv_dispatch_exchange3_active")
             a.ld_a_mem(RUN_LEN)
             a.cp_n(2)
             a.jp_z("IDLE_DISPATCH")
@@ -2227,6 +2297,11 @@ def build_subrom(break_write_ack=False,
     # 一度も入らず、SECTOR_BUFの先頭2バイトが送られていた）。
     a.ld_mem_a(SECTOR_READY)
     a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    # 第67版・1.36節: bulkが実際にここまで完走した時点で初めて立てる。
+    # これより前（交換#3/#6/#7/#11/#12/#14自身の受信中）はPOST_BULK_ACTIVE=0
+    # のままなので、1.36節の先頭バイト0x02打ち切りはここより後にしか効かない。
+    a.ld_a(0x01)
+    a.ld_mem_a(POST_BULK_ACTIVE)
     a.jp("IDLE_DISPATCH")
 
     a.label("BULK_SEND_ONE")
@@ -2448,14 +2523,10 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(RUN_LEN)
         a.cp_n(6)
         a.jp_z("_general_read_request")
-    else:
-        a.ld_hl_imm(REQ_HDR)
-        a.ld_a_hl()
-        a.cp_n(0x02)                  # 1.36節: 表引きの唯一の実装済みエントリ
-        a.jr_nz("_general_read_check_done")
-        a.ld_a_mem(RUN_LEN)
-        a.cp_n(5)                     # 0x02の確定run長（1.36節、27/27・例外0）
-        a.jp_z("_general_read_request")
+    # else: 受信側（RECV_DISPATCH継続ループ）の打ち切りが
+    # POST_BULK_ACTIVE!=0・先頭バイト0x02・RUN_LEN==5で
+    # _general_read_requestへ直接分岐するため、ここへは到達しない
+    # （フェッチ窓0x0800の予算のため、到達しない分岐は置かない）。
     a.label("_general_read_check_done")
     if DEBUG_RUNLEN_MARK:
         # 先頭バイト0x02・RUN_LEN==5(1.36節の実装済みエントリ)のときは
@@ -2639,7 +2710,8 @@ def build(break_write_ack=False,
           break_fdc_timeout_reads_anyway=False,
           disable_fdc_timeout_mark=False,
           break_fixed_byte_cutoff=False,
-          restore_request_kind_length6=False):
+          restore_request_kind_length6=False,
+          force_post_bulk_active=False):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
@@ -2660,6 +2732,7 @@ def build(break_write_ack=False,
                           disable_fdc_timeout_mark=disable_fdc_timeout_mark,
                           break_fixed_byte_cutoff=break_fixed_byte_cutoff,
                           restore_request_kind_length6=restore_request_kind_length6,
+                          force_post_bulk_active=force_post_bulk_active,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
@@ -2754,6 +2827,11 @@ def main():
                           "要求」という旧判別を復元する（第65版・m7bjが"
                           "1.36節の先頭バイト表引きへ置き換えた分の陽性対照。"
                           "tools/verify_l3.sh の回帰テストの検出力確認用）。")
+    ap.add_argument("--force-post-bulk-active", action="store_true",
+                     help="POST_BULK_ACTIVEの起動時初期値を1にする。"
+                          "試験用mainドライバは起動時バルクを再現しないため、"
+                          "1.36節の形式を検証するテストで使うテスト専用"
+                          "フラグ（tools/verify_l3.sh 用）。")
     args = ap.parse_args()
     rom, used = build(break_write_ack=args.break_write_ack,
                        break_write_coords=args.break_write_coords,
@@ -2766,7 +2844,8 @@ def main():
                        break_fdc_timeout_reads_anyway=args.break_fdc_timeout_reads_anyway,
                        disable_fdc_timeout_mark=args.disable_fdc_timeout_mark,
                        break_fixed_byte_cutoff=args.break_fixed_byte_cutoff,
-                       restore_request_kind_length6=args.restore_request_kind_length6)
+                       restore_request_kind_length6=args.restore_request_kind_length6,
+                       force_post_bulk_active=args.force_post_bulk_active)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

@@ -354,13 +354,26 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.out_imm(0xFF, 0x0C)
     a.ret()
 
-    # ---- 要求ヘッダ（仕様書1.29節: 位置4=C、位置6=R/EOT） ----
+    # ---- 要求ヘッダ（仕様書1.36節: 先頭バイト0x02・長さ5、末尾2バイトが
+    #      [論理トラック=C*2+H, R]。H=0固定で埋め込む）。
+    #      第67版までは仕様書1.29節の8バイト固定形式（1.11節の交換#3
+    #      要求値をそのまま流用したもの）を使っていたが、1.36節・m7bjの
+    #      実測（公式ROM一式・公式diskA、3条件・148 run）で「先頭バイト
+    #      0x02のrunは長さ5で確定（27/27・例外0）」となり、公式main
+    #      ROMでの実走診断（混成実走）で、この8バイト形式を1つの
+    #      連続SEND runとして送ると（自作sub側の1.36節先頭バイト表引き
+    #      による受信打ち切りと衝突し）誤った座標で読み出してしまう
+    #      ことが判明した——8バイト形式は自作mainドライバの自己流の
+    #      簡略化であり、公式mainが実際にこの形でまとめて送ることは
+    #      無い（この治具の役目である「仕様書に書かれた手順だけを行う
+    #      相手」から外れていた）。5バイト形式へ差し替える。 ----
     hdr_labels = []
     for i, (cyl, sec) in enumerate(requests):
         name = f"HDR_{i}"
         hdr_labels.append(name)
         a.label(name)
-        a.db(0x02, 0x01, 0x00, 0x00, cyl, 0x00, sec, 0x06)
+        track = (cyl * 2) & 0xFF   # H=0固定
+        a.db(0x02, 0x00, 0x00, track, sec & 0xFF)
 
     # 仕様書1.23節で確定している交換#4要求の長さは2バイトである。
     # 値の意味は未確定なので、この自己検証治具では任意の固定値を用いる。
@@ -397,7 +410,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         dispatch_switch_hdr = "DISPATCH_SWITCH_HDR"
         a.label(dispatch_switch_hdr)
-        a.db(0x02, 0x01, 0x00, 0x00, cyl0, 0x00, sec0, 0x06)
+        a.db(0x02, 0x00, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
 
     # ---- --run-continuation-test 用のヘッダ（上のdocstring参照）。
     #      requests[0] と同じ (cyl,sec) を使う——dispatch_switch_hdrと
@@ -408,7 +421,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         run_cont_hdr = "RUN_CONT_HDR"
         a.label(run_cont_hdr)
-        a.db(0x02, 0x01, 0x00, 0x00, cyl0, 0x00, sec0, 0x06)
+        a.db(0x02, 0x00, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
 
     # ---- --fixed-byte-cutoff-test 用の3ラウンド（上のdocstring参照）。
     #      第31版1.24節と第32版1.25節の公式実測に合わせ、交換#0〜#2で
@@ -426,6 +439,20 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         fbc_round_c = "FBC_ROUND_C"   # 5バイト
         a.label(fbc_round_c)
         a.db(0x0B, 0x07, 0x5F, 0x00, 0x01)
+        # 第67版の副作用への対処: FBC_ROUND_A/B/Cの3件は
+        # OBSERVED_SINGLE_RESPONSE_BY_REQUESTのTRACKEDエントリと一致し、
+        # 応答を送るたびにBOOT_SINGLE_RESPONSE_COUNTが進んで3件目で
+        # EXCHANGE3_REQUEST_ACTIVE=1になる（起動時交換#3の分節状態）。
+        # 旧8バイト形式(02 01 00 00 cyl 00 sec 06)はこの状態のまま
+        # 2+1+5=8バイトの続きとして解釈され、末尾でEXCHANGE3_REQUEST_ACTIVE
+        # が0へ戻る「たまたまの一致」に頼っていた。1.36節の5バイト形式は
+        # 長さが違うため、この巻き戻しが起きない。以降の通常要求ループ
+        # （1.36節の5バイト形式）へこの状態を持ち越さないよう、旧8バイト
+        # 形式の交換#3/#4を1組挟んで明示的にEXCHANGE3_REQUEST_ACTIVEを
+        # 閉じる。requests[0]を再利用する（値そのものに意味は無い）。
+        fbc_exchange3_close_hdr = "FBC_EXCHANGE3_CLOSE_HDR"
+        a.label(fbc_exchange3_close_hdr)
+        a.db(0x02, 0x01, 0x00, 0x00, requests[0][0], 0x00, requests[0][1], 0x06)
 
     # ---- --post-bulk-read-test 用のrun（上のdocstring参照）。
     #      仕様書1.36節: 先頭バイト0x02・長さ5・末尾2バイトが
@@ -457,7 +484,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # 直後に256バイト応答が来る旧境界を前提に途中で打ち切っていたが、
         # 現仕様では交換#4の2バイト要求なしに多バイト応答を始めてはならない。
         a.ld_hl(dispatch_switch_hdr)
-        a.ld_b(8)
+        a.ld_b(5)
         a.label("_dsw_hdrsend")
         a.ld_a_hl()
         a.call("SEND_MAIN")
@@ -485,7 +512,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.ld_a_hl()
         a.call("SEND_MAIN")          # 1バイト目(先頭): 0Fあり
         a.inc_hl()
-        a.ld_b(7)
+        a.ld_b(4)
         a.label("_rct_hdrsend_cont")
         a.ld_a_hl()
         a.call("SEND_MAIN_CONT")     # 2〜8バイト目(継続): 0Fを省略
@@ -519,6 +546,30 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
             a.inc_hl()
             a.djnz(f"_fbc_send_{name}")
             a.call("RECV_MAIN")   # ラウンド応答（旧実装ならST3のはずが256バイト応答の先頭バイトに化ける）
+
+        # 上のコメントのとおり、EXCHANGE3_REQUEST_ACTIVEを明示的に閉じる
+        # ため、旧8バイト形式の交換#3/#4を1組送る（check_l3_response.py
+        # の比較対象には含めない。verify_l3.shのskip-prefix-bytesで
+        # このぶん[1+256=257バイト]を読み飛ばす）。
+        a.ld_hl(fbc_exchange3_close_hdr)
+        a.ld_b(8)
+        a.label("_fbc_close_hdrsend")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_fbc_close_hdrsend")
+        a.call("RECV_MAIN")
+        a.ld_hl("EXCHANGE4_REQUEST")
+        a.ld_b(2)
+        a.label("_fbc_close_exchange4_send")
+        a.ld_a_hl()
+        a.call("SEND_MAIN")
+        a.inc_hl()
+        a.djnz("_fbc_close_exchange4_send")
+        a.ld_b(0x80)
+        a.label("_fbc_close_resprecv")
+        a.call("RECV_MAIN_PAIR")
+        a.djnz("_fbc_close_resprecv")
 
     if post_bulk_read_test:
         # 起動直後の最初の単発応答はROUND0専用経路（仕様書1.11節）が
@@ -556,9 +607,9 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.djnz("_pbr_resprecv")
     else:
         for name in hdr_labels:
-            # ヘッダ8バイトを SEND で送る
+            # ヘッダ5バイトを SEND で送る（1.36節の形式）
             a.ld_hl(name)
-            a.ld_b(8)
+            a.ld_b(5)
             a.label(f"_hdrsend_{name}")
             a.ld_a_hl()
             a.call("SEND_MAIN")

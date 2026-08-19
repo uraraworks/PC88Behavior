@@ -83,7 +83,7 @@ overall_rc=0
 # --------------------------------------------------------------------
 say "自作サブROM + 試験用mainドライバ + 自作テストディスクを組み立てる"
 mkdir -p "$WORK/rom_ok"
-python3 "$GEN_SUB" "$WORK/rom_ok" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_ok" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_ok" --requests "$REQUESTS" || exit 1
 python3 "$GEN_DISK" "$WORK/test.d88" || exit 1
 
@@ -159,7 +159,7 @@ fi
 # 見る。
 say "ディスパッチャの戻り先: 割り込みシナリオを挟んでも通常の要求列が壊れないか"
 mkdir -p "$WORK/rom_dispatch_ok"
-python3 "$GEN_SUB" "$WORK/rom_dispatch_ok" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_dispatch_ok" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_dispatch_ok" --requests "$REQUESTS" --dispatch-switch-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_dispatch_ok" --disk "$WORK/test.d88" \
@@ -175,7 +175,7 @@ fi
 
 say "検出力の確認: 修正前と同型の版（--break-dispatch-return）で同じシナリオが落ちるか"
 mkdir -p "$WORK/rom_dispatch_broken"
-python3 "$GEN_SUB" "$WORK/rom_dispatch_broken" --break-dispatch-return || exit 1
+python3 "$GEN_SUB" "$WORK/rom_dispatch_broken" --break-dispatch-return --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_dispatch_broken" --requests "$REQUESTS" --dispatch-switch-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_dispatch_broken" --disk "$WORK/test.d88" \
@@ -207,7 +207,7 @@ fi
 # 送るrunを再現する。
 say "run境界: 連続SENDの継続バイトで0Fを省略してもデッドロックしないか"
 mkdir -p "$WORK/rom_run_cont"
-python3 "$GEN_SUB" "$WORK/rom_run_cont" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_run_cont" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_run_cont" --requests "$REQUESTS" --run-continuation-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_run_cont" --disk "$WORK/test.d88" \
@@ -223,7 +223,7 @@ fi
 
 say "検出力の確認: 修正前と同型の版（--break-run-continuation）で同じシナリオが落ちるか"
 mkdir -p "$WORK/rom_run_cont_broken"
-python3 "$GEN_SUB" "$WORK/rom_run_cont_broken" --break-run-continuation || exit 1
+python3 "$GEN_SUB" "$WORK/rom_run_cont_broken" --break-run-continuation --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_run_cont_broken" --requests "$REQUESTS" --run-continuation-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_run_cont_broken" --disk "$WORK/test.d88" \
@@ -244,7 +244,7 @@ fi
 # --------------------------------------------------------------------
 say "わざと壊す: 応答の先頭バイトを1ビット反転させた版で検証が落ちるか"
 mkdir -p "$WORK/rom_broken"
-python3 "$GEN_SUB" "$WORK/rom_broken" --break-response || exit 1
+python3 "$GEN_SUB" "$WORK/rom_broken" --break-response --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_broken" --requests "$REQUESTS" || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_broken" --disk "$WORK/test.d88" \
@@ -282,7 +282,7 @@ fi
 # 正しく1バイトで打ち切れるかを見る。
 say "SENSE INTERRUPT STATUSの結果バイト数: 保留中の割り込みが無い状況を挟んでも壊れないか"
 mkdir -p "$WORK/rom_sense_int_ok"
-python3 "$GEN_SUB" "$WORK/rom_sense_int_ok" --inject-spurious-sense-int || exit 1
+python3 "$GEN_SUB" "$WORK/rom_sense_int_ok" --inject-spurious-sense-int --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_sense_int_ok" --requests "$REQUESTS" || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_sense_int_ok" --disk "$WORK/test.d88" \
@@ -299,7 +299,7 @@ fi
 say "検出力の確認: 修正前と同型の版（--break-sense-int-result-count）で同じシナリオを走らせる"
 mkdir -p "$WORK/rom_sense_int_broken"
 python3 "$GEN_SUB" "$WORK/rom_sense_int_broken" \
-    --inject-spurious-sense-int --break-sense-int-result-count || exit 1
+    --inject-spurious-sense-int --break-sense-int-result-count --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_sense_int_broken" --requests "$REQUESTS" || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_sense_int_broken" --disk "$WORK/test.d88" \
@@ -355,7 +355,7 @@ say "検出力の確認: 旧構造（--break-fdc-timeout-reads-anyway）はタ�
 mkdir -p "$WORK/rom_fdc_timeout_broken"
 python3 "$GEN_SUB" "$WORK/rom_fdc_timeout_broken" \
     --inject-spurious-sense-int --break-sense-int-result-count \
-    --break-fdc-timeout-reads-anyway || exit 1
+    --break-fdc-timeout-reads-anyway --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_fdc_timeout_broken" --requests "$REQUESTS" || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_fdc_timeout_broken" --disk "$WORK/test.d88" \
@@ -417,14 +417,14 @@ fi
 # ように仕組む。
 say "run境界: 2+1+5バイトの独立した3ラウンドを挟んでも通算8バイトに取り違えないか"
 mkdir -p "$WORK/rom_fbc_ok"
-python3 "$GEN_SUB" "$WORK/rom_fbc_ok" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_fbc_ok" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_fbc_ok" --requests "$REQUESTS" --fixed-byte-cutoff-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_fbc_ok" --disk "$WORK/test.d88" \
     --frames "$FRAMES" --io-log "$WORK/fbc_ok.iolog.txt" \
     >"$WORK/fbc_ok.stdout.txt" 2>"$WORK/fbc_ok.stderr.txt"
 
-if python3 "$CHECK" "$WORK/fbc_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 3; then
+if python3 "$CHECK" "$WORK/fbc_ok.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 260; then
   ok "2+1+5バイトの3ラウンドのあとも通常の3要求が正しく完了した（run境界駆動、現行実装）"
 else
   ng "2+1+5バイトの3ラウンドを挟むと現行実装でも要求列が壊れた"
@@ -440,7 +440,7 @@ python3 "$GEN_MAIN" "$WORK/rom_fbc_broken" --requests "$REQUESTS" --fixed-byte-c
     --frames "$FRAMES" --io-log "$WORK/fbc_broken.iolog.txt" \
     >"$WORK/fbc_broken.stdout.txt" 2>"$WORK/fbc_broken.stderr.txt"
 
-if python3 "$CHECK" "$WORK/fbc_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 3 >"$WORK/fbc_broken.check.txt" 2>&1; then
+if python3 "$CHECK" "$WORK/fbc_broken.iolog.txt" --requests "$REQUESTS" --skip-prefix-bytes 260 >"$WORK/fbc_broken.check.txt" 2>&1; then
   ng "修正前相当の版が2+1+5バイトシナリオでも誤ってPASSした（回帰テストが検出力を持たない）"
   cat "$WORK/fbc_broken.check.txt"
   overall_rc=1
@@ -464,7 +464,7 @@ fi
 POST_BULK_REQUEST="5:6"   # cyl:sec。make_l3_testdisk.pyの範囲内(cyl<8,sec 1-8)
 say "1.36節: 先頭バイト0x02・長さ5のrunから正しい座標([論理トラック,R])が作られるか"
 mkdir -p "$WORK/rom_pbr_ok"
-python3 "$GEN_SUB" "$WORK/rom_pbr_ok" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_pbr_ok" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_pbr_ok" --requests "$POST_BULK_REQUEST" --post-bulk-read-test || exit 1
 
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_pbr_ok" --disk "$WORK/test.d88" \
@@ -504,7 +504,7 @@ fi
 # --------------------------------------------------------------------
 say "書き込み経路: 受信列の末尾256バイトをそのままWRITE DATAへ流すか"
 mkdir -p "$WORK/rom_write"
-python3 "$GEN_SUB" "$WORK/rom_write" || exit 1
+python3 "$GEN_SUB" "$WORK/rom_write" --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_write" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write" --disk "$WORK/write.d88" \
@@ -519,7 +519,7 @@ fi
 
 say "検出力の確認: データ部の窓を1バイトずらした版が不一致として検出されること"
 mkdir -p "$WORK/rom_write_broken"
-python3 "$GEN_SUB" "$WORK/rom_write_broken" --break-write-data-window || exit 1
+python3 "$GEN_SUB" "$WORK/rom_write_broken" --break-write-data-window --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_write_broken" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write_broken.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_broken" --disk "$WORK/write_broken.d88" \
@@ -534,7 +534,7 @@ fi
 
 say "検出力の確認: 座標の導出を壊した版が不一致として検出されること"
 mkdir -p "$WORK/rom_write_coords"
-python3 "$GEN_SUB" "$WORK/rom_write_coords" --break-write-coords || exit 1
+python3 "$GEN_SUB" "$WORK/rom_write_coords" --break-write-coords --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_write_coords" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write_coords.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_coords" --disk "$WORK/write_coords.d88" \
@@ -549,7 +549,7 @@ fi
 
 say "検出力の確認: 書き込み応答を送らない版が不一致として検出されること"
 mkdir -p "$WORK/rom_write_ack"
-python3 "$GEN_SUB" "$WORK/rom_write_ack" --break-write-ack || exit 1
+python3 "$GEN_SUB" "$WORK/rom_write_ack" --break-write-ack --force-post-bulk-active || exit 1
 python3 "$GEN_MAIN" "$WORK/rom_write_ack" --requests "3:5" --write-test || exit 1
 cp "$WORK/test.d88" "$WORK/write_ack.d88"
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_write_ack" --disk "$WORK/write_ack.d88" \
