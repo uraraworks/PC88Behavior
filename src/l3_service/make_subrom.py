@@ -714,6 +714,15 @@ BULK_READ_TABLE = (
 # 導くようにしたため不要になり削除した。番地は空きのまま残す。
 BULK_POSITION1_OBSERVED_RESPONSE = int(
     os.environ.get("PC88_BULK_POSITION1_CANDIDATE", "136"), 0) & 0xFF
+# 第61版・m7bc: バルクのプリアンブル3件目の**$FD側**（main IN $FC）の値。
+# 1件目・2件目の$FD側は実測で0x00だったが、3件目は近傍のどのバイトとも
+# 一致しなかった。BULK_POSITION1と同じ**ブラックボックス介入（候補総当たり）**
+# で決めた。**256候補の総当たりで114だけが当たり**——他の255候補は
+# `main IN $FC` の一致プレフィックスが781で止まるのに対し、114だけが
+# 自作が出す全イベント(6414件)まで一致した。値の意味は未確定。
+# -1 を渡すと「従来どおり$FC側と同じ値を書く」（介入用）。
+BULK_POSITION3_FD_CANDIDATE = int(
+    os.environ.get("PC88_BULK_POSITION3_FD_CANDIDATE", "114"), 0)
 # 第53版・m7aq: 既定を1→4へ上げた。m7ap でフェッチ窓(0x0800)の超過を
 # 解消した結果、READ#3〜#5が初めて実行できるようになり、混成ROM実走で
 # main `IN $FD` の先頭一致が 1282(LIMIT=1) → 3330(2) → 5378(3) →
@@ -2136,14 +2145,18 @@ def build_subrom(break_write_ack=False,
     a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
     a.out_imm(0xFF, PH_SEND_DATA_SET)    # 09
     a.call("WAIT_FE_RECV_DATA_READY")   # bit0=1
-    a.ld_a_hl()                          # 偶数側（main IN $FC）をCへ退避
-    a.ld_c_a()
+    # ---- 第61版・m7bc: 2本のチャンネルへ送るバイトの組み方を訂正した。
+    # 第60版までは「偶数バイトを $FD、奇数バイトを $FC」に振り分けていたが、
+    # 実測では**公式は $FC に送ったバイトの「次」のバイトを $FD に送る**。
+    # 公式の$FD列と自作の$FD列を照合すると 公式[i] == 自作[i+1] が
+    # 2998/3000(99.9%)で成立した——つまり自作は$FD側だけ1バイト手前を
+    # 送っていた。$FC側（適合条件1の対象、5635件）はこの訂正で変わらない。
     a.inc_hl()
-    a.ld_a_hl()                          # 奇数側（main IN $FD）
+    a.ld_a_hl()                          # D[2i+1] → $FC（main IN $FD）
     a.out_a(P_PIO_A)
-    a.ld_a_c()
-    a.out_a(P_PIO_B)
     a.inc_hl()
+    a.ld_a_hl()                          # D[2i+2] → $FD（main IN $FC）
+    a.out_a(P_PIO_B)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)    # 08
     a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
     a.ret()
@@ -2154,6 +2167,8 @@ def build_subrom(break_write_ack=False,
     a.call("WAIT_FE_RECV_DATA_READY")
     a.ld_a_hl()
     a.out_a(P_PIO_A)
+    if BULK_POSITION3_FD_CANDIDATE >= 0:
+        a.ld_a(BULK_POSITION3_FD_CANDIDATE & 0xFF)
     a.out_a(P_PIO_B)
     a.inc_hl()
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
@@ -2184,6 +2199,10 @@ def build_subrom(break_write_ack=False,
     a.call("WAIT_FE_RECV_DATA_READY")
     a.ld_a(BULK_POSITION1_OBSERVED_RESPONSE)
     a.out_a(P_PIO_A)
+    # 第61版・m7bc: 2本のチャンネルは別の値を運ぶ。$FD側（main IN $FC）は
+    # 実測で 0x00 だった（プリアンブル1件目）。第60版までは$FC側と同じ値を
+    # 両方へ書いていた。
+    a.ld_a(0x00)
     a.out_a(P_PIO_B)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
     a.call("WAIT_FE_RECV_ACK_DONE")
@@ -2195,6 +2214,7 @@ def build_subrom(break_write_ack=False,
     a.call("WAIT_FE_RECV_DATA_READY")
     a.ld_a(5632 // 256)                # 第46版: 定常転送組数
     a.out_a(P_PIO_A)
+    a.ld_a(0x00)                       # 第61版・m7bc: $FD側は実測で0x00
     a.out_a(P_PIO_B)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
     a.call("WAIT_FE_RECV_ACK_DONE")
