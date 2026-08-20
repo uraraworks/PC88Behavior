@@ -114,10 +114,14 @@ s = open(p, encoding='utf-8').read()
 $2
 open(p, 'w', encoding='utf-8').write(s)
 PYEOF
-  # ヘッダ依存漏れでの再ビルド漏れ事故(4982ad8)があった箇所と同種の罠を
-  # 避けるため、当該 .o を消してから確実に再コンパイルさせる。
-  rm -f "$dst/src/pc88main.o"
-  ( cd "$dst" && make $PLATFORM_ARG -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" \
+  # ヘッダ依存漏れでの再ビルド漏れ事故(4982ad8)と、直前の別selftestが
+  # 残した異なるビルド条件の.o混在を避ける。コピー先だけをcleanし、
+  # 全オブジェクトを同じ条件で確実に再コンパイルする。
+  local build_jobs
+  build_jobs="$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+  ( cd "$dst" && make $PLATFORM_ARG clean >"$WORK/clean-$variant.log" 2>&1 ) \
+    || { echo "NG: $variant のcleanに失敗。ログ: $WORK/clean-$variant.log" >&2; exit 1; }
+  ( cd "$dst" && make $PLATFORM_ARG -j"$build_jobs" \
       >"$WORK/build-$variant.log" 2>&1 ) \
     || { echo "NG: $variant のビルドに失敗。ログ: $WORK/build-$variant.log" >&2; \
          grep -i error "$WORK/build-$variant.log" >&2 || true; exit 1; }

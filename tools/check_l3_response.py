@@ -3,16 +3,13 @@
 check_l3_response.py — tools/verify_l3.sh の判定部分
 
 自作サブROM（`src/l3_service/make_subrom.py`）が、試験用 main ドライバ
-（`tools/make_l3_test_main.py`）からの交換#3/#4要求に対して、
+（`tools/make_l3_test_main.py`）からの1.36・1.37節のREAD要求に対して、
 自作テストディスク（`tools/make_l3_testdisk.py`）の内容どおりに
-交換#3で1バイト、交換#4で256バイトを正しく応答しているかを、
+ack `0xC0`を1バイト、続いて256バイトを正しく応答しているかを、
 `--io-log` の main 側 `IN $FC` 列から機械的に判定する。
 
-交換#3の1バイトは意味・値とも未確定なので値一致の対象にしない。ただし、
-各要求につきその位置に厳密に1バイト存在し、その直後の256バイトが自作
-ディスクの規則生成値と全件一致することを要求する。これは期待を弱める
-処置ではなく、m7kで確定した交換境界（交換#3=応答1バイト、交換#4=応答
-256バイト）へ旧期待を訂正する処置である。
+各要求につき1.37節で確定したack `0xC0`がその位置に厳密に1バイト存在し、
+その直後の256バイトが自作ディスクの規則生成値と全件一致することを要求する。
 
 判定は「mainが最終的に受け取るデータ列」だけを見る
 （`docs/spec/l3-subrom.md` 5.1節の原則と同じ型）。
@@ -74,7 +71,7 @@ def main() -> int:
 
     print(f"要求: {requests}")
     expected_count = len(requests) * 257
-    print(f"期待応答数: {expected_count}（交換#3: 1 + 交換#4: 256）x {len(requests)}"
+    print(f"期待応答数: {expected_count}（ack 0xC0: 1 + データ: 256）x {len(requests)}"
           f" / 受信バイト数: {len(got)}")
 
     if len(got) != expected_count:
@@ -82,18 +79,20 @@ def main() -> int:
         return 1
 
     for req_idx, (c, s) in enumerate(requests):
-        # 各257件の先頭は交換#3の意味未特定応答。存在と位置だけを検査し、
-        # 値は仕事3でブラックボックス介入により確定するまで期待しない。
+        ack = got[req_idx * 257]
+        if ack != 0xC0:
+            print(f"不一致: 要求{req_idx}=cyl{c}:sec{s} のack"
+                  f" 期待=C0 実際={ack:02X}")
+            return 1
         sector = got[req_idx * 257 + 1:(req_idx + 1) * 257]
         expected_sector = sector_pattern(c, s)
         for off, (expected, actual) in enumerate(zip(expected_sector, sector)):
             if expected != actual:
-                print(f"不一致: 要求{req_idx}=cyl{c}:sec{s} の交換#4応答 {off} バイト目"
+                print(f"不一致: 要求{req_idx}=cyl{c}:sec{s} のデータ応答 {off} バイト目"
                       f" 期待={expected:02X} 実際={actual:02X}")
                 return 1
 
-    print(f"一致: 交換#3の構造 {len(requests)} 件 + "
-          f"交換#4の値 {len(want)} バイト全件")
+    print(f"一致: ack 0xC0 {len(requests)} 件 + データ {len(want)} バイト全件")
     return 0
 
 

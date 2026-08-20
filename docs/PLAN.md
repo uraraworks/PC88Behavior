@@ -913,13 +913,17 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    1バイト→256バイト送信）へ移った。詳細は
    [docs/notes/m7bk-post-bulk-read-coordinates-fixed.md](notes/m7bk-post-bulk-read-coordinates-fixed.md)。
 
-   **次の一手**: m7blの新規3条件測定で、READ完了後はsub視点で
-   `IN $FC=0x06`→`OUT $FD=0xC0`→`IN $FC=0x12`→`OUT $FD` 256件と確定した。
-   256件送信の直接トリガは、今回観測したバルク後READ完了状態では`0x12`である。
-   次の実装サイクルでこの状態遷移をバルク後に限定して接続し、公式mainとの
-   混成実走でm7bkの停止点を越えて256件送信まで構造一致するか確認する。
-   値の意味と、`0x12`を他状態へ一般化できるかは未確定なので外挿しない。
-   詳細は[docs/notes/m7bl-post-read-response.md](notes/m7bl-post-read-response.md)。
+   **次の一手**: m7bmで1.37節を実装した（バルク完走後のゲート付き。
+   実測はバルク後最初のREAD 1回だが、実装は一般READ完了のたびに
+   `0x06`待ちへ再アームする——測定範囲を越えた実装上の選択）。
+   起動時バルクは5635件・SHA-256一致を維持し、READ結果263件後の
+   `0x06`→`0xC0`→`0x12`→送信256件まで進んだ。送信256件は公式と
+   256/256位置一致し、その後のsub側残り15ランにも構造的分岐は無い。
+   次の差は256件送信後のmain側・畳み込み後71件目（公式`OUT $31`、
+   混成`OUT $32`）。この位置を新しい基準点として、直前の要求・応答構造を
+   値を出さずに分類する。原因は推測で実装しない。
+   詳細は[docs/notes/m7bm-post-read-response-implementation.md](notes/m7bm-post-read-response-implementation.md)。
+   測定根拠は[docs/notes/m7bl-post-read-response.md](notes/m7bl-post-read-response.md)。
    詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。

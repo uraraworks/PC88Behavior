@@ -93,7 +93,6 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
 
   rc_c="$(LC_ALL=C bash "$s" >/tmp/rst_c.$$ 2>&1; echo $?)"
   rc_u="$(LC_ALL=ja_JP.UTF-8 bash "$s" >/tmp/rst_u.$$ 2>&1; echo $?)"
-  rm -f /tmp/rst_c.$$ /tmp/rst_u.$$
 
   if [ "$rc_c" != "$rc_u" ]; then
     verdict="NG(ロケール不一致 C=$rc_c UTF-8=$rc_u)"
@@ -108,6 +107,13 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
   fi
 
   printf '%-45s %6s %6s %8s %s\n' "$s" "$rc_c" "$rc_u" "$expected" "$verdict"
+  if [ "$rc_c" != "$expected" ] || [ "$rc_u" != "$expected" ]; then
+    echo "  --- Cロケール出力（末尾20行） ---"
+    tail -20 /tmp/rst_c.$$
+    echo "  --- UTF-8ロケール出力（末尾20行） ---"
+    tail -20 /tmp/rst_u.$$
+  fi
+  rm -f /tmp/rst_c.$$ /tmp/rst_u.$$
 done
 
 if [ "$overall" != "0" ]; then

@@ -17,10 +17,10 @@ SEND/RECV 手順を、そのまま Z80 コードに書き起こしただけの�
   踏む相手に対して正しく応答するか」を検証できる（L1 の
   `tools/verify_l1.sh` が公式ROM無しで検証できているのと同じ型）。
 
-やること: 固定した (シリンダ, セクタ) の列について、8バイトヘッダ
-（座標は仕様書1.29節の位置4/6へ置く）を SEND で送り、
-交換#3の1バイト応答をRECVする。続けて交換#4の2バイト要求をSENDし、
-256バイトの応答を RECV で受け取って、その場で捨てて次へ進む。
+やること: 固定した (シリンダ, セクタ) の列について、仕様書1.36節の
+5バイトREAD要求をSENDする。結果部の後、1.37節どおり`0x06`をSENDして
+`0xC0`をRECVし、`0x12`をSENDして256バイトの応答をRECVする。
+受け取った256バイトはその場で捨てて次へ進む。
 受け取った値そのものは `--io-log` の main 側 IN $FC 列に残るので、
 判定は verify_l3.sh 側（ログを読む）で行う。
 
@@ -94,9 +94,9 @@ SEND/RECVを組み合わせられる）で再現したものであり、「1バ�
 1節は、複数バイトを連続送信する場面ではこの省略が**先頭バイト以外の
 継続バイトで**高い比率（4条件で84〜99%）で起きることを確認している。
 本シナリオはこれを、mainの手順として正当な範囲内（1.10節が明記する
-「省略される場合あり」の範囲内）で再現する: 8バイトの読み出し要求
+「省略される場合あり」の範囲内）で再現する: 5バイトの読み出し要求
 ヘッダを送る際、**1バイト目だけ通常のSEND（`OUT $FF 0F`を含む）**、
-**2〜8バイト目は`OUT $FF 0F`を省略したSEND**で送る。旧実装
+**2〜5バイト目は`OUT $FF 0F`を省略したSEND**で送る。旧実装
 （RECVを1回終えるたびに無条件でIDLE_DISPATCHへ戻り、そこで
 何も書かずに`$FE`を読みに行くだけの構造）は、mainが継続バイトの
 `bit1=1`待ち（`OUT $FF 0F`を省略した直後の待ち）に入っているのに
@@ -220,16 +220,15 @@ HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突�
 def build(requests, dispatch_switch_test=False, run_continuation_test=False,
           fixed_byte_cutoff_test=False, write_test=False,
           post_bulk_read_test=False):
-    """requests: [(cyl, sec), ...] の列。交換#3/#4を経て256バイト受ける。
+    """requests: [(cyl, sec), ...] の列。1.36・1.37節に従い256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
-    起動直後のSEND1回のあと、通常の要求ループへ入る前に「8バイトの
-    ヘッダをSENDし、応答の1バイト目だけRECVしてすぐ次へ進む」割り込み
-    シナリオを1回挟む。
+    起動直後のSEND1回のあと、通常の要求ループへ入る前に5バイトREADと
+    1.37節の応答交換を1組完遂するシナリオを挟む。
 
     run_continuation_test: 上のdocstring「--run-continuation-test」参照。
-    8バイトヘッダの1バイト目だけ通常のSEND(`OUT $FF 0F`あり)、
-    2〜8バイト目は`OUT $FF 0F`を省略したSENDで送り、応答256バイトを
+    5バイトヘッダの1バイト目だけ通常のSEND(`OUT $FF 0F`あり)、
+    2〜5バイト目は`OUT $FF 0F`を省略したSENDで送り、応答256バイトを
     全部RECVしてから通常の要求ループへ入る。
 
     fixed_byte_cutoff_test: 上のdocstring「--fixed-byte-cutoff-test」参照。
@@ -237,10 +236,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     1バイトRECV）を送り、通常の要求ループへ入る前に挟む。
 
     post_bulk_read_test: 仕様書1.36節（バルク直後の受信runは先頭バイトの
-    表引きでrun長・座標フィールド位置が決まる）の回帰テスト。8バイト
-    固定ヘッダの交換#3/#4経路とは別に、先頭バイト0x02・長さ5のrunを
+    表引きでrun長・座標フィールド位置が決まる）の回帰テスト。先頭バイト
+    0x02・長さ5のrunを
     直接送り、末尾2バイト([論理トラック,R])から作られる座標のセクタが
-    続く2バイト要求で正しく返るかを見る。requests[0]の(cyl,sec)を
+    1.37節の0x06/C0/0x12交換後に正しく返るかを見る。requests[0]の(cyl,sec)を
     論理トラック=cyl*2(H=0固定)・R=secへ変換して埋め込む。起動直後の
     最初の単発応答はROUND0専用経路（仕様書1.11節、本節とは無関係）が
     横取りするため、まず空の1バイトrunでそれを1回消費してから本題の
@@ -375,9 +374,8 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         track = (cyl * 2) & 0xFF   # H=0固定
         a.db(0x02, 0x00, 0x00, track, sec & 0xFF)
 
-    # 仕様書1.23節で確定している交換#4要求の長さは2バイトである。
-    # 値の意味は未確定なので、この自己検証治具では任意の固定値を用いる。
-    # 自作同士の試験に過ぎず公式mainとの適合根拠にはしない。
+    # 起動時交換#3を明示的に閉じる旧回帰シナリオ専用。一般READ完了後は
+    # 1.37節の0x06/C0/0x12交換を使い、この2バイト要求は使わない。
     a.label("EXCHANGE4_REQUEST")
     a.db(0x00, 0x00)
 
@@ -478,11 +476,17 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.ld_a(0x00)
     a.call("SEND_MAIN")
 
+    def emit_post_read_exchange() -> None:
+        """仕様書1.37節のREAD完了後交換を、その確定値どおりに生成する。"""
+        a.ld_a(0x06)
+        a.call("SEND_MAIN")
+        a.call("RECV_MAIN")
+        a.ld_a(0x12)
+        a.call("SEND_MAIN")
+
     if dispatch_switch_test:
         # 割り込みシナリオ（上のdocstring「--dispatch-switch-test」参照）:
-        # 交換#3/#4を1組完遂してから次へ進む。第38版以前は8バイト要求の
-        # 直後に256バイト応答が来る旧境界を前提に途中で打ち切っていたが、
-        # 現仕様では交換#4の2バイト要求なしに多バイト応答を始めてはならない。
+        # 5バイトREADと1.37節の交換を1組完遂してから次へ進む。
         a.ld_hl(dispatch_switch_hdr)
         a.ld_b(5)
         a.label("_dsw_hdrsend")
@@ -490,14 +494,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.call("SEND_MAIN")
         a.inc_hl()
         a.djnz("_dsw_hdrsend")
-        a.call("RECV_MAIN")   # 交換#3の単発応答
-        a.ld_hl("EXCHANGE4_REQUEST")
-        a.ld_b(2)
-        a.label("_dsw_exchange4_send")
-        a.ld_a_hl()
-        a.call("SEND_MAIN")
-        a.inc_hl()
-        a.djnz("_dsw_exchange4_send")
+        emit_post_read_exchange()
         a.ld_b(0x80)
         a.label("_dsw_exchange4_recv")
         a.call("RECV_MAIN_PAIR")
@@ -505,9 +502,8 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
 
     if run_continuation_test:
         # runシナリオ（上のdocstring「--run-continuation-test」参照）:
-        # 1バイト目だけ通常のSEND(0Fあり)、2〜8バイト目は0Fを省略した
-        # SENDでヘッダを送り、交換#3の1バイトを受ける。交換#4の2バイト
-        # 要求を続け、256バイトを全部RECVする。
+        # 1バイト目だけ通常のSEND(0Fあり)、2〜5バイト目は0Fを省略して
+        # 5バイトヘッダを送り、1.37節の交換後に256バイトを全部RECVする。
         a.ld_hl(run_cont_hdr)
         a.ld_a_hl()
         a.call("SEND_MAIN")          # 1バイト目(先頭): 0Fあり
@@ -515,18 +511,11 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.ld_b(4)
         a.label("_rct_hdrsend_cont")
         a.ld_a_hl()
-        a.call("SEND_MAIN_CONT")     # 2〜8バイト目(継続): 0Fを省略
+        a.call("SEND_MAIN_CONT")     # 2〜5バイト目(継続): 0Fを省略
         a.inc_hl()
         a.djnz("_rct_hdrsend_cont")
 
-        a.call("RECV_MAIN")
-        a.ld_hl("EXCHANGE4_REQUEST")
-        a.ld_b(2)
-        a.label("_rct_exchange4_send")
-        a.ld_a_hl()
-        a.call("SEND_MAIN")
-        a.inc_hl()
-        a.djnz("_rct_exchange4_send")
+        emit_post_read_exchange()
 
         a.ld_b(0x80)
         a.label("_rct_resprecv")
@@ -588,18 +577,8 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.inc_hl()
         a.djnz("_pbr_hdrsend")
 
-        # 直後の単発応答（意味未特定、1.36節・m7bjは値を見ていない）。
-        a.call("RECV_MAIN")
-
-        # 続く2バイト要求で256バイト応答を開始させる
-        # （_recv_dispatch_maybe_exchange4、交換#4と同じ一般機構）。
-        a.ld_hl("EXCHANGE4_REQUEST")
-        a.ld_b(2)
-        a.label("_pbr_exchange4_send")
-        a.ld_a_hl()
-        a.call("SEND_MAIN")
-        a.inc_hl()
-        a.djnz("_pbr_exchange4_send")
+        # 1.37節: 0x06送信→0xC0受信→0x12送信で256件を起動する。
+        emit_post_read_exchange()
 
         a.ld_b(0x80)
         a.label("_pbr_resprecv")
@@ -616,20 +595,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
             a.inc_hl()
             a.djnz(f"_hdrsend_{name}")
 
-            # 交換#3の意味未特定応答を1バイトRECVする。
-            a.call("RECV_MAIN")
+            # 1.37節: 0x06送信→0xC0受信→0x12送信で256件を起動する。
+            emit_post_read_exchange()
 
-            # 交換#4の2バイト要求をSENDする。値は未確定だが、現行仕様と実装が
-            # 確定している交換境界・応答長を自己検証するため長さを厳密に守る。
-            a.ld_hl("EXCHANGE4_REQUEST")
-            a.ld_b(2)
-            a.label(f"_exchange4_send_{name}")
-            a.ld_a_hl()
-            a.call("SEND_MAIN")
-            a.inc_hl()
-            a.djnz(f"_exchange4_send_{name}")
-
-            # 交換#4応答256バイトを RECV する（内容は iolog に残る）。
+            # データ応答256バイトを RECV する（内容は iolog に残る）。
             a.ld_b(0x80)
             a.label(f"_resprecv_{name}")
             a.call("RECV_MAIN_PAIR")
