@@ -46,3 +46,6 @@ __pycache__/
 # ハーネスのビルド成果物
 tools/harness/frontend/q88measure
 tools/harness/frontend/q88measure.d
+
+# 自己検査が一時的に作る故障注入版（並行実行中に git add -A で拾った実績あり）
+tools/.*_broken_selftest.py
