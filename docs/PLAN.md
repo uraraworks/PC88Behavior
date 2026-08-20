@@ -913,9 +913,13 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    1バイト→256バイト送信）へ移った。詳細は
    [docs/notes/m7bk-post-bulk-read-coordinates-fixed.md](notes/m7bk-post-bulk-read-coordinates-fixed.md)。
 
-   **次の一手**: READ完了後の応答を測る——受信1/送信1/受信1/送信256の
-   並びで、256バイト送信を起動する受信バイトが何か、ackの値は何かを
-   実測する（`PC88_REF_ROM_DIR` / `PC88_REF_DISK_DIR`が要る）。
+   **次の一手**: m7blの新規3条件測定で、READ完了後はsub視点で
+   `IN $FC=0x06`→`OUT $FD=0xC0`→`IN $FC=0x12`→`OUT $FD` 256件と確定した。
+   256件送信の直接トリガは、今回観測したバルク後READ完了状態では`0x12`である。
+   次の実装サイクルでこの状態遷移をバルク後に限定して接続し、公式mainとの
+   混成実走でm7bkの停止点を越えて256件送信まで構造一致するか確認する。
+   値の意味と、`0x12`を他状態へ一般化できるかは未確定なので外挿しない。
+   詳細は[docs/notes/m7bl-post-read-response.md](notes/m7bl-post-read-response.md)。
    詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
    詳細は[docs/notes/m7bf-general-read-path.md](notes/m7bf-general-read-path.md)。

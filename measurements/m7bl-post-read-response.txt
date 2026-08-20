@@ -1,0 +1,33 @@
+# READ完了後の応答（記号版）
+
+基準: 起動時高速バルク後、最初のREAD DATAのFDC結果263件目の直後
+位置: 基準後のsubデータイベント（IN $FC / OUT $FD）を1始まりで数える
+
+## boot1
+検出開始位置: 1
+受信1 (sub IN $FC): 0x06
+送信1 ack (sub OUT $FD): 0xC0
+受信1 trigger (sub IN $FC): 0x12
+送信データ (sub OUT $FD): 256件（値は非出力）
+起動条件: trigger受信の直後に256件送信を開始
+
+## boot2
+検出開始位置: 1
+受信1 (sub IN $FC): 0x06
+送信1 ack (sub OUT $FD): 0xC0
+受信1 trigger (sub IN $FC): 0x12
+送信データ (sub OUT $FD): 256件（値は非出力）
+起動条件: trigger受信の直後に256件送信を開始
+
+## files
+検出開始位置: 1
+受信1 (sub IN $FC): 0x06
+送信1 ack (sub OUT $FD): 0xC0
+受信1 trigger (sub IN $FC): 0x12
+送信データ (sub OUT $FD): 256件（値は非出力）
+起動条件: trigger受信の直後に256件送信を開始
+
+READ完了後受信値の相異数: 1 (0x06)
+ack値の相異数: 1 (0xC0)
+trigger値の相異数: 1 (0x12)
+条件間一致: 一致
