@@ -126,7 +126,7 @@ for fault in swap_response swap_send_kind short_compare; do
   if [ "$rc" -eq 10 ]; then
     ok "陽性対照 '$fault': 期待どおり不一致として検出された"
   else
-    ng "陽性対照 '$fault': 比較不一致で検出できなかった（rc=$rc、例外なら陽性対照の空振り）"
+    ng "陽性対照 '$fault': 比較不一致で検出できなかった（rc=${rc}、例外なら陽性対照の空振り）"
     overall_rc=1
   fi
 done
