@@ -919,10 +919,36 @@ READ#4/#5の完走で消滅。LIMIT=4の実走はLIMIT=1より短い）。
    起動時バルクは5635件・SHA-256一致を維持し、READ結果263件後の
    `0x06`→`0xC0`→`0x12`→送信256件まで進んだ。送信256件は公式と
    256/256位置一致し、その後のsub側残り15ランにも構造的分岐は無い。
-   次の差は256件送信後のmain側・畳み込み後71件目（公式`OUT $31`、
-   混成`OUT $32`）。この位置を新しい基準点として、直前の要求・応答構造を
-   値を出さずに分類する。原因は推測で実装しない。
+   **その次の差（畳み込み後71件目、公式`OUT $31`／混成`OUT $32`）は
+   追う価値の無い指標だった（m7bn〜m7br、2026-08-20）。** 順に、
+   mainが受け取る値は1/1一致（m7bn）、応答を2ポーリング遅らせても
+   分岐は動かず（m7bo）、未比較だった`$FE`の値差とループ継続を特定し
+   （m7bp）、余分な`OUT $FF=0B`を除去して`$FE`値を公式と一致させても
+   なおループは続いた（m7bq）。決着は割り込みログで付いた——**公式は
+   分岐の1 clock前にVSYNC（IM2/level1/handler `E808`）を受理して
+   `OUT $31`へ入っており、71件目の「分岐」は非同期割り込みが刺さった
+   位相の差だった**（m7br）。畳み込み列の添字はこの位相差に対して脆い。
+
+   **追うべきは、実行全体で最初の値差**（生時系列7034件目、frame 13、
+   `main IN $FE` pc=381C、公式`00`／混成`02`）である。原因は自作subの
+   空振り再アーム`OUT $FF=0B`で、起動条件では公式66件に対し自作80件
+   （不足0・余分14）だった。公式の`0B`は3条件1446件すべてが次の受信に
+   対応し空振り0件で、通常要求は「先頭バイト表の確定長に到達したら
+   再アームしない」、WRITEストリーミングは別の位置規則（位置1〜6と
+   8〜260の偶数）で、いずれも例外0件で説明できる（m7bs）。
+   余分14件のうち最初の1件だけを消す局所介入は、最初の値差を
+   7034→7036件目へ動かし適合条件1（5635件・SHA一致）も維持した。
+   一方、通常10種の表を自作の現行の累積状態（`REQ_HDR`/`RUN_LEN`は
+   交換#3で複数runを累積する）へ直接当てる全表介入は**起動時バルクが
+   0件へ後退**して失敗した。**公式のwindow(a) run境界を自作の内部状態で
+   どう保持するかが未測定**であり、ここが次の測定対象。推測で当てない。
    詳細は[docs/notes/m7bm-post-read-response-implementation.md](notes/m7bm-post-read-response-implementation.md)。
+   詳細は[docs/notes/m7bs-rearm-rule-and-first-difference-intervention.md](notes/m7bs-rearm-rule-and-first-difference-intervention.md)。
+   詳細は[docs/notes/m7br-earliest-nondata-and-interrupt.md](notes/m7br-earliest-nondata-and-interrupt.md)。
+   詳細は[docs/notes/m7bq-sub-ff-bit1-intervention.md](notes/m7bq-sub-ff-bit1-intervention.md)。
+   詳細は[docs/notes/m7bp-main-status-values-before-branch.md](notes/m7bp-main-status-values-before-branch.md)。
+   詳細は[docs/notes/m7bo-handshake-delay-intervention.md](notes/m7bo-handshake-delay-intervention.md)。
+   詳細は[docs/notes/m7bn-post-read-main-branch.md](notes/m7bn-post-read-main-branch.md)。
    測定根拠は[docs/notes/m7bl-post-read-response.md](notes/m7bl-post-read-response.md)。
    詳細は[docs/notes/m7bh-post-bulk-read-coordinates.md](notes/m7bh-post-bulk-read-coordinates.md)。
    詳細は[docs/notes/m7bg-six-byte-record-is-a-read.md](notes/m7bg-six-byte-record-is-a-read.md)。
