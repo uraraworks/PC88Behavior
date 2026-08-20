@@ -46,62 +46,66 @@ a.resolve()
 if fault == "swap_response":
     # 表の中の応答値の位置を1つ壊す（エントリ2の応答値を1ビット反転）
     base = a.labels["_observed_request_table"]
-    # エントリ0: run_len,n,期待値[n],種別,応答値
+    # エントリ0: run_len兼送信種別,期待値[n],応答値
     pos = base
     for i, (hdr, _resp) in enumerate(m.OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
         if i == 2:
-            a.code[pos + 2 + len(hdr) + 1] ^= 0x01   # 応答値
+            a.code[pos + 1 + len(hdr)] ^= 0x01   # 応答値
             break
-        pos += 2 + len(hdr) + 2
+        pos += 1 + len(hdr) + 1
 elif fault == "swap_send_kind":
     # 送信ルーチンの種別を全エントリで反転する
     pos = a.labels["_observed_request_table"]
     for hdr, _resp in m.OBSERVED_SINGLE_RESPONSE_BY_REQUEST:
-        a.code[pos + 2 + len(hdr)] ^= 0x01
-        pos += 2 + len(hdr) + 2
+        a.code[pos] ^= 0x80
+        pos += 1 + len(hdr) + 1
 elif fault == "short_compare":
-    # 比較バイト数を1つ減らす（部分一致で通してしまう壊し方）
-    pos = a.labels["_observed_request_table"]
-    for i, (hdr, _resp) in enumerate(m.OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
-        if i == 3 and len(hdr) > 1:
-            a.code[pos + 1] = len(hdr) - 1
-            break
-        pos += 2 + len(hdr) + 2
+    # 極小Z80側で各エントリの最終1バイト比較を省略する。
+    # 圧縮後の表はrun_lenと比較長が同じフィールドなので、表を書き換えると
+    # エントリ境界まで壊れて例外になる。それでは陽性対照にならない。
+    pass
 elif fault != "none":
     print(f"未知の故障注入モード: {fault}")
     sys.exit(2)
 
 bad = 0
 total = 0
+first_mismatch = None
+
+def check(run_len, hdr_bytes):
+    global bad, total, first_mismatch
+    total += 1
+    reason = probe.compare(a, run_len, hdr_bytes,
+                           short_compare=(fault == "short_compare"))
+    if reason:
+        bad += 1
+        if first_mismatch is None:
+            first_mismatch = reason
+
 # 1. 9グループそのもの
 for hdr, _resp in m.OBSERVED_SINGLE_RESPONSE_BY_REQUEST:
-    total += 1
-    if probe.compare(a, len(hdr), list(hdr) + [0xAA] * 8):
-        bad += 1
+    check(len(hdr), list(hdr) + [0xAA] * 8)
 # 2. 各バイトを1つずつ変えた全ケース
 for hdr, _resp in m.OBSERVED_SINGLE_RESPONSE_BY_REQUEST:
     for k in range(len(hdr)):
         for delta in (0x01, 0x80, 0xFF):
             mutated = list(hdr)
             mutated[k] = (mutated[k] ^ delta) & 0xFF
-            total += 1
-            if probe.compare(a, len(hdr), mutated + [0xAA] * 8):
-                bad += 1
+            check(len(hdr), mutated + [0xAA] * 8)
     # run_len だけ違うケース
     for rl in (0, 1, 2, 3, 8, 9, 255):
         if rl == len(hdr):
             continue
-        total += 1
-        if probe.compare(a, rl, list(hdr) + [0xAA] * 8):
-            bad += 1
+        check(rl, list(hdr) + [0xAA] * 8)
 # 3. どのグループにも一致しない要求
 for rl in range(0, 10):
-    total += 1
-    if probe.compare(a, rl, [0x5A] * 16):
-        bad += 1
+    check(rl, [0x5A] * 16)
 
 print(f"cases={total} mismatch={bad}")
-sys.exit(1 if bad else 0)
+if first_mismatch is not None:
+    print(f"first_mismatch={first_mismatch}")
+# 比較不一致は専用rcにする。Pythonの未捕捉例外はrc=1なので区別できる。
+sys.exit(10 if bad else 0)
 EOF
 }
 
@@ -119,10 +123,10 @@ for fault in swap_response swap_send_kind short_compare; do
   say "陽性対照: 故障注入 '$fault' で不一致が検出されること"
   out="$(run_probe "$fault")"; rc=$?
   echo "  $out"
-  if [ "$rc" -eq 1 ]; then
+  if [ "$rc" -eq 10 ]; then
     ok "陽性対照 '$fault': 期待どおり不一致として検出された"
   else
-    ng "陽性対照 '$fault': 壊したのに検出されなかった（検出力が無い）"
+    ng "陽性対照 '$fault': 比較不一致で検出できなかった（rc=$rc、例外なら陽性対照の空振り）"
     overall_rc=1
   fi
 done

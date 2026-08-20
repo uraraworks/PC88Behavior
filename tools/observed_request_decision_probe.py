@@ -41,7 +41,7 @@ class MiniZ80:
     STOP_SEND_TRACKED = "SEND_BOOT_SINGLE_TRACKED"
     STOP_FALLBACK = "_observed_request_next_9"
 
-    def __init__(self, code, labels, ram):
+    def __init__(self, code, labels, ram, short_compare=False):
         self.mem = bytearray(0x10000)
         self.mem[: len(code)] = bytes(code)
         for addr, val in ram.items():
@@ -54,6 +54,7 @@ class MiniZ80:
         self.d = self.e = self.h = self.l = 0
         self.zf = False
         self.pc = 0
+        self.short_compare = short_compare
 
     # --- レジスタ対 ---
     def _hl(self):
@@ -108,6 +109,8 @@ class MiniZ80:
                 self.a = self.mem[self._imm16()]
             elif op == 0x3E:  # LD A,n
                 self.a = self._imm8()
+            elif op == 0x79:  # LD A,C
+                self.a = self.c
             elif op == 0x4F:  # LD C,A
                 self.c = self.a
             elif op == 0x47:  # LD B,A
@@ -118,12 +121,22 @@ class MiniZ80:
                 self._set_de(self._de() + 1)
             elif op == 0xB7:  # OR A
                 self.zf = (self.a == 0)
+            elif op == 0xE6:  # AND n
+                self.a &= self._imm8()
+                self.zf = (self.a == 0)
             elif op == 0xFE:  # CP n
                 self._cp(self._imm8())
+            elif op == 0xB8:  # CP B
+                self._cp(self.b)
             elif op == 0xB9:  # CP C
                 self._cp(self.c)
             elif op == 0xBE:  # CP (HL)
-                self._cp(self.mem[self._hl()])
+                # 陽性対照では最後の1バイトだけ比較しない解釈器故障を注入する。
+                # HL/Bの進行は保ち、表走査そのものを壊して例外にしない。
+                if self.short_compare and self.b == 1:
+                    self.zf = True
+                else:
+                    self._cp(self.mem[self._hl()])
             elif op == 0xC3:  # JP nn
                 self.pc = self._imm16()
             elif op == 0xCA:  # JP Z,nn
@@ -175,17 +188,17 @@ def reference_model(run_len, hdr_bytes):
     return MiniZ80.STOP_FALLBACK, None
 
 
-def run_case(a, run_len, hdr_bytes):
+def run_case(a, run_len, hdr_bytes, short_compare=False):
     ram = {m.RUN_LEN: run_len}
     for k, v in enumerate(hdr_bytes):
         ram[m.REQ_HDR + k] = v
-    cpu = MiniZ80(a.code, a.labels, ram)
+    cpu = MiniZ80(a.code, a.labels, ram, short_compare=short_compare)
     return cpu.run(a.labels["_observed_single_by_request"])
 
 
-def compare(a, run_len, hdr_bytes):
+def compare(a, run_len, hdr_bytes, short_compare=False):
     """実装と定義の突き合わせ。一致すればNone、違えば説明文字列を返す。"""
-    got = run_case(a, run_len, hdr_bytes)
+    got = run_case(a, run_len, hdr_bytes, short_compare=short_compare)
     want = reference_model(run_len, hdr_bytes)
     if got[0] != want[0]:
         return f"停止理由が違う 実装={got[0]} 定義={want[0]}"
