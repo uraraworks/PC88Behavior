@@ -47,6 +47,7 @@ static void (*p_deinit)(void);
 static bool (*p_load_game)(const struct retro_game_info *);
 static void (*p_unload_game)(void);
 static void (*p_run)(void);
+static void (*p_reset)(void);
 static void (*p_get_system_av_info)(struct retro_system_av_info *);
 
 static q88h_trace_t *(*p_trace)(void);
@@ -347,6 +348,7 @@ static bool load_core(const char *path)
     SYM(p_load_game,              "retro_load_game");
     SYM(p_unload_game,            "retro_unload_game");
     SYM(p_run,                    "retro_run");
+    SYM(p_reset,                  "retro_reset");
     SYM(p_get_system_av_info,     "retro_get_system_av_info");
 
     /* 計測フックが入っていないコアを黙って使うと、
@@ -758,6 +760,7 @@ static void usage(void)
     fprintf(stderr,
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
+        "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
         "                   [--key-hold N] [--key-gap N]\n"
@@ -775,6 +778,7 @@ int main(int argc, char **argv)
 {
     const char *core = NULL, *disk = NULL, *out = NULL;
     unsigned frames = 600, next_at = 180, key_hold = 4, key_gap = 4;
+    unsigned reset_at = UINT32_MAX;
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
@@ -805,6 +809,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--disk")    && i + 1 < argc) disk = argv[++i];
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--basic-mode") && i + 1 < argc) g_basic_mode = argv[++i];
         else if (!strcmp(argv[i], "--rom-dir") && i + 1 < argc)
             snprintf(g_rom_dir, sizeof(g_rom_dir), "%s", argv[++i]);
@@ -964,6 +969,11 @@ int main(int argc, char **argv)
          * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
         if (g_iolog_available) p_iolog_set_frame(g_frame);
         if (g_intlog_available) p_intlog_set_frame(g_frame);
+
+        if (g_frame == reset_at) {
+            p_reset();
+            fprintf(stderr, "[q88measure] ハードウェアリセット: frame %u\n", g_frame);
+        }
 
         p_run();
 

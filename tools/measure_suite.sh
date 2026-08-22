@@ -63,3 +63,17 @@ run d4-saveload   --frames 4800 --disk-name N88_FE.D88 --disk-writable --type-at
 # この N88-BASIC は OPEN "O",#1,"名前" 形式を受け付けない（Syntax error）。
 # OPEN "名前" FOR mode AS #n 形式なら通る。測って分かったこと。
 run d5-seqfile    --frames 6000 --disk-name N88_FE.D88 --disk-writable --type-at 300 --type '\n' --type-at 700 --type 'OPEN "TMPD" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "TMPD" FOR INPUT AS #1\nINPUT#1,W$\nCLOSE\nPRINT W$\n'
+
+# ---- K00二変種の識別条件（m7bx） ----------------------------------------
+# 同一実行内でディスク操作を反復し、「実行最初か」「直前runがK05か」
+# 「SPECIFY/READ DATAを既に経験したか」をできるだけ分離する。
+run d6-files2     --frames 4800 --disk-name N88_FE.D88 --type-at 300 --type '\n' --type-at 700 --type 'FILES\nFILES\n'
+run d7-files3long --frames 7200 --disk-name N88_FE.D88 --type-at 300 --type '\n' --type-at 700 --type 'FILES\nFILES\nFILES\n'
+run d8-saveloadrun --frames 7200 --disk-name N88_FE.D88 --disk-writable --type-at 300 --type '\n' --type-at 700 --type '10 PRINT "T"\nSAVE"TMPQ88"\nNEW\nLOAD"TMPQ88"\nRUN\nKILL"TMPQ88"\nFILES\n'
+run d9-savekill2  --frames 7200 --disk-name N88_FE.D88 --disk-writable --type-at 300 --type '\n' --type-at 700 --type '10 PRINT "T"\nSAVE"TMPQ88"\nKILL"TMPQ88"\nSAVE"TMPQ88"\nKILL"TMPQ88"\nFILES\n'
+# 同一iologを保ったままハードウェアリセットし、K00通番とsubの初期状態を分離する。
+run d10-resetboot --frames 3600 --reset-at 1800 --disk-name N88_FE.D88
+# READ DATAを完走できない条件とROM動作モード差で、履歴候補を分離する。
+run d11-nodisklong --frames 7200
+run d12-v1hboot   --frames 3600 --basic-mode 'N88 V1H' --disk-name N88_FE.D88
+run d13-v1sboot   --frames 3600 --basic-mode 'N88 V1S' --disk-name N88_FE.D88
