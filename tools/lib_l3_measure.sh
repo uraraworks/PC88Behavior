@@ -28,8 +28,17 @@
 # -----------------------------------------------------------------------
 build_mixed_rom() {
   local src="$1" dst="$2"
+  local f copied=0
   mkdir -p "$dst"
-  cp -p "$src"/* "$dst"/ || return 1
+  # m7bz: 旧`cp *`はROMと同居するコア実行状態（*.srm等）まで複製し、
+  # 前段測定が後段条件のSAVE内容へ混入した。中身は読まず拡張子だけで
+  # ROMファイルに限定する。公式ROM名の個別列挙や絶対パスは持ち込まない。
+  for f in "$src"/*.ROM; do
+    [ -f "$f" ] || continue
+    cp -p "$f" "$dst"/ || return 1
+    copied=1
+  done
+  [ "$copied" -eq 1 ] || return 1
   python3 "$REPO/src/l3_service/make_subrom.py" "$dst" >/dev/null 2>&1 || return 1
 }
 

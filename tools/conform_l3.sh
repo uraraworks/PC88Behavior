@@ -195,6 +195,7 @@ DUMMY_OFFICIAL="$WORK/dummy_official_rom"
 mkdir -p "$DUMMY_OFFICIAL"
 python3 "$REPO/src/l3_service/make_subrom.py" "$DUMMY_OFFICIAL" --break-response >/dev/null
 echo "dummy main-side rom for selftest only (not a real ROM)" > "$DUMMY_OFFICIAL/N88.ROM"
+echo "dummy runtime state; must not enter mixed ROM" > "$DUMMY_OFFICIAL/stale.srm"
 
 DUMMY_MIXED="$WORK/dummy_mixed_rom"
 if ! build_mixed_rom "$DUMMY_OFFICIAL" "$DUMMY_MIXED"; then
@@ -225,6 +226,13 @@ if [ -f "$DUMMY_MIXED/DISK.ROM" ] && cmp -s "$DUMMY_MIXED/DISK.ROM" "$DUMMY_OFFI
   mixed_selftest_rc=1
 else
   ok "自己検査g: DISK.ROMは「公式」ダミーのままではなく、確かに上書きされている"
+fi
+
+if [ -e "$DUMMY_MIXED/stale.srm" ]; then
+  ng "自己検査h: ROM以外の実行状態ファイルまで混成へコピーされた"
+  mixed_selftest_rc=1
+else
+  ok "自己検査h: ROM以外の実行状態ファイルは混成へコピーされない"
 fi
 
 if [ "$mixed_selftest_rc" -eq 0 ]; then
