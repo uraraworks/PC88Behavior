@@ -314,6 +314,31 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.in_port(0xFE)                      # 結果ステータス（単発読み、読み捨て）
     a.ret()
 
+    # ---- SEND_MAIN_PAIR: WRITEデータ用の連続2位置を1フェーズで送信 ----
+    # 仕様書1.35節第67版。引数HLの2バイトを送り、HLを2進める。
+    # 1件目の受理確認後、完了08を出す前に2件目をOUT $FDする。
+    a.label("SEND_MAIN_PAIR")
+    a.out_imm(0xFF, 0x0F)
+    a.label("_send_pair_wait1")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_SEND_BEFORE)
+    a.jr_z("_send_pair_wait1")
+    a.out_imm(0xFF, 0x0E)
+    a.ld_a_hl()
+    a.out_a(0xFD)                        # 位置1
+    a.inc_hl()
+    a.out_imm(0xFF, 0x09)
+    a.label("_send_pair_wait2")
+    a.in_port(0xFE)
+    a.and_a(FE_BIT_SEND_AFTER)
+    a.jr_z("_send_pair_wait2")
+    a.ld_a_hl()
+    a.out_a(0xFD)                        # 位置2（受理確認後のラッチ）
+    a.inc_hl()
+    a.out_imm(0xFF, 0x08)
+    a.in_port(0xFE)
+    a.ret()
+
     # ---- RECV_MAIN: 1バイト受信（main視点、仕様書1.10節 RECV そのまま） ----
     #   結果: A = 受け取ったバイト
     a.label("RECV_MAIN")
@@ -380,7 +405,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.db(0x00, 0x00)
 
     # ---- --write-test 用（第54版・m7av。仕様書1.35節の書き込み経路）。
-    #      1つのrunとして「制御6バイト + データ256バイト」を送る。
+    #      1つのrunとして「制御5バイト + データ256バイト」を送る。
     #      1.35節の実測が確定した形:
     #        - データ部は受信列の**末尾ちょうど256バイト**
     #        - R（セクタ番号）はその**直前の1バイト**
@@ -393,8 +418,11 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.label(write_ctrl)
         # 第56版・m7ax: 末尾2バイトは [論理トラック(C*2+H), R]。実測で
         # C == track>>1、H == track&1、R == 末尾1バイトが63/63一致した。
-        # 先頭4バイトの意味は未確定なので0で埋める（推測で埋めない）。
-        a.db(0x00, 0x00, 0x00, 0x00, cyl0 * 2, sec0)
+        # 先頭3バイトの意味は未確定なので0で埋める（推測で埋めない）。
+        # 第67版のsub側window(a)ではWRITE runが261件で、末尾256件が
+        # データ部なので、制御部は5件になる。
+        # 先頭はm7beで8/8一致したWRITE種別。残り2つの意味は未確定。
+        a.db(0x11, 0x00, 0x00, cyl0 * 2, sec0)
         write_data = "WRITE_DATA"
         a.label(write_data)
         a.db(*[((i * 7) + 0x5A) & 0xFF for i in range(256)])
@@ -608,24 +636,28 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # ---- 書き込みシナリオ（第54版・m7av、仕様書1.35節）----
         # 上の要求ループで requests[0] の読み出しが済んでおり、subは
         # そのシリンダへSEEK済み（＝1.35節のCが確定している）状態にある。
-        # ここで「制御6 + データ256」を1つのrunとして送り、subに
+        # ここで「制御5 + データ256」を1つのrunとして送り、subに
         # WRITE DATAを発行させる。そのあと同じセクタをもう一度読み出す。
         # 書いた256バイトと読み戻した256バイトが一致すれば、書き込み経路が
         # 端まで通ったことになる（判定は tools/check_l3_write.py）。
+        # 通常要求ループでは未消費の起動直後専用応答が残り得るため、
+        # WRITE結果後の要求グループ2応答と混同しないよう先に消費する。
+        # これはpost_bulk_read_testが本題前に行う同じ陽性対照手順である。
+        a.ld_a(0xFF)
+        a.call("SEND_MAIN")
+        a.call("RECV_MAIN")
         a.ld_hl(write_ctrl)
-        a.ld_b(6)
+        a.ld_b(5)
         a.label("_wt_ctrl_send")
         a.ld_a_hl()
         a.call("SEND_MAIN")
         a.inc_hl()
         a.djnz("_wt_ctrl_send")
-        # HLはWRITE_DATAの先頭に来ている（表を隣接して置いてある）
-        a.ld_b(0x00)                 # 256回
-        a.label("_wt_data_send")
-        a.ld_a_hl()
-        a.call("SEND_MAIN")
-        a.inc_hl()
-        a.djnz("_wt_data_send")
+        # HLはWRITE_DATAの先頭。公式mainの実測位相どおり128組で送る。
+        a.ld_b(0x80)
+        a.label("_wt_data_send_pair")
+        a.call("SEND_MAIN_PAIR")
+        a.djnz("_wt_data_send_pair")
 
         # ---- ここで**送るのをやめて受信待ちに入る**。
         # subのrun終端は「相手がSEND待ちに転じた」(bit1)で判定される
@@ -633,15 +665,15 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # _recv_dispatch_poll）ので、mainが送り続けている限りrunは
         # 終わらず、subは書き込みを始められない。最初これを忘れて
         # 「データ256の直後に次の要求ヘッダを送る」形にしたら、runが
-        # 262ではなく270バイトに伸び、末尾256の窓がずれてRが別の値に
+        # 261ではなく後続要求まで伸び、末尾256の窓がずれてRが別の値に
         # なった（実測で確認。第54版で踏んだ）。
         #
-        # 書き込みに対してsubが何か返すかは**未測定**なので、応答を
-        # 期待する形にはしない（推測でプロトコルを足さない）。ここで
-        # mainは受信待ちのまま止まる。**読み戻しの確認は、同じディスク
-        # ファイルに対して別の実行（通常の --requests 読み出し）を
-        # 行って突き合わせる**——ディスクは実行をまたいで残るので、
-        # プロトコルを推測せずに往復を確かめられる。
+        # 第68版・m7bz: WRITE結果直後はmainからの1バイト受信が先行し、
+        # その後にsubが1バイト応答する。既存の要求グループ2と同じ要求を
+        # 送ってから応答を受ける（公式8/8）。自作mainが直後に受信だけを
+        # 行う旧形は、sub側の誤実装と同じ誤解を共有していた。
+        a.ld_a(0x06)
+        a.call("SEND_MAIN")
         a.call("RECV_MAIN")
 
     a.label("DONE")

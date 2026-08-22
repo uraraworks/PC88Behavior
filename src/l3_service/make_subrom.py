@@ -401,12 +401,9 @@ import sys
 
 P_FDC_STAT = 0xFA   # IN: FDC メインステータス。bit7=RQM（仕様書1.7節）
 P_FDC_DATA = 0xFB   # IN/OUT: FDC データ/コマンド
-P_TC       = 0xF8   # OUT: FDC へ TC（ターミナルカウント）を送る。
-                     # 第15版で訂正: 旧コメント「IN」はvendor実装由来の
-                     # 方向の取り違え。仕様書1.21節・docs/notes/
-                     # m6p-tc-and-f8.md参照——公式subは$F8を主にOUTで
-                     # 使い、IN $F8は「OUT $F7,0x08直後の単発確認読み
-                     # (値は常に0xFF)」に限られる。
+P_F8       = 0xF8   # 公開I/O実装: OUTはモータ制御、INはFDCへのTC。
+                     # 第68版m7bzでWRITEデータ直後の方向を再照合し、
+                     # 第15版以来の「OUTがTC」という意味付けを訂正した。
 P_PIO_A    = 0xFC   # sub からは OUT で main の $FD 書き込みが IN で読める（SEND受信）
 P_PIO_B    = 0xFD   # sub の OUT がここに出ると main の IN $FC に見える（RECV送信）
 P_PIO_C    = 0xFE   # ハンドシェイク状態。sub は IN のみ（仕様書6節10項: subはOUTしない）
@@ -428,10 +425,9 @@ BOOT_FF_VALUE = 0x91   # 1.12節の8種のフェーズコード語彙のいず�
 BOOT_F8_VALUE_1 = 0x05
 BOOT_F8_VALUE_2 = 0xFF
 
-# ---- TC三つ組み（仕様書1.21節、第15版）。OUT $F8,0x07 -> OUT $F7,0x08 ->
-#      IN $F8(結果は捨てる。値は常に0xFFだが意味は未確定なので分岐に
-#      使わない) が4条件・全事例で例外なく隣接することを確認済み。 ----
-FDC_TC_VALUE = 0x07
+# ---- FDC終端三つ組み（仕様書1.21節、第69版）。OUT $F8,0x07（モータ制御）
+#      -> OUT $F7,0x08 -> IN $F8（TC。読み値は捨て、分岐に使わない）。 ----
+F8_CONTROL_VALUE = 0x07
 
 RQM  = 0x80   # $FA bit7
 DIO  = 0x40   # $FA bit6（1='FDCからホストへ'方向）
@@ -793,8 +789,8 @@ WRITE_ACK_RESPONSE = OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1]
 # 起動時の6バイトグループは種別=1で、下の2つとは衝突しない。
 REQUEST_KIND_INDEX = 1
 REQUEST_KIND_READ = 0x02   # 起動後の読み出し要求（実測11/11）
-REQUEST_KIND_WRITE = 0x11  # 書き込み要求（実測8/8。現在の実装はrun長で
-                           # 判別しているので未使用。将来ここへ寄せる）
+REQUEST_KIND_WRITE = 0x11  # 書き込み要求（実測8/8）。第69版はこの種別かつ
+                           # window位置5をWRITE専用2バイト受信へのゲートに使う
 # TODO(仕様第30版): 挙動から再構成した観測値。意味未特定。
 # 意味が判明した場合は、この定数を意味に基づくルール生成へ差し替える。
 # ---- 第21版で追加したLAST_FDC_RESULT（FDC_INの最新結果バイトを保持し
@@ -964,13 +960,23 @@ def build_subrom(break_write_ack=False,
     a.label("RECV_BYTE")
     a.out_imm(0xFF, PH_RECV_START_SET)      # 手順1: OUT $FF,0x0B
     a.label("RECV_BYTE_ARMED")              # 手順1を済ませた状態から始める入口
+    a.call("RECV_FIRST_ARMED")              # 手順2〜6。Aに受信値を返す
+    a.push_af()                              # 手順7の即値ロードから受信値を保護
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)         # 手順7: OUT $FF,0x0C
+    a.pop_af()
+    a.ret()
+
+    # ---- RECV_FIRST_ARMED: RECVの手順2〜6だけを行う。
+    # 第69版・m7bzで公式mainのWRITEは位置6以降を2件一組で送ると確定した。
+    # 1件目のあと手順7を出さず、2件目を直接読むWRITE専用経路と、通常の
+    # RECV_BYTEで手順2〜6を共有するための入口。 ----
+    a.label("RECV_FIRST_ARMED")
     a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(bit0=1)
     a.out_imm(0xFF, PH_RECV_START_CLR)      # 手順3: OUT $FF,0x0A
     a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）
     a.push_af()
     a.out_imm(0xFF, PH_RECV_ACK_SET)        # 手順5: OUT $FF,0x0D
     a.call("WAIT_FE_RECV_ACK_DONE")         # 手順6: 相手の受理解除待ち(bit0=0)
-    a.out_imm(0xFF, PH_RECV_ACK_CLR)        # 手順7: OUT $FF,0x0C
     a.pop_af()
     a.ret()
 
@@ -1111,8 +1117,8 @@ def build_subrom(break_write_ack=False,
     a.in_port(P_PIO_C)                     # 手順3: IN $FE（単発、読み捨て）
     a.in_port(P_PIO_C)                     # 手順4: IN $FE（単発、読み捨て）
     a.call("RECV_BYTE")                    # 手順5: RECVプリミティブ1回（応答なし）
-    a.out_imm(P_TC, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
-    a.out_imm(P_TC, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
+    a.out_imm(P_F8, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
+    a.out_imm(P_F8, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
     # ---- 仕様書1.22節（第16版〜第19版）で確定した起動時FDC初期化の
     #      batch1〜7を再現する。ドライブ割り当て（1.22節・
@@ -1129,7 +1135,7 @@ def build_subrom(break_write_ack=False,
     #      サブルーチンは使わない——あちらは`OUT $F7`/`IN $F8`まで
     #      含む完全な三つ組み用）。
     a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
-    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（$F7/IN $F8は伴わない）
+    a.out_imm(P_F8, F8_CONTROL_VALUE)      # 単発モータ制御（$F7/IN $F8は伴わない）
     #      batch2: SEEK+SENSE INTERRUPT STATUS（write=4バイト・
     #      read=2バイト、ドライブ0）。第17版（`docs/notes/
     #      m6r-specify-vs-seek.md`）でSPECIFYではなくSEEKと確定した
@@ -1141,10 +1147,10 @@ def build_subrom(break_write_ack=False,
     #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
     #      上書きされるため、値は区間の最終観測可能状態に影響しない。
     a.ld_e(0x00); a.xor_a(); a.call("FDC_SEEK")   # ドライブ0, シリンダ0
-    #      batch2の直後にはTCを発行しない。1.22節第19版（m6s、既存ログの
-    #      seq番号レベル再解析で実走診断が反証）で訂正済み：TCが来るのは
+    #      batch2の直後にはF8モータ制御を発行しない。1.22節第19版（m6s、既存ログの
+    #      seq番号レベル再解析で実走診断が反証）で訂正済み：F8出力が来るのは
     #      batch1・batch4の直後のみで、batch2の直後には来ない。旧版
-    #      （第16〜18版）はTCの出現順序（区間内で1番目・2番目に見つかる
+    #      （第16〜18版）はF8出力の出現順序（区間内で1番目・2番目に見つかる
     #      こと）とbatch番号（1番目・2番目のbatch）を取り違えていた。
     if inject_spurious_sense_int:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count系）。
@@ -1155,16 +1161,16 @@ def build_subrom(break_write_ack=False,
         # STATUSを呼ぶと、μPD765データシートの規定により結果フェーズは
         # ST0(Invalid Command)の1バイトのみで終わる。
         a.call("FDC_SENSE_INT")
-    #      batch3: 1.22節第19版が確定したとおりTCを発行しない
+    #      batch3: 1.22節第19版が確定したとおりF8出力を発行しない
     #      （RECALIBRATE、ドライブ0、write=3バイト・read=2バイト）。
     a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
     #      batch4: RECALIBRATE（ドライブ1）。1.22節第19版で訂正した
-    #      とおり、この直後にTCが来る（旧版がbatch2直後としていたのは
-    #      誤りで、正しくはbatch4直後。単発TC、$F7/IN $F8は伴わない）。
+    #      とおり、この直後にF8モータ制御が来る（旧版がbatch2直後としていたのは
+    #      誤りで、正しくはbatch4直後。$F7/IN $F8は伴わない）。
     a.ld_e(0x01); a.call("FDC_RECALIBRATE")   # ドライブ1
-    a.out_imm(P_TC, FDC_TC_VALUE)          # 単発TC（batch4直後、1.22節第19版）
-    #      batch5〜7: TCは発行しない（1.22節第19版でbatch1・4以外に
-    #      TCが無いことを確定済み）。
+    a.out_imm(P_F8, F8_CONTROL_VALUE)      # 単発モータ制御（batch4直後）
+    #      batch5〜7: F8出力は発行しない（1.22節第19版でbatch1・4以外に
+    #      F8出力が無いことを確定済み）。
     #      batch5: SEEK（ドライブ1、write=4バイト・read=2バイト）。
     #      目標シリンダはbatch2と同じ理由で`0x00`固定（直後のbatch6
     #      RECALIBRATEが無条件にトラック0へ戻すため、値は区間の最終
@@ -1198,17 +1204,18 @@ def build_subrom(break_write_ack=False,
 
     # ---- タイムアウト発生を記録するだけの補助ルーチン。
     #      仕様書のどこにも根拠が無い、実装上の判断（このファイルだけの
-    #      追加。P_FDC_TIMEOUT_MARK のdocstring参照）。AFのみ使い、
-    #      呼び出し元のDE/HL/BCには触れない。
+    #      追加。P_FDC_TIMEOUT_MARK のdocstring参照）。DE/HL/BCには
+    #      触れない。Aは診断値で上書きされるが、全呼出元で直後に
+    #      上書きまたは保存済みAFを復元する。
     #      disable_fdc_timeout_mark=True の場合は $F9 への書き込みを
     #      行わない（$F9は公式subに存在しない診断専用ポートであり、
     #      適合テストへ提出するROMではこのイベント自体を出さない選択肢
     #      を用意する）。 ----
     a.label("FDC_TIMEOUT_MARK")
     if not disable_fdc_timeout_mark:
-        a.push_af()
+        # 第69版容量圧縮: 呼び出し元は直後にAを上書きする（正常系へ強制
+        # 継続する故障注入も$FB入力または保存済みAFで上書き）。
         a.out_imm(P_FDC_TIMEOUT_MARK, FDC_TIMEOUT_MARK_VALUE)
-        a.pop_af()
     a.ret()
 
     # ---- FDCコマンド1つ分の呼び出し列の先頭で FDC_ABORT をクリアする
@@ -1216,27 +1223,28 @@ def build_subrom(break_write_ack=False,
     #      FDC_RECALIBRATE/FDC_SENSE_DRIVE_STATUS/FDC_SEEK/
     #      FDC_READ_SECTORの各入口で呼ぶ。呼ばないと、過去に別のFDC
     #      コマンドで一度中断したフラグが残ったまま次のコマンドも
-    #      即座に中断扱いになってしまう。AFのみ使う。 ----
+    #      即座に中断扱いになってしまう。Aは0になるが全呼出元で
+    #      上書き・復元され、他レジスタには触れない。 ----
     a.label("FDC_BEGIN")
-    a.push_af()
+    # 第69版容量圧縮: 全呼出元は直後にコマンド語をAへロードする。
+    # SEEKだけは目的Cを呼出元自身のPUSH AFで保持済みである。
     a.xor_a()
     a.ld_mem_a(FDC_ABORT)
     a.ld_mem_a(WINDOW_RUN_POS)         # 続くOUT $FBはwindow(a)のrun終端
-    a.pop_af()
     a.ret()
 
-    # ---- TC三つ組み（仕様書1.21節、第15版）。呼び出し元がFDCコマンド
+    # ---- FDC終端三つ組み（仕様書1.21節、第69版）。呼び出し元がFDCコマンド
     #      バッチ（例: 1セクタ分のデータフェーズ＋結果フェーズ）を
-    #      読み終えた後に呼ぶ。$F8はOUTで送る（P_TCのdocstring参照。
-    #      旧実装はここをINで読んでおり方向を取り違えていた）。
+    #      読み終えた後に呼ぶ。公開I/O実装上、OUT $F8はモータ制御、
+    #      FDCへのTCは末尾のIN $F8（P_F8の定義コメント参照）。
     #      個々のFDCコマンド呼び出し1回ごとに呼ぶものではない
     #      （どの単位がバッチかは未確定。仕様書3節・6節21項）。 ----
     a.label("FDC_TC")
-    a.push_af()
-    a.out_imm(P_TC, FDC_TC_VALUE)        # OUT $F8,0x07
+    # 第69版容量圧縮: 現在の2呼出元はいずれも末尾JPで入り、戻り先はAを
+    # 上書きするか参照しない。AF保存を除いてもI/O列と分岐は同じ。
+    a.out_imm(P_F8, F8_CONTROL_VALUE)    # OUT $F8,0x07（モータ制御）
     a.out_imm(P_STROBE, BOOT_F7_VALUE)   # OUT $F7,0x08
-    a.in_port(P_TC)                      # IN $F8（単発、読み捨て。常に0xFF）
-    a.pop_af()
+    a.in_port(P_F8)                      # IN $F8（TC。読み値は捨てる）
     a.ret()
 
     # ---- FDC がホストへデータを渡す準備ができるまで待って IN する。
@@ -1374,10 +1382,11 @@ def build_subrom(break_write_ack=False,
     else:
         a.and_a(0xC0)         # ST0 bit7-6 = Interrupt Code field
         a.cp_n(0x80)          # 10 = Invalid Command（保留中の割り込み無し）
-        a.jr_z("_fdc_sense_int_done")   # r1(PCN)は存在しない。読まない
-        a.call("FDC_IN")     # r1 = PCN
-        a.label("_fdc_sense_int_done")
-    a.ret()
+        # 第69版容量圧縮: 旧JR→CALL→RETと戻り先・A・スタック最終状態は同一。
+        a.db(0xC8)             # RET Z: r1(PCN)は存在しない。読まない
+        a.jp("FDC_IN")         # r1 = PCN（末尾呼び出し）
+    if break_sense_int_result_count:
+        a.ret()
 
     # ---- RECALIBRATE（指定ドライブをトラック0へ）。
     #      引数: E = ドライブ番号(0-3)。第18版でドライブ番号引数化した
@@ -1469,8 +1478,11 @@ def build_subrom(break_write_ack=False,
         a.call("FDC_OUT")
     a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # R = データ部の直前1バイト
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
-    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # EOT = R（このセクタで終わり）
-    a.ld_a(0x2A); a.call("FDC_OUT")     # GPL
+    # 第68版・m7bz追加測定: 公式WRITE 8/8でEOTは媒体形状（16セクタ）、
+    # GPLは公開uPD765形式のN=1短GAP分類。READ側のEOT/GPL流用は6/8一致
+    # にしかならなかったため、WRITE専用値に分ける。
+    a.ld_a(0x10); a.call("FDC_OUT")     # EOT = 1トラックのセクタ数
+    a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
     a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
 
     # データフェーズ: WRITE_BUFのWRITE_IDX（＝最も古い＝末尾256の先頭）から
@@ -1490,16 +1502,18 @@ def build_subrom(break_write_ack=False,
     a.inc_l()
     a.djnz("_write_loop")
 
+    # 第68版訂正: FDCへのTCはIN F8。公式8/8でデータ256件直後・
+    # 結果7件前に1件ある。これによりEOTが媒体末尾でも1セクタで完了する。
+    a.in_port(P_F8)
     a.call("FDC_IN_7")
-    # TC三つ組み（1.21節）。読み出し側（FDC_READ_SECTOR）が1セクタ分の
-    # バッチの後に呼ぶのと同じ位置で呼ぶ。公式側でもWRITE直後30000クロック
-    # 以内に OUT $F8 が現れる（m7avで実測、15件すべて）。
-    a.jp("FDC_TC")                    # 末尾呼び出し（第70版容量圧縮）
+    # 第68版・m7bz: 公式8/8では結果直後にTCを出さずmainからの受信が先行。
+    # TC/F7は次のWRITE直前に置くため、ここはそのまま戻る。
+    a.ret()
 
     # ---- 第69版・m7bw: window(a)通常要求9種の確定長判定。
     # EXCHANGE3_REQUEST_ACTIVE中はREQ_HDR/RUN_LENの既存2/5/1累積を優先する。
     # 第70版・m7by: K00列Bは交換#3専用状態で結線するため、この一般表では
-    # 引き続き0。WRITEストリーミングも従来の長いrun経路を維持する。
+    # 引き続き0。第69版はWRITE種別だけ位置5を専用受信経路へ結線する。
     # それ以外の表の0も未観測種として完了扱いにしない。
     a.label("WINDOW_RUN_COMPLETE")
     a.ld_a_mem(WINDOW_RUN_HEAD)
@@ -1520,7 +1534,8 @@ def build_subrom(break_write_ack=False,
     for _head in range(0x18):
         a.db({0x00: 0, 0x02: (0 if restore_request_kind_length6 else 5),
               0x06: 1, 0x07: 1, 0x0B: 5,
-              0x0D: 4, 0x0E: 7, 0x12: 1, 0x14: 2, 0x17: 7}.get(_head, 0))
+              0x0D: 4, 0x0E: 7, REQUEST_KIND_WRITE: 5,
+              0x12: 1, 0x14: 2, 0x17: 7}.get(_head, 0))
 
     # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
     # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
@@ -1582,15 +1597,52 @@ def build_subrom(break_write_ack=False,
     # こと——最初これを_recv_dispatch_hdr_doneの直前へ置いたら、run長8で
     # そこへ「落ちてくる」既存経路を横取りしてしまい、自己検証層の5項目が
     # 一斉にNGになった（回帰として検出できた）。
+    a.label("_recv_dispatch_write_stream")
+    # 第69版・m7bz: 公式mainのWRITE runはK00で、位置1〜5だけが通常RECV、
+    # 残る256件は128組の2件受信だった（8 run、全2088位置で例外0）。
+    # WINDOW_RUN_COMPLETEのK00確定長を5にしたため、長さ1のK00はここへ
+    # 到達せず、WRITEだけが位置5から入る。各組は、1件目を通常RECVの
+    # 手順2〜6で取り、完了0Cを出す前に2件目を直接読む。
+    a.ld_b(0x80)                         # 128組 = 256バイト
+    a.label("_write_recv_pair")
+    a.out_imm(0xFF, PH_RECV_START_SET)
+    a.call("RECV_FIRST_ARMED")
+    a.call("HDR_STORE_AND_CHECK")       # 対の1件目
+    a.in_port(P_PIO_A)
+    a.call("HDR_STORE_AND_CHECK")       # 対の2件目（受理解除後のラッチ）
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)     # 2件をまとめて完了
+    a.djnz("_write_recv_pair")
+    # 128組完了時は直下のWRITE処理へフォールスルーする。
+
     a.label("_recv_dispatch_write_sector")
+    # 第68版・m7bz訂正: 長さ261 run末尾からWRITE発行までにモータ制御
+    # OUT F8 1件・F7出力1件・TC入力0件（各8/8）。TC入力はデータ直後に
+    # FDC_WRITE_SECTORが行うため、READ用FDC_TCをここでは流用しない。
+    a.out_imm(P_F8, F8_CONTROL_VALUE)
+    # 公式8/8のWRITE直前FDC列はSEEK→SENSE INTERRUPT→SENSE DRIVE。
+    # FDC_SEEKがSENSE INTERRUPTまで含むため、制御レコードの論理トラック
+    # からCを再導出してSEEKし、ドライブ状態を1回読んでからF7を出す。
+    a.ld_a_mem(WRITE_PREV2)
+    a.or_a()
+    a.rra()
+    a.ld_e(0x00)
+    a.call("FDC_SEEK")
+    a.call("FDC_SENSE_DRIVE_STATUS")
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)
     a.call("FDC_WRITE_SECTOR")
-    if not break_write_ack:
-        # 第57版・m7ay: 書き込み1レコードにつき1バイト返す。実測では
-        # 57/57すべて同一の値で、FDCの結果フェーズより**後**に送られていた
-        # （57/57）。値はST0/ST1/ST2・結果のC/R・要求のRのいずれとも一致
-        # しない固定値で、既に観測済みの要求グループ2の応答と同じ値。
-        a.ld_a(WRITE_ACK_RESPONSE)
-        a.call("SEND_BYTE")
+    if break_write_ack:
+        # 故障注入: 結果後の受信ディスパッチへ戻さず、応答を抑止する。
+        a.jp("_recv_dispatch_write_sector")
+    # 第68版: 結果直後はmainの1バイト受信が先行（8/8）。その要求は既存の
+    # 単発応答表を通り、第57版で確定したWRITE応答と同じ値を返す。
+    # ここから明示SENDすると公式mainと送信同士で衝突するため行わない。
+    # #7/#8境界では直前READの未消費データが残るが、mainはWRITEへ移った
+    # ため無効化する。POST専用交換も完了済みへ畳み、要求グループ2が
+    # 読み出し後経路へ横取りされないようにする（公式8/8の応答分類）。
+    a.ld_a(0xFF)
+    a.ld_mem_a(POST_BULK_ACTIVE)
+    a.xor_a()
+    a.ld_mem_a(SECTOR_READY)
     a.jp("IDLE_DISPATCH")
 
     # ---- 第55版・m7aw: 交換#14のREAD準備（共通ルーチン）。
@@ -1606,7 +1658,7 @@ def build_subrom(break_write_ack=False,
     a.inc_de()
     a.djnz("_bulk_read_copy")
 
-    a.out_imm(P_TC, FDC_TC_VALUE)
+    a.out_imm(P_F8, F8_CONTROL_VALUE)
     a.ld_a_mem(BR_CPOS)
     a.ld_hl_imm(REQ_HDR)                 # REQ_HDRは256境界に整列しているので
     a.ld_l_a()                           # 下位バイトの差し替えだけで足りる
@@ -1679,12 +1731,10 @@ def build_subrom(break_write_ack=False,
     a.djnz("_read_loop")
 
     a.call("FDC_IN_7")
-    # 第15版で訂正: 旧実装はここで(結果フェーズを読む前に) IN $F8 で
-    # 「TCを送ろうとして」いたが、方向(IN)も位置(結果フェーズの前)も
-    # 誤りだった。仕様書1.21節: 公式subは256+7=263バイト(データ+結果)を
-    # 読み終えた後にOUT $F8,0x07(TC)->OUT $F7,0x08->IN $F8の三つ組みを
-    # 送る。
-    a.jp("FDC_TC")                    # 末尾呼び出し（第70版容量圧縮）
+    # 第69版で意味づけを訂正: 公式subは256+7=263バイト(データ+結果)を
+    # 読み終えた後にOUT $F8,0x07（モータ制御）->OUT $F7,0x08->
+    # IN $F8（TC）の三つ組みを発行する。
+    a.jp("FDC_TC")                    # 末尾呼び出し（第69版容量圧縮）
 
     # 交換#14専用の複数セクタREAD。公開FDCパラメータは上のBULK_*から取り、
     # データ部だけをBULK_DESTから連続格納する。
@@ -1712,7 +1762,7 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(BULK_SECTORS)
     a.jr_nz("_bulk_read_sector")
     a.call("FDC_IN_7")
-    a.jp("FDC_TC")                    # 末尾呼び出し（第70版容量圧縮）
+    a.jp("FDC_TC")                    # 末尾呼び出し（第69版容量圧縮）
 
     if break_dispatch_return:
         # ====================================================================
@@ -1801,16 +1851,16 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
     a.xor_a()
-    a.ld_mem_a(RESP_ACTIVE)
-    a.ld_mem_a(RUN_LEN)
+    # 第69版容量圧縮: RESP_ACTIVE..REQ_UNIT_HEADはRAM上で連続11バイト。
+    # 旧コードが個別に0を書いていた10状態にFDC_ABORTも加え、同じ0を
+    # ループで初期化する。B/HLはこの直後に参照せず、A=0も維持される。
+    a.ld_hl_imm(RESP_ACTIVE)
+    a.ld_b(11)
+    a.label("_main_state_zero")
+    a.ld_hl_a()
+    a.inc_hl()
+    a.djnz("_main_state_zero")
     a.ld_mem_a(WINDOW_RUN_POS)
-    a.ld_mem_a(SECTOR_READY)
-    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-    a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
-    a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
-    a.ld_mem_a(BOOT_READ_PAIR_STAGE)
-    a.ld_mem_a(REQ_H)
-    a.ld_mem_a(REQ_UNIT_HEAD)
     if force_post_bulk_active:
         a.inc_a()
         a.ld_mem_a(POST_BULK_ACTIVE)   # テスト専用: bulkを経ずに1.36節の打ち切りを有効化
@@ -2018,14 +2068,16 @@ def build_subrom(break_write_ack=False,
             a.jp_z("_exchange3_request_done")
             a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
             a.label("_recv_dispatch_after_exchange3_progress")
-            a.call("WINDOW_RUN_COMPLETE")
-            a.jr_z("_recv_dispatch_window_done")
-            a.jr("_recv_dispatch_continue")
+            # 最初の受信後と同じ完了表・交換状態判定へ合流する。
+            # 二重実装を避けるだけで、状態は変更しない。
+            a.jp("_recv_dispatch_after_first_progress")
 
     if not break_fixed_byte_cutoff:
         # ---- 第69版・m7bw: m7buで終端列が一意だった9種を結線。
         a.label("_recv_dispatch_window_done")
         a.ld_a_mem(WINDOW_RUN_HEAD)
+        a.cp_n(REQUEST_KIND_WRITE)
+        a.jp_z("_recv_dispatch_write_stream")
         a.cp_n(0x0D)
         a.jp_z("_exchange14_prepare_remaining_reads")
         a.cp_n(0x0E)
@@ -2044,14 +2096,9 @@ def build_subrom(break_write_ack=False,
 
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
         a.label("_recv_dispatch_run_done")
-        # ---- 第54版・m7av: 書き込み経路（1.35節）。RUN_LENは0xFFで飽和する
-        # ので、0xFF は「257バイト以上の長いrun」を意味する。実測した書き込み
-        # runは262/268バイトで、他の要求run（最長12）とは桁が違う。
-        # **判別に使っているのはrunの長さ（構造）だけで、値には触れていない。**
-        # 制御バイトの内訳は未確定なのでここでは解釈しない。
-        a.ld_a_mem(RUN_LEN)
-        a.cp_n(0xFF)
-        a.jp_z("_recv_dispatch_write_sector")
+        # WRITEは第69版でK00位置5から専用2件受信へ接続したため、従来の
+        # 「汎用RECVでrun終端まで受け、RUN_LEN飽和ならWRITE」という経路は
+        # 到達しない。公式mainはその汎用位相では12件で閉じるため削除した。
         a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
         a.or_a()
         a.jp_nz("IDLE_DISPATCH")
@@ -2101,9 +2148,9 @@ def build_subrom(break_write_ack=False,
         # RUN_LENは保持し、ここでは単発応答をまだ有効にしない。
         a.label("_exchange3_prepare_sector")
         # 第33版1.26節: 5件目の受理解除OUT $FFと、FDC READ系最初の
-        # IN $FAの間に置く単発TC。結果後の三つ組みとは異なり、ここでは
+        # IN $FAの間に置く単発モータ制御。結果後の三つ組みとは異なり、
         # OUT $F7 / IN $F8を伴わせない。
-        a.out_imm(P_TC, FDC_TC_VALUE)
+        a.out_imm(P_F8, F8_CONTROL_VALUE)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_a_hl()
         a.ld_e(0x00)
@@ -2191,7 +2238,7 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(REQ_H)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_hl_a()
-        a.out_imm(P_TC, FDC_TC_VALUE)
+        a.out_imm(P_F8, F8_CONTROL_VALUE)
         a.ld_e(0x00)
         a.call("FDC_SEEK")
         a.call("FDC_SENSE_DRIVE_STATUS")
