@@ -103,7 +103,8 @@ def write_external_counts(rows: list[m2s.Ev], cmds: list[awp.Command]) -> dict[s
     sub = [e for e in rows if e.cpu == "sub"]
     writes = [c for c in cmds if c.opcode in awp.WRITE_OPCODES]
     stats = {k: [0, 0] for k in (
-        "recv_first", "pre_tc_out", "pre_f7_out", "pre_no_tc_in",
+        "recv_first", "pre_motor_out", "pre_f7_out", "pre_no_tc_in",
+        "data_tc_in",
         "eot_geometry", "gpl_short",
     )}
     for c in writes:
@@ -122,18 +123,26 @@ def write_external_counts(rows: list[m2s.Ev], cmds: list[awp.Command]) -> dict[s
         stats["recv_first"][1] += 1
         stats["recv_first"][0] += bool(after) and after[0].port == "00FC"
 
-        # 対応する長さ261 runの末尾からWRITEコマンドまで。公式はTC OUTと
-        # F7 OUTを各1件出すがTC INは出さない。
+        # 対応する長さ261 runの末尾からWRITEコマンドまで。公開I/O実装上、
+        # OUT F8はモータ制御、TCはIN F8。公式はモータ/F7を各1件出すが
+        # この区間ではまだTCを出さない。
         prior_fc = [i for i in range(start) if sub[i].port == "00FC" and sub[i].kind == "IN"]
         begin = prior_fc[-1] + 1 if prior_fc else 0
         before = sub[begin:start]
         for key, port, kind, expected in (
-            ("pre_tc_out", "00F8", "OUT", 1),
+            ("pre_motor_out", "00F8", "OUT", 1),
             ("pre_f7_out", "00F7", "OUT", 1),
             ("pre_no_tc_in", "00F8", "IN", 0),
         ):
             stats[key][1] += 1
             stats[key][0] += sum(e.port == port and e.kind == kind for e in before) == expected
+
+        # TCはWRITEデータ256件の直後、結果7件の前にIN F8で出す。
+        between_data_result = sub[fb[264] + 1:fb[265]]
+        stats["data_tc_in"][1] += 1
+        stats["data_tc_in"][0] += sum(
+            e.port == "00F8" and e.kind == "IN" for e in between_data_result
+        ) == 1
 
         params = c.param_values or []
         stats["eot_geometry"][1] += 1
@@ -206,9 +215,10 @@ def main() -> int:
         print(f"公式WRITE位相\t{label}\t{good}/{total}")
     for key, label in (
         ("recv_first", "結果直後は受信が先行"),
-        ("pre_tc_out", "WRITE直前TC出力1件"),
+        ("pre_motor_out", "WRITE直前モータ出力1件"),
         ("pre_f7_out", "WRITE直前F7出力1件"),
         ("pre_no_tc_in", "WRITE直前TC入力なし"),
+        ("data_tc_in", "データ直後・結果前TC入力1件"),
         ("eot_geometry", "EOT=媒体形状"),
         ("gpl_short", "GPL=N=1短GAP分類"),
     ):

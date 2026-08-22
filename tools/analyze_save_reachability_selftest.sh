@@ -37,13 +37,14 @@ for pos in range(1, n + 1):
 if is_official:
     ev("OUT", "00F8", 0x07)
     ev("OUT", "00F7", 0x08)
-    if fault == "tc-in": ev("IN", "00F8", 0xFF)
+    if fault == "early-tc": ev("IN", "00F8", 0xFF)
     # WRITE DATA 1件（公開コマンド語、合成値のみ）。
     ev("OUT", "00FB", 0x45)
     params = [0, 0, 0, 1, 1, 16, 14, 255]
     if fault == "parameter": params[5] = 15
     for k in params: ev("OUT", "00FB", k)
     for k in range(256): ev("OUT", "00FB", k)
+    if fault != "missing-data-tc": ev("IN", "00F8", 0xFF)
     for k in range(7): ev("IN", "00FB", k)
     if fault == "post-tc": ev("OUT", "00F8", 0x07)
     ev("IN", "00FC", 0)
@@ -78,7 +79,7 @@ if python3 "$REPO/tools/analyze_save_reachability.py" \
   exit 1
 fi
 
-for fault in post-tc tc-in parameter; do
+for fault in post-tc early-tc missing-data-tc parameter; do
   gen "$WORK/official-$fault.iolog" "$fault"
   if python3 "$REPO/tools/analyze_save_reachability.py" \
       --official "$WORK/official-$fault.iolog" --mixed "$WORK/mixed-ok.iolog" \
