@@ -527,10 +527,10 @@ fi
 # -----------------------------------------------------------------------
 # 適合条件5（書き込み経路、1.35節）— m7az で新設。
 # 期待値は tests/conformance/expected_write.tsv（件数・バイト数・SHA-256のみ）。
-# **まだ到達しない見込み**: 混成ROMは公式diskAでBASICの起動途中までしか
-# 進まず、SAVEに届かない（m7azの実測でWRITE DATA 0件）。その場合は
-# 失格ではなく「未到達」として報告する——判定できないことを黙って
-# 合格にも失格にもしない。
+# m7bzで旧説明を訂正した。混成ROMはBASIC起動・打鍵受理・SAVE候補runまで
+# 到達していたが、WRITE専用の2バイト受信位相を汎用1バイトRECVで処理して
+# 相互待ちになっていた。WRITE DATA 0件なら、その実測済み到達点を報告し、
+# 失格にも合格にもせず未到達とする。
 # -----------------------------------------------------------------------
 say "適合条件5（書き込み経路: 公式main + 自作サブROMでSAVEを実行）"
 WEXPECTED="$REPO/tests/conformance/expected_write.tsv"
@@ -544,11 +544,10 @@ run_q88measure_retry "$WORK/save_mixed.iolog.txt" "$WORK/save_mixed.stdout.txt" 
 w_out="$(python3 "$REPO/tools/hash_write_stream.py" "$WORK/save_mixed.iolog.txt" 2>/dev/null)"
 w_cmds="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="commands"{print $2}')"
 if [ "${w_cmds:-0}" = "0" ]; then
-  na "条件5は未到達: 混成ROMはSAVEまで進まない（WRITE DATA 0件）"
-  echo "       公式ROM一式なら同じ打鍵でWRITE DATAが8件出る。混成はBASICの起動途中"
-  echo "       （ファンクションキー行の表示まで）で止まる。読み出し側の適合条件1は"
-  echo "       満たしているので、ここは「次に進む先」を示す指標として置いておく。"
-  echo "       根拠: docs/notes/m7az-write-conformance.md"
+  na "条件5は未到達: SAVE候補runで停止（WRITE DATA 0件）"
+  echo "       公式ROM一式なら同じ打鍵でWRITE DATAが8件出る。m7bzのI/O比較で混成も"
+  echo "       BASIC起動・打鍵受理・SAVE候補runまでは到達すると確定しており、旧説明の"
+  echo "       『BASIC起動途中』は誤り。根拠: docs/notes/m7bz-save-reachability.md"
 else
   w_sha="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="sha256"{print $2}')"
   w_bytes="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="bytes"{print $2}')"

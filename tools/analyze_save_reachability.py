@@ -28,6 +28,8 @@ import analyze_write_path as awp  # noqa: E402
 DATA_PORTS = {"00FB", "00FC", "00FD"}
 FF_FINISH = 0x0C
 FF_REARM = 0x0B
+WRITE_EOT_GEOMETRY = 16       # 公開媒体形状: 1トラック16セクタ
+WRITE_GPL_SHORT = 0x0E        # 公開uPD765形式のN=1短GAP分類
 
 
 def require_unredacted(rows: list[m2s.Ev], label: str) -> None:
@@ -96,6 +98,51 @@ def opcode_prefix(a: list[awp.Command], b: list[awp.Command]) -> int:
     return next((i for i in range(n) if a[i].opcode != b[i].opcode), n)
 
 
+def write_external_counts(rows: list[m2s.Ev], cmds: list[awp.Command]) -> dict[str, tuple[int, int]]:
+    """WRITE境界の方向・件数と公開パラメータ分類を数える。値は返さない。"""
+    sub = [e for e in rows if e.cpu == "sub"]
+    writes = [c for c in cmds if c.opcode in awp.WRITE_OPCODES]
+    stats = {k: [0, 0] for k in (
+        "recv_first", "pre_tc_out", "pre_f7_out", "pre_no_tc_in",
+        "eot_geometry", "gpl_short",
+    )}
+    for c in writes:
+        start = next(i for i, e in enumerate(sub)
+                     if e.port == "00FB" and e.kind == "OUT" and e.clock == c.clock)
+
+        # コマンド+8パラメータ+256データ+7結果=272件。結果直後に
+        # mainから1バイト受信するのが先で、TCや応答を先行させない。
+        fb = [i for i in range(start, len(sub)) if sub[i].port == "00FB"][:272]
+        if len(fb) != 272:
+            continue
+        after = [e for e in sub[fb[-1] + 1:]
+                 if (e.port, e.kind) in {
+                     ("00FC", "IN"), ("00FD", "OUT"), ("00F8", "OUT")
+                 }]
+        stats["recv_first"][1] += 1
+        stats["recv_first"][0] += bool(after) and after[0].port == "00FC"
+
+        # 対応する長さ261 runの末尾からWRITEコマンドまで。公式はTC OUTと
+        # F7 OUTを各1件出すがTC INは出さない。
+        prior_fc = [i for i in range(start) if sub[i].port == "00FC" and sub[i].kind == "IN"]
+        begin = prior_fc[-1] + 1 if prior_fc else 0
+        before = sub[begin:start]
+        for key, port, kind, expected in (
+            ("pre_tc_out", "00F8", "OUT", 1),
+            ("pre_f7_out", "00F7", "OUT", 1),
+            ("pre_no_tc_in", "00F8", "IN", 0),
+        ):
+            stats[key][1] += 1
+            stats[key][0] += sum(e.port == port and e.kind == kind for e in before) == expected
+
+        params = c.param_values or []
+        stats["eot_geometry"][1] += 1
+        stats["gpl_short"][1] += 1
+        stats["eot_geometry"][0] += len(params) == 8 and params[5] == WRITE_EOT_GEOMETRY
+        stats["gpl_short"][0] += len(params) == 8 and params[6] == WRITE_GPL_SHORT
+    return {k: (v[0], v[1]) for k, v in stats.items()}
+
+
 def candidate_pair(
     off_sub: list[m2s.Ev], off_runs: list[list[int]],
     mix_sub: list[m2s.Ev], mix_runs: list[list[int]],
@@ -138,6 +185,7 @@ def main() -> int:
             off_sub, off_runs, mix_sub, mix_runs
         )
         phases = phase_counts(off_sub, off_runs)
+        write_ext = write_external_counts(official, off_cmds)
     except (ValueError, awp.SafeError) as ex:
         print(f"解析不能: {ex}", file=sys.stderr)
         return 2
@@ -156,6 +204,16 @@ def main() -> int:
     ):
         good, total = phases[key]
         print(f"公式WRITE位相\t{label}\t{good}/{total}")
+    for key, label in (
+        ("recv_first", "結果直後は受信が先行"),
+        ("pre_tc_out", "WRITE直前TC出力1件"),
+        ("pre_f7_out", "WRITE直前F7出力1件"),
+        ("pre_no_tc_in", "WRITE直前TC入力なし"),
+        ("eot_geometry", "EOT=媒体形状"),
+        ("gpl_short", "GPL=N=1短GAP分類"),
+    ):
+        good, total = write_ext[key]
+        print(f"公式WRITE境界\t{label}\t{good}/{total}")
 
     failures = []
     if off_writes != args.expected_official_writes:
@@ -170,6 +228,8 @@ def main() -> int:
         failures.append("FDCコマンド種別prefix")
     if any(good != total or total == 0 for good, total in phases.values()):
         failures.append("公式WRITE受信位相")
+    if any(good != total or total == 0 for good, total in write_ext.values()):
+        failures.append("公式WRITE前後境界")
     if failures:
         print("NG: " + "、".join(failures))
         return 1
