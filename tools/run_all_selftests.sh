@@ -96,8 +96,20 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
 
   rc_c="$(LC_ALL=C bash "$s" >/tmp/rst_c.$$ 2>&1; echo $?)"
   rc_u="$(LC_ALL=ja_JP.UTF-8 bash "$s" >/tmp/rst_u.$$ 2>&1; echo $?)"
+  skip_c=0; skip_u=0
+  case "$s" in
+    */conform_l3.sh)
+      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
+      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
+      ;;
+  esac
 
-  if [ "$rc_c" != "$rc_u" ]; then
+  if [ "$skip_c" != "$skip_u" ]; then
+    verdict="NG(本体SKIP状態がロケール間で不一致)"
+    overall=1
+  elif [ "$skip_c" = "1" ]; then
+    verdict="SKIP(公式環境なし。本体未実行、自己検査のみrc=0)"
+  elif [ "$rc_c" != "$rc_u" ]; then
     verdict="NG(ロケール不一致 C=$rc_c UTF-8=$rc_u)"
     overall=1
   elif [ "$rc_c" != "$expected" ]; then
@@ -110,7 +122,7 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
   fi
 
   printf '%-45s %6s %6s %8s %s\n' "$s" "$rc_c" "$rc_u" "$expected" "$verdict"
-  if [ "$rc_c" != "$expected" ] || [ "$rc_u" != "$expected" ]; then
+  if [ "$rc_c" != "$expected" ] || [ "$rc_u" != "$expected" ] || [ "$skip_c" != "$skip_u" ]; then
     echo "  --- Cロケール出力（末尾20行） ---"
     tail -20 /tmp/rst_c.$$
     echo "  --- UTF-8ロケール出力（末尾20行） ---"

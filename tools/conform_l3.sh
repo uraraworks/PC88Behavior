@@ -535,10 +535,19 @@ fi
 say "適合条件5（書き込み経路: 公式main + 自作サブROMでSAVEを実行）"
 WEXPECTED="$REPO/tests/conformance/expected_write.tsv"
 WDISK="$WORK/save.d88"
+# 条件1の1800F実走後に同じ混成ROMディレクトリを再利用すると、コアが
+# ROMディレクトリ側へ置く実行状態を条件5が継承し、8件・2112バイトでも
+# SHAが対照と変わることをm7bzで再現した。各条件は独立実行なので、条件5用の
+# 混成ROMを公式main一式+現在の自作subから作り直す（期待値の緩和ではない）。
+WSAVE_ROM="$WORK/save_mixed_rom"
+if ! build_mixed_rom "$PC88_REF_ROM_DIR" "$WSAVE_ROM"; then
+  echo "エラー: 条件5用の混成ROMディレクトリ構築に失敗した" >&2
+  exit 1
+fi
 cp "$DISK" "$WDISK"
 printf '\x00' | dd of="$WDISK" bs=1 seek=26 count=1 conv=notrunc status=none
 run_q88measure_retry "$WORK/save_mixed.iolog.txt" "$WORK/save_mixed.stdout.txt" "$WORK/save_mixed.stderr.txt" \
-    --core "$CORE" --rom-dir "$WORK/mixed_rom" --disk "$WDISK" \
+    --core "$CORE" --rom-dir "$WSAVE_ROM" --disk "$WDISK" \
     --frames 4200 --io-log "$WORK/save_mixed.iolog.txt" \
     --type-at 300 --type '\n' --type-at 700 --type '10 PRINT "T"\nSAVE"TQ"\n' 
 w_out="$(python3 "$REPO/tools/hash_write_stream.py" "$WORK/save_mixed.iolog.txt" 2>/dev/null)"

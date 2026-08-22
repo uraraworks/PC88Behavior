@@ -19,6 +19,7 @@
 #        ラッパはOK(rc=0)を返す(想定内の失敗として扱われる)
 #   f-4. 同じダミー(rc=1)を「期待rc=0」で誤って宣言すると、
 #        ラッパはNG(rc=1)を返す(宣言と実際の食い違いを検出する)
+#   f-5. conform_l3.shが公式本体をSKIPした場合、OKでなくSKIPと表示する
 #
 # 使い方: tools/run_all_selftests_selftest.sh
 # 全項目 OK なら終了コード 0、1つでも落ちたら 1。
@@ -64,6 +65,15 @@ exit 1
 EOF
 chmod +x "$DUMMY_KNOWN_FAIL"
 
+mkdir -p "$WORK/tools"
+DUMMY_CONFORM="$WORK/tools/conform_l3.sh"
+cat > "$DUMMY_CONFORM" <<'EOF'
+#!/usr/bin/env bash
+echo '  SKIP: 公式ROM・公式ディスクの環境変数が未設定。'
+exit 0
+EOF
+chmod +x "$DUMMY_CONFORM"
+
 # --- 対象スクリプトの SCRIPTS_EXPECTED 配列だけを置き換えたコピーを作る --
 # awk で "SCRIPTS_EXPECTED=(" ～ 対応する ")" の区間を丸ごと差し替える。
 make_variant() {
@@ -91,6 +101,17 @@ if [[ "$rc1" == "1" ]]; then
     pass "f-1. 必ず失敗するダミーを足すとラッパがNG(rc=1)を返した(=検出力あり)"
 else
     ng "f-1. 必ず失敗するダミーを足したのにラッパがrc=$rc1(NGを検出できていない)"
+fi
+
+# f-5: 本体SKIPはrc=0でもOKと表示しない
+V5="$WORK/variant_conform_skip.sh"
+make_variant "$V5" "$DUMMY_CONFORM:0"
+out5="$(bash "$V5" 2>&1)"; rc5=$?
+if [[ "$rc5" == "0" ]] && grep -q 'SKIP(公式環境なし。本体未実行' <<<"$out5" \
+   && ! grep "$DUMMY_CONFORM" <<<"$out5" | grep -q ' OK$'; then
+    pass "f-5. 公式本体未実行はOKでなくSKIPと表示された"
+else
+    ng "f-5. 公式本体SKIPが結果表で識別できない(rc=$rc5)"
 fi
 
 # f-2: 必ず成功するダミーだけを足す → ラッパはOK
