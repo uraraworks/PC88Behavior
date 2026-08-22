@@ -30,6 +30,8 @@ FF_FINISH = 0x0C
 FF_REARM = 0x0B
 WRITE_EOT_GEOMETRY = 16       # 公開媒体形状: 1トラック16セクタ
 WRITE_GPL_SHORT = 0x0E        # 公開uPD765形式のN=1短GAP分類
+POST_WRITE_REQUEST_GROUP = 0x06   # 既測定の要求グループ2分類
+POST_WRITE_RESPONSE_CLASS = 0x80  # 同グループの既測定応答分類
 
 
 def require_unredacted(rows: list[m2s.Ev], label: str) -> None:
@@ -103,7 +105,8 @@ def write_external_counts(rows: list[m2s.Ev], cmds: list[awp.Command]) -> dict[s
     sub = [e for e in rows if e.cpu == "sub"]
     writes = [c for c in cmds if c.opcode in awp.WRITE_OPCODES]
     stats = {k: [0, 0] for k in (
-        "recv_first", "pre_motor_out", "pre_f7_out", "pre_no_tc_in",
+        "recv_first", "post_request_group", "post_response_class",
+        "pre_motor_out", "pre_f7_out", "pre_no_tc_in",
         "data_tc_in",
         "eot_geometry", "gpl_short",
     )}
@@ -122,6 +125,20 @@ def write_external_counts(rows: list[m2s.Ev], cmds: list[awp.Command]) -> dict[s
                  }]
         stats["recv_first"][1] += 1
         stats["recv_first"][0] += bool(after) and after[0].port == "00FC"
+        first_recv = next((e for e in sub[fb[-1] + 1:]
+                           if e.port == "00FC" and e.kind == "IN"), None)
+        first_send = next((e for e in sub[fb[-1] + 1:]
+                           if e.port == "00FD" and e.kind == "OUT"), None)
+        stats["post_request_group"][1] += 1
+        stats["post_response_class"][1] += 1
+        stats["post_request_group"][0] += (
+            first_recv is not None and first_recv.value == POST_WRITE_REQUEST_GROUP
+        )
+        stats["post_response_class"][0] += (
+            first_recv is not None and first_send is not None
+            and first_send.clock > first_recv.clock
+            and first_send.value == POST_WRITE_RESPONSE_CLASS
+        )
 
         # 対応する長さ261 runの末尾からWRITEコマンドまで。公開I/O実装上、
         # OUT F8はモータ制御、TCはIN F8。公式はモータ/F7を各1件出すが
@@ -215,6 +232,8 @@ def main() -> int:
         print(f"公式WRITE位相\t{label}\t{good}/{total}")
     for key, label in (
         ("recv_first", "結果直後は受信が先行"),
+        ("post_request_group", "結果後受信は要求グループ2分類"),
+        ("post_response_class", "結果後送信は同応答分類"),
         ("pre_motor_out", "WRITE直前モータ出力1件"),
         ("pre_f7_out", "WRITE直前F7出力1件"),
         ("pre_no_tc_in", "WRITE直前TC入力なし"),

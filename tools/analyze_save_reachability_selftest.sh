@@ -47,8 +47,8 @@ if is_official:
     if fault != "missing-data-tc": ev("IN", "00F8", 0xFF)
     for k in range(7): ev("IN", "00FB", k)
     if fault == "post-tc": ev("OUT", "00F8", 0x07)
-    ev("IN", "00FC", 0)
-    ev("OUT", "00FD", 0)
+    ev("IN", "00FC", 0x06)
+    ev("OUT", "00FD", 0x00 if fault == "post-class" else 0x80)
 else:
     # WRITEなしでもパーサが空でない陽性対照にする。
     ev("OUT", "00FB", 0x03); ev("OUT", "00FB", 0); ev("OUT", "00FB", 0)
@@ -79,7 +79,7 @@ if python3 "$REPO/tools/analyze_save_reachability.py" \
   exit 1
 fi
 
-for fault in post-tc early-tc missing-data-tc parameter; do
+for fault in post-tc post-class early-tc missing-data-tc parameter; do
   gen "$WORK/official-$fault.iolog" "$fault"
   if python3 "$REPO/tools/analyze_save_reachability.py" \
       --official "$WORK/official-$fault.iolog" --mixed "$WORK/mixed-ok.iolog" \
