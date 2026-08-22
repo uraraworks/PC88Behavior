@@ -58,6 +58,7 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_request_kinds_selftest.sh:0"
   "tools/analyze_k00_variants_selftest.sh:0"
   "tools/check_k00_rule_equivalence_selftest.sh:0"
+  "tools/check_k00_completion_metrics_selftest.sh:0"
   "tools/analyze_post_read_response_selftest.sh:0"
   "tools/refmeasure_selftest.sh:0"
   "tools/subrom_fetch_window_selftest.sh:0"
