@@ -1189,11 +1189,16 @@ for scenario in write_protect no_disk unreadable_disk; do
     done
     printf '  11| Ok\n'
   } > "$WORK/path-screen.${scenario}.negative.txt"
+  {
+    printf '  0| %s\n' "$synthetic_command"
+  } > "$WORK/path-screen.${scenario}.no-response.txt"
   if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.positive.txt" \
        --scenario "$scenario" >/dev/null 2>&1 \
      && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.negative.txt" \
+       --scenario "$scenario" >/dev/null 2>&1 \
+     && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.no-response.txt" \
        --scenario "$scenario" >/dev/null 2>&1; then
-    ok "${scenario}: 1行応答をエラー分類、複数行一覧故障を非到達として検出"
+    ok "${scenario}: 短い応答形をエラー分類、一覧形・応答欠落故障を非到達として検出"
   else
     ng "${scenario}: エラー分類の陽性・陰性対照を区別できない"
     overall_rc=1

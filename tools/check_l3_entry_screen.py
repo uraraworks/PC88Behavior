@@ -72,10 +72,12 @@ def reached_error(rows: list[str], command: str) -> bool:
     pos = next((i for i, row in enumerate(rows) if command in row), None)
     if pos is None:
         return False
+    response = next((row for row in rows[pos + 1 :] if row), None)
     # --outは物理行順であり時間順ではない。公式エラー3条件は8〜11行、
     # 正常FILES一覧は17行で決定論的に分離したため、本文でなく全画面の
-    # 行数クラスを使う。FDCエラー分類との組合せが最終到達証拠になる。
-    return pos is not None and len(rows) <= 11
+    # 行数クラスを使う。コマンド反映だけで応答が無い画面、および直後Okの
+    # 正常形は除外し、FDCエラー分類との組合せを最終到達証拠にする。
+    return response is not None and response != "ok" and len(rows) <= 11
 
 
 def reached_output_success(rows: list[str], command: str) -> bool:
