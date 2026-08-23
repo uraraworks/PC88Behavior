@@ -1,0 +1,4 @@
+# m7ci ライトプロテクト違反。公式ROM一式 + 保護したdiskA使い捨て複製。
+# name cpu port kind count sha256
+m7ci-write-protect-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7ci-write-protect-main-fc	main	00FC	IN	7965	b3e6e85cd1806eb05967b1386ad51ccd3b8cb50dab5461ff25621b6ed8500abd

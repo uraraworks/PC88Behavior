@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第76版 / 2026-08-23
+仕様書 第77版 / 2026-08-23
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第77版 | 2026-08-23 | エラー結果相・B: unit経路の公式／混成測定 | ライトプロテクト、B:媒体未挿入、B:規則生成媒体、B:正常FILESを公式一式／公式main＋自作subで各2回実測した。ライトプロテクトはmain受信・画面・ST3のWRITE PROTECTED分類が一致したがREAD完了分類に内部差があった。B:3条件は公式がFDCへB-unit、混成がA-unitを渡し、未挿入・規則生成ではmain受信と画面も分岐、正常B:は同内容複製のため末端だけ一致した。実装は変更せず、次境界をドライブ指定伝播とドライブ別状態保持に定めた。5.2節は変更していない。根拠は`docs/notes/m7ci-error-and-drive2-paths.md` |
 | 第76版 | 2026-08-23 | diskA起動・全6需要入口の画面出力比較 | `q88measure --out`が公開する行番号付き本文へ追加正規化を加えず、公式一式を各条件2回、混成を各1回測定した。7条件すべてで公式2回が決定論的に一致し、公式対混成も行数・文字数・SHA-256が完全一致した。画面本文は残さず、期待値は署名だけとした。これは追加測定であり、5.2節の条件1〜5は変更していない。根拠は`docs/notes/m7ch-screen-output-conformance.md` |
 | 第75版 | 2026-08-23 | 残り4需要入口の公式・混成測定 | 既存ファイル単独LOAD、シーケンシャル出力・入力、KILL、NAMEを公式一式／公式main＋自作subで各2回実測した。対象打鍵の画面反映・直後Okを確認し、公開FDC種別列は83/156/193/152件、main `IN $FD/$FC`は件数・SHA-256とも全長一致した。追加実装境界は観測されず、5.1・5.2節の条件文は変更していない。根拠は`docs/notes/m7cg-remaining-entry-reachability.md` |
 | 第74版 | 2026-08-23 | FILES/LOAD需要入口の公式・混成測定 | FILES（2400F）とSAVE→NEW→同名LOAD（4800F）を公式一式／公式main＋自作subで各2回実測した。公開FDCコマンド種別列はFILES 79/79件、LOAD 156/156件で全長一致し、main `IN $FD`は両入口5635件、入口固有の`IN $FC`もFILES 7964件・LOAD 9526件で件数・SHA-256が一致した。内部FDC値列の最初の差は2件目のSPECIFYパラメータだが、5.1節の内部実装自由度として適合条件へ追加しない。5.2節の条件文は変更していない。根拠は`docs/notes/m7cf-files-load-reachability.md` |
@@ -101,6 +102,7 @@
 | 測定ノート | `docs/notes/m7cf-files-load-reachability.md`（第74版。FILES/LOAD需要入口の公式・混成比較、決定論性、最初の内部FDC差） |
 | 測定ノート | `docs/notes/m7cg-remaining-entry-reachability.md`（第75版。既存単独LOAD・seqfile・KILL・NAMEの到達、決定論性、公式・混成比較） |
 | 測定ノート | `docs/notes/m7ch-screen-output-conformance.md`（第76版。diskA起動・全6需要入口の画面署名、決定論性、公式・混成比較） |
+| 測定ノート | `docs/notes/m7ci-error-and-drive2-paths.md`（第77版。エラー3経路とB: unit/head経路、結果ステータス分類、分岐位置） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -1931,6 +1933,33 @@ main受信列には影響しない。4入口とも追加実装境界は観測さ
 本測定を新しい適合条件とするかは未決定であり、5.2節は変更しない。
 
 根拠: [docs/notes/m7ch-screen-output-conformance.md](../notes/m7ch-screen-output-conformance.md)。
+
+### 1.45 エラー結果相とB: unit/head経路（第77版）
+
+公式diskAの使い捨て複製でA:から起動し、(a)保護媒体へのSAVE、(b)空のB:への
+`FILES 2`、(c)規則生成D88を入れたB:への`FILES 2`、(d)diskAの独立複製を
+入れたB:への`FILES 2`を、公式一式と公式main＋自作subで各2回測った。
+`FILES "B:"`は入口後FDC 0件だったため不採用とし、`FILES 1`がA-unit、
+`FILES 2`がB-unitになる陽性対照を得てから後者を採用した。
+
+| 経路 | 公開FDC種別列 | unit・結果分類 | main・画面 |
+|---|---|---|---|
+| ライトプロテクト | 80/80件、全長一致 | 両側A-unit、ST3 WRITE PROTECTED・READY一致。後続READのST0正常／異常終了分類が差 | 全長一致 |
+| B:未挿入 | 52330/79件、prefix 54 | 公式B-unit SENSE DRIVE STATUS反復、混成A-unit読出し | `$FC`件数・SHA、画面とも分岐 |
+| B:規則生成 | 195/79件、prefix 55 | 公式B-unit READでST0異常終了・ST1 MISSING ADDRESS MARK、混成A-unit | `$FC`件数・SHA、画面とも分岐 |
+| B:正常 | 79/79件、全長一致 | 最初のSEEKから公式B-unit／混成A-unit。次のST0は正常終了・SEEK END共通、unit差 | 同内容複製のため全長一致 |
+
+FDC結果値と画面本文は記録していない。未挿入条件は種別・結果相の形が先に分かれ、
+比較可能な同位置の公式エラービットを得ていないため、NOT READY等の特定ビットを
+確定しない。規則生成D88は正常なコンテナと自作セクタを持つがBASIC用媒体ではなく、
+物理CRC故障や一般の未フォーマット媒体まで代表しない。
+
+次の実装境界は、main要求のドライブ指定をSEEK、SENSE DRIVE STATUS、READ DATAの
+unit/headへ伝播し、ドライブ別のシーク・モータ状態を保持すること。その後に媒体無し・
+読取り異常の結果をmain応答へ写す。これは追加測定であり、5.1節の末端原則と
+5.2節の条件1〜5は変更しない。
+
+根拠: [docs/notes/m7ci-error-and-drive2-paths.md](../notes/m7ci-error-and-drive2-paths.md)。
 
 ## 2. 明示的に「採用できない」こと
 

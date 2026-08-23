@@ -30,6 +30,10 @@ LOAD_EXISTING_EXPECTED="$REPO/tests/conformance/expected_load_existing.tsv"
 SEQFILE_EXPECTED="$REPO/tests/conformance/expected_seqfile.tsv"
 KILL_EXPECTED="$REPO/tests/conformance/expected_kill.tsv"
 NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
+WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
+NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
+UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
+DRIVE2_EXPECTED="$REPO/tests/conformance/expected_drive2.tsv"
 SCREEN_EXPECTED="$REPO/tests/conformance/expected_screen.tsv"
 SCREEN_CHECK="$REPO/tools/check_l3_screen_output.py"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
@@ -70,6 +74,13 @@ if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
   echo "エラー: 画面出力の期待値または判定器が無い" >&2
   exit 2
 fi
+for path_expected in "$WRITE_PROTECT_EXPECTED" "$NO_DISK_EXPECTED" \
+                     "$UNREADABLE_DISK_EXPECTED" "$DRIVE2_EXPECTED"; do
+  if [ ! -f "$path_expected" ]; then
+    echo "エラー: エラー／ドライブ2経路の期待値が無い: $path_expected" >&2
+    exit 2
+  fi
+done
 if [ ! -f "$SELFTEST_LOG" ]; then
   echo "エラー: 自己検査用の入力が無い: $SELFTEST_LOG" >&2
   exit 2
@@ -947,6 +958,273 @@ judge_entry load_existing "$LOAD_EXISTING_EXPECTED" "既存ファイル単独LOA
 judge_entry seqfile "$SEQFILE_EXPECTED" "シーケンシャルファイル出力・入力"
 judge_entry kill "$KILL_EXPECTED" KILL
 judge_entry name "$NAME_EXPECTED" NAME
+
+# -----------------------------------------------------------------------
+# m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。
+# 公式diskA原本は必ず使い捨て複製にし、B:正常系は独立した同内容複製、
+# 読めない媒体相当は規則生成D88をB:へ入れる。M3Uはコアの公開2ドライブ
+# 経路であり、生ログ・画面・媒体複製と同じくWORKだけに置く。
+# 5.2節の条件1〜5とは別の追加測定で、分岐は次周の実装境界として報告する。
+# -----------------------------------------------------------------------
+
+path_event_sha() {
+  local iolog="$1"
+  awk 'seen || /^# main$/ {seen=1; print}' "$iolog" | shasum -a 256 | awk '{print $1}'
+}
+
+path_stream_signature() {
+  local iolog="$1" label="$2" port out count sha
+  for port in FD FC; do
+    if out="$(python3 "$HASH" "$iolog" --cpu main --port "$port" --kind IN 2>/dev/null)"; then
+      count="$(printf '%s\n' "$out" | awk -F'\t' '$1=="count"{print $2}')"
+      sha="$(printf '%s\n' "$out" | awk -F'\t' '$1=="sha256"{print $2}')"
+      echo "  [署名] ${label} main IN \$${port}: 件数=${count} SHA-256=${sha}"
+    else
+      echo "  [署名] ${label} main IN \$${port}: 抽出不能"
+    fi
+  done
+}
+
+compare_path_streams() {
+  local official="$1" mixed="$2" label="$3" port a b
+  local ac as bc bs
+  for port in FD FC; do
+    a="$(python3 "$HASH" "$official" --cpu main --port "$port" --kind IN 2>/dev/null || true)"
+    b="$(python3 "$HASH" "$mixed" --cpu main --port "$port" --kind IN 2>/dev/null || true)"
+    ac="$(printf '%s\n' "$a" | awk -F'\t' '$1=="count"{print $2}')"
+    as="$(printf '%s\n' "$a" | awk -F'\t' '$1=="sha256"{print $2}')"
+    bc="$(printf '%s\n' "$b" | awk -F'\t' '$1=="count"{print $2}')"
+    bs="$(printf '%s\n' "$b" | awk -F'\t' '$1=="sha256"{print $2}')"
+    if [ -n "$ac" ] && [ "$ac" = "$bc" ] && [ "$as" = "$bs" ]; then
+      ok "${label}: main IN \$${port}は件数・SHA-256とも公式と一致"
+    else
+      na "${label}: main IN \$${port}は分岐（公式${ac:-抽出不能}件／混成${bc:-抽出不能}件）"
+    fi
+  done
+}
+
+run_path_measurement() {
+  local label="$1" mode="$2" scenario="$3" run="$4"
+  local base="$WORK/path.${label}.${mode}.run${run}"
+  local rom="${base}.rom" disk_a="${base}.a.d88" disk_b="${base}.b.d88"
+  local media="${base}.media" report="${base}.report.txt" iolog="${base}.iolog.txt"
+  local frames type_text rc
+
+  copy_entry_roms "$mode" "$rom" || return 1
+  cp "$DISK" "$disk_a" || return 1
+  case "$scenario" in
+    write_protect)
+      # 公開D88ヘッダの保護フラグを使い捨て複製で明示的に立てる。
+      printf '\x10' | dd of="$disk_a" bs=1 seek=26 count=1 conv=notrunc status=none
+      media="$disk_a"
+      frames=3600
+      type_text='10 PRINT "T"\nSAVE"Q8P"\n'
+      ;;
+    no_disk)
+      # A:だけを挿入してB:を空に保ち、起動後にB:を要求する。
+      media="$disk_a"
+      frames=800
+      type_text='FILES 2\n'
+      ;;
+    unreadable_disk)
+      python3 "$REPO/tools/make_l3_testdisk.py" "$disk_b" >/dev/null || return 1
+      printf '%s\n' "$disk_a" "$disk_b" > "${base}.m3u"
+      media="${base}.m3u"
+      frames=3000
+      type_text='FILES 2\n'
+      ;;
+    drive2)
+      cp "$DISK" "$disk_b" || return 1
+      printf '%s\n' "$disk_a" "$disk_b" > "${base}.m3u"
+      media="${base}.m3u"
+      frames=3000
+      type_text='FILES 2\n'
+      ;;
+    *)
+      echo "エラー: 未知のエラー／B:シナリオ: $scenario" >&2
+      return 2
+      ;;
+  esac
+
+  /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
+      "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$media" \
+      --frames "$frames" --io-log "$iolog" --out "$report" \
+      --type-at 300 --type '\n' --type-at 700 --type "$type_text" \
+      >"${base}.stdout.txt" 2>"${base}.stderr.txt"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    na "${label}-${mode}-run${run}: q88measure失敗または${ENTRY_TIMEOUT}秒上限（rc=${rc}）"
+    return "$rc"
+  fi
+  if grep -Eq '^# 取りこぼし: [1-9][0-9]*件' "$iolog"; then
+    ng "${label}-${mode}-run${run}: I/Oログに取りこぼしがある"
+    return 3
+  fi
+  ok "${label}-${mode}-run${run}: I/Oログ取りこぼし0件"
+  return 0
+}
+
+check_path_determinism() {
+  local label="$1" mode="$2" log1="$3" log2="$4" report1="$5" report2="$6"
+  local h1 h2 out="$WORK/path.${label}.${mode}.screen-determinism.txt"
+  h1="$(path_event_sha "$log1")"
+  h2="$(path_event_sha "$log2")"
+  if [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+    ok "${label}-${mode}: main/sub全イベント列は2回決定論的に一致"
+  else
+    ng "${label}-${mode}: main/sub全イベント列が2回で一致しない"
+    overall_rc=1
+  fi
+  if python3 "$SCREEN_CHECK" --report "$report1" --compare-report "$report2" > "$out"; then
+    ok "${label}-${mode}: 画面出力は2回決定論的に一致"
+  else
+    ng "${label}-${mode}: 画面出力が2回で一致しない"
+    sed 's/^/       /' "$out"
+    overall_rc=1
+  fi
+}
+
+judge_path() {
+  local scenario="$1" expected="$2" label="$3"
+  local mode run base official mixed report_off report_mix rows fdc_rc after_frame
+
+  say "エラー／ドライブ2経路 ${label}: 公式一式・混成を同条件で各2回実測"
+  for mode in official mixed; do
+    for run in 1 2; do
+      if ! run_path_measurement "$scenario" "$mode" "$scenario" "$run"; then
+        ng "${label}-${mode}-run${run}: 測定不能"
+        overall_rc=1
+        return
+      fi
+      base="$WORK/path.${scenario}.${mode}.run${run}"
+      if python3 "$ENTRY_SCREEN_CHECK" --report "${base}.report.txt" \
+           --scenario "$scenario" >/dev/null 2>&1; then
+        ok "${label}-${mode}-run${run}: 打鍵反映と期待結果分類への到達を確認"
+      elif [ "$mode" = official ]; then
+        ng "${label}-${mode}-run${run}: 公式でも期待結果分類へ到達していない"
+        overall_rc=1
+      else
+        na "${label}-${mode}-run${run}: 混成は期待結果分類へ到達していない"
+      fi
+    done
+  done
+
+  check_path_determinism "$scenario" official \
+    "$WORK/path.${scenario}.official.run1.iolog.txt" \
+    "$WORK/path.${scenario}.official.run2.iolog.txt" \
+    "$WORK/path.${scenario}.official.run1.report.txt" \
+    "$WORK/path.${scenario}.official.run2.report.txt"
+  check_path_determinism "$scenario" mixed \
+    "$WORK/path.${scenario}.mixed.run1.iolog.txt" \
+    "$WORK/path.${scenario}.mixed.run2.iolog.txt" \
+    "$WORK/path.${scenario}.mixed.run1.report.txt" \
+    "$WORK/path.${scenario}.mixed.run2.report.txt"
+
+  official="$WORK/path.${scenario}.official.run1.iolog.txt"
+  mixed="$WORK/path.${scenario}.mixed.run1.iolog.txt"
+  report_off="$WORK/path.${scenario}.official.run1.report.txt"
+  report_mix="$WORK/path.${scenario}.mixed.run1.report.txt"
+  path_stream_signature "$official" "${label}-公式"
+  path_stream_signature "$mixed" "${label}-混成"
+  compare_path_streams "$official" "$mixed" "$label"
+
+  rows="$(awk '!/^#/ && NF {n++} END{print n+0}' "$expected")"
+  if [ "$rows" -eq 0 ]; then
+    ng "${label}: 公式期待値が未固定（上の署名を確認すること）"
+    overall_rc=1
+  else
+    if ! run_conformance "$official" "$expected" "${label}-公式run1"; then
+      ng "${label}: 公式run1が固定期待値と一致しない"
+      overall_rc=1
+    fi
+    if ! run_conformance "$WORK/path.${scenario}.official.run2.iolog.txt" \
+         "$expected" "${label}-公式run2"; then
+      ng "${label}: 公式run2が固定期待値と一致しない"
+      overall_rc=1
+    fi
+    if ! entry_expected_fault_selftest "$official" "$expected" "${label}判定器"; then
+      overall_rc=1
+    fi
+  fi
+
+  echo "  [画面署名] ${label}-公式"
+  python3 "$SCREEN_CHECK" --report "$report_off" | sed 's/^/       /'
+  echo "  [画面署名] ${label}-混成"
+  python3 "$SCREEN_CHECK" --report "$report_mix" | sed 's/^/       /'
+  report_screen_comparison "$scenario" "$label" "$report_off" "$report_mix"
+
+  after_frame=760
+  fdc_extra=()
+  if [ "$scenario" = write_protect ]; then
+    after_frame=700
+    python3 "$ENTRY_FDC_COMPARE" --official "$official" --mixed "$mixed" \
+      --after-frame "$after_frame" --write-operation
+  else
+    python3 "$ENTRY_FDC_COMPARE" --official "$official" --mixed "$mixed" \
+      --after-frame "$after_frame"
+  fi
+  fdc_rc=$?
+  if [ "$fdc_rc" -eq 2 ]; then
+    ng "${label}: FDCコマンド／結果分類を解析できない"
+    overall_rc=1
+  elif [ "$fdc_rc" -eq 1 ]; then
+    na "${label}: FDCコマンド種別列は表示した位置で分岐"
+  fi
+}
+
+say "エラー／ドライブ2画面到達判定器の故障注入自己検査（合成画面のみ）"
+for scenario in write_protect no_disk unreadable_disk; do
+  case "$scenario" in
+    write_protect) synthetic_command='save"q8p"' ;;
+    *) synthetic_command='files 2' ;;
+  esac
+  {
+    printf '  0| %s\n' "$synthetic_command"
+    printf '  1| Synthetic classified response\n'
+  } > "$WORK/path-screen.${scenario}.positive.txt"
+  {
+    printf '  0| %s\n' "$synthetic_command"
+    for synthetic_row in 1 2 3 4 5 6 7 8 9 10; do
+      printf '  %s| Synthetic listing row\n' "$synthetic_row"
+    done
+    printf '  11| Ok\n'
+  } > "$WORK/path-screen.${scenario}.negative.txt"
+  if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.positive.txt" \
+       --scenario "$scenario" >/dev/null 2>&1 \
+     && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.negative.txt" \
+       --scenario "$scenario" >/dev/null 2>&1; then
+    ok "${scenario}: 1行応答をエラー分類、複数行一覧故障を非到達として検出"
+  else
+    ng "${scenario}: エラー分類の陽性・陰性対照を区別できない"
+    overall_rc=1
+  fi
+done
+{
+  printf '  0| files 2\n'
+  for synthetic_row in 1 2 3 4 5 6 7 8 9 10; do
+    printf '  %s| Synthetic listing row\n' "$synthetic_row"
+  done
+  printf '  11| Ok\n'
+} > "$WORK/path-screen.drive2.positive.txt"
+{
+  printf '  0| files 2\n'
+  printf '  1| Synthetic classified response\n'
+  printf '  2| Ok\n'
+} > "$WORK/path-screen.drive2.negative.txt"
+if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.drive2.positive.txt" \
+     --scenario drive2 >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.drive2.negative.txt" \
+     --scenario drive2 >/dev/null 2>&1; then
+  ok "drive2: 出力行後Okを到達、Ok欠落故障を非到達として検出"
+else
+  ng "drive2: 正常出力分類の陽性・陰性対照を区別できない"
+  overall_rc=1
+fi
+
+judge_path write_protect "$WRITE_PROTECT_EXPECTED" "ライトプロテクト違反"
+judge_path no_disk "$NO_DISK_EXPECTED" "B:媒体未挿入"
+judge_path unreadable_disk "$UNREADABLE_DISK_EXPECTED" "B:規則生成媒体"
+judge_path drive2 "$DRIVE2_EXPECTED" "B:正常操作"
 
 say "現状の到達点"
 cat <<'EOF'

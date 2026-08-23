@@ -1,0 +1,4 @@
+# m7ci A:だけ挿入、B:媒体未挿入でFILES 2。公式ROM一式。
+# name cpu port kind count sha256
+m7ci-no-disk-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7ci-no-disk-main-fc	main	00FC	IN	6672	38b6729d075500b9512063f6838f7664012eb1ccce90f2218261ffa9da63fc0f

@@ -65,6 +65,9 @@ class Command:
     # パラメータ部の値。**位置対応の突き合わせに内部でのみ使う**。
     # __repr__ にも標準出力にも出さない（クリーンルーム規律）。
     param_values: list[int] | None = None
+    # データ入力を含む連続IN列。READ系では末尾7バイトが結果相になる。
+    # エラー経路の公開ステータス分類に内部でだけ使い、値は出力しない。
+    input_values: list[int] | None = None
 
     def __repr__(self) -> str:      # 値を持たないが、事故防止に明示しておく
         return f"Command(op={self.opcode:#04x})"
@@ -103,13 +106,15 @@ def parse_commands(rows) -> list[Command]:
                     data_bytes += 1
                     i += 1
         result_bytes = 0
+        input_values: list[int] = []
         while i < len(fb) and fb[i].kind == "IN":
+            input_values.append(fb[i].value)
             result_bytes += 1
             i += 1
         out.append(Command(opcode, nparam, data_bytes, data_kind,
                            result_bytes, first.clock, first.frame,
                            data_values if data_kind == "OUT" else None,
-                           params))
+                           params, input_values))
     return out
 
 

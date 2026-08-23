@@ -1,0 +1,4 @@
+# m7ci A:公式diskA複製、B:規則生成D88でFILES 2。公式ROM一式。
+# name cpu port kind count sha256
+m7ci-unreadable-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7ci-unreadable-main-fc	main	00FC	IN	6684	3d975ddc03edb75de923de3844fb88e1c16a16941cce9254bef76d8ff9b058f2
