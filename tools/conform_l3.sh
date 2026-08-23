@@ -30,6 +30,8 @@ LOAD_EXISTING_EXPECTED="$REPO/tests/conformance/expected_load_existing.tsv"
 SEQFILE_EXPECTED="$REPO/tests/conformance/expected_seqfile.tsv"
 KILL_EXPECTED="$REPO/tests/conformance/expected_kill.tsv"
 NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
+SCREEN_EXPECTED="$REPO/tests/conformance/expected_screen.tsv"
+SCREEN_CHECK="$REPO/tools/check_l3_screen_output.py"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 # build_mixed_rom は tools/lib_l3_measure.sh に切り出した（tools/diag_l3_mixed.sh
@@ -62,6 +64,10 @@ fi
 if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
    || [ ! -f "$KILL_EXPECTED" ] || [ ! -f "$NAME_EXPECTED" ]; then
   echo "エラー: m7cg需要入口の期待値ファイルが無い" >&2
+  exit 2
+fi
+if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
+  echo "エラー: 画面出力の期待値または判定器が無い" >&2
   exit 2
 fi
 if [ ! -f "$SELFTEST_LOG" ]; then
@@ -115,6 +121,53 @@ run_conformance() {
   done < "$expected"
 
   return "$rc"
+}
+
+# -----------------------------------------------------------------------
+# テキスト画面の追加測定。5.2節の適合条件1〜5とは別の事実報告であり、
+# 未到達・本文不一致を既存条件の失格にはしない。入力不備や判定器自身の
+# 故障だけはテスト基盤の異常なので overall_rc に反映する。
+# 画面本文は判定器からも本関数からも表示しない。
+# -----------------------------------------------------------------------
+report_screen_comparison() {
+  local scenario="$1" label="$2" official_report="$3" mixed_report="$4"
+  local mode report out rc
+
+  say "画面出力 ${label}: ハッシュ・行数・文字数の追加測定（適合条件1〜5とは別）"
+  for mode in official mixed; do
+    if [ "$mode" = official ]; then report="$official_report"; else report="$mixed_report"; fi
+    out="$WORK/screen.${scenario}.${mode}.txt"
+    if python3 "$SCREEN_CHECK" --report "$report" --expected "$SCREEN_EXPECTED" \
+         --scenario "$scenario" > "$out"; then
+      ok "${label}-${mode}: 固定した画面期待値と一致"
+    else
+      rc=$?
+      if [ "$rc" -eq 1 ]; then
+        na "${label}-${mode}: 画面期待値と不一致（事実報告。適合条件1〜5の失格にはしない）"
+        sed 's/^/       /' "$out"
+      else
+        ng "${label}-${mode}: 画面報告または期待値を解析できない"
+        sed 's/^/       /' "$out"
+        overall_rc=1
+      fi
+    fi
+  done
+
+  out="$WORK/screen.${scenario}.compare.txt"
+  if python3 "$SCREEN_CHECK" --report "$official_report" \
+       --compare-report "$mixed_report" > "$out"; then
+    ok "${label}: 公式一式と混成の画面出力が完全一致"
+  else
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+      na "${label}: 公式一式と混成の画面出力が不一致（位置・分類は下記。失格にはしない）"
+      sed 's/^/       /' "$out"
+    else
+      ng "${label}: 公式一式と混成の画面比較を実行できない"
+      sed 's/^/       /' "$out"
+      overall_rc=1
+    fi
+  fi
 }
 
 # -----------------------------------------------------------------------
@@ -310,7 +363,7 @@ fi
 say "diskA 起動を実測（frames 1800、measurements/m6g-d0-boot-run1.txt と同条件）"
 run_q88measure_retry "$WORK/live.iolog.txt" "$WORK/live.stdout.txt" "$WORK/live.stderr.txt" \
     --core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$DISK" \
-    --frames 1800 --io-log "$WORK/live.iolog.txt" || {
+    --frames 1800 --io-log "$WORK/live.iolog.txt" --out "$WORK/live.report.txt" || {
   echo "エラー: q88measure が失敗した" >&2
   cat "$WORK/live.stderr.txt" >&2
   exit 1
@@ -343,9 +396,13 @@ say "混成ROM適合テスト（公式main ROM一式 + 自作サブROM(DISK.ROM)
 # 測定本体（混成ROMディレクトリ構築 + q88measure 実行）は
 # tools/lib_l3_measure.sh の run_l3_mixed_measurement に切り出した
 # （tools/diag_l3_mixed.sh と同条件で二重実装しないため）。
-if ! run_l3_mixed_measurement "$PC88_REF_ROM_DIR" "$DISK" "$WORK" "$WORK/mixed.iolog.txt"; then
+if ! run_l3_mixed_measurement "$PC88_REF_ROM_DIR" "$DISK" "$WORK" \
+     "$WORK/mixed.iolog.txt" "$WORK/mixed.report.txt"; then
   exit 1
 fi
+
+report_screen_comparison disk_boot "diskA起動" \
+  "$WORK/live.report.txt" "$WORK/mixed.report.txt"
 
 say "混成ROMのI/Oストリームを期待値と照合"
 if run_conformance "$WORK/mixed.iolog.txt" "$EXPECTED" "混成(自作サブROM)"; then
@@ -806,19 +863,25 @@ judge_entry() {
     prepared="$WORK/load_existing.prepared.d88"
     if ! prepare_existing_load_disk "$prepared"; then
       na "${label}: 準備SAVEが完了せず、2回目のLOAD入口は未到達"
+      na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
       overall_rc=1
       return
     fi
   fi
   if ! run_entry_measurement "${scenario}.official" official "$scenario" "$official" "$prepared"; then
     na "${label}: 公式一式でも入口へ到達せず、期待値を判定不能"
+    na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
     overall_rc=1
     return
   fi
   if ! run_entry_measurement "${scenario}.mixed" mixed "$scenario" "$mixed" "$prepared"; then
     na "${label}: 混成の測定が完了せず未到達（停止位置は測定ログ末尾）"
+    na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
     return
   fi
+
+  report_screen_comparison "$scenario" "$label" \
+    "$WORK/${scenario}.official.report.txt" "$WORK/${scenario}.mixed.report.txt"
 
   if run_conformance "$official" "$expected" "${label}-公式"; then
     official_ok=1

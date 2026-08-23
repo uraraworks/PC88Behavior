@@ -1,0 +1,11 @@
+# q88measure --out のテキスト画面期待値。画面本文は置かない。
+# ハッシュ入力は、出力された各非空行の「物理行番号<TAB>本文<LF>」。
+# 本文への追加正規化は行わない。列は scenario, line_count, char_count, sha256。
+# 公式一式を同条件で2回実測し、各行が完全一致した結果だけを固定した。
+disk_boot	3	111	aee73710f6d09899efa91ca4392541e3495e7a5063ddf5a2a453548a91ab4a05
+files	17	754	9751556eb78438fcc858a4c75893b1b56a7c1f6b9751c34bbb909bfc430830a6
+load	14	223	e8fa8d1b46816ac2d6145c37afe89c27a7d8fdf220f70288ea164c0bd56a5c2d
+load_existing	9	197	75850b1b782ed18d91ac3dd7f357d15a8b92fe5fc572e753474fec7b8e20ea64
+seqfile	19	283	da3e66579a31ffb2a4d8e17a8db637ab789bca766181b8913f18f3cde0fa59ed
+kill	12	220	db59319c8a18fc0bb28fd3486eec855e23cc835ddd89dd874ecc57178b5c847e
+name	12	229	0ea9a7546fa92f585b67b10b100379860d84f93761ae0da7fb1f1adde7115739

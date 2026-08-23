@@ -115,11 +115,13 @@ run_q88measure_retry() {
 # $2 = 公式ディスク .D88 のフルパス
 # $3 = 作業ディレクトリ（混成ROM一式を作る場所）
 # $4 = 出力する iolog のパス
+# $5 = 任意。q88measure --out の出力先
 #
 # 戻り値: 成功0 / 失敗1（詳細は $3/mixed.stderr.txt）
 # -----------------------------------------------------------------------
 run_l3_mixed_measurement() {
   local rom_dir="$1" disk="$2" work="$3" out_iolog="$4"
+  local out_report="${5:-}"
 
   local core
   core="$(find_l3_core)"
@@ -141,11 +143,18 @@ run_l3_mixed_measurement() {
     return 1
   fi
 
-  run_q88measure_retry "$out_iolog" "$work/mixed.stdout.txt" "$work/mixed.stderr.txt" \
-      --core "$core" --rom-dir "$mixed_rom_dir" --disk "$disk" \
-      --frames 1800 --io-log "$out_iolog" || {
+  if [ -n "$out_report" ]; then
+    run_q88measure_retry "$out_iolog" "$work/mixed.stdout.txt" "$work/mixed.stderr.txt" \
+        --core "$core" --rom-dir "$mixed_rom_dir" --disk "$disk" \
+        --frames 1800 --io-log "$out_iolog" --out "$out_report"
+  else
+    run_q88measure_retry "$out_iolog" "$work/mixed.stdout.txt" "$work/mixed.stderr.txt" \
+        --core "$core" --rom-dir "$mixed_rom_dir" --disk "$disk" \
+        --frames 1800 --io-log "$out_iolog"
+  fi
+  if [ "$?" -ne 0 ]; then
     echo "エラー: 混成ROMでの q88measure が失敗した" >&2
     cat "$work/mixed.stderr.txt" >&2
     return 1
-  }
+  fi
 }

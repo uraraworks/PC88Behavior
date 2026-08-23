@@ -66,6 +66,7 @@ SCRIPTS_EXPECTED=(
   "tools/observed_request_decision_selftest.sh:0"
   "tools/analyze_write_path_selftest.sh:0"
   "tools/diag_post_bulk_selftest.sh:0"
+  "tools/check_l3_screen_output_selftest.sh:0"
   "tools/conform_l3.sh:0"
   "tools/diag_l3_mixed.sh:0"
   "tools/verify_l1.sh:0"
