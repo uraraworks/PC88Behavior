@@ -1134,7 +1134,7 @@ def build_subrom(break_write_ack=False,
     #      伴わない簡略形」をそのまま再現する（1.21節のFDC_TC
     #      サブルーチンは使わない——あちらは`OUT $F7`/`IN $F8`まで
     #      含む完全な三つ組み用）。
-    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
+    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0（以後Eは変更まで保持）
     a.out_imm(P_F8, F8_CONTROL_VALUE)      # 単発モータ制御（$F7/IN $F8は伴わない）
     #      batch2: SEEK+SENSE INTERRUPT STATUS（write=4バイト・
     #      read=2バイト、ドライブ0）。第17版（`docs/notes/
@@ -1146,7 +1146,7 @@ def build_subrom(break_write_ack=False,
     #      とおり、この結果はmainへ渡らずsub内部で消費され、かつ直後の
     #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
     #      上書きされるため、値は区間の最終観測可能状態に影響しない。
-    a.ld_e(0x00); a.xor_a(); a.call("FDC_SEEK")   # ドライブ0, シリンダ0
+    a.xor_a(); a.call("FDC_SEEK")             # 保持中のドライブ0, シリンダ0
     #      batch2の直後にはF8モータ制御を発行しない。1.22節第19版（m6s、既存ログの
     #      seq番号レベル再解析で実走診断が反証）で訂正済み：F8出力が来るのは
     #      batch1・batch4の直後のみで、batch2の直後には来ない。旧版
@@ -1163,7 +1163,7 @@ def build_subrom(break_write_ack=False,
         a.call("FDC_SENSE_INT")
     #      batch3: 1.22節第19版が確定したとおりF8出力を発行しない
     #      （RECALIBRATE、ドライブ0、write=3バイト・read=2バイト）。
-    a.ld_e(0x00); a.call("FDC_RECALIBRATE")   # ドライブ0
+    a.call("FDC_RECALIBRATE")                 # 保持中のドライブ0
     #      batch4: RECALIBRATE（ドライブ1）。1.22節第19版で訂正した
     #      とおり、この直後にF8モータ制御が来る（旧版がbatch2直後としていたのは
     #      誤りで、正しくはbatch4直後。$F7/IN $F8は伴わない）。
@@ -1175,9 +1175,9 @@ def build_subrom(break_write_ack=False,
     #      目標シリンダはbatch2と同じ理由で`0x00`固定（直後のbatch6
     #      RECALIBRATEが無条件にトラック0へ戻すため、値は区間の最終
     #      観測可能状態に影響しない。仕様書1.22節第17版）。
-    a.ld_e(0x01); a.xor_a(); a.call("FDC_SEEK")   # ドライブ1, シリンダ0
+    a.xor_a(); a.call("FDC_SEEK")             # 保持中のドライブ1, シリンダ0
     #      batch6: RECALIBRATE（ドライブ1）。
-    a.ld_e(0x01); a.call("FDC_RECALIBRATE")   # ドライブ1
+    a.call("FDC_RECALIBRATE")                 # 保持中のドライブ1
     #      batch7: RECALIBRATE（ドライブ2）。
     a.ld_e(0x02); a.call("FDC_RECALIBRATE")   # ドライブ2
     a.jp("MAIN_LOOP")
@@ -1221,17 +1221,20 @@ def build_subrom(break_write_ack=False,
     # ---- FDCコマンド1つ分の呼び出し列の先頭で FDC_ABORT をクリアする
     #      補助ルーチン（第12版で追加）。FDC_SPECIFY/FDC_SENSE_INT/
     #      FDC_RECALIBRATE/FDC_SENSE_DRIVE_STATUS/FDC_SEEK/
-    #      FDC_READ_SECTORの各入口で呼ぶ。呼ばないと、過去に別のFDC
+    #      FDC_WRITE_SECTOR/FDC_READ_SECTOR/FDC_READ_BULKの各入口で呼ぶ。
+    #      呼ばないと、過去に別のFDC
     #      コマンドで一度中断したフラグが残ったまま次のコマンドも
-    #      即座に中断扱いになってしまう。Aは0になるが全呼出元で
-    #      上書き・復元され、他レジスタには触れない。 ----
+    #      即座に中断扱いになってしまう。第71版では全8呼出元が直後に
+    #      FDC_OUTへコマンド先頭バイトを渡していたことを監査し、Aを
+    #      その先頭バイトとして受け取って、クリア後にFDC_OUTへ末尾
+    #      呼び出しする形へ畳んだ。他レジスタには触れない。 ----
     a.label("FDC_BEGIN")
-    # 第69版容量圧縮: 全呼出元は直後にコマンド語をAへロードする。
-    # SEEKだけは目的Cを呼出元自身のPUSH AFで保持済みである。
+    a.push_af()
     a.xor_a()
     a.ld_mem_a(FDC_ABORT)
     a.ld_mem_a(WINDOW_RUN_POS)         # 続くOUT $FBはwindow(a)のrun終端
-    a.ret()
+    a.pop_af()
+    a.jp("FDC_OUT")                  # コマンド先頭バイト送出まで一体化
 
     # ---- FDC終端三つ組み（仕様書1.21節、第69版）。呼び出し元がFDCコマンド
     #      バッチ（例: 1セクタ分のデータフェーズ＋結果フェーズ）を
@@ -1354,8 +1357,7 @@ def build_subrom(break_write_ack=False,
     # ---- SPECIFY（起動時に1回。SRT/HUT/HLT の値は公開仕様のパラメータで、
     #      ROM由来ではない。タイミング固定値は自由に選べる） ----
     a.label("FDC_SPECIFY")
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
-    a.ld_a(0x03); a.call("FDC_OUT")     # コマンド: SPECIFY
+    a.ld_a(0x03); a.call("FDC_BEGIN")   # クリア後にコマンド送出
     a.ld_a(0xDF); a.call("FDC_OUT")     # SRT/HUT
     a.ld_a(0x02); a.jp("FDC_OUT")       # HLT/ND（末尾呼び出し）
 
@@ -1371,8 +1373,7 @@ def build_subrom(break_write_ack=False,
     # r0のIC field(bit7-6)を確認し、Invalid Command(10xxxxxx)でなければ
     # （＝正常に割り込みを拾えた場合）だけ2バイト目を読む。 ----
     a.label("FDC_SENSE_INT")
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
-    a.ld_a(0x08); a.call("FDC_OUT")
+    a.ld_a(0x08); a.call("FDC_BEGIN")
     a.call("FDC_IN")     # r0 = ST0
     if break_sense_int_result_count:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count）:
@@ -1402,8 +1403,7 @@ def build_subrom(break_write_ack=False,
     #      FDC_IN/FDC_SENSE_INT)がいずれもDEを保存して戻るため、
     #      呼び出しをまたいでも壊れない。 ----
     a.label("FDC_RECALIBRATE")
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
-    a.ld_a(0x07); a.call("FDC_OUT")     # コマンド: RECALIBRATE
+    a.ld_a(0x07); a.call("FDC_BEGIN")   # クリア後にコマンド送出
     a.ld_a_e(); a.call("FDC_OUT")       # unit=E(ドライブ番号), head=0
     # 第70版・m7by容量圧縮: 末尾call+retはcalleeへのJPと同じ戻り先になる。
     a.jp("FDC_SENSE_INT")
@@ -1417,8 +1417,7 @@ def build_subrom(break_write_ack=False,
     # に関わらず一意に定義された結果が返るため、他のFDCシーケンスの
     # 副作用を気にせず独立に呼べる。結果（ST3）はAレジスタに残す。
     a.label("FDC_SENSE_DRIVE_STATUS")
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
-    a.ld_a(0x04); a.call("FDC_OUT")     # コマンド: SENSE DRIVE STATUS
+    a.ld_a(0x04); a.call("FDC_BEGIN")   # クリア後にコマンド送出
     a.xor_a(); a.call("FDC_OUT")     # unit=0, head=0
     a.jp("FDC_IN")                      # 結果フェーズ: ST3（末尾呼び出し、Aに残る）
 
@@ -1427,8 +1426,7 @@ def build_subrom(break_write_ack=False,
     #      同じビット割り当て。上のFDC_RECALIBRATEのコメント参照）。----
     a.label("FDC_SEEK")
     a.push_af()
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
-    a.ld_a(0x0F); a.call("FDC_OUT")     # コマンド: SEEK
+    a.ld_a(0x0F); a.call("FDC_BEGIN")   # クリア後にコマンド送出
     a.ld_a_e(); a.call("FDC_OUT")       # unit=E(ドライブ番号), head=0
     a.pop_af();  a.call("FDC_OUT")      # 目的シリンダ
     # 第70版・m7by容量圧縮: FDC_RECALIBRATEと同じ末尾呼び出し最適化。
@@ -1452,8 +1450,7 @@ def build_subrom(break_write_ack=False,
     #      **制御バイト6/12の内訳は未確定なので触れていない**（仕様書3節・
     #      6節7項。推測で埋めない）。 ----
     a.label("FDC_WRITE_SECTOR")
-    a.call("FDC_BEGIN")
-    a.ld_a(0x45); a.call("FDC_OUT")     # WRITE DATA + MF=1（READ側と同じ理由）
+    a.ld_a(0x45); a.call("FDC_BEGIN")   # クリア後にWRITE DATA + MF=1を送出
     a.ld_a_mem(WRITE_PREV2)             # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
     a.and_a(0x01)
     a.rlca()
@@ -1702,14 +1699,13 @@ def build_subrom(break_write_ack=False,
         a.db(_c, _r, _sec, _dst & 0xFF, (_dst >> 8) & 0xFF, _hx)
 
     a.label("FDC_READ_SECTOR")
-    a.call("FDC_BEGIN")                 # このコマンドの中断フラグをクリア(第12版)
     # コマンド: READ DATA。MF(bit6)=1 必須——このハーネスの FDC は
     # sec_buf.density(セクタのID部の密度)と command.MF の一致を見る
     # （vendor src/fdc.c sector_density_mismatch()）。
     # DISK_DENSITY_DOUBLE=0x00（tools/make_l3_testdisk.py の density=0x00
     # 相当）に対しては MF=1（倍密度コマンド）が要る。実測して確かめた
     # （最初 MF=0 で送っていたら Missing Address Mark で毎回失敗した）。
-    a.ld_a(0x46); a.call("FDC_OUT")
+    a.ld_a(0x46); a.call("FDC_BEGIN")   # クリア後にREAD DATAを送出
     a.ld_a_mem(REQ_UNIT_HEAD); a.call("FDC_OUT")  # unit/head（第42版）
     a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # C = 直前SEEK対象(byte4)
     a.ld_a_mem(REQ_H); a.call("FDC_OUT")  # H（交換#11以外は0）
@@ -1739,8 +1735,7 @@ def build_subrom(break_write_ack=False,
     # 交換#14専用の複数セクタREAD。公開FDCパラメータは上のBULK_*から取り、
     # データ部だけをBULK_DESTから連続格納する。
     a.label("FDC_READ_BULK")
-    a.call("FDC_BEGIN")
-    a.ld_a(0x46); a.call("FDC_OUT")
+    a.ld_a(0x46); a.call("FDC_BEGIN")
     a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
     a.ld_a_mem(BULK_C); a.call("FDC_OUT")
     a.ld_a_mem(BULK_H); a.call("FDC_OUT")
@@ -2401,9 +2396,7 @@ def build_subrom(break_write_ack=False,
     a.jp("IDLE_DISPATCH")
 
     a.label("BULK_SEND_ONE")
-    a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
-    a.out_imm(0xFF, PH_SEND_DATA_SET)    # 09
-    a.call("WAIT_FE_RECV_DATA_READY")   # bit0=1
+    a.call("BULK_SEND_BEGIN")
     # ---- 第61版・m7bc: 2本のチャンネルへ送るバイトの組み方を訂正した。
     # 第60版までは「偶数バイトを $FD、奇数バイトを $FC」に振り分けていたが、
     # 実測では**公式は $FC に送ったバイトの「次」のバイトを $FD に送る**。
@@ -2416,26 +2409,20 @@ def build_subrom(break_write_ack=False,
     a.inc_hl()
     a.ld_a_hl()                          # D[2i+2] → $FD（main IN $FC）
     a.out_a(P_PIO_B)
-    a.out_imm(0xFF, PH_SEND_DATA_CLR)    # 08
-    a.jp("WAIT_FE_RECV_ACK_DONE")       # bit0=0（末尾呼び出し）
+    a.jp("BULK_SEND_END")
 
     a.label("BULK_SEND_POSITION3")
-    a.call("WAIT_FE_RECV_ACK_DONE")
-    a.out_imm(0xFF, PH_SEND_DATA_SET)
-    a.call("WAIT_FE_RECV_DATA_READY")
+    a.call("BULK_SEND_BEGIN")
     a.ld_a_hl()
     a.out_a(P_PIO_A)
     if BULK_POSITION3_FD_CANDIDATE >= 0:
         a.ld_a(BULK_POSITION3_FD_CANDIDATE & 0xFF)
     a.out_a(P_PIO_B)
     a.inc_hl()
-    a.out_imm(0xFF, PH_SEND_DATA_CLR)
-    a.jp("WAIT_FE_RECV_ACK_DONE")     # 末尾呼び出し（第70版容量圧縮）
+    a.jp("BULK_SEND_END")
 
     a.label("BULK_SEND_FINAL_DUPLICATE")
-    a.call("WAIT_FE_RECV_ACK_DONE")
-    a.out_imm(0xFF, PH_SEND_DATA_SET)
-    a.call("WAIT_FE_RECV_DATA_READY")
+    a.call("BULK_SEND_BEGIN")
     a.ld_a_hl()
     a.out_a(P_PIO_A)
     a.out_a(P_PIO_B)
@@ -2450,27 +2437,32 @@ def build_subrom(break_write_ack=False,
     a.jp("WAIT_FE_RECV_ACK_DONE")     # 末尾呼び出し（第70版容量圧縮）
 
     a.label("BULK_SEND_POSITION1")
-    a.call("WAIT_FE_RECV_ACK_DONE")
-    a.out_imm(0xFF, PH_SEND_DATA_SET)
-    a.call("WAIT_FE_RECV_DATA_READY")
     a.ld_a(BULK_POSITION1_OBSERVED_RESPONSE)
-    a.out_a(P_PIO_A)
-    # 第61版・m7bc: 2本のチャンネルは別の値を運ぶ。$FD側（main IN $FC）は
-    # 実測で 0x00 だった（プリアンブル1件目）。第60版までは$FC側と同じ値を
-    # 両方へ書いていた。
-    a.xor_a()
-    a.out_a(P_PIO_B)
-    a.out_imm(0xFF, PH_SEND_DATA_CLR)
-    a.jp("WAIT_FE_RECV_ACK_DONE")     # 末尾呼び出し（第70版容量圧縮）
+    a.jp("BULK_SEND_CONST")
 
     a.label("BULK_SEND_POSITION2")
-    a.call("WAIT_FE_RECV_ACK_DONE")
-    a.out_imm(0xFF, PH_SEND_DATA_SET)
-    a.call("WAIT_FE_RECV_DATA_READY")
     a.ld_a(5632 // 256)                # 第46版: 定常転送組数
+    a.jp("BULK_SEND_CONST")
+
+    # ---- 第71版容量圧縮: 上の5入口で同一だった開始・終了I/O列を共有する。
+    # POSITION1/2はさらに、Aで渡す定数以外が同一なので本体も共有する。 ----
+    a.label("BULK_SEND_CONST")
+    a.push_af()
+    a.call("BULK_SEND_BEGIN")
+    a.pop_af()
     a.out_a(P_PIO_A)
-    a.xor_a()                          # 第61版・m7bc: $FD側は実測で0x00
+    # 第61版・m7bc: POSITION1/2の$FD側は実測で0x00。
+    a.xor_a()
     a.out_a(P_PIO_B)
+    a.jp("BULK_SEND_END")
+
+    a.label("BULK_SEND_BEGIN")
+    a.call("WAIT_FE_RECV_ACK_DONE")     # bit0=0
+    a.out_imm(0xFF, PH_SEND_DATA_SET)    # 09
+    a.call("WAIT_FE_RECV_DATA_READY")   # bit0=1
+    a.ret()
+
+    a.label("BULK_SEND_END")
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
     a.jp("WAIT_FE_RECV_ACK_DONE")     # 末尾呼び出し（第70版容量圧縮）
 
