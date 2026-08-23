@@ -26,6 +26,10 @@ HASH="$REPO/tools/hash_io_stream.py"
 EXPECTED="$REPO/tests/conformance/expected.tsv"
 FILES_EXPECTED="$REPO/tests/conformance/expected_files.tsv"
 LOAD_EXPECTED="$REPO/tests/conformance/expected_load.tsv"
+LOAD_EXISTING_EXPECTED="$REPO/tests/conformance/expected_load_existing.tsv"
+SEQFILE_EXPECTED="$REPO/tests/conformance/expected_seqfile.tsv"
+KILL_EXPECTED="$REPO/tests/conformance/expected_kill.tsv"
+NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 # build_mixed_rom は tools/lib_l3_measure.sh に切り出した（tools/diag_l3_mixed.sh
@@ -53,6 +57,11 @@ if [ ! -f "$EXPECTED" ]; then
 fi
 if [ ! -f "$FILES_EXPECTED" ] || [ ! -f "$LOAD_EXPECTED" ]; then
   echo "エラー: FILES/LOAD入口の期待値ファイルが無い" >&2
+  exit 2
+fi
+if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
+   || [ ! -f "$KILL_EXPECTED" ] || [ ! -f "$NAME_EXPECTED" ]; then
+  echo "エラー: m7cg需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SELFTEST_LOG" ]; then
@@ -587,13 +596,17 @@ else
 fi
 
 # -----------------------------------------------------------------------
-# M6需要入口の到達判定（5.2節の適合条件1〜5とは別の追加測定）— m7cf。
+# M6需要入口の到達判定（5.2節の適合条件1〜5とは別の追加測定）— m7cf/m7cg。
 #
 # FILES: 2400F、300FでRETURN、700FからFILES。
 # LOAD : 4800F、使い捨て複製だけを書込可にし、SAVE→NEW→同名LOAD。
 #
 # LOADを媒体の既存ファイルに依存させない理由は、対象媒体に元からある内容を
 # 期待値へ混ぜず、条件5で適合済みのSAVE直後からLOAD入口を確実に作るため。
+# m7cgでは別プロセスで既存ファイルだけをLOADする入口も追加する。準備runだけ
+# q88measure --save-to-disk-imageを使い、SAVE結果を使い捨てD88複製へ直接保存する。
+# 完成した同じ複製を公式／混成の入力へ二分し、2回目はLOADだけを打鍵する。
+# seqfile/KILL/NAMEも9000Fとし、対象コマンドの画面反映と直後Okを到達指標にする。
 # 各実行は新規ROMディレクトリ・新規ディスク複製を使い、300秒で打ち切る。
 # 期待値不一致のうち、列が公式件数へ届かないものは「未到達」であって
 # 適合条件1〜5の失格にはしない。公式件数まで届いてハッシュだけ違う場合は、
@@ -601,10 +614,64 @@ fi
 # -----------------------------------------------------------------------
 ENTRY_TIMEOUT=300
 ENTRY_FDC_COMPARE="$REPO/tools/compare_l3_entry_fdc.py"
+ENTRY_SCREEN_CHECK="$REPO/tools/check_l3_entry_screen.py"
+
+copy_entry_roms() {
+  local mode="$1" rom="$2" f copied=0
+  mkdir -p "$rom"
+  if [ "$mode" = "official" ]; then
+    for f in "$PC88_REF_ROM_DIR"/*.ROM; do
+      [ -f "$f" ] || continue
+      cp -p "$f" "$rom"/ || return 1
+      copied=1
+    done
+    [ "$copied" -eq 1 ] || return 1
+  else
+    build_mixed_rom "$PC88_REF_ROM_DIR" "$rom" || return 1
+  fi
+}
+
+prepare_existing_load_disk() {
+  local out_disk="$1"
+  local attempt=1 rc=1 rom prep_iolog prep_report prep_cmds
+  prep_iolog="$WORK/load_existing.prepare.iolog.txt"
+  prep_report="$WORK/load_existing.prepare.report.txt"
+  : > "$WORK/load_existing.prepare.stderr.txt"
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    rom="$WORK/load_existing.prepare.attempt${attempt}.rom"
+    copy_entry_roms official "$rom" || return 1
+    cp "$DISK" "$out_disk" || return 1
+    printf '\x00' | dd of="$out_disk" bs=1 seek=26 count=1 conv=notrunc status=none
+    rm -f "$prep_iolog" "$prep_report"
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
+        "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$out_disk" \
+        --save-to-disk-image --frames 9000 --io-log "$prep_iolog" \
+        --out "$prep_report" --type-at 300 --type '\n' --type-at 700 \
+        --type '10 PRINT "T"\nSAVE"Q7L"\n' \
+        >"$WORK/load_existing.prepare.stdout.txt" \
+        2>>"$WORK/load_existing.prepare.stderr.txt"
+    rc=$?
+    if [ "$rc" -eq 0 ] \
+       && python3 "$ENTRY_SCREEN_CHECK" --report "$prep_report" \
+                  --scenario load_prepare >/dev/null 2>&1; then
+      prep_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$prep_iolog" \
+                    2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+      if [ "${prep_cmds:-0}" -gt 0 ]; then
+        ok "既存LOAD準備: SAVEの打鍵反映・直後Ok・WRITE DATA発行を確認"
+        return 0
+      fi
+    fi
+    echo "  [注記] 既存LOAD準備: 未到達または${ENTRY_TIMEOUT}秒上限"
+    echo "         （${attempt}/${Q88_MEASURE_ATTEMPTS}回、rc=${rc}）。新規複製で再試行する。"
+    attempt=$((attempt + 1))
+  done
+  return 3
+}
 
 run_entry_measurement() {
   local label="$1" mode="$2" scenario="$3" out_iolog="$4"
-  local attempt=1 rc=1 rom disk f copied
+  local source_disk="${5:-$DISK}"
+  local attempt=1 rc=1 rom disk report
   local frames
   local -a type_args
 
@@ -618,6 +685,25 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 \
                  --type '10 PRINT "T"\nSAVE"LQ"\nNEW\nLOAD"LQ"\n')
       ;;
+    load_existing)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type 'LOAD"Q7L"\n')
+      ;;
+    seqfile)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 \
+                 --type 'OPEN "Q7S" FOR OUTPUT AS #1\nPRINT#1,"HI"\nCLOSE\nOPEN "Q7S" FOR INPUT AS #1\nINPUT#1,W$\nCLOSE\n')
+      ;;
+    kill)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 \
+                 --type '10 PRINT "T"\nSAVE"Q7K"\nKILL"Q7K"\n')
+      ;;
+    name)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 \
+                 --type '10 PRINT "T"\nSAVE"Q7N"\nNAME"Q7N" AS "Q7R"\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -628,33 +714,35 @@ run_entry_measurement() {
   while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
     rom="$WORK/${label}.attempt${attempt}.rom"
     disk="$WORK/${label}.attempt${attempt}.d88"
-    mkdir -p "$rom"
-    if [ "$mode" = "official" ]; then
-      copied=0
-      for f in "$PC88_REF_ROM_DIR"/*.ROM; do
-        [ -f "$f" ] || continue
-        cp -p "$f" "$rom"/ || return 1
-        copied=1
-      done
-      [ "$copied" -eq 1 ] || return 1
-    else
-      build_mixed_rom "$PC88_REF_ROM_DIR" "$rom" || return 1
-    fi
-    cp "$DISK" "$disk" || return 1
-    if [ "$scenario" = "load" ]; then
+    copy_entry_roms "$mode" "$rom" || return 1
+    cp "$source_disk" "$disk" || return 1
+    if [ "$scenario" = "load" ] || [ "$scenario" = "seqfile" ] \
+       || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ]; then
       printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
     fi
 
-    rm -f "$out_iolog"
+    report="$WORK/${label}.report.txt"
+    rm -f "$out_iolog" "$report"
     /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
         "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$disk" \
-        --frames "$frames" --io-log "$out_iolog" "${type_args[@]}" \
+        --frames "$frames" --io-log "$out_iolog" --out "$report" \
+        "${type_args[@]}" \
         >"$WORK/${label}.stdout.txt" 2>>"$WORK/${label}.stderr.txt"
     rc=$?
     if [ "$rc" -eq 0 ]; then
-      return 0
+      case "$scenario" in
+        load_existing|seqfile|kill|name)
+          if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
+                     --scenario "$scenario" >/dev/null 2>&1; then
+            ok "${label}: 対象打鍵の画面反映と直後Okを確認"
+            return 0
+          fi
+          rc=3
+          ;;
+        *) return 0 ;;
+      esac
     fi
-    echo "  [注記] ${label}: q88measure失敗または${ENTRY_TIMEOUT}秒上限"
+    echo "  [注記] ${label}: q88measure失敗、入口未到達、または${ENTRY_TIMEOUT}秒上限"
     echo "         （${attempt}/${Q88_MEASURE_ATTEMPTS}回、rc=${rc}）。新規複製で再試行する。"
     attempt=$((attempt + 1))
   done
@@ -711,15 +799,23 @@ judge_entry() {
   local scenario="$1" expected="$2" label="$3"
   local official="$WORK/${scenario}.official.iolog.txt"
   local mixed="$WORK/${scenario}.mixed.iolog.txt"
-  local official_ok=0 mixed_ok=0 fdc_rc=0
+  local official_ok=0 mixed_ok=0 fdc_rc=0 prepared=""
 
   say "需要入口 ${label}: 公式一式と混成を同条件で実測（各実行${ENTRY_TIMEOUT}秒上限）"
-  if ! run_entry_measurement "${scenario}.official" official "$scenario" "$official"; then
-    ng "${label}: 公式一式の測定に失敗"
+  if [ "$scenario" = "load_existing" ]; then
+    prepared="$WORK/load_existing.prepared.d88"
+    if ! prepare_existing_load_disk "$prepared"; then
+      na "${label}: 準備SAVEが完了せず、2回目のLOAD入口は未到達"
+      overall_rc=1
+      return
+    fi
+  fi
+  if ! run_entry_measurement "${scenario}.official" official "$scenario" "$official" "$prepared"; then
+    na "${label}: 公式一式でも入口へ到達せず、期待値を判定不能"
     overall_rc=1
     return
   fi
-  if ! run_entry_measurement "${scenario}.mixed" mixed "$scenario" "$mixed"; then
+  if ! run_entry_measurement "${scenario}.mixed" mixed "$scenario" "$mixed" "$prepared"; then
     na "${label}: 混成の測定が完了せず未到達（停止位置は測定ログ末尾）"
     return
   fi
@@ -763,8 +859,31 @@ judge_entry() {
   fi
 }
 
+say "需要入口の到達判定器自己検査（合成画面による陽性・陰性対照）"
+cat > "$WORK/entry-screen.positive.txt" <<'EOF'
+  0| load"q7l"
+  1| Ok
+EOF
+cat > "$WORK/entry-screen.negative.txt" <<'EOF'
+  0| load"q7l"
+  1| Synthetic failure
+EOF
+if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/entry-screen.positive.txt" \
+           --scenario load_existing >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/entry-screen.negative.txt" \
+            --scenario load_existing >/dev/null 2>&1; then
+  ok "到達判定器: 陽性対照を到達、直後Okを壊した陰性対照を未到達として検出"
+else
+  ng "到達判定器: 合成画面の陽性・陰性対照を正しく区別できない"
+  overall_rc=1
+fi
+
 judge_entry files "$FILES_EXPECTED" FILES
 judge_entry load "$LOAD_EXPECTED" LOAD
+judge_entry load_existing "$LOAD_EXISTING_EXPECTED" "既存ファイル単独LOAD"
+judge_entry seqfile "$SEQFILE_EXPECTED" "シーケンシャルファイル出力・入力"
+judge_entry kill "$KILL_EXPECTED" KILL
+judge_entry name "$NAME_EXPECTED" NAME
 
 say "現状の到達点"
 cat <<'EOF'

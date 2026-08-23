@@ -95,6 +95,11 @@ static bool                g_screenshot_available = false;
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
 static bool g_verbose       = false;
+/* 既定では libretro コアが書込み差分を save directory の .srm に置く。
+ * 二つの独立実行の間で「1回目がSAVEした使い捨てD88複製そのもの」を渡す
+ * 測定だけは、コアの公開オプション q88_save_to_disk_image を明示的に有効に
+ * する。指定しない既存測定の保存方式は変えない。 */
+static bool g_save_to_disk_image = false;
 
 /* ---- キー入力の再生 -----------------------------------------------------
  * アイドル起動だけを測っても需要は増えない。ROM はキーボードを走査して
@@ -213,6 +218,12 @@ static bool environment_cb(unsigned cmd, void *data)
         if (g_basic_mode && !strcmp(((struct retro_variable *)data)->key,
                                     "q88_basic_mode")) {
             ((struct retro_variable *)data)->value = g_basic_mode;
+            return true;
+        }
+        if (g_save_to_disk_image &&
+            !strcmp(((struct retro_variable *)data)->key,
+                    "q88_save_to_disk_image")) {
+            ((struct retro_variable *)data)->value = "enabled";
             return true;
         }
         ((struct retro_variable *)data)->value = NULL;  /* 既定値を使わせる */
@@ -762,6 +773,7 @@ static void usage(void)
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
+        "                   [--save-to-disk-image]\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
         "                   [--key-hold N] [--key-gap N]\n"
         "                   [--expect-exec ADDR] [--expect-read ADDR]\n"
@@ -811,6 +823,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--basic-mode") && i + 1 < argc) g_basic_mode = argv[++i];
+        else if (!strcmp(argv[i], "--save-to-disk-image")) g_save_to_disk_image = true;
         else if (!strcmp(argv[i], "--rom-dir") && i + 1 < argc)
             snprintf(g_rom_dir, sizeof(g_rom_dir), "%s", argv[++i]);
         /* --type-at で打ち始めるフレームを決め、--type で打つ。

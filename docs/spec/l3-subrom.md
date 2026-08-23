@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第74版 / 2026-08-23
+仕様書 第75版 / 2026-08-23
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第75版 | 2026-08-23 | 残り4需要入口の公式・混成測定 | 既存ファイル単独LOAD、シーケンシャル出力・入力、KILL、NAMEを公式一式／公式main＋自作subで各2回実測した。対象打鍵の画面反映・直後Okを確認し、公開FDC種別列は83/156/193/152件、main `IN $FD/$FC`は件数・SHA-256とも全長一致した。追加実装境界は観測されず、5.1・5.2節の条件文は変更していない。根拠は`docs/notes/m7cg-remaining-entry-reachability.md` |
 | 第74版 | 2026-08-23 | FILES/LOAD需要入口の公式・混成測定 | FILES（2400F）とSAVE→NEW→同名LOAD（4800F）を公式一式／公式main＋自作subで各2回実測した。公開FDCコマンド種別列はFILES 79/79件、LOAD 156/156件で全長一致し、main `IN $FD`は両入口5635件、入口固有の`IN $FC`もFILES 7964件・LOAD 9526件で件数・SHA-256が一致した。内部FDC値列の最初の差は2件目のSPECIFYパラメータだが、5.1節の内部実装自由度として適合条件へ追加しない。5.2節の条件文は変更していない。根拠は`docs/notes/m7cf-files-load-reachability.md` |
 | 第73版 | 2026-08-23 | 割り込み駆動化後の公式環境適合実走 | 開発者の公式環境でオーケストレータが`tools/conform_l3.sh`本体を実走し、条件3は自作subの受理13362件すべてを判定対象として直前main 0件となり、条件を変えず初めて判定成立・合格した。条件1〜5もすべて合格。公式subの受理13593件とは件数が異なり、自作では受理直前に`IN $FA`が現れる公式と一致しない外形差も残る。根拠は`docs/notes/m7ce-official-conformance-after-interrupt.md` |
 | 第72版 | 2026-08-23 | 自作subの割り込み受理実装 | 割り込みモード等が未確定であることを維持したまま、実装の自由度としてIM 1を選んだ。0x0038へAF保存・`IN $FA`・RETIのハンドラを置き、FDC_IN/FDC_OUTの有限ポーリングが転送可能を確認した箇所だけEIする。HALTを使わず、タイムアウト・FDC_ABORT・診断マーカーを維持した。自作ハーネスでは受理794件、直前main 0件、直後`IN $FA`794件だった。直前は`IN $FA`781件・`OUT $FB`13件で公式外形とは一致しないため、適合条件1・5を優先した実装差として固定した。根拠は`docs/notes/m7cd-sub-interrupt-driven.md` |
@@ -97,6 +98,7 @@
 | 測定ノート | `docs/notes/m6-sub-invariant.md`（第1〜3版。5635件の不変量、diskA/diskB の切り分け） |
 | 測定ノート | `docs/notes/m7cc-official-sub-interrupt-shape.md`（第71版。既存ログ横断による割り込み受理の直前・直後、FDC run、frame分布、diskB不変量） |
 | 測定ノート | `docs/notes/m7cf-files-load-reachability.md`（第74版。FILES/LOAD需要入口の公式・混成比較、決定論性、最初の内部FDC差） |
+| 測定ノート | `docs/notes/m7cg-remaining-entry-reachability.md`（第75版。既存単独LOAD・seqfile・KILL・NAMEの到達、決定論性、公式・混成比較） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -1865,6 +1867,37 @@ FDCコマンド種別列とmain受信列に分岐は無く、混成の停止・�
 追加実装境界は観測されず、5.2節の5条件は変更しない。
 
 根拠: [docs/notes/m7cf-files-load-reachability.md](../notes/m7cf-files-load-reachability.md)。
+
+### 1.43 残り4需要入口の到達外形（第75版）
+
+300FでRETURN、700Fから打鍵し、全入口を9000F走らせた。既存ファイル単独LOADは、
+公式一式の準備runでSAVEした使い捨てD88複製を、別プロセスの公式／混成runへ
+同一入力として渡し、2回目にはLOADだけを打鍵した。従って1.42節で未確定だった
+「起動直後に既存ファイルだけを読む」外形を直接測っている。ほかはseqfileの
+出力後入力、対象作成用SAVE→KILL、対象作成用SAVE→NAMEである。対象コマンドの
+画面反映と直後`Ok`を全条件で確認した。
+
+1.42節と同じ`P`・`R`・`W`表記で、公式・混成の公開FDCコマンド種別列は次のとおり
+全長一致した。
+
+| 入口 | 公式・混成のFDCコマンド種別列 | 一致prefix |
+|---|---|---:|
+| 既存ファイル単独LOAD | `P → R×17`（83件） | 83件（全長） |
+| シーケンシャル出力・入力 | `P → R×16 → SENSE DRIVE STATUS → W×6 → R → W → R → W → R×9`（156件） | 156件（全長） |
+| KILL | `P → R×16 → SENSE DRIVE STATUS → W×6 → R → W → R → W → R×8 → SENSE DRIVE STATUS → W×5 → R → W → R → W → R`（193件） | 193件（全長） |
+| NAME | `P → R×16 → SENSE DRIVE STATUS → W×6 → R → W → R → W → R×7 → W`（152件） | 152件（全長） |
+
+main `IN $FD`は全入口5635件で既存条件1と同じSHA-256だった。入口固有のmain
+`IN $FC`は既存LOAD 8222件、seqfile 9526件、KILL 9279件、NAME 9525件で、
+公式・混成の件数・SHA-256がそれぞれ一致した。各構成2回のmain/sub全イベント列も
+一時パスを含むヘッダを除いて完全一致した。全入口で直後`Ok`まで完了後、9000Fまで
+走り切っており、停止・デッドロックは無い。
+
+内部FDC値列は1件一致後、2件目のSPECIFYパラメータで同方向の値差となるが、
+main受信列には影響しない。4入口とも追加実装境界は観測されず、5.1節の内部実装
+自由度と5.2節の5条件は変更しない。
+
+根拠: [docs/notes/m7cg-remaining-entry-reachability.md](../notes/m7cg-remaining-entry-reachability.md)。
 
 ## 2. 明示的に「採用できない」こと
 

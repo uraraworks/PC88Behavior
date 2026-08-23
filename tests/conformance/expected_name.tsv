@@ -1,0 +1,6 @@
+# NAME入口。値は置かず、件数とSHA-256だけを置く。
+# diskA使い捨て複製、9000 frames、300FでRETURN、700Fから
+# SAVEで対象を作成してNAME。2026-08-23に同条件2回一致。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cg-name-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cg-name-main-fc	main	00FC	IN	9525	60b5f9cbbf63ec5a8a0e23a096f15af658a61bfeb7ff24a872231604cbd4014a
