@@ -52,6 +52,7 @@ SCRIPTS_EXPECTED=(
   "tools/redact_iolog_selftest.sh:0"
   "tools/analyzer_redaction_selftest.sh:0"
   "tools/analyze_sub_fe_selftest.sh:0"
+  "tools/analyze_sub_interrupt_shape_selftest.sh:0"
   "tools/analyze_boot_exchange_selftest.sh:0"
   "tools/analyze_run_boundary_selftest.sh:0"
   "tools/analyze_record_boundaries_selftest.sh:0"

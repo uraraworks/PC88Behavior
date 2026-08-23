@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第70版 / 2026-08-23
+仕様書 第71版 / 2026-08-23
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第71版 | 2026-08-23 | 公式sub割り込み外形の既存ログ横断再解析 | 共通clock付きのdiskA 4操作条件・nodisk・diskB 3時間長・決定論性run 2本を値なしで再解析した。直前は常にsubの`IN/OUT $FB`または`IN $F8`、直後は全件sub `IN $FA`、受理はFDC長run途中にも密集し、受理ごとのSENSE発行ではないことを確定。nodisk 0件、diskB 600でも同じ外形、run1/run2解析結果完全一致。コマンド別完了対応、長時間diskB全期間、割り込みモード等は未確定のまま残した。根拠は`docs/notes/m7cc-official-sub-interrupt-shape.md` |
 | 第70版 | 2026-08-23 | 容量圧縮後コードの公式環境適合実走 | 開発者環境でオーケストレータが`tools/conform_l3.sh`本体を実走し、5.2節2項を初判定した。混成のdiskB起動で`sub OUT $FC` 0件、陽性対照diskA（混成）5635件により、条件を変更せず達成を追記。根拠は`docs/notes/m7cb-official-conformance-after-compression.md` |
 | 第69版 | 2026-08-22 | F8方向の公開I/O実装再照合 | 第68版のWRITE境界測定と公開I/O実装を照合し、`OUT $F8`はモータ制御、FDCへのTCは`IN $F8`と訂正した。第15版以来の「OUTがTC」という意味づけだけを撤回し、観測済みI/O列・件数・順序は変更しない。根拠は`docs/notes/m7bz-save-reachability.md`。1.21節・1.26節・6節19〜20・25項を更新 |
 | 第68版 | 2026-08-22 | SAVE到達追加測定 | 第67版の2バイト位相を仮実装するとWRITE 1/8まで進み、次は結果直後で停止した。公式8件全数で、結果7件の直後はTC・sub応答よりmainの1バイト受信が先行し、WRITE直前はモータ制御出力1・F7出力1・TC入力0、データ256件直後・結果7件前はTC入力1、EOTは媒体形状、GPLは公開形式のN=1短GAP分類だった（すべて8/8）。自作mainはWRITE直後の明示応答とTC三つ組みを共有していたため単発自己検証で見逃した。先行版で`OUT F8`をTCと誤記したが、公開I/O実装どおりモータ制御へ訂正した。根拠は`docs/notes/m7bz-save-reachability.md`。1.35節・6節7項を更新 |
@@ -91,6 +92,7 @@
 | 測定ノート | `docs/notes/m6-sub-proto.md`（第1〜4版。データ経路・ステータスビット・割り込み源・反復単位） |
 | 測定ノート | `docs/notes/m6-sub-clock.md`（共通クロック導入の経緯・自己検証） |
 | 測定ノート | `docs/notes/m6-sub-invariant.md`（第1〜3版。5635件の不変量、diskA/diskB の切り分け） |
+| 測定ノート | `docs/notes/m7cc-official-sub-interrupt-shape.md`（第71版。既存ログ横断による割り込み受理の直前・直後、FDC run、frame分布、diskB不変量） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -100,6 +102,7 @@
 | 測定ノート | `docs/notes/m6m-fe-bit-analysis.md`（第10版で追加。`$FE`待ち判定のビット構造。main視点1.13節4ループ・sub視点1.15節RECV/SENDプリミティブ・アイドル判別の各待ちについて、どのビットがexit/loop継続を分離するかを機械的に確定。追加測定は行わず、既存ログ`m6c-sub-*`4条件・`m6g-d0-boot-run{1,2}`を再解析） |
 | 測定ログ | `measurements/m6-sub-*` / `measurements/m6c-sub-*`（共通クロック付き） / `measurements/m6d-inv-*` / `measurements/m6e-diskB-*` / `measurements/m6f-*-shot-*` / `measurements/m6g-d0-boot-run{1,2}.*`（決定論性確認用の再測定。第5版でも同ログを再解析。第9版でも同ログを再解析。第10版でも同ログを再解析） / `measurements/m6h-fdc-*`（第3版。`m6c-sub-*`の再解析） / `measurements/m6i-main-to-sub-*`（第4版。`m6c-sub-*`の再解析） / `measurements/m6l-boot-exchange-run{1,2}.txt`（第9版。`m6g-d0-boot-run{1,2}`の再解析結果） |
 | 解析器 | `tools/analyze_sub_proto.py`（第三者が再実行可能） |
+| 解析器 | `tools/analyze_sub_interrupt_shape.py`（第71版。値を使わず割り込み受理の外形を再実行可能） |
 | 解析器 | `tools/analyze_fdc_ports.py`（第3版で追加。`$FA`/`$FB`のbit相関・バースト構造・先頭バイト分布を再実行可能） |
 | 解析器 | `tools/analyze_main_to_sub.py`（第4版で追加。main側SEND/RECVプリミティブの分類・要求ヘッダの再構成・`$FE`待ちループの遷移集計を再実行可能） |
 | 解析器 | `tools/analyze_bulk_trigger.py`（第5版で追加。`tools/cmp_io.py`のパーサを共有し、バルク区間のPC分布・`$FE`/`$FF`件数を再実行可能） |
@@ -1764,6 +1767,40 @@ WRITEを打ち切る。実装上のゲートは**READ完走後にK00列Bが起�
 
 根拠: [docs/notes/m7bx-k00-variant-rule.md](../notes/m7bx-k00-variant-rule.md)、
 [docs/notes/m7by-k00-completion-wiring.md](../notes/m7by-k00-completion-wiring.md)。
+
+### 1.40 割り込み受理の外形的性質（第71版）
+
+既存の共通clockログをdiskA 4操作条件、nodisk、diskB 3時間長、決定論性用
+起動2回で横断した。値列は使っていない。
+
+- 受理点の直前1件は全件sub側で、`IN $FB`、`OUT $FB`、`IN $F8`の3分類だけ。
+  main側は0件であり、1.3節・5.2節3項をポート・方向単位へ細分した。
+- 受理点の直後1件は、取りこぼしのない全ログ・diskB長時間ログの保存分を
+  含め、全件sub `IN $FA`。ただしこれは次に観測されたI/Oであり、割り込み
+  ハンドラ内か復帰後かはI/Oログだけでは確定できない。
+- 受理は`$FB`の長い同方向runの途中にも大量に現れる。起動d0では13,593件中
+  13,559件が長いIN run内イベントの直後、書き込みを含むd5では20,301件中
+  20,197件（IN側18,149件、OUT側2,048件）が長いrun内イベントの直後だった。
+  従ってFDCコマンド完了境界だけに1対1対応する割り込みではない。
+- 受理後の`OUT $FB` 1件→`IN $FB` 1〜2件をSENSE INTERRUPT STATUSの
+  外形候補として数えても、d0で16/13,593、d5で42/20,301であり、受理1件ごとに
+  SENSEを発行する性質ではない。値が伏せられているため候補の確定、ならびに
+  SEEK / RECALIBRATE / READ / WRITE別の完了対応は**未確定**。
+- 受理は連続一様でなくFDC活動時の少数frameに密集する。バースト中も、受理直後の
+  `IN $FA`から同方向の`$FB`転送へ戻る外形を保つ。I/Oに現れないレジスタ退避等の
+  干渉回避法は**未確定**。
+- nodiskはsub I/O・受理とも0件で、5.2節4項と整合する。diskB 600フレーム
+  （取りこぼし0）でも直前3分類・直後`IN $FA`・バースト中受理が成立する。
+  diskB 1800/3600は各65,536件の保存分では成立するが、各15,401件の取りこぼしが
+  あるため全期間は**未確定**。
+- `m6g-d0-boot-run1`/`run2`は、frame別件数を含む解析結果が完全一致した。
+
+割り込みモード、ベクタ、ハンドラ内部構造、SENSE発行方針を実装要件として固定する
+根拠は得られていない。5.2節3項は変更せず、自作subの実装ではまず「受理点の直前を
+mainの直接I/Oにしない」ことを満たす。直後`IN $FA`やバースト中受理を新しい
+適合条件として課すかは**未確定**である。
+
+根拠: [docs/notes/m7cc-official-sub-interrupt-shape.md](../notes/m7cc-official-sub-interrupt-shape.md)。
 
 ## 2. 明示的に「採用できない」こと
 
