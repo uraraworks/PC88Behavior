@@ -42,7 +42,7 @@ python3 "$REPO/tools/analyze_sub_interrupt_shape.py" \
 fault_rc=$?
 set -e
 if [ "$fault_rc" -ne 1 ]; then
-  echo "NG: main直前イベント注入（陽性対照）がrc=1にならない（rc=$fault_rc）"
+  echo "NG: main直前イベント注入（陽性対照）がrc=1にならない（rc=${fault_rc}）"
   exit 1
 fi
 

@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md`（第44版）**だけ**である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md`（第72版）**だけ**である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -31,6 +31,10 @@ make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相�
   読み出し。**コマンド体系は公開仕様（μPD765/8272データシート）に
   従って自分で書く**。公式ROMと同じFDCコマンド列を出す必要はない
   （仕様書 0節）。
+- IM 1によるFDC割り込み受理（仕様書1.41節）。`0x0038`のハンドラは
+  AFを保存して`IN $FA`を1回行い、主線へ復帰する。FDC_IN/FDC_OUTの
+  有限ポーリングを残し、転送可能になった`$FB`アクセス直前だけEIする。
+  HALTは使わず、既存のタイムアウト・中断経路を維持する。
 
 ## このファイルが実装しないもの
 
@@ -527,6 +531,8 @@ class Asm:
     # ---- 命令 ----
     def di(self):        self.db(0xF3)
     def ei(self):         self.db(0xFB)
+    def im1(self):        self.db(0xED, 0x56)
+    def reti(self):       self.db(0xED, 0x4D)
     def ret(self):        self.db(0xC9)
     def nop(self):        self.db(0x00)
     def inc_hl(self):     self.db(0x23)
@@ -966,6 +972,28 @@ def build_subrom(break_write_ack=False,
     a.pop_af()
     a.ret()
 
+    # ---- IM 1 割り込みハンドラ（ベクタ0x0038）。
+    # 仕様書1.40節から確定するのは、受理直後の次のI/Oがsub IN $FAである
+    # ことまでで、公式subの割り込みモード・内部処理・レジスタ退避法は
+    # 未確定である。本実装は実装の自由度としてIM 1を選び、受理直後に
+    # MSRを1回確認して復帰する。AFを保存するため、中断されたFDC_IN/
+    # FDC_OUTの送受信値を壊さない。EIはデータポートアクセス直前の主線側
+    # だけで行い、ハンドラからは再許可しないので、割り込み要求が残って
+    # いても再入を繰り返さない。データ転送そのものと有限タイムアウトは
+    # 従来の主線側に残し、HALTは使わない。
+    #
+    # リセットベクタからここまでの既存コードがちょうど0x38バイトだった
+    # ため、RECV_BYTE末尾RETの直後へ置けばパディングもJPも不要である。
+    # 将来、前段の命令長が変わってベクタからずれた場合は黙って壊れず、
+    # 生成時に止める。
+    if a.pc != 0x0038:
+        raise SystemExit(f"IM 1ベクタ配置がずれた: 0x{a.pc:04X} != 0x0038")
+    a.label("IRQ_HANDLER")
+    a.push_af()
+    a.in_port(P_FDC_STAT)                  # 受理直後の次のI/OをIN $FAにする
+    a.pop_af()
+    a.reti()
+
     # ---- RECV_FIRST_ARMED: RECVの手順2〜6だけを行う。
     # 第69版・m7bzで公式mainのWRITEは位置6以降を2件一組で送ると確定した。
     # 1件目のあと手順7を出さず、2件目を直接読むWRITE専用経路と、通常の
@@ -1119,6 +1147,12 @@ def build_subrom(break_write_ack=False,
     a.call("RECV_BYTE")                    # 手順5: RECVプリミティブ1回（応答なし）
     a.out_imm(P_F8, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_F8, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
+    # 割り込みモードはI/Oログから未確定なので、ベクタを1箇所だけ確保すれば
+    # 済むIM 1を実装の自由度として選ぶ。EIはスタック設定と起動時PIO交換を
+    # 終え、FDC初期化へ入る直前にモードだけ設定する。EIはFDC_IN/FDC_OUTの
+    # データポートアクセス直前に限る。主線の有限ポーリングを継続し、
+    # 割り込みが来ない環境で停止するHALT待ちは導入しない。
+    a.im1()
     a.call("FDC_SPECIFY")                  # 手順8: FDC初期化開始
     # ---- 仕様書1.22節（第16版〜第19版）で確定した起動時FDC初期化の
     #      batch1〜7を再現する。ドライブ割り当て（1.22節・
@@ -1298,7 +1332,13 @@ def build_subrom(break_write_ack=False,
     a.ret()
     a.label("_fdc_in_ready")
     a.pop_de()
+    # IRQが既に立っている場合だけ、EI遅延スロットのNOP直後に受理する。
+    # ハンドラは再EIしないため、復帰後のIN $FBまで再入しない。IRQが無い
+    # 場合も直後のDIで閉じるので、FDC処理外へ許可状態を持ち越さない。
+    a.ei()
+    a.nop()
     a.in_port(P_FDC_DATA)
+    a.di()
     # 第21版で追加したLAST_FDC_RESULTへの保持は、第22版でSEND_DISPATCH_IDLE
     # 側がFDC_SENSE_DRIVE_STATUS実発行構造へ戻り不要になったため削除した。
     a.ret()
@@ -1351,7 +1391,10 @@ def build_subrom(break_write_ack=False,
     a.label("_fdc_out_ready")
     a.pop_de()
     a.pop_af()
+    a.ei()
+    a.nop()
     a.out_a(P_FDC_DATA)
+    a.di()
     a.ret()
 
     # ---- SPECIFY（起動時に1回。SRT/HUT/HLT の値は公開仕様のパラメータで、
