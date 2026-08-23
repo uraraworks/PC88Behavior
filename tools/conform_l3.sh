@@ -24,6 +24,8 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HASH="$REPO/tools/hash_io_stream.py"
 EXPECTED="$REPO/tests/conformance/expected.tsv"
+FILES_EXPECTED="$REPO/tests/conformance/expected_files.tsv"
+LOAD_EXPECTED="$REPO/tests/conformance/expected_load.tsv"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 # build_mixed_rom は tools/lib_l3_measure.sh に切り出した（tools/diag_l3_mixed.sh
@@ -47,6 +49,10 @@ na()  { printf '  \033[33m--\033[0m   %s\n' "$1"; }   # 判定不能（合否で
 
 if [ ! -f "$EXPECTED" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED" >&2
+  exit 2
+fi
+if [ ! -f "$FILES_EXPECTED" ] || [ ! -f "$LOAD_EXPECTED" ]; then
+  echo "エラー: FILES/LOAD入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SELFTEST_LOG" ]; then
@@ -579,6 +585,186 @@ else
     overall_rc=1
   fi
 fi
+
+# -----------------------------------------------------------------------
+# M6需要入口の到達判定（5.2節の適合条件1〜5とは別の追加測定）— m7cf。
+#
+# FILES: 2400F、300FでRETURN、700FからFILES。
+# LOAD : 4800F、使い捨て複製だけを書込可にし、SAVE→NEW→同名LOAD。
+#
+# LOADを媒体の既存ファイルに依存させない理由は、対象媒体に元からある内容を
+# 期待値へ混ぜず、条件5で適合済みのSAVE直後からLOAD入口を確実に作るため。
+# 各実行は新規ROMディレクトリ・新規ディスク複製を使い、300秒で打ち切る。
+# 期待値不一致のうち、列が公式件数へ届かないものは「未到達」であって
+# 適合条件1〜5の失格にはしない。公式件数まで届いてハッシュだけ違う場合は、
+# 到達後の内容差なので不一致として扱う。
+# -----------------------------------------------------------------------
+ENTRY_TIMEOUT=300
+ENTRY_FDC_COMPARE="$REPO/tools/compare_l3_entry_fdc.py"
+
+run_entry_measurement() {
+  local label="$1" mode="$2" scenario="$3" out_iolog="$4"
+  local attempt=1 rc=1 rom disk f copied
+  local frames
+  local -a type_args
+
+  case "$scenario" in
+    files)
+      frames=2400
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type 'FILES\n')
+      ;;
+    load)
+      frames=4800
+      type_args=(--type-at 300 --type '\n' --type-at 700 \
+                 --type '10 PRINT "T"\nSAVE"LQ"\nNEW\nLOAD"LQ"\n')
+      ;;
+    *)
+      echo "エラー: 未知の入口シナリオ: $scenario" >&2
+      return 2
+      ;;
+  esac
+
+  : > "$WORK/${label}.stderr.txt"
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    rom="$WORK/${label}.attempt${attempt}.rom"
+    disk="$WORK/${label}.attempt${attempt}.d88"
+    mkdir -p "$rom"
+    if [ "$mode" = "official" ]; then
+      copied=0
+      for f in "$PC88_REF_ROM_DIR"/*.ROM; do
+        [ -f "$f" ] || continue
+        cp -p "$f" "$rom"/ || return 1
+        copied=1
+      done
+      [ "$copied" -eq 1 ] || return 1
+    else
+      build_mixed_rom "$PC88_REF_ROM_DIR" "$rom" || return 1
+    fi
+    cp "$DISK" "$disk" || return 1
+    if [ "$scenario" = "load" ]; then
+      printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
+    fi
+
+    rm -f "$out_iolog"
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
+        "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$disk" \
+        --frames "$frames" --io-log "$out_iolog" "${type_args[@]}" \
+        >"$WORK/${label}.stdout.txt" 2>>"$WORK/${label}.stderr.txt"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      return 0
+    fi
+    echo "  [注記] ${label}: q88measure失敗または${ENTRY_TIMEOUT}秒上限"
+    echo "         （${attempt}/${Q88_MEASURE_ATTEMPTS}回、rc=${rc}）。新規複製で再試行する。"
+    attempt=$((attempt + 1))
+  done
+  return "$rc"
+}
+
+entry_expected_fault_selftest() {
+  local iolog="$1" expected="$2" label="$3"
+  local bad_sha="$WORK/${label}.bad-sha.tsv"
+  local bad_count="$WORK/${label}.bad-count.tsv"
+  local rc=0
+
+  awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
+       { sha=$6; last=substr(sha,length(sha),1)
+         $6=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print }' \
+      "$expected" > "$bad_sha"
+  if run_conformance "$iolog" "$bad_sha" "${label}-hash故障" >/dev/null 2>&1; then
+    ng "${label}: 壊したSHA-256が一致してしまった"
+    rc=1
+  else
+    ok "${label}: SHA-256を壊した期待値コピーを不一致検出"
+  fi
+
+  awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
+       {$5=$5+1; print}' "$expected" > "$bad_count"
+  if run_conformance "$iolog" "$bad_count" "${label}-件数故障" >/dev/null 2>&1; then
+    ng "${label}: 壊した件数が一致してしまった"
+    rc=1
+  else
+    ok "${label}: 件数を壊した期待値コピーを不一致検出"
+  fi
+  return "$rc"
+}
+
+entry_stream_is_short() {
+  local iolog="$1" expected="$2"
+  local name cpu port kind count sha out actual
+  while IFS=$'\t' read -r name cpu port kind count sha; do
+    [ -z "${name:-}" ] && continue
+    case "$name" in \#*) continue ;; esac
+    if out="$(python3 "$HASH" "$iolog" --cpu "$cpu" --port "$port" --kind "$kind" 2>/dev/null)"; then
+      actual="$(printf '%s\n' "$out" | awk -F'\t' '$1=="count"{print $2}')"
+    else
+      actual=0
+    fi
+    if [ "$actual" -lt "$count" ]; then
+      return 0
+    fi
+  done < "$expected"
+  return 1
+}
+
+judge_entry() {
+  local scenario="$1" expected="$2" label="$3"
+  local official="$WORK/${scenario}.official.iolog.txt"
+  local mixed="$WORK/${scenario}.mixed.iolog.txt"
+  local official_ok=0 mixed_ok=0 fdc_rc=0
+
+  say "需要入口 ${label}: 公式一式と混成を同条件で実測（各実行${ENTRY_TIMEOUT}秒上限）"
+  if ! run_entry_measurement "${scenario}.official" official "$scenario" "$official"; then
+    ng "${label}: 公式一式の測定に失敗"
+    overall_rc=1
+    return
+  fi
+  if ! run_entry_measurement "${scenario}.mixed" mixed "$scenario" "$mixed"; then
+    na "${label}: 混成の測定が完了せず未到達（停止位置は測定ログ末尾）"
+    return
+  fi
+
+  if run_conformance "$official" "$expected" "${label}-公式"; then
+    official_ok=1
+  else
+    ng "${label}: 公式実測が固定した期待値と一致しない"
+    overall_rc=1
+  fi
+  if ! entry_expected_fault_selftest "$official" "$expected" "${label}判定器"; then
+    overall_rc=1
+  fi
+
+  python3 "$ENTRY_FDC_COMPARE" --official "$official" --mixed "$mixed"
+  fdc_rc=$?
+  if [ "$fdc_rc" -eq 2 ]; then
+    ng "${label}: FDCコマンド種別列を解析できない"
+    overall_rc=1
+  fi
+
+  if run_conformance "$mixed" "$expected" "${label}-混成" >"$WORK/${scenario}.mixed-check.txt" 2>&1; then
+    mixed_ok=1
+    cat "$WORK/${scenario}.mixed-check.txt"
+  elif entry_stream_is_short "$mixed" "$expected"; then
+    na "${label}: 入口固有の受信列が公式件数へ届かず未到達"
+    sed 's/NG/--/' "$WORK/${scenario}.mixed-check.txt"
+  else
+    cat "$WORK/${scenario}.mixed-check.txt"
+    ng "${label}: 公式件数へ到達したが受信列の内容または長さが一致しない"
+    overall_rc=1
+  fi
+
+  if [ "$official_ok" -eq 1 ] && [ "$mixed_ok" -eq 1 ] && [ "$fdc_rc" -eq 0 ]; then
+    ok "${label}: 混成は入口終端まで到達（FDC種別列・main受信列とも公式と全長一致）"
+  elif [ "$fdc_rc" -eq 1 ] && [ "$mixed_ok" -eq 0 ]; then
+    na "${label}: FDCコマンド種別列の分岐位置で未到達"
+  elif [ "$fdc_rc" -eq 1 ]; then
+    ng "${label}: main受信列は一致したがFDCコマンド種別列に差がある"
+    overall_rc=1
+  fi
+}
+
+judge_entry files "$FILES_EXPECTED" FILES
+judge_entry load "$LOAD_EXPECTED" LOAD
 
 say "現状の到達点"
 cat <<'EOF'

@@ -1,0 +1,6 @@
+# LOAD入口の到達期待値。値は置かず、件数とSHA-256だけを置く。
+# 公式ROM一式 + diskA使い捨て複製（ライトプロテクト解除）、4800 frames、
+# 300FでRETURN、700Fから SAVE -> NEW -> 同名LOAD。2026-08-23に2回一致。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cf-load-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cf-load-main-fc	main	00FC	IN	9526	f81bfb69eecd4e2d29e1baee0ea9c4bc266a989d17bb773b91fb6d21e46b3b9c

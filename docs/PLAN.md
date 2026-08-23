@@ -396,6 +396,21 @@ lockstep到達を含み、条件外の構造差も未解消なので、**M6全�
 進行中**とする。根拠は
 [docs/notes/m7ce-official-conformance-after-interrupt.md](notes/m7ce-official-conformance-after-interrupt.md)。
 
+**現在地の更新（2026-08-23、FILES/LOAD需要入口）:** M6の定義「需要のあった
+入口を順に潰し、lockstep差分がテキスト画面出力まで一致」に沿って、FILESと
+LOADを公式一式／公式main＋自作subで測定した。実装を追加していない現行subで、
+FDCコマンド種別列はFILES 79件・LOAD 156件がともに全長一致し、mainの
+`IN $FD`/`IN $FC`も件数・SHA-256が一致した。従ってこの2入口は観測した終端
+まで既に一致しており、追加実装境界は見つからなかった。ただしLOADは
+`SAVE`→`NEW`→同名`LOAD`という複合経路であり、既存ファイル単独LOADは
+網羅していない。内部FDCポートの値列は2件目（SPECIFYのパラメータ1件目）から
+差があるが、main受信列へ影響しない内部実装差であり、仕様5.1節どおり適合条件
+にはしない。残る宿題は、別の需要入口、既存ファイル単独LOAD、割り込み受理件数
+の差（自作13362件／公式13593件）、自作だけ受理直前に`IN $FA`が現れる外形差
+である。到達範囲は広がったが残る範囲があるため、**M6は完了とせず進行中**とする。
+根拠は
+[docs/notes/m7cf-files-load-reachability.md](notes/m7cf-files-load-reachability.md)。
+
 測定の過程で**観測系の欠陥**が見つかった。メイン⇔サブ間のポート
 （`$F0`-`$FF`）の対応付けを試みたところ一致率が最大20%程度で頭打ちに
 なり、原因を診断すると「main/sub を横断する共通の時間軸が無く、

@@ -1,0 +1,6 @@
+# FILES入口の到達期待値。値は置かず、件数とSHA-256だけを置く。
+# 公式ROM一式 + diskA使い捨て複製、2400 frames、300FでRETURN、
+# 700Fから FILES を打鍵。2026-08-23に同条件2回一致を確認した。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cf-files-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cf-files-main-fc	main	00FC	IN	7964	7b9cfe61b8ef21cea7765549cffc4133135403df3b559d13f60159f9fcdd31c1

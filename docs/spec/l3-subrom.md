@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第73版 / 2026-08-23
+仕様書 第74版 / 2026-08-23
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第74版 | 2026-08-23 | FILES/LOAD需要入口の公式・混成測定 | FILES（2400F）とSAVE→NEW→同名LOAD（4800F）を公式一式／公式main＋自作subで各2回実測した。公開FDCコマンド種別列はFILES 79/79件、LOAD 156/156件で全長一致し、main `IN $FD`は両入口5635件、入口固有の`IN $FC`もFILES 7964件・LOAD 9526件で件数・SHA-256が一致した。内部FDC値列の最初の差は2件目のSPECIFYパラメータだが、5.1節の内部実装自由度として適合条件へ追加しない。5.2節の条件文は変更していない。根拠は`docs/notes/m7cf-files-load-reachability.md` |
 | 第73版 | 2026-08-23 | 割り込み駆動化後の公式環境適合実走 | 開発者の公式環境でオーケストレータが`tools/conform_l3.sh`本体を実走し、条件3は自作subの受理13362件すべてを判定対象として直前main 0件となり、条件を変えず初めて判定成立・合格した。条件1〜5もすべて合格。公式subの受理13593件とは件数が異なり、自作では受理直前に`IN $FA`が現れる公式と一致しない外形差も残る。根拠は`docs/notes/m7ce-official-conformance-after-interrupt.md` |
 | 第72版 | 2026-08-23 | 自作subの割り込み受理実装 | 割り込みモード等が未確定であることを維持したまま、実装の自由度としてIM 1を選んだ。0x0038へAF保存・`IN $FA`・RETIのハンドラを置き、FDC_IN/FDC_OUTの有限ポーリングが転送可能を確認した箇所だけEIする。HALTを使わず、タイムアウト・FDC_ABORT・診断マーカーを維持した。自作ハーネスでは受理794件、直前main 0件、直後`IN $FA`794件だった。直前は`IN $FA`781件・`OUT $FB`13件で公式外形とは一致しないため、適合条件1・5を優先した実装差として固定した。根拠は`docs/notes/m7cd-sub-interrupt-driven.md` |
 | 第71版 | 2026-08-23 | 公式sub割り込み外形の既存ログ横断再解析 | 共通clock付きのdiskA 4操作条件・nodisk・diskB 3時間長・決定論性run 2本を値なしで再解析した。直前は常にsubの`IN/OUT $FB`または`IN $F8`、直後は全件sub `IN $FA`、受理はFDC長run途中にも密集し、受理ごとのSENSE発行ではないことを確定。nodisk 0件、diskB 600でも同じ外形、run1/run2解析結果完全一致。コマンド別完了対応、長時間diskB全期間、割り込みモード等は未確定のまま残した。根拠は`docs/notes/m7cc-official-sub-interrupt-shape.md` |
@@ -95,6 +96,7 @@
 | 測定ノート | `docs/notes/m6-sub-clock.md`（共通クロック導入の経緯・自己検証） |
 | 測定ノート | `docs/notes/m6-sub-invariant.md`（第1〜3版。5635件の不変量、diskA/diskB の切り分け） |
 | 測定ノート | `docs/notes/m7cc-official-sub-interrupt-shape.md`（第71版。既存ログ横断による割り込み受理の直前・直後、FDC run、frame分布、diskB不変量） |
+| 測定ノート | `docs/notes/m7cf-files-load-reachability.md`（第74版。FILES/LOAD需要入口の公式・混成比較、決定論性、最初の内部FDC差） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -1832,6 +1834,37 @@ mainとのハンドシェイクを変えないことを優先した実装差で�
 構造を推測して埋めない。5.2節3項の条件文は変更しない。
 
 根拠: [docs/notes/m7cd-sub-interrupt-driven.md](../notes/m7cd-sub-interrupt-driven.md)。
+
+### 1.42 FILES/LOAD需要入口の到達外形（第74版）
+
+300FでRETURN、700Fから打鍵し、FILESは2400F、LOADは使い捨て複製だけを
+書込可にして`SAVE`→`NEW`→同名`LOAD`を4800F走らせた。公式一式と
+公式main＋自作subを各2回測定した。LOADは媒体の既存ファイル内容に依存せず、
+適合済みSAVEの直後から読出し入口を作る設計である。従って既存ファイルだけを
+読む単独LOADの外形は**未確定**のままである。
+
+公開コマンド名の4件組を `R` = SEEK→SENSE INTERRUPT STATUS→
+SENSE DRIVE STATUS→READ DATA、同じ末尾をWRITE DATAにしたものを`W`とする。
+起動前置き15件を`P`とすると、公式・混成のFDCコマンド種別列は次のとおり
+全長一致した。
+
+| 入口 | 公式・混成のFDCコマンド種別列 | 一致prefix |
+|---|---|---:|
+| FILES | `P → R×16`（79件） | 79件（全長） |
+| LOAD | `P → R×16 → SENSE DRIVE STATUS → W×6 → R → W → R → W → R×9`（156件） | 156件（全長） |
+
+main `IN $FD`は両入口とも5635件で、SHA-256は既存の条件1と一致した。
+入口固有の第2列main `IN $FC`はFILES 7964件、LOAD 9526件であり、公式・混成の
+件数・SHA-256がそれぞれ一致した。値列は本書へ置かない。各構成2回のmain/sub
+全イベント列も一時パスを含むヘッダを除いて完全一致し、決定論性を確認した。
+
+FDCコマンド種別列とmain受信列に分岐は無く、混成の停止・デッドロックも無い。
+ただしsub内部のFDC値列は1件だけ一致した後、2件目、最初のSPECIFYの
+パラメータ1件目で同方向の値差となる（値自体は非表示）。main受信列へ影響しない
+内部設定差なので、5.1節の原則に従い適合条件へ追加しない。FILES/LOADについて
+追加実装境界は観測されず、5.2節の5条件は変更しない。
+
+根拠: [docs/notes/m7cf-files-load-reachability.md](../notes/m7cf-files-load-reachability.md)。
 
 ## 2. 明示的に「採用できない」こと
 
