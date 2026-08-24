@@ -114,6 +114,25 @@ if ! grep -qE '取りこぼし: 0件' "$IOLOG"; then
 fi
 echo "OK: 取りこぼし 0件（main/sub とも）"
 
+say "--io-log-from-frame で実行窓を変えず採取開始だけ遅らせる"
+WINDOWED="$WORK/iolog-windowed.txt"
+"$REPO/tools/harness/frontend/q88measure" \
+  --core "$CORE" --rom-dir "$WORK/rom" --frames 8 --reset-at 4 \
+  --io-log "$WINDOWED" --io-log-from-frame 4 \
+  > /dev/null 2> "$WORK/windowed.stderr.txt"
+if ! grep -q '^io-log-from-frame: 4$' "$WINDOWED"; then
+  echo "NG: 採取開始frameがログへ明記されていない" >&2
+  exit 1
+fi
+if ! awk '
+  /^[[:space:]]*[0-9]+[[:space:]]/ { seen=1; if ($3 < 4) bad=1 }
+  END { exit !(seen && !bad) }
+' "$WINDOWED"; then
+  echo "NG: 遅延採取が空、またはframe 4より前のイベントを含む" >&2
+  exit 1
+fi
+echo "OK: 8F実行のままframe 4以後だけをI/O記録"
+
 say "--io-log を付けない場合に記録ファイルが作られないことを確認（既定 off の確認）"
 if [ -f "$WORK/iolog-noflag.txt" ]; then
   echo "NG: 使っていないはずの一時ファイルが存在する（テストの前提が壊れている）" >&2

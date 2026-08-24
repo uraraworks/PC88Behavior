@@ -137,7 +137,8 @@ copy_roms_for_mode() {
 }
 
 run_measurement() {
-  local mode="$1" run="$2" base="$WORK/${mode}.run${run}"
+  local mode="$1" run="$2"
+  local base="$WORK/${mode}.run${run}"
   local rom="${base}.rom" disk_a="${base}.a.d88" disk_b="${base}.b.d88"
   local media="${base}.m3u" iolog="${base}.iolog.txt" rc
 
@@ -163,7 +164,8 @@ run_measurement() {
 }
 
 check_determinism() {
-  local mode="$1" normalized1="$WORK/${mode}.normalized1" normalized2="$WORK/${mode}.normalized2"
+  local mode="$1"
+  local normalized1="$WORK/${mode}.normalized1" normalized2="$WORK/${mode}.normalized2"
   awk 'seen || /^# main$/ {seen=1; print}' "$WORK/${mode}.run1.iolog.txt" > "$normalized1"
   awk 'seen || /^# main$/ {seen=1; print}' "$WORK/${mode}.run2.iolog.txt" > "$normalized2"
   if cmp -s "$normalized1" "$normalized2"; then

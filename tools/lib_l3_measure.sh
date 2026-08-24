@@ -56,9 +56,10 @@ find_l3_core() {
 # -----------------------------------------------------------------------
 ensure_l3_frontend() {
   local frontend="$REPO/tools/harness/frontend/q88measure"
-  if [ ! -x "$frontend" ]; then
-    make -s -C "$REPO/tools/harness/frontend" || return 1
-  fi
+  # main.c が更新済みなのに古い実行ファイルを使う事故を避けるため、make の
+  # 依存判定は毎回通す。変更が無ければ何も再コンパイルされない。
+  make -s -C "$REPO/tools/harness/frontend" || return 1
+  [ -x "$frontend" ] || return 1
 }
 
 # -----------------------------------------------------------------------

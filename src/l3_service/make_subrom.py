@@ -841,6 +841,7 @@ def build_subrom(break_write_ack=False,
                   force_post_bulk_active=False,
                   break_drive_selector=False,
                   break_error_response_bit6=False,
+                  intervene_no_disk_wait=False,
                   error_response_candidate=None,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
@@ -924,7 +925,12 @@ def build_subrom(break_write_ack=False,
     break_error_response_bit6: unreadable_diskの帰属回帰専用。探索で末端挙動を
     分けたbit6を、既定の0から1へ倒す。測定が決めたのはbit6=0だけであり、
     既定値0x00の残る7ビットは自作側で便宜上0を選んだもの。公式と同じ値だと
-    いう主張ではない。"""
+    いう主張ではない。
+
+    intervene_no_disk_wait: no_diskのmainタイムアウト仮説を実走するためだけの
+    介入。一般読み出し要求へ入ったら応答を返さず、B-unitへ伝播済みの
+    SENSE DRIVE STATUSを反復する。媒体有無の検出条件だとは主張せず、
+    未指定時には命令を1バイトも追加しない。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -1628,6 +1634,12 @@ def build_subrom(break_write_ack=False,
     # 応答の1バイトは実測で EXCHANGE3_OBSERVED_RESPONSE と同一値だった。
     # **フォールスルーが来ない位置**（直上はFDC_READ_SECTORのret）に置く。
     a.label("_general_read_request")
+    if intervene_no_disk_wait:
+        # 使い捨て介入: 「公式main自身が待ちを打ち切る」仮説だけを検証する。
+        # 媒体検出信号が未確定なので、フラグ時の一般READを無条件に閉じ込める。
+        # FILES 2では既存のbyte2 bit0伝播によりB-unit/head0を問い合わせる。
+        a.call("FDC_SENSE_DRIVE_STATUS")
+        a.jr("_general_read_request")
     a.ld_hl_imm(REQ_HDR + 3)
     a.ld_a_hl()                       # 論理トラック（1.36節: run長5の位置-1）
     a.ld_b_a()
@@ -2901,6 +2913,7 @@ def build(break_write_ack=False,
           force_post_bulk_active=False,
           break_drive_selector=False,
           break_error_response_bit6=False,
+          intervene_no_disk_wait=False,
           error_response_candidate=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
@@ -2925,6 +2938,7 @@ def build(break_write_ack=False,
                           force_post_bulk_active=force_post_bulk_active,
                           break_drive_selector=break_drive_selector,
                           break_error_response_bit6=break_error_response_bit6,
+                          intervene_no_disk_wait=intervene_no_disk_wait,
                           error_response_candidate=error_response_candidate,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
@@ -3031,6 +3045,9 @@ def main():
     ap.add_argument("--break-error-response-bit6", action="store_true",
                     help="unreadable_diskで末端挙動を分けるエラー応答bit6を、"
                          "既定の0から1へ倒す帰属回帰用の故障注入。")
+    ap.add_argument("--intervene-no-disk-wait", action="store_true",
+                    help="no_diskのmainタイムアウト仮説用。一般READ要求で応答せず、"
+                         "SENSE DRIVE STATUSを反復する使い捨て介入。既定は無効。")
     ap.add_argument("--error-response-candidate", type=lambda value: int(value, 0),
                     metavar="N",
                     help="READ DATA結果がST0 IC=異常終了かつST1 MISSING ADDRESS "
@@ -3057,6 +3074,7 @@ def main():
                        force_post_bulk_active=args.force_post_bulk_active,
                        break_drive_selector=args.break_drive_selector,
                        break_error_response_bit6=args.break_error_response_bit6,
+                       intervene_no_disk_wait=args.intervene_no_disk_wait,
                        error_response_candidate=args.error_response_candidate)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)

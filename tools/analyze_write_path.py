@@ -68,6 +68,9 @@ class Command:
     # データ入力を含む連続IN列。READ系では末尾7バイトが結果相になる。
     # エラー経路の公開ステータス分類に内部でだけ使い、値は出力しない。
     input_values: list[int] | None = None
+    # コマンド語から、解析器が当該コマンドに属すると判定した最後の
+    # $FB アクセスまでの時間比較用。値列ではなく時間的外形だけに使う。
+    end_clock: int = 0
 
     def __repr__(self) -> str:      # 値を持たないが、事故防止に明示しておく
         return f"Command(op={self.opcode:#04x})"
@@ -111,10 +114,11 @@ def parse_commands(rows) -> list[Command]:
             input_values.append(fb[i].value)
             result_bytes += 1
             i += 1
+        end_clock = fb[i - 1].clock if i else first.clock
         out.append(Command(opcode, nparam, data_bytes, data_kind,
                            result_bytes, first.clock, first.frame,
                            data_values if data_kind == "OUT" else None,
-                           params, input_values))
+                           params, input_values, end_clock))
     return out
 
 

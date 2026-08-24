@@ -21,9 +21,13 @@
 #define Q88H_IOLOG_MAGIC   0x4C423838u   /* "88BL" (LE) */
 #define Q88H_IOLOG_VERSION 2u   /* v2 (M6c): q88h_iolog_ev_t に clock を追加 */
 
-/* 起動シーケンスで何件出るか事前に分からないので、まず取りこぼさないことを
- * 優先して大きめに取る。1CPUあたり 1<<20 件。 */
-#define Q88H_IOLOG_MAX_EVENTS (1u << 20)
+/* 反復区間を短縮せず採るため、1CPUあたり 1<<23 件を確保する。
+ * 旧容量(1<<20)では高密度なSENSE反復100Fを保持できなかった。
+ * selftestでは小さい2種類の代表容量へ上書きし、容量内の記録内容が容量値に
+ * 依存しないことも照合する。 */
+#ifndef Q88H_IOLOG_MAX_EVENTS
+#define Q88H_IOLOG_MAX_EVENTS (1u << 23)
+#endif
 
 /* kind: イベントの種別 */
 enum { Q88H_IOLOG_OUT = 0, Q88H_IOLOG_IN = 1 };

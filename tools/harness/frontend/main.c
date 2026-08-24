@@ -595,6 +595,7 @@ static void write_iolog_cpu(FILE *fp, const char *who, const q88h_iolog_t *l)
 
 static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
                                const char *disk, unsigned frames,
+                               unsigned from_frame,
                                const q88h_iolog_t *l, const q88h_iolog_t *ls)
 {
     fprintf(fp, "# PC88Behavior 順序付き I/O 記録\n");
@@ -615,6 +616,7 @@ static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
     fprintf(fp, "frames    : %u\n\n", frames);
+    fprintf(fp, "io-log-from-frame: %u\n\n", from_frame);
 
     write_iolog_cpu(fp, "main", l);
     write_iolog_cpu(fp, "sub",  ls);
@@ -782,7 +784,8 @@ static void usage(void)
         "                   [--trap-map FILE] [--trap-mode ret|stop]\n"
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
-        "                   [--io-log FILE] [--int-log FILE] [--font-log FILE]\n"
+        "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
+        "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n");
 }
 
@@ -791,6 +794,7 @@ int main(int argc, char **argv)
     const char *core = NULL, *disk = NULL, *out = NULL;
     unsigned frames = 600, next_at = 180, key_hold = 4, key_gap = 4;
     unsigned reset_at = UINT32_MAX;
+    unsigned io_log_from_frame = 0;
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
@@ -864,6 +868,8 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--io-log") && i + 1 < argc)
             io_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--io-log-from-frame") && i + 1 < argc)
+            io_log_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--int-log") && i + 1 < argc)
             int_log_path = argv[++i];
         else if (!strcmp(argv[i], "--font-log") && i + 1 < argc)
@@ -887,6 +893,10 @@ int main(int argc, char **argv)
         }
     }
     if (!core || !g_rom_dir[0]) { usage(); return 2; }
+    if (io_log_path && io_log_from_frame >= frames) {
+        fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
+        return 2;
+    }
 
     /* 何を測ったのかが後から辿れるように、必ず出す。
      * ここが取り違えられていると測定結果そのものが無意味になる。 */
@@ -947,8 +957,9 @@ int main(int argc, char **argv)
                             "このコアに順序付きI/O記録が無いので無視する\n");
         } else {
             p_iolog_reset();
-            p_iolog_set_enabled(1);
-            fprintf(stderr, "[q88measure] I/O記録 有効: out=%s\n", io_log_path);
+            p_iolog_set_enabled(io_log_from_frame == 0);
+            fprintf(stderr, "[q88measure] I/O記録: out=%s, frame %u から有効\n",
+                    io_log_path, io_log_from_frame);
         }
     }
 
@@ -982,6 +993,8 @@ int main(int argc, char **argv)
          * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
         if (g_iolog_available) p_iolog_set_frame(g_frame);
         if (g_intlog_available) p_intlog_set_frame(g_frame);
+        if (io_log_path && g_iolog_available && g_frame == io_log_from_frame)
+            p_iolog_set_enabled(1);
 
         if (g_frame == reset_at) {
             p_reset();
@@ -1047,7 +1060,8 @@ int main(int argc, char **argv)
                 q88h_iolog_t *ls = p_iolog_sub();
                 FILE *fp = fopen(io_log_path, "w");
                 if (!fp) { perror(io_log_path); return 1; }
-                write_iolog_report(fp, core, g_rom_dir, disk, frames, l, ls);
+                write_iolog_report(fp, core, g_rom_dir, disk, frames,
+                                   io_log_from_frame, l, ls);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
