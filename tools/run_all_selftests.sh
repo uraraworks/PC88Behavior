@@ -67,6 +67,8 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_write_path_selftest.sh:0"
   "tools/compare_l3_entry_fdc_selftest.sh:0"
   "tools/analyze_error_exchange_shape_selftest.sh:0"
+  "tools/search_error_response_candidate_selftest.sh:0"
+  "tools/verify_error_response_bit6_attribution.sh:0"
   "tools/compare_drive_request_runs_selftest.sh:0"
   "tools/verify_drive_byte2_attribution.sh:0"
   "tools/diag_post_bulk_selftest.sh:0"
@@ -111,6 +113,10 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
     */verify_drive_byte2_attribution.sh)
       grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
       grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
+      ;;
+    */verify_error_response_bit6_attribution.sh)
+      grep -q "SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定" /tmp/rst_c.$$ && skip_c=1
+      grep -q "SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定" /tmp/rst_u.$$ && skip_u=1
       ;;
   esac
 

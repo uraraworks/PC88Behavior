@@ -840,6 +840,8 @@ def build_subrom(break_write_ack=False,
                   restore_request_kind_length6=False,
                   force_post_bulk_active=False,
                   break_drive_selector=False,
+                  break_error_response_bit6=False,
+                  error_response_candidate=None,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
@@ -917,7 +919,12 @@ def build_subrom(break_write_ack=False,
     break_drive_selector: 第78版・1.46節で確定した要求byte2 bit0の
     ドライブ指定伝播を壊し、SEEK/SENSE DRIVE STATUS/READ DATAを
     drive0固定へ戻す。tools/verify_l3.shと
-    tools/verify_drive_byte2_attribution.shの検出力確認専用。"""
+    tools/verify_drive_byte2_attribution.shの検出力確認専用。
+
+    break_error_response_bit6: unreadable_diskの帰属回帰専用。探索で末端挙動を
+    分けたbit6を、既定の0から1へ倒す。測定が決めたのはbit6=0だけであり、
+    既定値0x00の残る7ビットは自作側で便宜上0を選んだもの。公式と同じ値だと
+    いう主張ではない。"""
     a = Asm(0x0000)
 
     # ====================================================================
@@ -2615,7 +2622,33 @@ def build_subrom(break_write_ack=False,
     # 意味が判明した場合は、意味に基づくルール生成へ差し替える。
     a.xor_a()
     a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    # m7cm: READ DATAがデータ256件へ進まず結果フェーズへ直行すると、
+    # FDC_READ_SECTORの固定長受信は結果7件をSECTOR_BUF先頭へ格納した後、
+    # コマンドフェーズ復帰をFDC_INが検出してFDC_ABORTを立てる。この
+    # **自作sub自身が発行したコマンドの結果**だけを対象に、公開μPD765
+    # のST0 IC(bit7-6)=01（異常終了）かつST1 bit0=MISSING ADDRESS MARKを
+    # 判定する。FDC_ABORTが無ければSECTOR_BUF先頭は通常データなので
+    # ステータスとは解釈しない。
+    a.ld_a_mem(FDC_ABORT)
+    a.or_a()
+    a.jr_z("_exchange3_normal_response")
+    a.ld_a_mem(SECTOR_BUF)          # 結果フェーズr0 = ST0
+    a.and_a(0xC0)                   # Interrupt Code
+    a.cp_n(0x40)                    # 01 = abnormal termination
+    a.jr_nz("_exchange3_normal_response")
+    a.ld_a_mem(SECTOR_BUF + 1)      # 結果フェーズr1 = ST1
+    a.and_a(0x01)                   # MISSING ADDRESS MARK
+    a.jr_z("_exchange3_normal_response")
+    # 全256候補の探索で末端一致群はbit6=0とだけ確定した。既定0x00は、
+    # 未確定の残る7ビットを自作側の選択として0にした値であり、公式の
+    # 応答値と同じだとは主張しない。候補指定は探索再現用に優先する。
+    error_response = (error_response_candidate if error_response_candidate is not None
+                      else (0x40 if break_error_response_bit6 else 0x00))
+    a.ld_a(error_response)
+    a.jr("_exchange3_send_response")
+    a.label("_exchange3_normal_response")
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
+    a.label("_exchange3_send_response")
     a.call("SEND_BYTE")
     a.jp("IDLE_DISPATCH")
 
@@ -2866,7 +2899,9 @@ def build(break_write_ack=False,
           break_fixed_byte_cutoff=False,
           restore_request_kind_length6=False,
           force_post_bulk_active=False,
-          break_drive_selector=False):
+          break_drive_selector=False,
+          break_error_response_bit6=False,
+          error_response_candidate=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
@@ -2889,6 +2924,8 @@ def build(break_write_ack=False,
                           restore_request_kind_length6=restore_request_kind_length6,
                           force_post_bulk_active=force_post_bulk_active,
                           break_drive_selector=break_drive_selector,
+                          break_error_response_bit6=break_error_response_bit6,
+                          error_response_candidate=error_response_candidate,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
@@ -2991,7 +3028,20 @@ def main():
     ap.add_argument("--break-drive-selector", action="store_true",
                     help="第78版で恒久化した要求byte2 bit0のドライブ指定を"
                          "無視し、SEEK/SENSE/READをdrive0固定へ戻す故障注入。")
+    ap.add_argument("--break-error-response-bit6", action="store_true",
+                    help="unreadable_diskで末端挙動を分けるエラー応答bit6を、"
+                         "既定の0から1へ倒す帰属回帰用の故障注入。")
+    ap.add_argument("--error-response-candidate", type=lambda value: int(value, 0),
+                    metavar="N",
+                    help="READ DATA結果がST0 IC=異常終了かつST1 MISSING ADDRESS "
+                         "MARKのとき、交換#3型1バイト応答をNへ差し替える探索用"
+                         "候補（0〜255）。未指定時は自作既定値0x00。")
     args = ap.parse_args()
+    if args.error_response_candidate is not None and not (
+            0 <= args.error_response_candidate <= 0xFF):
+        ap.error("--error-response-candidate は0〜255で指定する")
+    if args.break_error_response_bit6 and args.error_response_candidate is not None:
+        ap.error("--break-error-response-bit6 と --error-response-candidate は併用不可")
     rom, used = build(break_write_ack=args.break_write_ack,
                        break_write_coords=args.break_write_coords,
                        break_write_data_window=args.break_write_data_window,
@@ -3005,7 +3055,9 @@ def main():
                        break_fixed_byte_cutoff=args.break_fixed_byte_cutoff,
                        restore_request_kind_length6=args.restore_request_kind_length6,
                        force_post_bulk_active=args.force_post_bulk_active,
-                       break_drive_selector=args.break_drive_selector)
+                       break_drive_selector=args.break_drive_selector,
+                       break_error_response_bit6=args.break_error_response_bit6,
+                       error_response_candidate=args.error_response_candidate)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

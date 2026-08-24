@@ -136,14 +136,14 @@ measure_one() {
     >"$base.stdout.txt" 2>"$base.stderr.txt"
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "エラー: $scenario/$mode の実測失敗または${ENTRY_TIMEOUT}秒上限（rc=$rc）" >&2
+    echo "エラー: ${scenario}/${mode} の実測失敗または${ENTRY_TIMEOUT}秒上限（rc=${rc}）" >&2
     return "$rc"
   fi
   if grep -Eq '^# 取りこぼし: [1-9][0-9]*件' "$iolog"; then
     echo "エラー: $scenario/$mode のI/Oログに取りこぼしがある" >&2
     return 3
   fi
-  echo "OK: $scenario/$mode（I/Oログ取りこぼし0件）"
+  echo "OK: ${scenario}/${mode}（I/Oログ取りこぼし0件）"
 }
 
 for scenario in no_disk unreadable_disk; do
