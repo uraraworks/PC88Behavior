@@ -28,6 +28,7 @@
 # -----------------------------------------------------------------------
 build_mixed_rom() {
   local src="$1" dst="$2"
+  shift 2
   local f copied=0
   mkdir -p "$dst"
   # m7bz: 旧`cp *`はROMと同居するコア実行状態（*.srm等）まで複製し、
@@ -39,7 +40,7 @@ build_mixed_rom() {
     copied=1
   done
   [ "$copied" -eq 1 ] || return 1
-  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" >/dev/null 2>&1 || return 1
+  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" "$@" >/dev/null 2>&1 || return 1
 }
 
 # -----------------------------------------------------------------------

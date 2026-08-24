@@ -839,6 +839,7 @@ def build_subrom(break_write_ack=False,
                   break_fixed_byte_cutoff=False,
                   restore_request_kind_length6=False,
                   force_post_bulk_active=False,
+                  intervene_drive_byte2=False,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
@@ -1461,7 +1462,13 @@ def build_subrom(break_write_ack=False,
     # 副作用を気にせず独立に呼べる。結果（ST3）はAレジスタに残す。
     a.label("FDC_SENSE_DRIVE_STATUS")
     a.ld_a(0x04); a.call("FDC_BEGIN")   # クリア後にコマンド送出
-    a.xor_a(); a.call("FDC_OUT")     # unit=0, head=0
+    if intervene_drive_byte2:
+        a.ld_hl_imm(REQ_HDR + 2)
+        a.ld_a_hl()
+        a.and_a(0x01)
+    else:
+        a.xor_a()
+    a.call("FDC_OUT")                    # 既定はunit=0, head=0
     a.jp("FDC_IN")                      # 結果フェーズ: ST3（末尾呼び出し、Aに残る）
 
     # ---- SEEK（引数: E=ドライブ番号(0-3), A=目的シリンダ）。
@@ -1469,6 +1476,17 @@ def build_subrom(break_write_ack=False,
     #      同じビット割り当て。上のFDC_RECALIBRATEのコメント参照）。----
     a.label("FDC_SEEK")
     a.push_af()
+    if intervene_drive_byte2:
+        # m7cj使い捨て介入（第2試行）: FILES経路が共有するFDC入口で、
+        # 要求byte2 bit0をSEEKのEと後続SENSE/READのunitへ伝播する。
+        # 第1試行は交換#3専用ラベルへ置いたためFILESで踏まれず空振りした。
+        a.ld_hl_imm(REQ_HDR + 2)
+        a.ld_a_hl()
+        a.and_a(0x01)
+        a.ld_e_a()
+        a.ld_a_mem(REQ_UNIT_HEAD)
+        a.or_e()
+        a.ld_mem_a(REQ_UNIT_HEAD)
     a.ld_a(0x0F); a.call("FDC_BEGIN")   # クリア後にコマンド送出
     a.ld_a_e(); a.call("FDC_OUT")       # unit=E(ドライブ番号), head=0
     a.pop_af();  a.call("FDC_OUT")      # 目的シリンダ
@@ -2129,7 +2147,11 @@ def build_subrom(break_write_ack=False,
         a.jp_nz("_general_read_request")
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.dec_a()                      # Zだけを見るCP 1相当（m7bw容量圧縮）
-        a.jr_z("_exchange6_prepare_sector")
+        if intervene_drive_byte2:
+            # 介入コード分だけ相対分岐範囲を越えるため、介入ROMだけ絶対分岐。
+            a.jp_z("_exchange6_prepare_sector")
+        else:
+            a.jr_z("_exchange6_prepare_sector")
         a.jp("_general_read_request")
 
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
@@ -2838,7 +2860,8 @@ def build(break_write_ack=False,
           disable_fdc_timeout_mark=False,
           break_fixed_byte_cutoff=False,
           restore_request_kind_length6=False,
-          force_post_bulk_active=False):
+          force_post_bulk_active=False,
+          intervene_drive_byte2=False):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
@@ -2860,6 +2883,7 @@ def build(break_write_ack=False,
                           break_fixed_byte_cutoff=break_fixed_byte_cutoff,
                           restore_request_kind_length6=restore_request_kind_length6,
                           force_post_bulk_active=force_post_bulk_active,
+                          intervene_drive_byte2=intervene_drive_byte2,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
@@ -2959,6 +2983,9 @@ def main():
                           "試験用mainドライバは起動時バルクを再現しないため、"
                           "1.36節の形式を検証するテストで使うテスト専用"
                           "フラグ（tools/verify_l3.sh 用）。")
+    ap.add_argument("--intervene-drive-byte2", action="store_true",
+                    help="m7cj帰属確認専用。要求byte2 bit0をSEEK/SENSE/READの"
+                         "unitへ伝播する。既定挙動は変更しない。")
     args = ap.parse_args()
     rom, used = build(break_write_ack=args.break_write_ack,
                        break_write_coords=args.break_write_coords,
@@ -2972,7 +2999,8 @@ def main():
                        disable_fdc_timeout_mark=args.disable_fdc_timeout_mark,
                        break_fixed_byte_cutoff=args.break_fixed_byte_cutoff,
                        restore_request_kind_length6=args.restore_request_kind_length6,
-                       force_post_bulk_active=args.force_post_bulk_active)
+                       force_post_bulk_active=args.force_post_bulk_active,
+                       intervene_drive_byte2=args.intervene_drive_byte2)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)

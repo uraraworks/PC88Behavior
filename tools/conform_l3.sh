@@ -33,6 +33,7 @@ NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
+DRIVE1_EXPECTED="$REPO/tests/conformance/expected_drive1.tsv"
 DRIVE2_EXPECTED="$REPO/tests/conformance/expected_drive2.tsv"
 SCREEN_EXPECTED="$REPO/tests/conformance/expected_screen.tsv"
 SCREEN_CHECK="$REPO/tools/check_l3_screen_output.py"
@@ -75,7 +76,8 @@ if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
   exit 2
 fi
 for path_expected in "$WRITE_PROTECT_EXPECTED" "$NO_DISK_EXPECTED" \
-                     "$UNREADABLE_DISK_EXPECTED" "$DRIVE2_EXPECTED"; do
+                     "$UNREADABLE_DISK_EXPECTED" "$DRIVE1_EXPECTED" \
+                     "$DRIVE2_EXPECTED"; do
   if [ ! -f "$path_expected" ]; then
     echo "エラー: エラー／ドライブ2経路の期待値が無い: $path_expected" >&2
     exit 2
@@ -1033,12 +1035,16 @@ run_path_measurement() {
       frames=3000
       type_text='FILES 2\n'
       ;;
-    drive2)
+    drive1|drive2)
       cp "$DISK" "$disk_b" || return 1
       printf '%s\n' "$disk_a" "$disk_b" > "${base}.m3u"
       media="${base}.m3u"
       frames=3000
-      type_text='FILES 2\n'
+      if [ "$scenario" = drive1 ]; then
+        type_text='FILES 1\n'
+      else
+        type_text='FILES 2\n'
+      fi
       ;;
     *)
       echo "エラー: 未知のエラー／B:シナリオ: $scenario" >&2
@@ -1142,7 +1148,7 @@ judge_path() {
       ng "${label}: 公式run2が固定期待値と一致しない"
       overall_rc=1
     fi
-    if ! entry_expected_fault_selftest "$official" "$expected" "${label}判定器"; then
+    if ! entry_expected_fault_selftest "$official" "$expected" "${scenario}判定器"; then
       overall_rc=1
     fi
   fi
@@ -1172,7 +1178,7 @@ judge_path() {
   fi
 }
 
-say "エラー／ドライブ2画面到達判定器の故障注入自己検査（合成画面のみ）"
+say "エラー／ドライブ画面到達判定器の故障注入自己検査（合成画面のみ）"
 for scenario in write_protect no_disk unreadable_disk; do
   case "$scenario" in
     write_protect) synthetic_command='save"q8p"' ;;
@@ -1204,32 +1210,58 @@ for scenario in write_protect no_disk unreadable_disk; do
     overall_rc=1
   fi
 done
-{
-  printf '  0| files 2\n'
-  for synthetic_row in 1 2 3 4 5 6 7 8 9 10; do
-    printf '  %s| Synthetic listing row\n' "$synthetic_row"
-  done
-  printf '  11| Ok\n'
-} > "$WORK/path-screen.drive2.positive.txt"
-{
-  printf '  0| files 2\n'
-  printf '  1| Synthetic classified response\n'
-  printf '  2| Ok\n'
-} > "$WORK/path-screen.drive2.negative.txt"
-if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.drive2.positive.txt" \
-     --scenario drive2 >/dev/null 2>&1 \
-   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.drive2.negative.txt" \
-     --scenario drive2 >/dev/null 2>&1; then
-  ok "drive2: 出力行後Okを到達、Ok欠落故障を非到達として検出"
-else
-  ng "drive2: 正常出力分類の陽性・陰性対照を区別できない"
-  overall_rc=1
-fi
+for scenario in drive1 drive2; do
+  command="files ${scenario#drive}"
+  {
+    printf '  0| %s\n' "$command"
+    for synthetic_row in 1 2 3 4 5 6 7 8 9 10; do
+      printf '  %s| Synthetic listing row\n' "$synthetic_row"
+    done
+    printf '  11| Ok\n'
+  } > "$WORK/path-screen.${scenario}.positive.txt"
+  {
+    printf '  0| %s\n' "$command"
+    printf '  1| Synthetic classified response\n'
+    printf '  2| Ok\n'
+  } > "$WORK/path-screen.${scenario}.negative.txt"
+  if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.positive.txt" \
+       --scenario "$scenario" >/dev/null 2>&1 \
+     && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/path-screen.${scenario}.negative.txt" \
+       --scenario "$scenario" >/dev/null 2>&1; then
+    ok "${scenario}: 出力行後Okを到達、一覧欠落故障を非到達として検出"
+  else
+    ng "${scenario}: 正常出力分類の陽性・陰性対照を区別できない"
+    overall_rc=1
+  fi
+done
 
 judge_path write_protect "$WRITE_PROTECT_EXPECTED" "ライトプロテクト違反"
 judge_path no_disk "$NO_DISK_EXPECTED" "B:媒体未挿入"
 judge_path unreadable_disk "$UNREADABLE_DISK_EXPECTED" "B:規則生成媒体"
+judge_path drive1 "$DRIVE1_EXPECTED" "A:正常操作（A/B同内容複製）"
 judge_path drive2 "$DRIVE2_EXPECTED" "B:正常操作"
+
+say "A:/B: main→sub要求runの全位置比較"
+for mode in official mixed; do
+  for run in 1 2; do
+    request_report="$WORK/drive-request.${mode}.run${run}.txt"
+    if python3 "$REPO/tools/compare_drive_request_runs.py" \
+         --drive-a "$WORK/path.drive1.${mode}.run${run}.iolog.txt" \
+         --drive-b "$WORK/path.drive2.${mode}.run${run}.iolog.txt" \
+         --after-frame 700 --out "$request_report"; then
+      ok "${mode}-run${run}: A:/B:要求runは全位置一致"
+    else
+      request_rc=$?
+      if [ "$request_rc" -eq 1 ]; then
+        na "${mode}-run${run}: A:/B:要求runに差を検出（下記）"
+      else
+        ng "${mode}-run${run}: 要求runを解析不能"
+        overall_rc=1
+      fi
+    fi
+    sed 's/^/       /' "$request_report"
+  done
+done
 
 say "現状の到達点"
 cat <<'EOF'

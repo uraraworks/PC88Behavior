@@ -189,16 +189,23 @@ def print_entry_classification(
 def print_first_entry_difference(
     official: list[awp.Command], mixed: list[awp.Command]
 ) -> None:
+    unit_differences = 0
+    first_unit_difference: tuple[int, awp.Command, int, int] | None = None
     for index, (a, b) in enumerate(zip(official, mixed), 1):
         ap, bp = a.param_values or [], b.param_values or []
         if a.opcode == b.opcode and a.opcode not in (0x03, 0x08) and ap and bp:
             if (ap[0] & 0x07) != (bp[0] & 0x07):
-                print(f"入口区間の最初のunit/head差: コマンド{index}件目"
-                      f"({awp.NAMES[a.opcode]})、公式={drive_head(ap[0])}、"
-                      f"混成={drive_head(bp[0])}")
-                break
-    else:
+                unit_differences += 1
+                if first_unit_difference is None:
+                    first_unit_difference = (index, a, ap[0], bp[0])
+    if first_unit_difference is None:
         print("入口区間のunit/head差: なし")
+    else:
+        index, command, official_unit, mixed_unit = first_unit_difference
+        print(f"入口区間の最初のunit/head差: コマンド{index}件目"
+              f"({awp.NAMES[command.opcode]})、公式={drive_head(official_unit)}、"
+              f"混成={drive_head(mixed_unit)}")
+    print(f"入口区間のunit/head差件数: {unit_differences}件")
 
     for index, (a, b) in enumerate(zip(official, mixed), 1):
         af, bf = status_fields(a), status_fields(b)

@@ -31,11 +31,12 @@ COMMANDS = {
     "write_protect": ['save"q8p"'],
     "no_disk": ["files 2"],
     "unreadable_disk": ["files 2"],
+    "drive1": ["files 1"],
     "drive2": ["files 2"],
 }
 
 ERROR_SCENARIOS = {"write_protect", "no_disk", "unreadable_disk"}
-OUTPUT_SUCCESS_SCENARIOS = {"drive2"}
+OUTPUT_SUCCESS_SCENARIOS = {"drive1", "drive2"}
 
 
 def screen_rows(path: Path) -> list[str]:

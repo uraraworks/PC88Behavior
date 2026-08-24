@@ -493,6 +493,20 @@ READ DATAのunit/headへ伝播し、ドライブ別のシーク・モータ状�
 根拠は
 [docs/notes/m7ci-error-and-drive2-paths.md](notes/m7ci-error-and-drive2-paths.md)。
 
+**現在地の更新（2026-08-24、main要求のドライブ指定位置）:** A:/B:へ同じ
+diskAの独立複製を入れた`FILES 1`/`FILES 2`を公式・混成各2回比較した。
+700F以降のmain→sub要求は両条件とも17 runでrun長列も同一、差は12位置だけで、
+すべてbit0の0→1だった。1.11節の8バイト要求は6+2に分節され、byte2とbyte7が
+変化した。他の6バイト要求5件でもbyte2だけが同じ変化を持った。
+
+既定挙動を変えない介入でbyte2 bit0をFDC共通入口へ伝播すると、SEEK、SENSE DRIVE
+STATUS、READ DATA各6件が2回とも全件B-unitとなり、公式とのunit/head差が消えた。
+従ってbyte2 bit0をドライブ指定と確定する。byte7はFDC開始後に届く相関候補で、
+独立した選択源とは確定しない。次周の恒久実装境界はbyte2の伝播とドライブ別状態保持。
+根拠は[docs/notes/m7cj-drive-selector-request-byte.md](notes/m7cj-drive-selector-request-byte.md)。
+帰属の再現用に`tools/verify_drive_byte2_attribution.sh`を置き、公式環境への明示的な
+オプトイン時は介入なし21件・介入あり0件（各2回）を両条件で検証する。
+
 測定の過程で**観測系の欠陥**が見つかった。メイン⇔サブ間のポート
 （`$F0`-`$FF`）の対応付けを試みたところ一致率が最大20%程度で頭打ちに
 なり、原因を診断すると「main/sub を横断する共通の時間軸が無く、

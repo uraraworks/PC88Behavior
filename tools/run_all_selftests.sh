@@ -66,6 +66,8 @@ SCRIPTS_EXPECTED=(
   "tools/observed_request_decision_selftest.sh:0"
   "tools/analyze_write_path_selftest.sh:0"
   "tools/compare_l3_entry_fdc_selftest.sh:0"
+  "tools/compare_drive_request_runs_selftest.sh:0"
+  "tools/verify_drive_byte2_attribution.sh:0"
   "tools/diag_post_bulk_selftest.sh:0"
   "tools/check_l3_screen_output_selftest.sh:0"
   "tools/conform_l3.sh:0"
@@ -102,6 +104,10 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
   skip_c=0; skip_u=0
   case "$s" in
     */conform_l3.sh)
+      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
+      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
+      ;;
+    */verify_drive_byte2_attribution.sh)
       grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
       grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
       ;;
