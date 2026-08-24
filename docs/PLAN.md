@@ -507,6 +507,26 @@ STATUS、READ DATA各6件が2回とも全件B-unitとなり、公式とのunit/h
 帰属の再現用に`tools/verify_drive_byte2_attribution.sh`を置き、公式環境への明示的な
 オプトイン時は介入なし21件・介入あり0件（各2回）を両条件で検証する。
 
+**現在地の更新（2026-08-24、byte2恒久版の公式環境適合）:** byte2 bit0を
+SEEK、SENSE DRIVE STATUS、READ DATAのunitへ恒久伝播した。恒久化で従来の陰性対照が
+消えるため、`--intervene-drive-byte2`の介入方式を、旧drive0固定へ戻す
+`--break-drive-selector`故障注入へ裏返した。公式環境の帰属検査はrc=0で、既定ROMの
+入口区間unit/head差0件、故障注入版21件を各2回再現した。恒久版ROMは前周介入版、
+故障注入版は前周既定版と、それぞれROM全体でバイト一致するため、前周の帰属測定が
+恒久版の機能検証も兼ねる。
+
+適合再測定もrc=0で、ライトプロテクト、no_disk、unreadable_disk、正常drive1、
+正常drive2の全5条件がunit/head差0件となった。特に正常drive2はFDC種別79件の全長、
+main受信、画面まで公式と一致し、前周の「同内容複製で末端だけが偶然一致」から、
+B-unit経路そのものの一致へ進んだ。全自己検証も37項目すべてOKだった。
+
+計画上の次候補だったドライブ別のシーク・モータ状態保持は、どの測定も要求しなかった。
+byte2伝播だけで5条件のunit/head差が消えたため実装せず、必要性が測定で示されるまで
+保留する。**次の実装境界はno_disk / unreadable_diskのエラー応答経路**とする。
+混成はB-unitを選べるようになったが、媒体無し／読取り不能の結果をmainへのエラー応答へ
+写せず、FDC種別prefixは54/55件、画面は不一致のままである。根拠は
+[docs/notes/m7ck-drive-selector-permanent-conformance.md](notes/m7ck-drive-selector-permanent-conformance.md)。
+
 測定の過程で**観測系の欠陥**が見つかった。メイン⇔サブ間のポート
 （`$F0`-`$FF`）の対応付けを試みたところ一致率が最大20%程度で頭打ちに
 なり、原因を診断すると「main/sub を横断する共通の時間軸が無く、

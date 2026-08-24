@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# m7cj帰属確認: 要求byte2 bit0の使い捨て介入で、B:のFDC
-# unit/head差が公式に対して0件になることを再現する。
+# 要求byte2 bit0の恒久伝播に対する回帰検査。既定ROMでB:のFDC
+# unit/head差が公式に対して0件となり、故障注入版では差が出ることを確認する。
 #
 # 公式ROM・ディスクの内容は読まず、使い捨て複製と測定フックにだけ
 # 渡す。生ログ、媒体複製、M3U、標準出力はmktemp配下にだけ置く。
@@ -17,10 +17,10 @@ trap 'rm -rf "$WORK"' EXIT
 ok() { printf 'OK: %s\n' "$1"; }
 ng() { printf 'NG: %s\n' "$1"; }
 
-# 介入なしは差あり、介入ありは差なし、の両方を必須にする。
+# 既定ROMは差なし、故障注入版は差あり、の両方を必須にする。
 judge_counts() {
-  local without="$1" with="$2"
-  [ "$without" -gt 0 ] 2>/dev/null && [ "$with" -eq 0 ] 2>/dev/null
+  local default="$1" broken="$2"
+  [ "$default" -eq 0 ] 2>/dev/null && [ "$broken" -gt 0 ] 2>/dev/null
 }
 
 extract_diff_count() {
@@ -61,55 +61,55 @@ PYEOF
 
 run_selftest() {
   local base="$WORK/selftest.official.txt"
-  local without="$WORK/selftest.without.txt"
-  local with="$WORK/selftest.with.txt"
-  local injected_without="$WORK/selftest.injected-without.txt"
-  local injected_with="$WORK/selftest.injected-with.txt"
-  local c_without c_with c_injected_without c_injected_with rc=0
+  local default="$WORK/selftest.default.txt"
+  local broken="$WORK/selftest.broken.txt"
+  local injected_default="$WORK/selftest.injected-default.txt"
+  local injected_broken="$WORK/selftest.injected-broken.txt"
+  local c_default c_broken c_injected_default c_injected_broken rc=0
 
   make_synthetic_log "$base" 1
-  make_synthetic_log "$without" 0
-  make_synthetic_log "$with" 1
-  # 故障注入1: 陰性対照のunit差を消す。
-  make_synthetic_log "$injected_without" 1
-  # 故障注入2: 介入あり側にunit差を入れる。
-  make_synthetic_log "$injected_with" 0
+  make_synthetic_log "$default" 1
+  make_synthetic_log "$broken" 0
+  # 故障注入1: 既定ROM側にunit差を入れる。
+  make_synthetic_log "$injected_default" 0
+  # 故障注入2: 故障注入版側のunit差を消す。
+  make_synthetic_log "$injected_broken" 1
 
-  c_without="$(compare_count "$base" "$without" "$WORK/selftest.without.out")" || c_without=""
-  c_with="$(compare_count "$base" "$with" "$WORK/selftest.with.out")" || c_with=""
-  c_injected_without="$(compare_count "$base" "$injected_without" "$WORK/selftest.injected-without.out")" || c_injected_without=""
-  c_injected_with="$(compare_count "$base" "$injected_with" "$WORK/selftest.injected-with.out")" || c_injected_with=""
+  c_default="$(compare_count "$base" "$default" "$WORK/selftest.default.out")" || c_default=""
+  c_broken="$(compare_count "$base" "$broken" "$WORK/selftest.broken.out")" || c_broken=""
+  c_injected_default="$(compare_count "$base" "$injected_default" "$WORK/selftest.injected-default.out")" || c_injected_default=""
+  c_injected_broken="$(compare_count "$base" "$injected_broken" "$WORK/selftest.injected-broken.out")" || c_injected_broken=""
 
-  if [ -z "$c_without" ] || [ -z "$c_with" ] \
-     || [ -z "$c_injected_without" ] || [ -z "$c_injected_with" ]; then
+  if [ -z "$c_default" ] || [ -z "$c_broken" ] \
+     || [ -z "$c_injected_default" ] || [ -z "$c_injected_broken" ]; then
     ng "selftest: 合成ログのunit/head差件数を抽出できない"
     return 1
   fi
-  if [ "$c_without" = "$c_injected_without" ]; then
-    ng "selftest: 陰性対照への故障注入で結果が変わらない（検査ではなく注入を疑うこと）"
+  if [ "$c_default" = "$c_injected_default" ]; then
+    ng "selftest: 既定ROM側への故障注入で結果が変わらない（検査ではなく注入を疑うこと）"
     rc=1
   fi
-  if [ "$c_with" = "$c_injected_with" ]; then
-    ng "selftest: 介入あり側への故障注入で結果が変わらない（検査ではなく注入を疑うこと）"
+  if [ "$c_broken" = "$c_injected_broken" ]; then
+    ng "selftest: 故障注入版側への反対向き注入で結果が変わらない（検査ではなく注入を疑うこと）"
     rc=1
   fi
-  if judge_counts "$c_without" "$c_with"; then
-    ok "selftest: 差あり→差0件の組を合格と判定"
+  if judge_counts "$c_default" "$c_broken"; then
+    ok "selftest: 既定差0件・故障注入版差ありの組を合格と判定"
   else
     ng "selftest: 正常な合成入力を合格と判定できない"
     rc=1
   fi
-  if judge_counts "$c_injected_without" "$c_with"; then
-    ng "selftest: 陰性対照の差を0件にする故障注入を見逃した"
+  if judge_counts "$c_injected_default" "$c_broken"; then
+    ng "selftest: 既定ROM側に差を入れる故障注入を見逃した"
     rc=1
   else
-    ok "selftest: 陰性対照の差を0件にする故障注入を不合格として検出"
+    ok "selftest: 既定ROM側に差を入れる故障注入を不合格として検出"
   fi
-  if judge_counts "$c_without" "$c_injected_with"; then
-    ng "selftest: 介入あり側に差を入れる故障注入を見逃した"
+  if judge_counts "$c_default" "$c_injected_broken"; then
+    ng "selftest: 故障注入版側の差を消す注入を見逃した"
     rc=1
   else
-    ok "selftest: 介入あり側に差を入れる故障注入を不合格として検出"
+    ok "selftest: 故障注入版側の差を消す注入を不合格として検出"
   fi
   return "$rc"
 }
@@ -126,11 +126,11 @@ copy_roms_for_mode() {
       done
       [ "$copied" -eq 1 ]
       ;;
-    without)
+    default)
       build_mixed_rom "$PC88_REF_ROM_DIR" "$dst"
       ;;
-    with)
-      build_mixed_rom "$PC88_REF_ROM_DIR" "$dst" --intervene-drive-byte2
+    broken)
+      build_mixed_rom "$PC88_REF_ROM_DIR" "$dst" --break-drive-selector
       ;;
     *) return 2 ;;
   esac
@@ -179,7 +179,7 @@ if ! run_selftest; then
   exit 1
 fi
 
-echo "==> m7cj drive-byte2帰属確認本体"
+echo "==> drive-byte2恒久伝播の回帰検査本体"
 if [ -z "${PC88_REF_ROM_DIR:-}" ] || [ -z "${PC88_REF_DISK_DIR:-}" ]; then
   echo "SKIP: 公式ROM・公式ディスクの環境変数が未設定（本体未実行、selftestのみrc=0）"
   echo "      PC88_REF_ROM_DIR と PC88_REF_DISK_DIR を設定して再実行すること。"
@@ -198,41 +198,41 @@ ensure_l3_frontend || exit 1
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 
 overall=0
-for mode in official without with; do
+for mode in official default broken; do
   for run in 1 2; do
     run_measurement "$mode" "$run" || overall=1
   done
 done
 [ "$overall" -eq 0 ] || exit 1
-for mode in official without with; do
+for mode in official default broken; do
   check_determinism "$mode" || overall=1
 done
 [ "$overall" -eq 0 ] || exit 1
 
-without_counts=()
-with_counts=()
+default_counts=()
+broken_counts=()
 for run in 1 2; do
-  without_counts+=("$(compare_count \
-    "$WORK/official.run${run}.iolog.txt" "$WORK/without.run${run}.iolog.txt" \
-    "$WORK/compare.without.run${run}.txt")") || overall=1
-  with_counts+=("$(compare_count \
-    "$WORK/official.run${run}.iolog.txt" "$WORK/with.run${run}.iolog.txt" \
-    "$WORK/compare.with.run${run}.txt")") || overall=1
+  default_counts+=("$(compare_count \
+    "$WORK/official.run${run}.iolog.txt" "$WORK/default.run${run}.iolog.txt" \
+    "$WORK/compare.default.run${run}.txt")") || overall=1
+  broken_counts+=("$(compare_count \
+    "$WORK/official.run${run}.iolog.txt" "$WORK/broken.run${run}.iolog.txt" \
+    "$WORK/compare.broken.run${run}.txt")") || overall=1
 done
 [ "$overall" -eq 0 ] || { ng "FDCコマンド列の比較または差件数抽出に失敗"; exit 1; }
 
-printf '公式に対するunit/head差件数: 介入なし run1=%s件 run2=%s件\n' \
-  "${without_counts[0]}" "${without_counts[1]}"
-printf '公式に対するunit/head差件数: 介入あり run1=%s件 run2=%s件\n' \
-  "${with_counts[0]}" "${with_counts[1]}"
+printf '公式に対するunit/head差件数: 既定ROM run1=%s件 run2=%s件\n' \
+  "${default_counts[0]}" "${default_counts[1]}"
+printf '公式に対するunit/head差件数: 故障注入版 run1=%s件 run2=%s件\n' \
+  "${broken_counts[0]}" "${broken_counts[1]}"
 for run in 0 1; do
-  if ! judge_counts "${without_counts[$run]}" "${with_counts[$run]}"; then
+  if ! judge_counts "${default_counts[$run]}" "${broken_counts[$run]}"; then
     overall=1
   fi
 done
 if [ "$overall" -eq 0 ]; then
-  ok "帰属確認: 2回とも介入なしは差あり、介入ありは差0件"
+  ok "回帰検査: 2回とも既定ROMは差0件、故障注入版は差あり"
 else
-  ng "帰属確認: 介入なし非0件・介入あり0件の両条件を満たさない"
+  ng "回帰検査: 既定ROM差0件・故障注入版非0件の両条件を満たさない"
 fi
 exit "$overall"

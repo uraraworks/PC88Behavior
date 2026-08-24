@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第78版 / 2026-08-24
+仕様書 第80版 / 2026-08-24
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,8 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第80版 | 2026-08-24 | byte2恒久版の公式環境適合 | 公式環境で帰属検査・適合検査・全自己検証を実走し、すべてrc=0。既定ROMの入口区間unit/head差は0件、旧drive0固定へ戻す故障注入版は21件（各2回）で、恒久化後も検出力を維持した。5条件すべてのunit/head差が0件となり、正常B:はFDC種別79件・main・画面も全長一致。ドライブ別シーク・モータ状態は測定が要求しなかったため実装せず保留し、次境界を媒体無し／読取り不能のエラー応答へ移した。根拠は`docs/notes/m7ck-drive-selector-permanent-conformance.md`。 |
+| 第79版 | 2026-08-24 | byte2ドライブ指定の恒久実装 | 第78版で帰属確認した要求byte2 bit0を、同じ共通SEEK入口・SENSE DRIVE STATUS入口からSEEK/SENSE DRIVE STATUS/READ DATAのunitへ恒久伝播した。旧drive0固定へ戻す`--break-drive-selector`を故障注入として追加し、公式比較は既定ROM差0件・故障注入版差ありの両条件を必須とする回帰検査へ変更。自己検証にもbyte2=1が3入口のunit1へ届く検査と故障注入を追加した。ただし自作main・自作sub間の内部接続確認に限られ、意味一致の最終根拠は公式mainとの回帰検査である。 |
 | 第78版 | 2026-08-24 | A:/B:要求run比較とbyte2介入 | 同内容複製2枚で`FILES 1/2`を公式・混成各2回比較し、17 runの長さは同一、差12位置は全てbit0の0→1と確定した。8バイト要求は6+2分節でbyte2/7が変化し、他の6バイト要求でもbyte2が変化。byte2だけをFDC共通入口へ伝播する介入でSEEK/SENSE DRIVE STATUS/READ DATA各6件のunit差が消えたため、byte2 bit0をドライブ指定と確定。帰属は`tools/verify_drive_byte2_attribution.sh`で再現可能で、入口区間のunit/head差は介入なし21件から介入あり0件となった（各2回）。byte7は相関候補のまま。既定実装は不変。根拠は`docs/notes/m7cj-drive-selector-request-byte.md` |
 | 第77版 | 2026-08-23 | エラー結果相・B: unit経路の公式／混成測定 | ライトプロテクト、B:媒体未挿入、B:規則生成媒体、B:正常FILESを公式一式／公式main＋自作subで各2回実測した。ライトプロテクトはmain受信・画面・ST3のWRITE PROTECTED分類が一致したがREAD完了分類に内部差があった。B:3条件は公式がFDCへB-unit、混成がA-unitを渡し、未挿入・規則生成ではmain受信と画面も分岐、正常B:は同内容複製のため末端だけ一致した。実装は変更せず、次境界をドライブ指定伝播とドライブ別状態保持に定めた。5.2節は変更していない。根拠は`docs/notes/m7ci-error-and-drive2-paths.md` |
 | 第76版 | 2026-08-23 | diskA起動・全6需要入口の画面出力比較 | `q88measure --out`が公開する行番号付き本文へ追加正規化を加えず、公式一式を各条件2回、混成を各1回測定した。7条件すべてで公式2回が決定論的に一致し、公式対混成も行数・文字数・SHA-256が完全一致した。画面本文は残さず、期待値は署名だけとした。これは追加測定であり、5.2節の条件1〜5は変更していない。根拠は`docs/notes/m7ch-screen-output-conformance.md` |
@@ -105,6 +107,7 @@
 | 測定ノート | `docs/notes/m7ch-screen-output-conformance.md`（第76版。diskA起動・全6需要入口の画面署名、決定論性、公式・混成比較） |
 | 測定ノート | `docs/notes/m7ci-error-and-drive2-paths.md`（第77版。エラー3経路とB: unit/head経路、結果ステータス分類、分岐位置） |
 | 測定ノート | `docs/notes/m7cj-drive-selector-request-byte.md`（第78版。FILES 1/2要求run全位置比較、byte2帰属介入、byte7限界） |
+| 測定ノート | `docs/notes/m7ck-drive-selector-permanent-conformance.md`（第80版。byte2恒久版の公式環境適合、故障注入の反転、5条件再測定、次のエラー応答境界） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -1965,7 +1968,7 @@ unit/headへ伝播し、ドライブ別のシーク・モータ状態を保持�
 
 根拠: [docs/notes/m7ci-error-and-drive2-paths.md](../notes/m7ci-error-and-drive2-paths.md)。
 
-### 1.46 main要求byte2 bit0はFDCドライブ指定である（第78版）
+### 1.46 main要求byte2 bit0はFDCドライブ指定であり恒久実装済みである（第78〜80版）
 
 同内容のdiskA複製をA:/B:へ入れた`FILES 1/2`を公式・混成各2回比較した。
 700F以降のmain `OUT $FD`は17 run、run長列は同一で、全位置の差12件はすべて
@@ -1975,11 +1978,23 @@ bit0の0→1だった。1.11節の8バイト要求は6+2分節でbyte2/7が変�
 byte2 bit0だけをSEEK、SENSE DRIVE STATUS、READ DATAの公開unitへ伝播する
 使い捨て介入では、2回とも各6件が全件B-unitとなり公式との差が消えた。よって
 **byte2 bit0をドライブ指定と確定する。** byte7は最初のFDC開始後に届き、この条件で
-独立帰属できないため3節に残す。既定実装は変更していない。
-この帰属は`tools/verify_drive_byte2_attribution.sh`で再現可能で、入口区間の
-unit/head差は介入なし21件から介入あり0件となった（各2回）。
+独立帰属できないため3節に残す。第79版で、帰属介入と同じ共通SEEK入口・
+SENSE DRIVE STATUS入口を既定実装へ恒久化した。`--break-drive-selector`は
+伝播を壊してdrive0固定へ戻す回帰検査専用である。
+`tools/verify_drive_byte2_attribution.sh`は、既定ROMの公式に対する入口区間の
+unit/head差0件と、故障注入版の差ありを両方必須として検査する。
+
+第80版の公式環境実走では、既定ROMの差は0件、故障注入版は21件で各2回一致した。
+恒久版ROMは第78版の介入版とROM全体でバイト一致し、故障注入版は第78版の既定版と
+ROM全体でバイト一致するため、第78版の帰属測定は恒久版の機能検証も兼ねる。
+適合再測定ではライトプロテクト、no_disk、unreadable_disk、正常drive1、正常drive2の
+全5条件でunit/head差が0件となった。正常drive2はFDC種別79件の全長、main受信、画面も
+公式と一致し、同内容媒体による末端だけの偶然一致ではなくB-unit経路自体が一致した。
+一方、no_disk/unreadable_diskはFDC種別prefixが54/55件、画面不一致のままであり、
+次の実装境界は媒体無し／読取り不能の結果をmainへ返すエラー応答経路である。
 
 根拠: [docs/notes/m7cj-drive-selector-request-byte.md](../notes/m7cj-drive-selector-request-byte.md)。
+第80版の根拠: [docs/notes/m7ck-drive-selector-permanent-conformance.md](../notes/m7ck-drive-selector-permanent-conformance.md)。
 
 ## 2. 明示的に「採用できない」こと
 
@@ -2047,6 +2062,12 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
 ---
 
 ## 3. 未確定として残すこと（推測で埋めない）
+
+- **（第80版で追加）ドライブ別のシーク・モータ状態を別々に保持する必要性。**
+  第77〜78版ではbyte2伝播後の次候補に挙げたが、第80版の5条件はbyte2 bit0の
+  unit伝播だけでunit/head差0件となり、正常A:/B:の末端も完全一致した。どの測定も
+  状態のドライブ別保持を要求していないため実装せず、必要性を示す差が観測されるまで
+  保留する。推測で状態を追加しない。
 
 - **（第32版で追加）交換#3要求の2件・5件・1件という分節を選ぶ内部判定根拠。**
   外部I/O列として分節と順序は確定したが、要求内容の意味と、公式subがどの内部状態で

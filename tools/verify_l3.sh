@@ -19,11 +19,13 @@
 #      256バイト応答を開始できること
 #   3. μPD765経由のセクタ読み出しが、自作テストディスクの内容と
 #      機械的に一致する256バイトを返すこと
-#   4. （m7arで移設）ディスク無しのネガティブコントロール（仕様書1.1節・
+#   4. 1.46節の要求byte2 bit0がSEEK/SENSE DRIVE STATUS/READ DATAの
+#      公開FDC unitへ届くこと（故障注入で検出力も確認する）
+#   5. （m7arで移設）ディスク無しのネガティブコントロール（仕様書1.1節・
 #      5.2条件4）は**この層では判定できない**ことが分かったので、判定は
 #      tools/conform_l3.sh へ移した。ここでは判定不能である旨と根拠を
 #      表示するだけにしている（下の該当箇所のコメント参照）。
-#   5. 上のいずれかをわざと壊すと検出できること
+#   6. 上のいずれかをわざと壊すと検出できること
 #
 # **検証しないこと（正直に書く）**:
 #   diskA 起動時の高速バルクモード（5635件、仕様書1.6節・5.2条件1）の
@@ -97,6 +99,47 @@ if python3 "$CHECK" "$WORK/ok.iolog.txt" --requests "$REQUESTS"; then
   ok "SEND/RECV・1.37節の応答境界・FDCセクタ読み出しが一致"
 else
   ng "自作サブROMの応答が自作テストディスクの内容と一致しない"
+  overall_rc=1
+fi
+
+# --------------------------------------------------------------------
+# 3b. 要求byte2 bit0のドライブ指定伝播（仕様書1.46節）
+# --------------------------------------------------------------------
+# 自作mainがbyte2=1を送るため、この検査が示せるのはsub内部の接続と公開FDC
+# unitの整合だけである。byte2の意味を公式main相手にも正しく理解しているかは
+# tools/verify_drive_byte2_attribution.shの公式・混成比較でのみ確認できる。
+say "要求byte2 bit0=1がSEEK/SENSE DRIVE STATUS/READ DATAのunit1へ届くか"
+mkdir -p "$WORK/rom_drive_default" "$WORK/rom_drive_broken"
+python3 "$GEN_SUB" "$WORK/rom_drive_default" --force-post-bulk-active || exit 1
+python3 "$GEN_SUB" "$WORK/rom_drive_broken" --force-post-bulk-active --break-drive-selector || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_drive_default" --requests "0:1" --drive-selector 1 || exit 1
+python3 "$GEN_MAIN" "$WORK/rom_drive_broken" --requests "0:1" --drive-selector 1 || exit 1
+cp "$WORK/test.d88" "$WORK/drive_a.d88"
+cp "$WORK/test.d88" "$WORK/drive_b.d88"
+printf '%s\n' "$WORK/drive_a.d88" "$WORK/drive_b.d88" >"$WORK/drives.m3u"
+
+for mode in default broken; do
+  "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom_drive_${mode}" --disk "$WORK/drives.m3u" \
+      --frames "$FRAMES" --io-log "$WORK/drive_${mode}.iolog.txt" \
+      >"$WORK/drive_${mode}.stdout.txt" 2>"$WORK/drive_${mode}.stderr.txt"
+done
+
+if python3 "$REPO/tools/check_l3_drive_selector.py" \
+    "$WORK/drive_default.iolog.txt" --expected-unit 1; then
+  ok "byte2 bit0=1がREAD単位3入口のunit1へ伝播した"
+else
+  ng "byte2由来のドライブ指定がREAD単位3入口へ届かない"
+  overall_rc=1
+fi
+if python3 "$REPO/tools/check_l3_drive_selector.py" \
+    "$WORK/drive_broken.iolog.txt" --expected-unit 1 >/dev/null 2>&1; then
+  ng "--break-drive-selectorでもunit1となり、故障注入を検出できない"
+  overall_rc=1
+elif python3 "$REPO/tools/check_l3_drive_selector.py" \
+    "$WORK/drive_broken.iolog.txt" --expected-unit 0 >/dev/null 2>&1; then
+  ok "故障注入版はunit0固定となり、同じ検査で結果が変化した"
+else
+  ng "故障注入版の結果がunit0固定にもならない（検査ではなく注入を疑うこと）"
   overall_rc=1
 fi
 
@@ -602,12 +645,15 @@ cat <<'EOF'
   無音にしているのは main 側／ハード側である。
 
   ここで検証したのは、仕様書6節1〜3・5・6項（SEND/RECVハンドシェイク・
-  交換#3/#4の応答境界・FDC経由のセクタ読み出し）が、仕様書に書かれた
-  手順を行う相手に対して正しく機能することの、公式ROM無しでの確認である。
+  交換#3/#4の応答境界・FDC経由のセクタ読み出し）と、1.46節のbyte2から
+  公開FDC unitへの内部接続が、仕様書に書かれた手順を行う相手に対して
+  正しく機能することの、公式ROM無しでの確認である。
 
   交換#3/#4の訂正根拠はm7kの公式側交換境界と混成側状態遷移である。
   この自己検証は自作mainと自作subの組み合わせなので、同じ誤解が両側へ
   入る危険を排除できない。公式mainを片側にした混成実走を最終根拠とする。
+  byte2の意味一致も同様で、tools/verify_drive_byte2_attribution.shの
+  既定ROM差0件・--break-drive-selector版差ありの両条件を最終根拠とする。
 EOF
 
 echo

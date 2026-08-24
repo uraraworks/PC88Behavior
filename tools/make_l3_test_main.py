@@ -219,7 +219,7 @@ HDR_BUF = 0xF800   # main RAM 上の作業領域（テキストVRAM等と衝突�
 
 def build(requests, dispatch_switch_test=False, run_continuation_test=False,
           fixed_byte_cutoff_test=False, write_test=False,
-          post_bulk_read_test=False):
+          post_bulk_read_test=False, drive_selector=0):
     """requests: [(cyl, sec), ...] の列。1.36・1.37節に従い256バイト受ける。
 
     dispatch_switch_test: 上のdocstring「--dispatch-switch-test」参照。
@@ -397,7 +397,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         hdr_labels.append(name)
         a.label(name)
         track = (cyl * 2) & 0xFF   # H=0固定
-        a.db(0x02, 0x00, 0x00, track, sec & 0xFF)
+        a.db(0x02, 0x00, drive_selector, track, sec & 0xFF)
 
     # 起動時交換#3を明示的に閉じる旧回帰シナリオ専用。一般READ完了後は
     # 1.37節の0x06/C0/0x12交換を使い、この2バイト要求は使わない。
@@ -713,6 +713,8 @@ def main():
                           "1.36節（先頭バイト0x02・長さ5のrun）の回帰テスト。"
                           "requests[0]を座標として使い、通常の要求ループは"
                           "送らず単独で完結する。")
+    ap.add_argument("--drive-selector", type=int, choices=(0, 1), default=0,
+                    help="1.46節の要求byte2 bit0（0=A、1=B）。既定: 0")
     args = ap.parse_args()
 
     requests = []
@@ -724,7 +726,8 @@ def main():
               run_continuation_test=args.run_continuation_test,
               fixed_byte_cutoff_test=args.fixed_byte_cutoff_test,
               write_test=args.write_test,
-              post_bulk_read_test=args.post_bulk_read_test)
+              post_bulk_read_test=args.post_bulk_read_test,
+              drive_selector=args.drive_selector)
     code = bytes(a.code)
     if len(code) > N88_SIZE:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
