@@ -27,49 +27,31 @@ def load(name, path):
 sys.path.insert(0, str(repo / "tools"))
 search = load("error_response_attribution_search",
               repo / "tools/search_error_response_candidate.py")
+attribution = load("error_response_bit6_attribution",
+                   repo / "tools/error_response_bit6_attribution.py")
 subrom = load("error_response_attribution_subrom",
               repo / "src/l3_service/make_subrom.py")
-
-EXPECTED_SCREEN = (10, 215,
-    "cca99cfdfdc10336346467523d8d8e5bda8096fda4d9c34ab5f457364bef7379")
-
-def screen_tuple(result):
-    return (result.screen_line_count, result.screen_char_count,
-            result.screen_sha256)
-
-def judge(reference, default, broken):
-    default_metric = search.compare_result(reference, default, 0)
-    broken_metric = search.compare_result(reference, broken, 1)
-    default_ok = (len(default.exchange) == 60
-                  and default_metric.exchange_prefix == 60
-                  and default_metric.exchange_exact
-                  and screen_tuple(default) == EXPECTED_SCREEN
-                  and all((default_metric.screen_lines_match,
-                           default_metric.screen_chars_match,
-                           default_metric.screen_sha256_match)))
-    broken_ok = (broken_metric.exchange_prefix == 38
-                 and not broken_metric.exchange_exact
-                 and not any((broken_metric.screen_lines_match,
-                              broken_metric.screen_chars_match,
-                              broken_metric.screen_sha256_match)))
-    return default_ok and broken_ok, default_metric, broken_metric
 
 exchange = tuple(("main→sub", 6) if pos % 2 == 0 else ("sub→main", 1)
                  for pos in range(60))
 reference = search.AbstractResult(exchange, tuple("R" for _ in range(60)),
-                                  *EXPECTED_SCREEN)
+                                  *attribution.EXPECTED_SCREEN)
 default = search.AbstractResult(exchange, tuple("D" for _ in range(55)),
-                                *EXPECTED_SCREEN)
+                                *attribution.EXPECTED_SCREEN)
 broken_exchange = exchange[:38] + (("main→sub", 2),)
 broken = search.AbstractResult(broken_exchange, tuple("B" for _ in range(55)),
                                0, 0, "0" * 64)
-passed, _, _ = judge(reference, default, broken)
+synthetic_measurements = ((reference, {}), (default, {}), (broken, {}))
+passed, _, _ = attribution.judge_measurements(*synthetic_measurements)
 if not passed:
     print("NG: selftestの正常な合成入力を合格にできない")
     raise SystemExit(1)
 print("OK: selftestは既定の全長・画面一致と故障注入のprefix 38・画面不一致を要求")
 
-if judge(reference, broken, broken)[0] or judge(reference, default, default)[0]:
+if (attribution.judge_measurements(
+        (reference, {}), (broken, {}), (broken, {}))[0]
+        or attribution.judge_measurements(
+            (reference, {}), (default, {}), (default, {}))[0]):
     print("NG: selftestの帰属故障注入を見逃した")
     raise SystemExit(1)
 print("OK: selftestは既定側破壊と故障注入側無効化をともに検出")
@@ -109,7 +91,8 @@ official = search.measure_once(official=True, tag="official", **common)
 actual_default = search.measure_once(official=False, tag="default", **common)
 actual_broken = search.measure_once(official=False, tag="broken",
                                     break_error_response_bit6=True, **common)
-passed, default_metric, broken_metric = judge(official, actual_default, actual_broken)
+passed, default_metric, broken_metric = attribution.judge_measurements(
+    official, actual_default, actual_broken)
 print(f"既定: exchange_prefix={default_metric.exchange_prefix} "
       f"exchange_exact={int(default_metric.exchange_exact)} "
       f"screen={int(default_metric.screen_lines_match)}/"

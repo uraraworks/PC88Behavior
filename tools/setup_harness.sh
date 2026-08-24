@@ -105,6 +105,14 @@ case "$SYMS" in
   *) echo "  NG: 順序付きI/O記録のシンボルが無い" >&2; exit 1 ;;
 esac
 case "$SYMS" in
+  *retro_q88h_exchange_intervention*) echo "  OK: 交換run介入のシンボルあり" ;;
+  *) echo "  NG: 交換run介入のシンボルが無い" >&2; exit 1 ;;
+esac
+case "$SYMS" in
+  *retro_q88h_sub_interrupt_intervention*) echo "  OK: sub割り込み介入のシンボルあり" ;;
+  *) echo "  NG: sub割り込み介入のシンボルが無い" >&2; exit 1 ;;
+esac
+case "$SYMS" in
   *retro_q88h_intlog*) echo "  OK: 割り込み受理ログのシンボルあり" ;;
   *) echo "  NG: 割り込み受理ログのシンボルが無い" >&2; exit 1 ;;
 esac

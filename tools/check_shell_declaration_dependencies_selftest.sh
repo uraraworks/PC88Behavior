@@ -33,7 +33,7 @@ if [ "$positive_rc" -eq 1 ] &&
    grep -q '検査完了: NG（3件検出）' "$positive_out"; then
   pass "陽性対照の local/declare/readonly 3件を実際に検出した"
 else
-  ng "陽性対照3件を検出できなかった（rc=$positive_rc）"
+  ng "陽性対照3件を検出できなかった（rc=${positive_rc}）"
   cat "$positive_out" >&2
 fi
 
@@ -47,7 +47,7 @@ if [ "$bash_major" -eq 3 ] && [ "$bash_minor" -eq 2 ]; then
   if [ "$bash_rc" -ne 0 ] && grep -q 'unbound variable' "$bash_out"; then
     pass "macOS Bash 3.2 の実挙動で unbound variable を確認した"
   else
-    ng "Bash 3.2 の陽性再現が失敗しなかった（rc=$bash_rc）"
+    ng "Bash 3.2 の陽性再現が失敗しなかった（rc=${bash_rc}）"
   fi
 else
   echo "SKIP: /bin/bash は3.2ではないため実挙動確認なし（静的陽性対照は実行済み）"

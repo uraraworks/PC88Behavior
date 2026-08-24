@@ -1,0 +1,34 @@
+diff --git a/Makefile.common b/Makefile.common
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -59,6 +59,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_clock.c \
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
++   $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+    $(CORE_DIR)/q88h_intlog.c \
+    $(CORE_DIR)/q88h_fontsrc.c \
+    $(CORE_DIR)/q88h_screenshot.c \
+diff --git a/src/z80.c b/src/z80.c
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -96,5 +96,6 @@
+ #include "pc88cpu.h"
+ #include "q88h_intlog.h"
++#include "q88h_sub_interrupt_intervention.h"
+ 
+ 
+ #define S_FLAG      (0x80)
+@@ -733,5 +734,12 @@ static\tvoid\tz80_interrupt( z80arch *z80 )
+ {
+   int level;
+ 
++  if( z80 == &z80sub_cpu && q88h_sub_interrupt_intervention_before_ack() ){
++    return;
++  }
++
+   level = (z80->intr_ack)();
++  if( z80 == &z80sub_cpu ){
++    q88h_sub_interrupt_intervention_ack_result( level >= 0 );
++  }
+   if( level >= 0 ){

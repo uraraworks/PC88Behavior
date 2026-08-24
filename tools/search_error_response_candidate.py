@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""unreadable_disk の1バイト・エラー応答候補を乱順並列探索する。
+"""エラー応答候補・no_disk相補介入を同じ計測ハーネスで扱う。
 
 公式側から保持するのは交換runの方向/長さ、FDCコマンド名列、画面の
 行数・文字数・SHA-256だけである。交換値、FDC生値、画面本文は結果へ
@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
+import itertools
 import json
 import os
 import random
@@ -24,6 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
 import analyze_error_exchange_shape as shape  # noqa: E402
+import analyze_no_disk_timing as no_disk_timing  # noqa: E402
 import check_l3_screen_output as screen  # noqa: E402
 
 
@@ -34,6 +37,24 @@ class AbstractResult:
     screen_line_count: int
     screen_char_count: int
     screen_sha256: str
+    artifacts: tuple[tuple[str, int, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class InterventionEvidence:
+    run: int
+    mode: str
+    matched: int
+    expected_matched: int
+    applied: int
+    expected_applied: int
+    changed: int
+
+    @property
+    def complete(self) -> bool:
+        return (self.matched == self.expected_matched
+                and self.applied == self.expected_applied
+                and self.changed == self.expected_applied)
 
 
 @dataclass(frozen=True)
@@ -50,6 +71,7 @@ class CandidateMetrics:
     screen_char_count: int
     screen_sha256: str
     elapsed_seconds: float
+    request_length: int | None = None
 
 
 class SearchError(RuntimeError):
@@ -64,7 +86,8 @@ def common_prefix(a: tuple, b: tuple) -> int:
 
 
 def compare_result(reference: AbstractResult, actual: AbstractResult,
-                   ordinal: int, elapsed: float = 0.0) -> CandidateMetrics:
+                   ordinal: int, elapsed: float = 0.0,
+                   request_axis: int | None = None) -> CandidateMetrics:
     exchange_prefix = common_prefix(reference.exchange, actual.exchange)
     fdc_prefix = common_prefix(reference.fdc, actual.fdc)
     return CandidateMetrics(
@@ -80,7 +103,23 @@ def compare_result(reference: AbstractResult, actual: AbstractResult,
         screen_char_count=actual.screen_char_count,
         screen_sha256=actual.screen_sha256,
         elapsed_seconds=round(elapsed, 3),
+        request_length=extract_request_length(actual.exchange, request_axis),
     )
+
+
+def extract_request_length(exchange: tuple[tuple[str, int], ...], axis: int | None,
+                           fault: str | None = None) -> int | None:
+    """校正済み+0の要求長。faultはselftest専用の故障注入。"""
+    if axis is None:
+        return None
+    if fault == "previous":
+        axis -= 1
+    if fault == "constant":
+        return 6
+    if axis < 0 or axis >= len(exchange):
+        return None
+    direction, length = exchange[axis]
+    return length if direction == "main→sub" else None
 
 
 def metric_vector(metric: CandidateMetrics) -> tuple:
@@ -90,6 +129,7 @@ def metric_vector(metric: CandidateMetrics) -> tuple:
         metric.screen_lines_match, metric.screen_chars_match,
         metric.screen_sha256_match, metric.screen_line_count,
         metric.screen_char_count, metric.screen_sha256,
+        metric.request_length,
     )
 
 
@@ -128,7 +168,176 @@ def abstract_result(iolog: Path, report: Path) -> AbstractResult:
         screen_line_count=sig.line_count,
         screen_char_count=sig.char_count,
         screen_sha256=sig.sha256,
+        artifacts=artifact_digests(iolog),
     )
+
+
+ARTIFACT_STREAMS = (
+    ("main_IN_00FC", "main", "IN", "00FC"),
+    ("main_IN_00FD", "main", "IN", "00FD"),
+    ("sub_OUT_00FC", "sub", "OUT", "00FC"),
+    ("sub_OUT_00FD", "sub", "OUT", "00FD"),
+)
+MAX_INTERVENTIONS = 64
+NO_DISK_WINDOW = (("main→sub", 2), ("sub→main", 256),
+                  ("main→sub", 1), ("sub→main", 1))
+
+
+def no_disk_target_runs(exchange: tuple[tuple[str, int], ...]) -> tuple[tuple[int, ...],
+                                                                         tuple[int, ...]]:
+    """校正窓と同形の全出現から256/1バイト応答run位置を返す。"""
+    response256 = []
+    response1 = []
+    for start in range(max(0, len(exchange) - len(NO_DISK_WINDOW))):
+        if (exchange[start:start + 4] == NO_DISK_WINDOW
+                and exchange[start + 4][0] == "main→sub"):
+            response256.append(start + 1)
+            response1.append(start + 3)
+    return tuple(response256), tuple(response1)
+
+
+def run_context_sha256(exchange: tuple[tuple[str, int], ...], run: int) -> str:
+    """対象run直前までの構造prefixを値なしの同定指紋にする。"""
+    if run < 0 or run >= len(exchange):
+        raise SearchError(f"run {run}が交換列の範囲外")
+    digest = hashlib.sha256()
+    digest.update(f"runs-before={run}\n".encode("ascii"))
+    for direction, length in exchange[:run]:
+        digest.update(direction.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(length).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def no_disk_target_specs(calibration: dict) -> dict[str, dict]:
+    """校正軸の-3/-1だけを、方向・長さ・文脈指紋付きで同定する。"""
+    exchange = result_from_json(calibration["legacy_mixed"]).exchange
+    axis = int(calibration["axis_mixed"])
+    positions = {"response256": axis - 3, "response1": axis - 1}
+    expected = {"response256": ("sub→main", 256),
+                "response1": ("sub→main", 1)}
+    specs = {}
+    recorded_specs = calibration.get("target_specs") or {}
+    for name, run in positions.items():
+        recorded = calibration.get(f"target_{name}")
+        if recorded is not None and int(recorded) != run:
+            raise SearchError(f"{name}の記録位置が校正軸からの相対位置と一致しない")
+        if run < 0 or run >= len(exchange) or exchange[run] != expected[name]:
+            raise SearchError(f"{name}の方向/長さが校正軸の記録と一致しない")
+        derived = {
+            "run": run, "direction": expected[name][0], "length": expected[name][1],
+            "context_sha256": run_context_sha256(exchange, run),
+        }
+        if name in recorded_specs and recorded_specs[name] != derived:
+            raise SearchError(f"{name}の保存済み同定指紋が校正交換列と一致しない")
+        specs[name] = derived
+    return specs
+
+
+def verify_run_identity(exchange: tuple[tuple[str, int], ...], spec: dict) -> None:
+    """同形の別runを含め、校正対象以外への位置ずれを拒否する。"""
+    run = int(spec["run"])
+    expected = (str(spec["direction"]), int(spec["length"]))
+    if run < 0 or run >= len(exchange) or exchange[run] != expected:
+        raise SearchError(f"介入対象run {run}の方向/長さが校正値と一致しない")
+    if run_context_sha256(exchange, run) != spec["context_sha256"]:
+        raise SearchError(f"介入対象run {run}の文脈指紋が校正値と一致しない")
+
+
+def artifact_digests(iolog: Path) -> tuple[tuple[str, int, str], ...]:
+    """対象列を値を保持せず件数とSHA-256へ射影する。"""
+    states = {
+        (cpu, kind, port): [name, 0, hashlib.sha256()]
+        for name, cpu, kind, port in ARTIFACT_STREAMS
+    }
+    with shape.cmp_io._open_iolog(str(iolog)) as fp:
+        for line in fp:
+            match = shape.ROW_RE.match(line)
+            if not match:
+                continue
+            _seq, _clock, _frame, cpu, kind, port, value, _pc = match.groups()
+            state = states.get((cpu, kind, port.upper()))
+            if state is None:
+                continue
+            state[1] += 1
+            state[2].update(value.upper().encode("ascii"))
+            state[2].update(b"\n")
+    return tuple((name, int(count), digest.hexdigest())
+                 for name, count, digest in states.values())
+
+
+def artifacts_changed(control: AbstractResult, intervention: AbstractResult) -> bool:
+    return control.artifacts != intervention.artifacts
+
+
+def artifact_difference_names(control: AbstractResult,
+                              intervention: AbstractResult) -> list[str]:
+    left = {name: (count, digest) for name, count, digest in control.artifacts}
+    right = {name: (count, digest) for name, count, digest in intervention.artifacts}
+    return sorted(name for name in left.keys() | right.keys()
+                  if left.get(name) != right.get(name))
+
+
+def ineffective_intervention_arms(arms: dict[str, AbstractResult]) -> list[str]:
+    """対照と成果物が同一の介入armを列挙する（帰属禁止関門）。"""
+    control = arms["control"]
+    return [name for name, result in arms.items()
+            if name != "control" and not artifacts_changed(control, result)]
+
+
+def exchange_value_events(path: Path):
+    """交換列を逐次走査する。呼出側は値を保存・表示しない。"""
+    with shape.cmp_io._open_iolog(str(path)) as fp:
+        for line in fp:
+            match = shape.ROW_RE.match(line)
+            if not match:
+                continue
+            _seq, _clock, _frame, cpu, kind, port, value, pc = match.groups()
+            port, pc = port.upper(), pc.upper()
+            if cpu != "main":
+                continue
+            if kind == "OUT" and port == "00FD" and pc in shape.m2s.SEND_PCS:
+                yield "main→sub", value.upper()
+            elif kind == "IN" and port == "00FC" and (
+                    pc in shape.m2s.RECV_HANDSHAKE_PCS or pc in shape.m2s.RECV_BULK_PCS):
+                yield "sub→main", value.upper()
+
+
+def first_exchange_difference(official_path: Path, mixed_path: Path,
+                              axis_official: int, axis_mixed: int) -> dict:
+    """先頭からの最初の構造/値差を、値そのものを残さず位置へ射影する。"""
+    sentinel = object()
+    run_off = run_mix = -1
+    prev_off = prev_mix = None
+    for event_pos, (off, mix) in enumerate(itertools.zip_longest(
+            exchange_value_events(official_path), exchange_value_events(mixed_path),
+            fillvalue=sentinel)):
+        if off is not sentinel and off[0] != prev_off:
+            run_off += 1
+            prev_off = off[0]
+        if mix is not sentinel and mix[0] != prev_mix:
+            run_mix += 1
+            prev_mix = mix[0]
+        if off != mix:
+            kind = "structure" if (off is sentinel or mix is sentinel
+                                    or off[0] != mix[0]) else "value"
+            rel_off = run_off - axis_official if off is not sentinel else None
+            rel_mix = run_mix - axis_mixed if mix is not sentinel else None
+            return {
+                "position_base": 0,
+                "event_position": event_pos,
+                "kind": kind,
+                "official_run_position": run_off if off is not sentinel else None,
+                "mixed_run_position": run_mix if mix is not sentinel else None,
+                "relative_to_axis_official": rel_off,
+                "relative_to_axis_mixed": rel_mix,
+                "runs_before_axis_official": -rel_off if rel_off is not None and rel_off < 0 else 0,
+                "runs_before_axis_mixed": -rel_mix if rel_mix is not None and rel_mix < 0 else 0,
+                "before_relative_minus4_official": rel_off is not None and rel_off < -4,
+                "before_relative_minus4_mixed": rel_mix is not None and rel_mix < -4,
+            }
+    raise SearchError("公式と混成の交換列が値・構造とも全長一致")
 
 
 def result_to_json(result: AbstractResult) -> dict:
@@ -145,6 +354,8 @@ def result_from_json(value: dict) -> AbstractResult:
         screen_line_count=int(value["screen_line_count"]),
         screen_char_count=int(value["screen_char_count"]),
         screen_sha256=str(value["screen_sha256"]),
+        artifacts=tuple((str(item[0]), int(item[1]), str(item[2]))
+                        for item in value.get("artifacts", ())),
     )
 
 
@@ -179,8 +390,72 @@ def check_external_state_dir(path: Path) -> Path:
     return resolved
 
 
-def run_frontend(command: list[str], iolog: Path, timeout: int) -> None:
+INTERVENTION_LINE_RE = re.compile(
+    r"交換介入slot(\d+) run=(\d+) matched=(\d+) applied=(\d+) changed=(\d+)"
+)
+SUB_INTERRUPT_LINE_RE = re.compile(
+    r"sub割り込み介入 first=(\d+) last=(\d+) mode=(\d+) "
+    r"matched=(\d+) suppressed=(\d+) accepted=(\d+)"
+)
+
+
+def sub_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
+    path = iolog.with_suffix(".stderr.txt")
+    if not path.is_file():
+        return None
+    found = None
+    with path.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = SUB_INTERRUPT_LINE_RE.search(line)
+            if match:
+                keys = ("first_run", "last_run", "mode", "matched_checks",
+                        "suppressed_checks", "accepted_in_window")
+                found = dict(zip(keys, map(int, match.groups())))
+    return found
+
+
+def metric_source_sha256(*paths: Path) -> str:
+    """arm固有の入力ファイルを、内容を露出しない指紋へまとめる。"""
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as fp:
+            for block in iter(lambda: fp.read(1024 * 1024), b""):
+                digest.update(block)
+    return digest.hexdigest()
+
+
+def inject_clock_shift(paths: tuple[Path, ...], *, after_clock: int,
+                       delta: int) -> None:
+    """self-check arm用に、生ログの基準直後だけを既知量ずらす。
+
+    エミュレータの状態や交換値は変えず、各armログから時間指標を読み直して
+    いることだけを故障注入で検査する。呼出側が一時runディレクトリを破棄する。
+    """
+    if delta <= 0:
+        raise SearchError("clock故障注入量は正でなければならない")
+    for path in paths:
+        rewritten = []
+        with path.open("r", encoding="utf-8", errors="strict") as fp:
+            for line in fp:
+                fields = line.split()
+                if fields and fields[0].isdigit() and len(fields) >= 2:
+                    try:
+                        clock = int(fields[1])
+                    except ValueError:
+                        pass
+                    else:
+                        if clock > after_clock:
+                            fields[1] = str(clock + delta)
+                            line = " ".join(fields) + "\n"
+                rewritten.append(line)
+        path.write_text("".join(rewritten), encoding="utf-8")
+
+
+def run_frontend(command: list[str], iolog: Path, timeout: int) -> dict[int, tuple[int, int, int, int]]:
     stderr = iolog.with_suffix(".stderr.txt")
+    stderr.unlink(missing_ok=True)
     for attempt in range(1, 5):
         iolog.unlink(missing_ok=True)
         try:
@@ -198,12 +473,22 @@ def run_frontend(command: list[str], iolog: Path, timeout: int) -> None:
     with iolog.open("r", encoding="utf-8", errors="strict") as fp:
         if any(re.match(r"^# 取りこぼし: [1-9][0-9]*件", line) for line in fp):
             raise SearchError("I/Oログに取りこぼしがある")
+    receipts: dict[int, tuple[int, int, int, int]] = {}
+    with stderr.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = INTERVENTION_LINE_RE.search(line)
+            if match:
+                slot, run, matched, applied, changed = map(int, match.groups())
+                receipts[slot] = (run, matched, applied, changed)
+    return receipts
 
 
 def measure_once(*, official: bool, candidate: int | None, frames: int,
                  timeout: int, state_dir: Path, tag: str, rom_source: Path,
                  disk_source: Path, core: Path, frontend: Path,
-                 break_error_response_bit6: bool = False) -> AbstractResult:
+                 break_error_response_bit6: bool = False,
+                 scenario: str = "unreadable_disk",
+                 interventions: tuple[str, ...] = ()) -> tuple[AbstractResult, dict[int, tuple[int, int, int, int]]]:
     """独立ROM・媒体・作業ディレクトリで1走し、値なし結果だけ返す。"""
     run_dir = state_dir / "runs" / tag
     if run_dir.exists():
@@ -224,29 +509,37 @@ def measure_once(*, official: bool, candidate: int | None, frames: int,
     disk_a = run_dir / "a.d88"
     disk_b = run_dir / "b.d88"
     shutil.copy2(disk_source, disk_a)
-    subprocess.run([sys.executable, str(REPO / "tools/make_l3_testdisk.py"),
-                    str(disk_b)], stdout=subprocess.DEVNULL,
-                   stderr=subprocess.PIPE, check=True)
-    playlist = run_dir / "media.m3u"
-    playlist.write_text(f"{disk_a}\n{disk_b}\n", encoding="utf-8")
+    if scenario == "unreadable_disk":
+        subprocess.run([sys.executable, str(REPO / "tools/make_l3_testdisk.py"),
+                        str(disk_b)], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, check=True)
+        media = run_dir / "media.m3u"
+        media.write_text(f"{disk_a}\n{disk_b}\n", encoding="utf-8")
+    elif scenario == "no_disk":
+        media = disk_a
+    else:
+        raise SearchError(f"未知のscenario: {scenario}")
     iolog = run_dir / "run.iolog.txt"
     report = run_dir / "run.report.txt"
     command = [
         str(frontend), "--core", str(core), "--rom-dir", str(rom_dir),
-        "--disk", str(playlist), "--frames", str(frames),
+        "--disk", str(media), "--frames", str(frames),
         "--io-log", str(iolog), "--out", str(report),
         "--type-at", "300", "--type", r"\n",
         "--type-at", "700", "--type", r"FILES 2\n",
     ]
+    for intervention in interventions:
+        command += ["--exchange-intervention", intervention]
     try:
-        run_frontend(command, iolog, timeout)
-        return abstract_result(iolog, report)
+        receipts = run_frontend(command, iolog, timeout)
+        return abstract_result(iolog, report), receipts
     finally:
         # 公式値や画面本文を含み得る生ファイルは再開状態へ残さない。
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def calibration_gate(official_log: Path, mixed_log: Path) -> None:
+def calibration_gate(official_log: Path, mixed_log: Path,
+                     scenario: str) -> tuple[int, int]:
     official_runs = shape.exchange_runs(official_log)
     mixed_runs = shape.exchange_runs(mixed_log)
     prefix = shape.structural_prefix(official_runs, mixed_runs)
@@ -255,20 +548,42 @@ def calibration_gate(official_log: Path, mixed_log: Path) -> None:
     divergence = shape.fdc_divergence(official_fdc, mixed_fdc)
     axis_off = shape.request_axis(official_runs, official_fdc[divergence].clock)
     axis_mix = shape.request_axis(mixed_runs, mixed_fdc[divergence].clock)
-    try:
-        off = official_runs[axis_off + 6]
-        mix = mixed_runs[axis_mix + 6]
-    except IndexError as exc:
-        raise SearchError("短縮窓が+6まで届かず、妥当性を確認できない") from exc
-    expected = (off.direction == "main→sub" and off.length == 6
-                and mix.direction == "main→sub" and mix.length == 2)
-    if prefix != 38 or not expected:
-        raise SearchError(
-            f"短縮窓の関門不成立（構造prefix={prefix}、+6既知差={expected}）")
+    if scenario == "unreadable_disk":
+        try:
+            off = official_runs[axis_off + 6]
+            mix = mixed_runs[axis_mix + 6]
+        except IndexError as exc:
+            raise SearchError("短縮窓が+6まで届かず、妥当性を確認できない") from exc
+        expected = (off.direction == "main→sub" and off.length == 6
+                    and mix.direction == "main→sub" and mix.length == 2)
+        if prefix != 38 or not expected:
+            raise SearchError(
+                f"短縮窓の関門不成立（構造prefix={prefix}、+6既知差={expected}）")
+    else:
+        expected_pre = (("main→sub", 2), ("sub→main", 256),
+                        ("main→sub", 1), ("sub→main", 1))
+        try:
+            off_pre = tuple((r.direction, r.length)
+                            for r in official_runs[axis_off - 4:axis_off])
+            mix_pre = tuple((r.direction, r.length)
+                            for r in mixed_runs[axis_mix - 4:axis_mix])
+            off_zero = official_runs[axis_off]
+            mix_zero = mixed_runs[axis_mix]
+        except IndexError as exc:
+            raise SearchError("no_disk校正窓が相対-4〜+0へ届かない") from exc
+        expected = (prefix == 36 and off_pre == expected_pre and mix_pre == expected_pre
+                    and (off_zero.direction, off_zero.length) == ("main→sub", 5)
+                    and (mix_zero.direction, mix_zero.length) == ("main→sub", 6))
+        if not expected:
+            raise SearchError(
+                f"no_disk関門不成立（構造prefix={prefix}、-4〜-1同形と+0の5対6={expected}）")
+    return axis_off, axis_mix
 
 
 def calibration_measure(args: argparse.Namespace, official: bool,
-                        tag: str) -> tuple[AbstractResult, Path, Path, Path]:
+                        tag: str, *, with_intlog: bool = False,
+                        sub_interrupt_intervention: str | None = None
+                        ) -> tuple[AbstractResult, Path, Path, Path, Path | None]:
     """関門用に生ログを一時保持するmeasure_once相当。"""
     run_dir = args.state_dir / "runs" / tag
     if run_dir.exists():
@@ -282,18 +597,28 @@ def calibration_measure(args: argparse.Namespace, official: bool,
                        stderr=subprocess.PIPE, check=True)
     disk_a, disk_b = run_dir / "a.d88", run_dir / "b.d88"
     shutil.copy2(args.disk_source, disk_a)
-    subprocess.run([sys.executable, str(REPO / "tools/make_l3_testdisk.py"), str(disk_b)],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
-    playlist = run_dir / "media.m3u"
-    playlist.write_text(f"{disk_a}\n{disk_b}\n", encoding="utf-8")
+    if args.scenario == "unreadable_disk":
+        subprocess.run([sys.executable, str(REPO / "tools/make_l3_testdisk.py"), str(disk_b)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+        media = run_dir / "media.m3u"
+        media.write_text(f"{disk_a}\n{disk_b}\n", encoding="utf-8")
+    else:
+        media = disk_a
     iolog, report = run_dir / "run.iolog.txt", run_dir / "run.report.txt"
+    intlog = run_dir / "run.intlog.txt" if with_intlog else None
     command = [str(args.frontend), "--core", str(args.core), "--rom-dir", str(rom_dir),
-               "--disk", str(playlist), "--frames", str(args.frames),
+               "--disk", str(media), "--frames", str(args.frames),
                "--io-log", str(iolog), "--out", str(report),
                "--type-at", "300", "--type", r"\n",
                "--type-at", "700", "--type", r"FILES 2\n"]
+    if intlog is not None:
+        command += ["--int-log", str(intlog)]
+    if sub_interrupt_intervention is not None:
+        command += ["--sub-interrupt-intervention", sub_interrupt_intervention]
     run_frontend(command, iolog, args.timeout)
-    return abstract_result(iolog, report), run_dir, iolog, report
+    if intlog is not None and not intlog.is_file():
+        raise SearchError("割り込み受理ログが生成されなかった")
+    return abstract_result(iolog, report), run_dir, iolog, report, intlog
 
 
 def prepare_args(args: argparse.Namespace) -> None:
@@ -322,27 +647,52 @@ def calibrate(args: argparse.Namespace) -> int:
     started = time.monotonic()
     paths: list[Path] = []
     try:
-        official, off_dir, off_log, _ = calibration_measure(args, True, "cal-official")
+        official, off_dir, off_log, _, _ = calibration_measure(args, True, "cal-official")
         paths.append(off_dir)
-        mixed, mix_dir, mix_log, _ = calibration_measure(args, False, "cal-mixed-legacy")
+        mixed, mix_dir, mix_log, _, _ = calibration_measure(args, False, "cal-mixed-legacy")
         paths.append(mix_dir)
-        calibration_gate(off_log, mix_log)
+        axis_official, axis_mixed = calibration_gate(off_log, mix_log, args.scenario)
+        first_difference = first_exchange_difference(
+            off_log, mix_log, axis_official, axis_mixed)
+        response256_runs, response1_runs = no_disk_target_runs(mixed.exchange)
+        if args.scenario == "no_disk" and (
+                axis_mixed - 3 not in response256_runs
+                or axis_mixed - 1 not in response1_runs):
+            raise SearchError("校正軸の-3/-1を全区間の同形窓から再同定できない")
         calibration = {
-            "version": 1, "frames": args.frames,
+            "version": 4, "scenario": args.scenario, "frames": args.frames,
             "official": result_to_json(official),
             "legacy_mixed": result_to_json(mixed),
+            "axis_official": axis_official,
+            "axis_mixed": axis_mixed,
+            "first_exchange_difference": first_difference,
+            "target_response256": axis_mixed - 3 if args.scenario == "no_disk" else None,
+            "target_response1": axis_mixed - 1 if args.scenario == "no_disk" else None,
+            "target_response256_runs": list(response256_runs) if args.scenario == "no_disk" else None,
+            "target_response1_runs": list(response1_runs) if args.scenario == "no_disk" else None,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
+        if args.scenario == "no_disk":
+            calibration["target_specs"] = no_disk_target_specs(calibration)
         (args.state_dir / "calibration.json").write_text(
             json.dumps(calibration, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     finally:
         for path in paths:
             shutil.rmtree(path, ignore_errors=True)
     elapsed = time.monotonic() - started
-    print(f"OK: frames={args.frames}で構造prefix=38・相対+6の6対2を再現")
+    if args.scenario == "no_disk":
+        print(f"OK: frames={args.frames}で相対-4〜-1同形・+0の5対6を再現")
+    else:
+        print(f"OK: frames={args.frames}で構造prefix=38・相対+6の6対2を再現")
     print(f"calibration_seconds={elapsed:.1f}")
+    print("first_exchange_difference="
+          f"event:{first_difference['event_position']} "
+          f"kind:{first_difference['kind']} "
+          f"relative_official:{first_difference['relative_to_axis_official']} "
+          f"relative_mixed:{first_difference['relative_to_axis_mixed']}")
     print(f"projected_search_seconds_jobs_{args.jobs}={elapsed / 2 * 256 / args.jobs:.0f}")
-    print("次: 同じ--framesでsearchを実行する")
+    next_mode = "attribute" if args.scenario == "no_disk" else "search"
+    print(f"次: 同じ--frames/--scenarioで{next_mode}を実行する")
     return 0
 
 
@@ -369,12 +719,26 @@ def append_progress(path: Path, value: dict) -> None:
 def worker(args: argparse.Namespace, reference: AbstractResult,
            ordinal: int, candidate: int) -> CandidateMetrics:
     started = time.monotonic()
-    actual = measure_once(
-        official=False, candidate=candidate, frames=args.frames, timeout=args.timeout,
+    if args.scenario == "no_disk":
+        calibration = json.loads((args.state_dir / "calibration.json").read_text(encoding="utf-8"))
+        rom_candidate = None
+        target_runs = (int(no_disk_target_specs(calibration)["response1"]["run"]),)
+        interventions = tuple(f"{run}:replace-first:{candidate}" for run in target_runs)
+        if len(interventions) > MAX_INTERVENTIONS:
+            raise SearchError("同形窓の出現数が介入slot上限を超えた")
+        request_axis = int(calibration["axis_mixed"])
+    else:
+        rom_candidate = candidate
+        interventions = ()
+        request_axis = None
+    actual, _receipts = measure_once(
+        official=False, candidate=rom_candidate, frames=args.frames, timeout=args.timeout,
         state_dir=args.state_dir, tag=f"candidate-{ordinal:03d}",
         rom_source=args.rom_source, disk_source=args.disk_source,
-        core=args.core, frontend=args.frontend)
-    return compare_result(reference, actual, ordinal, time.monotonic() - started)
+        core=args.core, frontend=args.frontend, scenario=args.scenario,
+        interventions=interventions)
+    return compare_result(reference, actual, ordinal, time.monotonic() - started,
+                          request_axis=request_axis)
 
 
 def write_summary(state_dir: Path, order: list[int],
@@ -385,14 +749,15 @@ def write_summary(state_dir: Path, order: list[int],
     with output.open("w", encoding="utf-8") as fp:
         fp.write("candidate\texchange_prefix\texchange_exact\tfdc_prefix\tfdc_exact\t"
                  "screen_lines_match\tscreen_chars_match\tscreen_sha256_match\t"
-                 "screen_line_count\tscreen_char_count\tscreen_sha256\n")
+                 "screen_line_count\tscreen_char_count\tscreen_sha256\trequest_length_at_plus0\n")
         for ordinal, candidate in sorted(enumerate(order), key=lambda item: item[1]):
             metric = by_ordinal[ordinal]
             fp.write(f"{candidate}\t{metric.exchange_prefix}\t{int(metric.exchange_exact)}\t"
                      f"{metric.fdc_prefix}\t{int(metric.fdc_exact)}\t"
                      f"{int(metric.screen_lines_match)}\t{int(metric.screen_chars_match)}\t"
                      f"{int(metric.screen_sha256_match)}\t{metric.screen_line_count}\t"
-                     f"{metric.screen_char_count}\t{metric.screen_sha256}\n")
+                     f"{metric.screen_char_count}\t{metric.screen_sha256}\t"
+                     f"{metric.request_length if metric.request_length is not None else ''}\n")
     return status, [order[ordinal] for ordinal in selected]
 
 
@@ -404,13 +769,20 @@ def search(args: argparse.Namespace) -> int:
     calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
     if int(calibration["frames"]) != args.frames:
         raise SearchError("calibrateとsearchの--framesが一致しない")
+    if calibration.get("scenario", "unreadable_disk") != args.scenario:
+        raise SearchError("calibrateとsearchの--scenarioが一致しない")
+    if args.scenario == "no_disk" and int(calibration.get("version", 0)) < 3:
+        raise SearchError("成果物ハッシュ/全同形窓を持つ新版でcalibrateをやり直す必要がある")
+    if args.scenario == "no_disk" and args.target != "response1":
+        raise SearchError("256バイト応答は総当たりせず、先にprobe256を実行する")
     reference = result_from_json(calibration["official"])
 
     order_path = args.state_dir / "candidate-order.json"
     if order_path.exists():
         order_state = json.loads(order_path.read_text(encoding="utf-8"))
         if (int(order_state.get("frames", -1)) != args.frames
-                or order_state.get("reference_sha256") != reference.screen_sha256):
+                or order_state.get("reference_sha256") != reference.screen_sha256
+                or order_state.get("scenario", "unreadable_disk") != args.scenario):
             raise SearchError("候補順ファイルが現在のcalibrationと一致しない")
         order = [int(value) for value in order_state["order"]]
     else:
@@ -419,7 +791,7 @@ def search(args: argparse.Namespace) -> int:
         random.Random(seed).shuffle(order)
         order_path.write_text(json.dumps({
             "seed": seed, "order": order, "frames": args.frames,
-            "reference_sha256": reference.screen_sha256,
+            "reference_sha256": reference.screen_sha256, "scenario": args.scenario,
         }) + "\n", encoding="utf-8")
     if sorted(order) != list(range(256)):
         raise SearchError("候補順ファイルが0〜255の置換でない")
@@ -475,22 +847,450 @@ def search(args: argparse.Namespace) -> int:
     return 0
 
 
+def load_no_disk_calibration(args: argparse.Namespace) -> tuple[dict, AbstractResult]:
+    prepare_args(args)
+    path = args.state_dir / "calibration.json"
+    if not path.exists():
+        raise SearchError("先にno_diskのcalibrateを実行する")
+    calibration = json.loads(path.read_text(encoding="utf-8"))
+    if calibration.get("scenario") != "no_disk" or int(calibration["frames"]) != args.frames:
+        raise SearchError("calibrationのscenario/framesが現在の指定と一致しない")
+    if int(calibration.get("version", 0)) < 3 or "first_exchange_difference" not in calibration:
+        raise SearchError("成果物ハッシュ/先頭差異を持つ新版でcalibrateをやり直す必要がある")
+    return calibration, result_from_json(calibration["official"])
+
+
+def attribution_kind(lengths: dict[str, int | None]) -> str:
+    """相補表を解釈する。5/6以外や対照変化は曖昧として止める。"""
+    if lengths.get("control") != 6 or any(v not in (5, 6) for v in lengths.values()):
+        return "invalid"
+    hit256 = lengths["response256"] == 5
+    hit1 = lengths["response1"] == 5
+    hit_both = lengths["both"] == 5
+    if hit256 and not hit1 and hit_both:
+        return "response256"
+    if hit1 and not hit256 and hit_both:
+        return "response1"
+    if hit256 and hit1 and hit_both:
+        return "both_independent"
+    if not hit256 and not hit1 and hit_both:
+        return "interaction_only"
+    return "inconsistent"
+
+
+def attribution_outcome(measured: list[tuple[str, CandidateMetrics, AbstractResult,
+                                              tuple[InterventionEvidence, ...]]]
+                        ) -> tuple[str, list[str]]:
+    """介入不成立と、成立した無影響という有効な帰属結論を分離する。"""
+    arms = {name: actual for name, _metric, actual, _evidence in measured}
+    ineffective = ineffective_intervention_arms(arms)
+    if ineffective:
+        return "intervention_ineffective", ineffective
+    metrics = [metric_vector(metric) for _name, metric, _actual, _evidence in measured]
+    if len(set(metrics)) == 1:
+        return "intervention_effective_no_metric_change", []
+    lengths = {name: metric.request_length
+               for name, metric, _actual, _evidence in measured}
+    return attribution_kind(lengths), []
+
+
+def attribution_exit_code(result: str) -> int:
+    """帰属結果のCLI終了コード。無影響は有効結論なので成功とする。"""
+    if result == "intervention_ineffective":
+        return 2
+    if result in ("intervention_effective_no_metric_change",
+                  "response1", "response256"):
+        return 0
+    return 1
+
+
+def run_intervention_arm(args: argparse.Namespace, reference: AbstractResult,
+                         calibration: dict, ordinal: int, name: str,
+                         interventions: tuple[str, ...]) -> tuple[CandidateMetrics, AbstractResult,
+                                                                  tuple[InterventionEvidence, ...]]:
+    started = time.monotonic()
+    actual, receipts = measure_once(
+        official=False, candidate=None, frames=args.frames, timeout=args.timeout,
+        state_dir=args.state_dir, tag=f"{args.mode}-{ordinal}",
+        rom_source=args.rom_source, disk_source=args.disk_source,
+        core=args.core, frontend=args.frontend, scenario="no_disk",
+        interventions=interventions)
+    target_specs = no_disk_target_specs(calibration)
+    specs_by_run = {int(spec["run"]): spec for spec in target_specs.values()}
+    evidence = []
+    for slot, intervention in enumerate(interventions):
+        run = int(intervention.split(":", 1)[0])
+        if run not in specs_by_run:
+            raise SearchError(f"介入対象run {run}は校正軸の-3/-1ではない")
+        verify_run_identity(actual.exchange, specs_by_run[run])
+        _run_s, mode, _value = intervention.split(":")
+        expected_matched = actual.exchange[run][1]
+        expected_applied = (expected_matched if mode.endswith("all") else
+                            1 if mode.endswith("first") else
+                            max(0, expected_matched - 1))
+        if slot not in receipts:
+            raise SearchError(f"介入slot{slot}の実行証跡が無い")
+        observed_run, matched, applied, changed = receipts[slot]
+        item = InterventionEvidence(run, mode, matched, expected_matched,
+                                    applied, expected_applied, changed)
+        if observed_run != run or not item.complete:
+            raise SearchError(
+                f"介入slot{slot}の適用回数不一致"
+                f"（matched={matched}/{expected_matched}, "
+                f"applied={applied}/{expected_applied}, changed={changed}/{expected_applied}）")
+        evidence.append(item)
+    metric = compare_result(reference, actual, ordinal, time.monotonic() - started,
+                            request_axis=int(calibration["axis_mixed"]))
+    return metric, actual, tuple(evidence)
+
+
+def attribute_no_disk(args: argparse.Namespace) -> int:
+    calibration, reference = load_no_disk_calibration(args)
+    target_specs = no_disk_target_specs(calibration)
+    # 全区間の同形窓へ広げると、先行窓への介入が後続run列を変え、校正時の
+    # 絶対位置が別runを指し得る。帰属対象は校正軸に結び付いた-3/-1だけにする。
+    targets256 = (int(target_specs["response256"]["run"]),)
+    targets1 = (int(target_specs["response1"]["run"]),)
+    specs256 = tuple(f"{run}:xor-all:1" for run in targets256)
+    specs1 = tuple(f"{run}:xor-all:1" for run in targets1)
+    if len(specs256) + len(specs1) > MAX_INTERVENTIONS:
+        raise SearchError("同形窓の出現数が介入slot上限を超えた")
+    arms = [
+        ("control", ()),
+        ("response256", specs256),
+        ("response1", specs1),
+        ("both", specs256 + specs1),
+    ]
+    expected_arm_runs = {name: len(interventions) for name, interventions in arms}
+    measured = []
+    for ordinal, (name, interventions) in enumerate(arms):
+        metric, actual, evidence = run_intervention_arm(
+            args, reference, calibration, ordinal, name, interventions)
+        measured.append((name, metric, actual, evidence))
+    control_actual = measured[0][2]
+    result, ineffective = attribution_outcome(measured)
+    for name, metric, actual, evidence in measured:
+        changed = name == "control" or artifacts_changed(control_actual, actual)
+        event_summary = (",".join(
+            f"{item.matched}/{item.expected_matched}:"
+            f"{item.applied}/{item.expected_applied}"
+            for item in evidence) if evidence else "control")
+        delta_names = (artifact_difference_names(control_actual, actual)
+                       if name != "control" else [])
+        print(f"arm={name} request_length_at_plus0={metric.request_length} "
+              f"exchange_prefix={metric.exchange_prefix} fdc_prefix={metric.fdc_prefix} "
+              f"screen={int(metric.screen_lines_match)}/"
+              f"{int(metric.screen_chars_match)}/{int(metric.screen_sha256_match)} "
+              f"intervention_runs={len(evidence)}/{expected_arm_runs[name]} "
+              f"intervention_events={event_summary} "
+              f"artifact_differences={','.join(delta_names) if delta_names else '-'} "
+              f"artifact_changed={int(changed) if name != 'control' else 'control'} "
+              f"intervention_verified={int(changed) if name != 'control' else 'control'}")
+    lengths = {name: metric.request_length for name, metric, _actual, _evidence in measured}
+    out = {
+        "version": 3, "scenario": "no_disk", "frames": args.frames,
+        "result": result, "request_lengths": lengths,
+        "metrics": {name: asdict(metric) for name, metric, _actual, _evidence in measured},
+        "artifacts": {
+            name: [{"name": stream, "count": count, "sha256": digest}
+                   for stream, count, digest in actual.artifacts]
+            for name, _metric, actual, _evidence in measured
+        },
+        "artifact_changed_from_control": {
+            name: (None if name == "control" else artifacts_changed(control_actual, actual))
+            for name, _metric, actual, _evidence in measured
+        },
+        "artifact_differences_from_control": {
+            name: ([] if name == "control" else
+                   artifact_difference_names(control_actual, actual))
+            for name, _metric, actual, _evidence in measured
+        },
+        "intervention_evidence": {
+            name: [asdict(item) | {"complete": item.complete} for item in evidence]
+            for name, _metric, _actual, evidence in measured
+        },
+        "first_exchange_difference": calibration["first_exchange_difference"],
+        "intervention_scope": {
+            "response256": {"runs": list(targets256), "occurrences": len(targets256),
+                            "mode": "xor-all", "mask": 1},
+            "response1": {"runs": list(targets1), "occurrences": len(targets1),
+                          "mode": "xor-all", "mask": 1},
+        },
+    }
+    (args.state_dir / "attribution.json").write_text(
+        json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"result={result}")
+    if ineffective:
+        print("測定失敗: 介入が成果物へ届かず、帰属の結論を出せないarm="
+              + ",".join(ineffective))
+        return attribution_exit_code(result)
+    if result == "intervention_effective_no_metric_change":
+        print("有効結論: 介入は成立し、-3/-1応答内容は+0要求長・交換prefix・"
+              "FDC prefix・画面指標に無影響だった")
+        return attribution_exit_code(result)
+    if result == "response1":
+        print("次: --scenario no_disk --target response1 search")
+        return attribution_exit_code(result)
+    if result == "response256":
+        print("次: --scenario no_disk probe256（256バイト総当たりは禁止）")
+        return attribution_exit_code(result)
+    return attribution_exit_code(result)
+
+
+def timing_no_disk(args: argparse.Namespace) -> int:
+    calibration, _reference = load_no_disk_calibration(args)
+    json_out = args.state_dir / "timing.json"
+    report_out = args.state_dir / "timing-report.txt"
+    if json_out.exists() or report_out.exists():
+        raise SearchError("timing出力が既にあるため上書きしない")
+    paths: list[Path] = []
+    try:
+        paths.append(args.state_dir / "runs" / "timing-official")
+        _off, off_dir, off_io, _off_report, off_int = calibration_measure(
+            args, True, "timing-official", with_intlog=True)
+        paths[-1] = off_dir
+        paths.append(args.state_dir / "runs" / "timing-mixed")
+        _mix, mix_dir, mix_io, _mix_report, mix_int = calibration_measure(
+            args, False, "timing-mixed", with_intlog=True)
+        paths[-1] = mix_dir
+        axis_off, axis_mix = calibration_gate(off_io, mix_io, "no_disk")
+        if (axis_off, axis_mix) != (int(calibration["axis_official"]),
+                                    int(calibration["axis_mixed"])):
+            raise SearchError("timing再測定の校正軸位置が保存済みcalibrationと一致しない")
+        if off_int is None or mix_int is None:
+            raise SearchError("timing解析に必要な割り込み受理ログが無い")
+        result = no_disk_timing.compare(
+            off_io, off_int, mix_io, mix_int, axis_off, axis_mix)
+        json_out.write_text(json.dumps(no_disk_timing.compact_result(result),
+                                      ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8")
+        report_out.write_text("\n".join(no_disk_timing.report_lines(result)) + "\n",
+                              encoding="utf-8")
+        if args.verbose:
+            (args.state_dir / "timing-verbose.json").write_text(
+                json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (args.state_dir / "timing-report-verbose.txt").write_text(
+                "\n".join(no_disk_timing.report_lines(result, verbose=True)) + "\n",
+                encoding="utf-8")
+    finally:
+        # 生値・画面本文・私物パスを含み得る一時成果物は集約後に残さない。
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    print(f"result=timing_measured")
+    print("割り込み件数、論理位置の相対到達clock、$FE確定bitの遷移位相・間隔、"
+          "軸直前1バイト応答の2間隔を記録")
+    print("summary=timing-report.txt（--state-dir直下）")
+    if args.verbose:
+        print("verbose=timing-report-verbose.txt, timing-verbose.json")
+    return 0
+
+
+def interrupt_artifact(actual: AbstractResult, timing: dict) -> str:
+    """値を含まないI/O指紋・受理件数・相対到達clockの成果物指紋。"""
+    payload = {
+        "io": actual.artifacts,
+        "interrupt_counts": timing["mixed"]["interrupt_counts"],
+        "logical_arrival": timing["mixed"]["logical_arrival_from_reference"],
+        "one_byte_response": timing["mixed"]["one_byte_response"],
+    }
+    return hashlib.sha256(json.dumps(
+        payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def interrupt_attribute_no_disk(args: argparse.Namespace) -> int:
+    calibration, reference = load_no_disk_calibration(args)
+    output = args.state_dir / "sub-interrupt-attribution-v2.json"
+    if output.exists():
+        raise SearchError("sub割り込み帰属出力が既にあるため上書きしない")
+    axis_off = int(calibration["axis_official"])
+    axis_mix = int(calibration["axis_mixed"])
+    first_run, last_run = axis_mix - 1, axis_mix
+    clock_shift = 257
+    arms = (("control", None, 0),
+            ("suppress", f"{first_run}:{last_run}:suppress", 0),
+            ("delay_one", f"{first_run}:{last_run}:delay-one", 0),
+            ("clock_shift_257", None, clock_shift))
+    paths: list[Path] = []
+    rows = []
+    try:
+        off, off_dir, off_io, _off_report, off_int = calibration_measure(
+            args, True, "interrupt-official", with_intlog=True)
+        paths.append(off_dir)
+        if off_int is None:
+            raise SearchError("公式側の割り込み受理ログが無い")
+        for ordinal, (name, intervention, injected_shift) in enumerate(arms):
+            actual, run_dir, iolog, _report, intlog = calibration_measure(
+                args, False, f"interrupt-{name}", with_intlog=True,
+                sub_interrupt_intervention=intervention)
+            paths.append(run_dir)
+            if intlog is None:
+                raise SearchError(f"{name} armの割り込み受理ログが無い")
+            runs = shape.exchange_runs(iolog)
+            if axis_mix >= len(runs) or runs[axis_mix].direction != "main→sub":
+                raise SearchError(f"{name} armが保存済み+0交換軸へ届かなかった")
+            if injected_shift:
+                reference_clock = runs[axis_mix - 4].start_clock
+                inject_clock_shift((iolog, intlog), after_clock=reference_clock,
+                                   delta=injected_shift)
+                # clock以外の指標も、故障注入後の同じarm入力から読み直す。
+                actual = abstract_result(iolog, _report)
+            timing = no_disk_timing.compare(
+                off_io, off_int, iolog, intlog, axis_off, axis_mix)
+            receipt = sub_interrupt_receipt(iolog)
+            if intervention is not None and (receipt is None or
+                    receipt["matched_checks"] == 0 or receipt["suppressed_checks"] == 0):
+                raise SearchError(f"{name} armの介入証跡が不成立")
+            metric = compare_result(reference, actual, ordinal,
+                                    request_axis=axis_mix)
+            rows.append({
+                "arm": name,
+                "metrics": asdict(metric),
+                "sub_interrupt_counts": timing["mixed"]["interrupt_counts"]["sub"],
+                "logical_arrival_mixed_minus_official":
+                    timing["differences"]["logical_arrival_mixed_minus_official"],
+                "one_byte_response_mixed_minus_official":
+                    timing["differences"]["one_byte_response_mixed_minus_official"],
+                "receipt": receipt,
+                "artifact_fingerprint": interrupt_artifact(actual, timing),
+                "metric_source_sha256": metric_source_sha256(iolog, intlog, _report),
+                "diagnostic_clock_shift": injected_shift or None,
+            })
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    control = rows[0]
+    control_vector = (metric_vector(CandidateMetrics(**control["metrics"])),
+                      control["sub_interrupt_counts"],
+                      control["logical_arrival_mixed_minus_official"])
+    changed_metrics = []
+    expected_shifted = {
+        key: value + clock_shift
+        for key, value in control["logical_arrival_mixed_minus_official"].items()
+    }
+    diagnostic = rows[-1]
+    if diagnostic["logical_arrival_mixed_minus_official"] != expected_shifted:
+        raise SearchError("clock故障注入armでarrival_deltaが既知量どおり動かない")
+    for row in rows:
+        row["artifact_changed"] = (None if row["arm"] == "control" else
+                                    row["artifact_fingerprint"] !=
+                                    control["artifact_fingerprint"])
+        vector = (metric_vector(CandidateMetrics(**row["metrics"])),
+                  row["sub_interrupt_counts"],
+                  row["logical_arrival_mixed_minus_official"])
+        if (row["arm"] not in ("control", "clock_shift_257")
+                and vector != control_vector):
+            changed_metrics.append(row["arm"])
+    result = ("intervention_changed" if changed_metrics else
+              "intervention_effective_no_metric_change")
+    output.write_text(json.dumps({
+        "version": 2, "scenario": "no_disk", "result": result,
+        "scope": {"first_run": first_run, "last_run": last_run,
+                  "relative_to_axis": [-1, 0]},
+        "metric_recalculation_check": {
+            "arm": "clock_shift_257", "injected_clock_shift": clock_shift,
+            "arrival_delta_changed_by_expected_amount": True,
+        },
+        "arms": rows,
+        "interpretation_limit": (
+            "一致しても『抑止すると一致する』まで。公式subが同じ抑止機序を持つとはいえない。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for row in rows:
+        m = row["metrics"]
+        print(f"arm={row['arm']} request_length_at_plus0={m['request_length']} "
+              f"exchange_prefix={m['exchange_prefix']} fdc_prefix={m['fdc_prefix']} "
+              f"screen={int(m['screen_lines_match'])}/{int(m['screen_chars_match'])}/"
+              f"{int(m['screen_sha256_match'])} "
+              f"sub_interrupts={row['sub_interrupt_counts']['calibration_window']}/"
+              f"{row['sub_interrupt_counts']['axis_near']} "
+              f"arrival_delta={row['logical_arrival_mixed_minus_official']} "
+              f"metric_source={row['metric_source_sha256'][:12]} "
+              f"artifact_changed={row['artifact_changed'] if row['arm'] != 'control' else 'control'}")
+    print(f"result={result}")
+    print("注: 一致しても『抑止すると一致する』までで、公式の機序は断定しない")
+    return 0
+
+
+def probe_no_disk_256(args: argparse.Namespace) -> int:
+    calibration, reference = load_no_disk_calibration(args)
+    targets = (int(no_disk_target_specs(calibration)["response256"]["run"]),)
+    if len(targets) > MAX_INTERVENTIONS:
+        raise SearchError("同形窓の出現数が介入slot上限を超えた")
+    arms = [
+        ("control", ()),
+        ("first", tuple(f"{run}:xor-first:1" for run in targets)),
+        ("tail", tuple(f"{run}:xor-tail:1" for run in targets)),
+        ("all", tuple(f"{run}:xor-all:1" for run in targets)),
+    ]
+    order = list(range(len(arms)))
+    random.SystemRandom().shuffle(order)
+    measured: dict[str, CandidateMetrics] = {}
+    for run_ordinal, arm_index in enumerate(order):
+        name, interventions = arms[arm_index]
+        metric, _actual, _evidence = run_intervention_arm(
+            args, reference, calibration, run_ordinal, name, interventions)
+        measured[name] = metric
+        print(f"run={run_ordinal + 1}/4 request_length_at_plus0={metric.request_length} "
+              f"exchange_prefix={metric.exchange_prefix} fdc_prefix={metric.fdc_prefix} "
+              f"screen={int(metric.screen_lines_match)}/"
+              f"{int(metric.screen_chars_match)}/{int(metric.screen_sha256_match)}")
+    out = args.state_dir / "probe256.tsv"
+    with out.open("w", encoding="utf-8") as fp:
+        fp.write("scope\trequest_length_at_plus0\texchange_prefix\tfdc_prefix\t"
+                 "screen_lines_match\tscreen_chars_match\tscreen_sha256_match\t"
+                 "screen_line_count\tscreen_char_count\tscreen_sha256\n")
+        for name, _ in arms:
+            m = measured[name]
+            fp.write(f"{name}\t{m.request_length}\t{m.exchange_prefix}\t{m.fdc_prefix}\t"
+                     f"{int(m.screen_lines_match)}\t{int(m.screen_chars_match)}\t"
+                     f"{int(m.screen_sha256_match)}\t{m.screen_line_count}\t"
+                     f"{m.screen_char_count}\t{m.screen_sha256}\n")
+    print(f"summary={out}")
+    print("注: 応答run長256は校正済みで全arm不変。first/tail/allで値の効く粒度を比較する")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("calibrate", "search"))
+    parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
+                                         "interrupt-attribute",
+                                         "probe256", "search"))
+    parser.add_argument("--scenario", choices=("unreadable_disk", "no_disk"),
+                        default="unreadable_disk")
+    parser.add_argument("--target", choices=("response1", "response256"),
+                        default="response1")
     parser.add_argument("--state-dir", required=True, type=Path)
     parser.add_argument("--frames", required=True, type=int)
     parser.add_argument("--jobs", type=int, default=1,
                         help="searchの同時実行数（既定1）")
     parser.add_argument("--timeout", type=int, default=120,
                         help="各走の秒上限（既定120）")
+    parser.add_argument("--verbose", action="store_true",
+                        help="timingでのみ全量遷移列を別ファイルへ保存")
     parser.add_argument("--core", type=Path)
     parser.add_argument("--frontend", type=Path)
     args = parser.parse_args()
     if args.frames <= 700 or args.jobs <= 0 or args.timeout <= 0:
         parser.error("--framesは701以上、--jobs/--timeoutは1以上が必要")
     try:
-        return calibrate(args) if args.mode == "calibrate" else search(args)
+        if args.mode == "calibrate":
+            return calibrate(args)
+        if args.mode == "attribute":
+            if args.scenario != "no_disk":
+                raise SearchError("attributeは--scenario no_disk専用")
+            return attribute_no_disk(args)
+        if args.mode == "timing":
+            if args.scenario != "no_disk":
+                raise SearchError("timingは--scenario no_disk専用")
+            return timing_no_disk(args)
+        if args.mode == "interrupt-attribute":
+            if args.scenario != "no_disk":
+                raise SearchError("interrupt-attributeは--scenario no_disk専用")
+            return interrupt_attribute_no_disk(args)
+        if args.mode == "probe256":
+            if args.scenario != "no_disk":
+                raise SearchError("probe256は--scenario no_disk専用")
+            return probe_no_disk_256(args)
+        return search(args)
     except (OSError, ValueError, SearchError, subprocess.SubprocessError) as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         return 2

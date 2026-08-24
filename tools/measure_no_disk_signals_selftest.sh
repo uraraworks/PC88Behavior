@@ -60,7 +60,7 @@ rc=$?
 
 fail=0
 ng() { echo "NG: $1" >&2; fail=$((fail + 1)); }
-[ "$rc" -eq 1 ] || ng "3本目を失敗させた測定のrcが1でない（rc=$rc）"
+[ "$rc" -eq 1 ] || ng "3本目を失敗させた測定のrcが1でない（rc=${rc}）"
 for tag in no_disk.official no_disk.mixed-default drive2.mixed-default no_disk.mixed-intervention; do
   [ -s "$OUT/$tag.iolog.txt" ] || ng "$tag.iolog.txt が保存されていない"
   [ -s "$OUT/$tag.report.txt" ] || ng "$tag.report.txt が保存されていない"
@@ -115,7 +115,7 @@ PC88_REF_DISK_DIR="$WORK/disk" \
   bash "$FAKE_REPO/tools/measure_no_disk_signals.sh" --out-dir "$OUT_ZERO" \
   >"$WORK/zero.stdout" 2>"$WORK/zero.stderr"
 zero_rc=$?
-[ "$zero_rc" -eq 1 ] || ng "比較可能0項目を注入した測定のrcが1でない（rc=$zero_rc）"
+[ "$zero_rc" -eq 1 ] || ng "比較可能0項目を注入した測定のrcが1でない（rc=${zero_rc}）"
 grep -q '^状態: 部分的$' "$OUT_ZERO/no_disk-suite-summary.txt" || ng "0項目時に部分的でない"
 grep -q '^run試行数: 3本$' "$OUT_ZERO/no_disk-suite-summary.txt" || ng "介入を走らせず試行3本になっていない"
 grep -q '^解析失敗数: 1件$' "$OUT_ZERO/no_disk-suite-summary.txt" || ng "解析失敗1件を集計していない"
@@ -137,7 +137,7 @@ PC88_REF_DISK_DIR="$WORK/disk" \
   bash "$FAKE_REPO/tools/measure_no_disk_signals.sh" --out-dir "$OUT_DROP" \
   >"$WORK/drop.stdout" 2>"$WORK/drop.stderr"
 drop_rc=$?
-[ "$drop_rc" -eq 1 ] || ng "公式取りこぼし注入時のrcが1でない（rc=$drop_rc）"
+[ "$drop_rc" -eq 1 ] || ng "公式取りこぼし注入時のrcが1でない（rc=${drop_rc}）"
 grep -q '^run試行数: 1本$' "$OUT_DROP/no_disk-suite-summary.txt" || ng "公式取りこぼし後に後続runを実行した"
 grep -q '^状態: 不採用$' "$OUT_DROP/no_disk.official.status.txt" || ng "公式取りこぼしrunを不採用にしていない"
 grep -q 'I/O容量をさらに増やして再測定' "$OUT_DROP/no_disk-signals.txt" || ng "容量不足時の判断を記録していない"

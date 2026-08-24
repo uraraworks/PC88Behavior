@@ -1,0 +1,38 @@
+diff --git a/Makefile.common b/Makefile.common
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -58,6 +58,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_trap.c \
+    $(CORE_DIR)/q88h_clock.c \
+    $(CORE_DIR)/q88h_iolog.c \
++   $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_intlog.c \
+    $(CORE_DIR)/q88h_fontsrc.c \
+    $(CORE_DIR)/q88h_screenshot.c \
+diff --git a/src/pc88main.c b/src/pc88main.c
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2961,6 +2961,7 @@ void	main_io_out_with_BP( byte port, byte data )
+ #include "q88h_trace.h"
+ #include "q88h_trap.h"
+ #include "q88h_iolog.h"
++#include "q88h_exchange_intervention.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -3131,5 +3132,7 @@ static byte q88h_io_in( byte port )
+   t->n_in++;
+   v = main_io_in( port );
+ 
++  v = q88h_exchange_intervention_process( Q88H_IOLOG_IN, port,
++                                            (word)(z80main_cpu.PC.W - 2), v );
+   if( l->enabled ){
+     /* PC_prev は「モニタ用のダミー」(z80.h のコメントどおり) で、
+@@ -3157,5 +3160,7 @@ static void q88h_io_out( byte port, byte data )
+   t->io_out[port] = 1;
+   t->n_out++;
+ 
++  data = q88h_exchange_intervention_process( Q88H_IOLOG_OUT, port,
++                                               (word)(z80main_cpu.PC.W - 2), data );
+   if( l->enabled ){
+     /* 発行元PCの逆算については q88h_io_in のコメントを参照。 */

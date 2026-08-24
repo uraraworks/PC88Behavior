@@ -31,6 +31,8 @@
 #include "q88h_trace.h"
 #include "q88h_trap.h"
 #include "q88h_iolog.h"
+#include "q88h_exchange_intervention.h"
+#include "q88h_sub_interrupt_intervention.h"
 #include "q88h_intlog.h"
 #include "q88h_fontsrc.h"
 #include "q88h_screenshot.h"
@@ -71,6 +73,18 @@ static void          (*p_iolog_reset)(void);
 static void          (*p_iolog_set_enabled)(int);
 static void          (*p_iolog_set_frame)(uint32_t);
 static bool           g_iolog_available = false;
+
+/* 交換run介入。既存コアでも通常測定は続けられるが、オプション指定時は
+ * シンボル・命中・実変更をすべて必須にして「指定したが効かなかった」を落とす。 */
+static q88h_exchange_intervention_t *(*p_exchange_intervention)(void);
+static void (*p_exchange_intervention_reset)(void);
+static int (*p_exchange_intervention_configure)(unsigned, int32_t, uint8_t, uint8_t);
+static bool g_exchange_intervention_available = false;
+
+static q88h_sub_interrupt_intervention_t *(*p_sub_interrupt_intervention)(void);
+static void (*p_sub_interrupt_intervention_reset)(void);
+static int (*p_sub_interrupt_intervention_configure)(int32_t, int32_t, uint8_t);
+static bool g_sub_interrupt_intervention_available = false;
 
 /* 割り込み受理ログ（M4c）。q88h_iolog と同じ理由で失敗を許す枠で dlsym する。 */
 static q88h_intlog_t *(*p_intlog)(void);
@@ -391,6 +405,23 @@ static bool load_core(const char *path)
     if (!g_iolog_available)
         fprintf(stderr, "[q88measure] 注記: このコアに順序付きI/O記録が無い。"
                         "--io-log は無効化される\n");
+
+    *(void **)(&p_exchange_intervention) = dlsym(h, "retro_q88h_exchange_intervention");
+    *(void **)(&p_exchange_intervention_reset) = dlsym(h, "retro_q88h_exchange_intervention_reset");
+    *(void **)(&p_exchange_intervention_configure) = dlsym(h, "retro_q88h_exchange_intervention_configure");
+    g_exchange_intervention_available = p_exchange_intervention
+                                      && p_exchange_intervention_reset
+                                      && p_exchange_intervention_configure;
+
+    *(void **)(&p_sub_interrupt_intervention) =
+        dlsym(h, "retro_q88h_sub_interrupt_intervention");
+    *(void **)(&p_sub_interrupt_intervention_reset) =
+        dlsym(h, "retro_q88h_sub_interrupt_intervention_reset");
+    *(void **)(&p_sub_interrupt_intervention_configure) =
+        dlsym(h, "retro_q88h_sub_interrupt_intervention_configure");
+    g_sub_interrupt_intervention_available = p_sub_interrupt_intervention
+                                           && p_sub_interrupt_intervention_reset
+                                           && p_sub_interrupt_intervention_configure;
 
     /* 割り込み受理ログ（M4c）も同様に、無いコアでは黙って機能を落とす。 */
     *(void **)(&p_intlog)             = dlsym(h, "retro_q88h_intlog");
@@ -785,6 +816,8 @@ static void usage(void)
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
         "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
+        "                   [--exchange-intervention RUN:MODE:VALUE] (最大64個)\n"
+        "                   [--sub-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n");
 }
@@ -814,6 +847,10 @@ int main(int argc, char **argv)
     const char *int_log_path = NULL;
     const char *font_log_path = NULL;
     const char *screenshot_path = NULL;
+    struct { int32_t run; uint8_t mode, value; } xi[Q88H_EXCHANGE_INTERVENTION_SLOTS];
+    int n_xi = 0;
+    int32_t sii_first = -1, sii_last = -1;
+    uint8_t sii_mode = Q88H_SII_NONE;
     const char *env;
     int i, k;
 
@@ -870,6 +907,60 @@ int main(int argc, char **argv)
             io_log_path = argv[++i];
         else if (!strcmp(argv[i], "--io-log-from-frame") && i + 1 < argc)
             io_log_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--exchange-intervention") && i + 1 < argc) {
+            char *end;
+            const char *spec = argv[++i], *mode, *value;
+            long run;
+            size_t mode_len;
+            if (n_xi >= Q88H_EXCHANGE_INTERVENTION_SLOTS) {
+                fprintf(stderr, "[q88measure] --exchange-intervention は最大%d個\n",
+                        Q88H_EXCHANGE_INTERVENTION_SLOTS);
+                return 2;
+            }
+            run = strtol(spec, &end, 0);
+            if (end == spec || *end != ':' || run < 0 || run > INT32_MAX) {
+                fprintf(stderr, "[q88measure] 介入書式は RUN:MODE:VALUE\n"); return 2;
+            }
+            mode = end + 1; value = strchr(mode, ':');
+            if (!value) { fprintf(stderr, "[q88measure] 介入書式は RUN:MODE:VALUE\n"); return 2; }
+            mode_len = (size_t)(value - mode); value++;
+#define XI_MODE(name, code) (mode_len == strlen(name) && !strncmp(mode, name, mode_len)) ? code
+            xi[n_xi].mode = XI_MODE("xor-all", Q88H_XI_XOR_ALL) :
+                            XI_MODE("xor-first", Q88H_XI_XOR_FIRST) :
+                            XI_MODE("xor-tail", Q88H_XI_XOR_TAIL) :
+                            XI_MODE("replace-all", Q88H_XI_REPLACE_ALL) :
+                            XI_MODE("replace-first", Q88H_XI_REPLACE_FIRST) : Q88H_XI_NONE;
+#undef XI_MODE
+            if (xi[n_xi].mode == Q88H_XI_NONE) {
+                fprintf(stderr, "[q88measure] 未知の介入MODE\n"); return 2;
+            }
+            xi[n_xi].value = (uint8_t)strtoul(value, &end, 0);
+            if (*value == '\0' || *end != '\0' || strtoul(value, NULL, 0) > 255) {
+                fprintf(stderr, "[q88measure] 介入VALUEは0〜255\n"); return 2;
+            }
+            xi[n_xi].run = (int32_t)run;
+            n_xi++;
+        }
+        else if (!strcmp(argv[i], "--sub-interrupt-intervention") && i + 1 < argc) {
+            char *end;
+            const char *spec = argv[++i], *last, *mode;
+            long first_value, last_value;
+            first_value = strtol(spec, &end, 0);
+            if (end == spec || *end != ':' || first_value < 0 || first_value > INT32_MAX) {
+                fprintf(stderr, "[q88measure] sub割り込み介入書式は FIRST:LAST:MODE\n"); return 2;
+            }
+            last = end + 1;
+            last_value = strtol(last, &end, 0);
+            if (end == last || *end != ':' || last_value < first_value || last_value > INT32_MAX) {
+                fprintf(stderr, "[q88measure] sub割り込み介入のrun範囲が不正\n"); return 2;
+            }
+            mode = end + 1;
+            if (!strcmp(mode, "suppress")) sii_mode = Q88H_SII_SUPPRESS;
+            else if (!strcmp(mode, "delay-one")) sii_mode = Q88H_SII_DELAY_ONE;
+            else { fprintf(stderr, "[q88measure] 未知のsub割り込み介入MODE\n"); return 2; }
+            sii_first = (int32_t)first_value;
+            sii_last = (int32_t)last_value;
+        }
         else if (!strcmp(argv[i], "--int-log") && i + 1 < argc)
             int_log_path = argv[++i];
         else if (!strcmp(argv[i], "--font-log") && i + 1 < argc)
@@ -905,6 +996,13 @@ int main(int argc, char **argv)
     fprintf(stderr, "[q88measure] disk    = %s\n", disk ? disk : "(なし)");
 
     if (!load_core(core)) return 1;
+    if (n_xi && !g_exchange_intervention_available) {
+        fprintf(stderr, "[q88measure] 交換run介入を持たないコア\n"); return 2;
+    }
+    if (sii_mode != Q88H_SII_NONE &&
+        (!g_exchange_intervention_available || !g_sub_interrupt_intervention_available)) {
+        fprintf(stderr, "[q88measure] sub割り込み介入を持たないコア\n"); return 2;
+    }
 
     p_set_environment(environment_cb);
     p_set_video_refresh(video_cb);
@@ -925,6 +1023,25 @@ int main(int argc, char **argv)
                 "             （疑似BIOSへのフォールバックは意図的に無効化してある）\n");
             p_deinit();
             return 1;
+        }
+    }
+
+    if (g_exchange_intervention_available) {
+        p_exchange_intervention_reset();
+        for (i = 0; i < n_xi; i++) {
+            if (!p_exchange_intervention_configure((unsigned)i, xi[i].run,
+                                                   xi[i].mode, xi[i].value)) {
+                fprintf(stderr, "[q88measure] 交換run介入の設定に失敗\n");
+                p_deinit(); return 2;
+            }
+        }
+    }
+    if (g_sub_interrupt_intervention_available) {
+        p_sub_interrupt_intervention_reset();
+        if (sii_mode != Q88H_SII_NONE &&
+            !p_sub_interrupt_intervention_configure(sii_first, sii_last, sii_mode)) {
+            fprintf(stderr, "[q88measure] sub割り込み介入の設定に失敗\n");
+            p_deinit(); return 2;
         }
     }
 
@@ -1168,6 +1285,38 @@ int main(int argc, char **argv)
                             chk[k].name, a);
                     failed = 1;
                 }
+            }
+        }
+
+
+        if (n_xi) {
+            q88h_exchange_intervention_t *state = p_exchange_intervention();
+            for (i = 0; i < n_xi; i++) {
+                q88h_exchange_intervention_slot_t *slot = &state->slot[i];
+                int xor_mode = slot->mode == Q88H_XI_XOR_ALL ||
+                               slot->mode == Q88H_XI_XOR_FIRST ||
+                               slot->mode == Q88H_XI_XOR_TAIL;
+                fprintf(stderr, "[q88measure] 交換介入slot%d run=%d matched=%u applied=%u changed=%u\n",
+                        i, (int)slot->run_index, slot->matched_events,
+                        slot->applied_events, slot->changed_events);
+                if (!slot->matched_run || slot->matched_events == 0 ||
+                    slot->applied_events == 0 || (xor_mode && slot->changed_events == 0)) {
+                    fprintf(stderr, "[q88measure] NG: 交換介入slot%dが実際には効いていない\n", i);
+                    failed = 1;
+                }
+            }
+        }
+
+        if (sii_mode != Q88H_SII_NONE) {
+            q88h_sub_interrupt_intervention_t *state = p_sub_interrupt_intervention();
+            fprintf(stderr, "[q88measure] sub割り込み介入 first=%d last=%d mode=%u matched=%u suppressed=%u accepted=%u\n",
+                    (int)state->first_run, (int)state->last_run, state->mode,
+                    state->matched_checks, state->suppressed_checks,
+                    state->accepted_in_window);
+            if (!state->configured || state->matched_checks == 0 ||
+                state->suppressed_checks == 0) {
+                fprintf(stderr, "[q88measure] NG: sub割り込み介入が実際には届いていない\n");
+                failed = 1;
             }
         }
 
