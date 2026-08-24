@@ -66,6 +66,7 @@ SCRIPTS_EXPECTED=(
   "tools/observed_request_decision_selftest.sh:0"
   "tools/analyze_write_path_selftest.sh:0"
   "tools/compare_l3_entry_fdc_selftest.sh:0"
+  "tools/analyze_error_exchange_shape_selftest.sh:0"
   "tools/compare_drive_request_runs_selftest.sh:0"
   "tools/verify_drive_byte2_attribution.sh:0"
   "tools/diag_post_bulk_selftest.sh:0"

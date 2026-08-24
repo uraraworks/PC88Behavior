@@ -527,6 +527,29 @@ byte2伝播だけで5条件のunit/head差が消えたため実装せず、必�
 写せず、FDC種別prefixは54/55件、画面は不一致のままである。根拠は
 [docs/notes/m7ck-drive-selector-permanent-conformance.md](notes/m7ck-drive-selector-permanent-conformance.md)。
 
+**現在地の更新（2026-08-24、エラー交換run構造）:** `no_disk` / `unreadable_disk`を
+公式・混成各1走し、全run取りこぼし0件で、値を保持しない解析器により交換構造を
+比較した。両者は同じ宿題ではなかった。
+
+`unreadable_disk`は、長さ6要求と長さ1応答の交互構造が相対位置+5まで一致し、
++6で公式は長さ6要求を続ける一方、混成だけが長さ2のデータ取得要求へ進む。
+前周のbyte2伝播でunit経路と交換run位置が揃ったため、m7ci時点では得られなかった
+比較可能な同位置応答が初めて生じた。ここは**構造が一致していて値だけが違う**。
+
+`no_disk`は、公式が分岐後に観測窓内で一度も応答せず、SENSE DRIVE STATUSを
+反復し続ける。ここは**値ではなく、準備できるまで待つ時間的な制御構造**が違う。
+
+次周の境界を二つに分ける。
+
+1. `unreadable_disk`: 自作sub自身のFDC結果にある公開μPD765のST0 IC=異常終了と
+   ST1 MISSING ADDRESS MARKでエラーを判定し、1バイト応答をエラー側へ切り替える。
+   値は公式応答を読まず、自作subで候補を振り、画面・FDC種別列・交換run構造の
+   一致によるブラックボックス探索で決める。
+2. `no_disk`: 応答を返さずSENSE DRIVE STATUSを反復する待ちを実装する。
+   値ではなく制御構造の問題として扱う。
+
+根拠は[docs/notes/m7cl-error-exchange-shape.md](notes/m7cl-error-exchange-shape.md)。
+
 測定の過程で**観測系の欠陥**が見つかった。メイン⇔サブ間のポート
 （`$F0`-`$FF`）の対応付けを試みたところ一致率が最大20%程度で頭打ちに
 なり、原因を診断すると「main/sub を横断する共通の時間軸が無く、
