@@ -20,15 +20,17 @@ diff --git a/src/pc88main.c b/src/pc88main.c
  
  /* ----------------------------------------------------------------------
   * トラップROM足場（M2）
-@@ -3131,5 +3132,7 @@ static byte q88h_io_in( byte port )
+@@ -3131,5 +3132,9 @@ static byte q88h_io_in( byte port )
    t->n_in++;
++  q88h_exchange_ready_handoff_before_main_io(
++      Q88H_IOLOG_IN, port, (word)(z80main_cpu.PC.W - 2));
    v = main_io_in( port );
  
 +  v = q88h_exchange_intervention_process( Q88H_IOLOG_IN, port,
 +                                            (word)(z80main_cpu.PC.W - 2), v );
    if( l->enabled ){
      /* PC_prev は「モニタ用のダミー」(z80.h のコメントどおり) で、
-@@ -3157,5 +3160,7 @@ static void q88h_io_out( byte port, byte data )
+@@ -3157,5 +3162,7 @@ static void q88h_io_out( byte port, byte data )
    t->io_out[port] = 1;
    t->n_out++;
  
@@ -36,3 +38,63 @@ diff --git a/src/pc88main.c b/src/pc88main.c
 +                                               (word)(z80main_cpu.PC.W - 2), data );
    if( l->enabled ){
      /* 発行元PCの逆算については q88h_io_in のコメントを参照。 */
+diff --git a/src/pio.c b/src/pio.c
+--- a/src/pio.c
++++ b/src/pio.c
+@@ -9,4 +9,5 @@
+ #include "quasi88.h"
+ #include "pio.h"
+-
++#include "q88h_exchange_intervention.h"
++
+ #include "pc88cpu.h"
+@@ -240,22 +241,32 @@ byte	pio_read_C( int side )
+-
++
+   pio_C[ side ][ PIO_PORT_CL ].cont_f ^= 1;
+-  if( pio_C[ side ][ PIO_PORT_CL ].cont_f == 0 ){	/* -- 連続の読みだし */
++  {
++    int would_handoff = (pio_C[ side ][ PIO_PORT_CL ].cont_f == 0);
++    int q88h_action = q88h_exchange_ready_handoff_on_pio_c_read(
++                          side == PIO_SIDE_M, would_handoff);
++    if( q88h_action == Q88H_READY_PIO_FORCE_HANDOFF &&
++        side == PIO_SIDE_M && cpu_timing == 0 ){
++      select_main_cpu ^= 1;
++      CPU_BREAKOFF();
++    }
++    if( would_handoff &&
++        q88h_action != Q88H_READY_PIO_SUPPRESS_HANDOFF ){
+-
++
+-    switch( cpu_timing ){
+-    case 0:						/*     0:CPUを切替え*/
+-      select_main_cpu ^= 1;
+-      CPU_BREAKOFF();        /* PC-=2 */
+-      break;
+-    case 1:						/*     1:サブCPU起動 */
+-      if( side==PIO_SIDE_M ){
+-	dual_cpu_count = CPU_1_COUNT;
+-	CPU_BREAKOFF();
++      switch( cpu_timing ){
++      case 0:					/*     0:CPUを切替え*/
++        select_main_cpu ^= 1;
++        CPU_BREAKOFF();        /* PC-=2 */
++        break;
++      case 1:					/*     1:サブCPU起動 */
++        if( side==PIO_SIDE_M ){
++          dual_cpu_count = CPU_1_COUNT;
++          CPU_BREAKOFF();
++        }
++        break;
++      case 2:					/*     2:なにもしない*/
++        break;
+       }
+-      break;
+-    case 2:						/*     2:なにもしない*/
+-      break;
+     }
+-
+   }
+-
++
+   return data;

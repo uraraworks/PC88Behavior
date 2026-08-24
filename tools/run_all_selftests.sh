@@ -73,6 +73,7 @@ SCRIPTS_EXPECTED=(
   "tools/search_error_response_candidate_selftest.sh:0"
   "tools/error_response_bit6_attribution_selftest.sh:0"
   "tools/no_disk_response_attribution_selftest.sh:0"
+  "tools/response_ready_sweep_selftest.sh:0"
   "tools/sub_interrupt_intervention_selftest.sh:0"
   "tools/analyze_no_disk_timing_selftest.sh:0"
   "tools/verify_error_response_bit6_attribution.sh:0"

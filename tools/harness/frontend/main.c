@@ -79,6 +79,7 @@ static bool           g_iolog_available = false;
 static q88h_exchange_intervention_t *(*p_exchange_intervention)(void);
 static void (*p_exchange_intervention_reset)(void);
 static int (*p_exchange_intervention_configure)(unsigned, int32_t, uint8_t, uint8_t);
+static int (*p_exchange_ready_handoff_configure)(int32_t, int32_t);
 static bool g_exchange_intervention_available = false;
 
 static q88h_sub_interrupt_intervention_t *(*p_sub_interrupt_intervention)(void);
@@ -409,9 +410,12 @@ static bool load_core(const char *path)
     *(void **)(&p_exchange_intervention) = dlsym(h, "retro_q88h_exchange_intervention");
     *(void **)(&p_exchange_intervention_reset) = dlsym(h, "retro_q88h_exchange_intervention_reset");
     *(void **)(&p_exchange_intervention_configure) = dlsym(h, "retro_q88h_exchange_intervention_configure");
+    *(void **)(&p_exchange_ready_handoff_configure) =
+        dlsym(h, "retro_q88h_exchange_ready_handoff_configure");
     g_exchange_intervention_available = p_exchange_intervention
                                       && p_exchange_intervention_reset
-                                      && p_exchange_intervention_configure;
+                                      && p_exchange_intervention_configure
+                                      && p_exchange_ready_handoff_configure;
 
     *(void **)(&p_sub_interrupt_intervention) =
         dlsym(h, "retro_q88h_sub_interrupt_intervention");
@@ -817,6 +821,7 @@ static void usage(void)
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
         "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
         "                   [--exchange-intervention RUN:MODE:VALUE] (最大64個)\n"
+        "                   [--response-ready-handoff RUN:MODE] (now|defer-once)\n"
         "                   [--sub-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n");
@@ -849,6 +854,7 @@ int main(int argc, char **argv)
     const char *screenshot_path = NULL;
     struct { int32_t run; uint8_t mode, value; } xi[Q88H_EXCHANGE_INTERVENTION_SLOTS];
     int n_xi = 0;
+    int32_t ready_handoff_run = -1, ready_handoff_mode = Q88H_READY_HANDOFF_NONE;
     int32_t sii_first = -1, sii_last = -1;
     uint8_t sii_mode = Q88H_SII_NONE;
     const char *env;
@@ -941,6 +947,24 @@ int main(int argc, char **argv)
             xi[n_xi].run = (int32_t)run;
             n_xi++;
         }
+        else if (!strcmp(argv[i], "--response-ready-handoff") && i + 1 < argc) {
+            char *end;
+            const char *spec = argv[++i], *mode_text;
+            long run_value;
+            run_value = strtol(spec, &end, 0);
+            if (end == spec || *end != ':' || run_value < 1 || run_value > INT32_MAX) {
+                fprintf(stderr, "[q88measure] 応答準備handoff介入書式は RUN:MODE\n"); return 2;
+            }
+            mode_text = end + 1;
+            if (!strcmp(mode_text, "now"))
+                ready_handoff_mode = Q88H_READY_HANDOFF_NOW;
+            else if (!strcmp(mode_text, "defer-once"))
+                ready_handoff_mode = Q88H_READY_HANDOFF_DEFER_ONCE;
+            else {
+                fprintf(stderr, "[q88measure] MODEはnowまたはdefer-once\n"); return 2;
+            }
+            ready_handoff_run = (int32_t)run_value;
+        }
         else if (!strcmp(argv[i], "--sub-interrupt-intervention") && i + 1 < argc) {
             char *end;
             const char *spec = argv[++i], *last, *mode;
@@ -996,7 +1020,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "[q88measure] disk    = %s\n", disk ? disk : "(なし)");
 
     if (!load_core(core)) return 1;
-    if (n_xi && !g_exchange_intervention_available) {
+    if ((n_xi || ready_handoff_mode) && !g_exchange_intervention_available) {
         fprintf(stderr, "[q88measure] 交換run介入を持たないコア\n"); return 2;
     }
     if (sii_mode != Q88H_SII_NONE &&
@@ -1034,6 +1058,11 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] 交換run介入の設定に失敗\n");
                 p_deinit(); return 2;
             }
+        }
+        if (ready_handoff_mode && !p_exchange_ready_handoff_configure(
+                ready_handoff_run, ready_handoff_mode)) {
+            fprintf(stderr, "[q88measure] 応答準備handoff介入の設定に失敗\n");
+            p_deinit(); return 2;
         }
     }
     if (g_sub_interrupt_intervention_available) {
@@ -1304,6 +1333,20 @@ int main(int argc, char **argv)
                     fprintf(stderr, "[q88measure] NG: 交換介入slot%dが実際には効いていない\n", i);
                     failed = 1;
                 }
+            }
+        }
+        if (ready_handoff_mode) {
+            q88h_exchange_intervention_t *state = p_exchange_intervention();
+            fprintf(stderr, "[q88measure] 応答準備handoff介入 run=%d mode=%d action=%d matched=%u count=%u\n",
+                    (int)state->ready_handoff_run, (int)state->ready_handoff_mode,
+                    (int)state->ready_handoff_action,
+                    state->ready_handoff_matched_waits,
+                    state->ready_handoff_action_count);
+            if (!state->ready_handoff_armed ||
+                state->ready_handoff_action_count != 1 ||
+                state->ready_handoff_mode != ready_handoff_mode) {
+                fprintf(stderr, "[q88measure] NG: 応答準備handoff介入が作用点へ届いていない\n");
+                failed = 1;
             }
         }
 

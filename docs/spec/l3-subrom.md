@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第84版 / 2026-08-24
+仕様書 第85版 / 2026-08-25
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第85版 | 2026-08-25 | no_disk応答準備待ちの離散介入 | PIO C handoffを1回遅らせる介入は成立し、応答準備と到達clock差を正確に2clock遅らせたが、要求長6とexchange prefix 36は不変だった。遅い方向への2clock摂動では分岐しないと確定した。一方、即時handoffは対照とビット単位で同一のineffective armで、公式の2clockへ寄せる速い方向は未測定。5clockの支配要因とmain側割り込み受理差4件も未帰属のまま。根拠は`docs/notes/m7cp-no-disk-response-ready-sweep.md`。 |
 | 第84版 | 2026-08-24 | no_disk要求長分岐の3候補を帰属実験で除外 | 成果物変化を介入成立条件として、相対-3の256バイト応答内容、相対-1の1バイト応答内容、軸近傍の自作sub割り込み受理2件を個別に変えたが、+0要求長・prefix・画面・到達clock差は不変だった。割り込み抑止は公式と同じ0件まで効き、clockを+257する陽性対照は全到達差を正確に+257動かし、arm別metric_sourceで独立再計算も確認した。確定したのは3候補が原因でないことだけで、原因は未確定。次境界はmain側割り込み受理差4件と応答準備の遅さの帰属。根拠は`docs/notes/m7co-no-disk-request-branch-hypothesis.md`。 |
 | 第83版 | 2026-08-24 | no_disk可視信号・待ち外形・mainタイムアウト仮説の検証 | 公式環境4 armを700–799Fで実走し、4/4採用・全run取りこぼし0件。自作subからno_diskを区別できる公開信号3項目とタイムアウト印17件/0件を確認したが、ST3 bit6/bit3はQUASI88のD88処理依存の疑いを残す。公式待ちは52277件・単位F 0..1295件のバースト型、介入は66150件・661..662件の均一型。応答なし介入の画面不一致によりmainタイムアウト仮説を否定し、次境界を待ち手前のmain→sub要求5対6の分岐へ移した。根拠は`docs/notes/m7cn-no-disk-visible-signals.md`。 |
 | 第82版 | 2026-08-24 | unreadable_diskエラー応答bit6の帰属と恒久化 | 900Fの校正後、乱順・候補非表示で全256候補を探索し、末端一致する128候補がbit6=0と完全一致した。bit6=0群は交換60件全長と画面署名が一致し、bit6=1群はprefix=38・画面不一致。測定が決めたのはbit6だけなので、既定値は自作側の選択として0x00とし、残る7ビットは未確定のまま残す。公式と同じ値とは主張しない。bit6=1へ倒す故障注入と両条件必須の回帰検査を追加した。FDC列prefix=55の残差、no_diskの待ち、3000Fと他条件の非回帰は未確認。根拠は`docs/notes/m7cm-error-response-bit6.md`。 |
@@ -116,6 +117,7 @@
 | 測定ノート | `docs/notes/m7cm-error-response-bit6.md`（第82版。乱順・候補非表示の全256候補探索、bit6帰属、測定限界、情報境界） |
 | 測定ノート | `docs/notes/m7cn-no-disk-visible-signals.md`（第83版。no_disk可視信号、公式待ちの反復分布、mainタイムアウト仮説の否定、5対6の次境界） |
 | 測定ノート | `docs/notes/m7co-no-disk-request-branch-hypothesis.md`（第84版。要求長分岐の3候補除外、陽性対照、残る帰属候補、検査資産と情報境界） |
+| 測定ノート | `docs/notes/m7cp-no-disk-response-ready-sweep.md`（第85版。数値掃引の不成立、PIO C handoff離散介入、遅い方向の2clock摂動と速い方向の測定限界） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |
@@ -2093,6 +2095,21 @@ SENSE DRIVE STATUSを反復する介入が2行90字で不一致だった。従�
 
 根拠: [docs/notes/m7co-no-disk-request-branch-hypothesis.md](../notes/m7co-no-disk-request-branch-hypothesis.md)。
 
+### 1.51 no_disk応答準備を2clock遅らせても要求長分岐は生まれない（第85版）
+
+PIO Cのmain→sub handoffを1回だけ抑止する`defer_once`は介入が成立し、応答準備を
+5→7clock、到達clock差を相対-1で29→31、相対+0で-76→-74へ正確に2clock
+遅らせた。それでも相対+0の要求長は6、交換prefixは36のままだった。
+`clock_shift_257`陽性対照は全到達差を+257動かしたため、指標は生きている。
+従って、遅い方向への2clock摂動では要求長分岐は生まれない。
+
+即時handoffを試みた`handoff_now`は対照とfingerprintまで同一で、介入不成立の
+`ineffective` armだった。公式の2clockへ寄せる速い方向は測定できておらず、
+観測された5clockを支配する要因も未特定である。この測定から「タイミングは原因ではない」
+とは言えない。
+
+根拠: [docs/notes/m7cp-no-disk-response-ready-sweep.md](../notes/m7cp-no-disk-response-ready-sweep.md)。
+
 ## 2. 明示的に「採用できない」こと
 
 ### 2.1 `$FD`→`$FC` の値一致率100.0% は実装上ほぼ必然であり、実機の証拠として採用しない
@@ -2169,11 +2186,14 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   bit6=0で交換60件全長と画面署名は一致したが、FDCコマンド種別列はprefix=55・全長不一致。
   末端挙動の一致と内部発行列の一致を混同せず、後者を次境界として残す。
 
-- **（第84版で更新）no_diskの待ち手前にあるmain→sub要求5対6の分岐。**
+- **（第85版で更新）no_diskの待ち手前にあるmain→sub要求5対6の分岐。**
   公式が長さ5、混成が長さ6を出す原因は未確定である。相対-3の256バイト応答内容、
   相対-1の1バイト応答内容、軸近傍の自作sub割り込み受理2件は、有効な介入でも指標が
-  動かなかったため原因から除外した。時間構造には差があるが原因とは確定しない。
-  次境界は、未帰属のmain側割り込み受理差4件と応答準備の遅さを個別に帰属すること。
+  動かなかったため原因から除外した。さらに応答準備を遅い方向へ2clock動かしても
+  分岐しなかった。ただし即時handoffはineffectiveで、公式の2clockへ寄せる速い方向は
+  未測定である。自作subの応答準備5clockを支配する要因も未特定であり、時間構造全体を
+  原因から除外しない。main側割り込み受理差（公式683件／混成679件）の分岐への帰属も
+  未確定である。
 
 - **（第83版で追加）ST3 bit6/bit3によるno_disk区別の実機一般性。**
   差の存在は観測したが、WRITE PROTECTED / TWO SIDEが媒体無しを表すことは公開μPD765

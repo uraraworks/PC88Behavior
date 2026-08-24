@@ -397,6 +397,10 @@ SUB_INTERRUPT_LINE_RE = re.compile(
     r"sub割り込み介入 first=(\d+) last=(\d+) mode=(\d+) "
     r"matched=(\d+) suppressed=(\d+) accepted=(\d+)"
 )
+READY_HANDOFF_LINE_RE = re.compile(
+    r"応答準備handoff介入 run=(\d+) mode=(\d+) action=(\d+) "
+    r"matched=(\d+) count=(\d+)"
+)
 
 
 def sub_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
@@ -410,6 +414,20 @@ def sub_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
             if match:
                 keys = ("first_run", "last_run", "mode", "matched_checks",
                         "suppressed_checks", "accepted_in_window")
+                found = dict(zip(keys, map(int, match.groups())))
+    return found
+
+
+def response_ready_handoff_receipt(iolog: Path) -> dict[str, int] | None:
+    path = iolog.with_suffix(".stderr.txt")
+    if not path.is_file():
+        return None
+    found = None
+    with path.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = READY_HANDOFF_LINE_RE.search(line)
+            if match:
+                keys = ("run", "mode", "action", "matched", "count")
                 found = dict(zip(keys, map(int, match.groups())))
     return found
 
@@ -582,7 +600,8 @@ def calibration_gate(official_log: Path, mixed_log: Path,
 
 def calibration_measure(args: argparse.Namespace, official: bool,
                         tag: str, *, with_intlog: bool = False,
-                        sub_interrupt_intervention: str | None = None
+                        sub_interrupt_intervention: str | None = None,
+                        response_ready_handoff: tuple[int, str] | None = None
                         ) -> tuple[AbstractResult, Path, Path, Path, Path | None]:
     """関門用に生ログを一時保持するmeasure_once相当。"""
     run_dir = args.state_dir / "runs" / tag
@@ -615,6 +634,9 @@ def calibration_measure(args: argparse.Namespace, official: bool,
         command += ["--int-log", str(intlog)]
     if sub_interrupt_intervention is not None:
         command += ["--sub-interrupt-intervention", sub_interrupt_intervention]
+    if response_ready_handoff is not None:
+        run, mode = response_ready_handoff
+        command += ["--response-ready-handoff", f"{run}:{mode}"]
     run_frontend(command, iolog, args.timeout)
     if intlog is not None and not intlog.is_file():
         raise SearchError("割り込み受理ログが生成されなかった")
@@ -1210,6 +1232,147 @@ def interrupt_attribute_no_disk(args: argparse.Namespace) -> int:
     return 0
 
 
+READY_SHIFT_SWEEP = tuple(range(-5, 9))
+
+
+def validate_ready_shift(requested: int, applied: int, control_clock: int,
+                         ready_clock: int, *, fault: int = 0) -> int:
+    """指定・コア証跡・実測clock差の三者一致関門。faultはselftest専用。"""
+    effective = ready_clock - control_clock + fault
+    if applied != requested or effective != requested:
+        raise SearchError(
+            f"応答準備shift不一致 requested={requested} applied={applied} effective={effective}")
+    return effective
+
+
+def response_timing_artifact(actual: AbstractResult, timing: dict) -> str:
+    payload = {
+        "io": actual.artifacts,
+        "logical_arrival": timing["mixed"]["logical_arrival_from_reference"],
+        "one_byte_response": timing["mixed"]["one_byte_response"],
+    }
+    return hashlib.sha256(json.dumps(
+        payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def ready_sweep_no_disk(args: argparse.Namespace) -> int:
+    """無効と判明した旧数値掃引を結論生成前に停止する。"""
+    raise SearchError(
+        "ready-sweepは廃止: 既定cpu_timing=0ではstate0予算がPIO handoffを支配せず、"
+        "数値shiftを実効clockへ反映できない。ready-handoff-probeを使うこと")
+
+
+READY_HANDOFF_ARMS = (
+    ("handoff_now", "now", 1),
+    ("defer_once", "defer-once", 2),
+)
+
+
+def ready_handoff_probe_no_disk(args: argparse.Namespace) -> int:
+    """軸直前応答を支配するPIO C handoffへ離散介入する。"""
+    calibration, reference = load_no_disk_calibration(args)
+    output = args.state_dir / "response-ready-handoff-probe.json"
+    if output.exists():
+        raise SearchError("応答準備handoff probe出力が既にあるため上書きしない")
+    axis_off = int(calibration["axis_official"])
+    axis_mix = int(calibration["axis_mixed"])
+    target = int(no_disk_target_specs(calibration)["response1"]["run"])
+    paths: list[Path] = []
+    rows = []
+    try:
+        _off, off_dir, off_io, _off_report, off_int = calibration_measure(
+            args, True, "ready-sweep-official", with_intlog=True)
+        paths.append(off_dir)
+        if off_int is None:
+            raise SearchError("公式armの割り込み受理ログが無い")
+        arms = [("control", None, None), *READY_HANDOFF_ARMS,
+                ("clock_shift_257", None, None)]
+        for ordinal, (name, mode_text, mode_value) in enumerate(arms):
+            actual, run_dir, iolog, report, intlog = calibration_measure(
+                args, False, f"ready-{name}", with_intlog=True,
+                response_ready_handoff=(target, mode_text)
+                if mode_text is not None else None)
+            paths.append(run_dir)
+            if intlog is None:
+                raise SearchError(f"{name} armの割り込み受理ログが無い")
+            if name == "clock_shift_257":
+                runs = shape.exchange_runs(iolog)
+                inject_clock_shift((iolog, intlog),
+                                   after_clock=runs[axis_mix - 4].start_clock,
+                                   delta=257)
+                actual = abstract_result(iolog, report)
+            timing = no_disk_timing.compare(
+                off_io, off_int, iolog, intlog, axis_off, axis_mix)
+            receipt = response_ready_handoff_receipt(iolog)
+            if mode_text is not None and (receipt is None or
+                    receipt["mode"] != mode_value or receipt["count"] != 1 or
+                    receipt["matched"] < 1):
+                raise SearchError(f"{name} armがPIO handoff作用点へ一度だけ届いていない")
+            if name == "handoff_now" and receipt["action"] not in (0, 1):
+                raise SearchError("handoff_now armの作用種別が不正")
+            if name == "defer_once" and receipt["action"] != 2:
+                raise SearchError("defer_once armが実際のhandoffを抑止していない")
+            metric = compare_result(reference, actual, ordinal,
+                                    request_axis=axis_mix)
+            rows.append({
+                "arm": name, "handoff_mode": mode_text,
+                "metrics": asdict(metric),
+                "ready_clock": timing["mixed"]["one_byte_response"][
+                    "main_wait_until_sub_ready"],
+                "logical_arrival_mixed_minus_official":
+                    timing["differences"]["logical_arrival_mixed_minus_official"],
+                "receipt": receipt,
+                "artifact_fingerprint": response_timing_artifact(actual, timing),
+                "metric_source": metric_source_sha256(
+                    iolog, intlog, report, iolog.with_suffix(".stderr.txt")),
+            })
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    control = rows[0]
+    ineffective = []
+    for row in rows[1:]:
+        row["artifact_changed"] = (
+            row["artifact_fingerprint"] != control["artifact_fingerprint"])
+        if row["handoff_mode"] is not None:
+            row["observed_ready_clock_delta"] = (
+                row["ready_clock"] - control["ready_clock"])
+            if not row["artifact_changed"]:
+                ineffective.append(row["arm"])
+    diagnostic = rows[-1]
+    expected_diagnostic = {
+        key: value + 257
+        for key, value in control["logical_arrival_mixed_minus_official"].items()
+    }
+    if diagnostic["logical_arrival_mixed_minus_official"] != expected_diagnostic:
+        raise SearchError("clock_shift_257陽性対照が全arrival_deltaを+257動かさない")
+    if not diagnostic["artifact_changed"]:
+        raise SearchError("clock_shift_257陽性対照で成果物が変化しない")
+    if len({row["metric_source"] for row in rows}) != len(rows):
+        raise SearchError("arm別metric_sourceが一意でなく、入力流用の疑いがある")
+    defer = next(row for row in rows if row["arm"] == "defer_once")
+    result = ("handoff_controls_ready_wait"
+              if defer["artifact_changed"] and
+              defer["observed_ready_clock_delta"] != 0
+              else "handoff_probe_ineffective")
+    output.write_text(json.dumps({
+        "version": 1, "scenario": "no_disk", "result": result,
+        "probe": {
+            "arms": ["control", "handoff_now", "defer_once"],
+            "rationale": (
+                "cpu_timing=0で待ちを支配するPIO Cのmain→sub切替を、"
+                "対象読出しで即時化／次の切替1回抑止する離散介入")},
+        "positive_control": "clock_shift_257",
+        "ineffective_arms": ineffective,
+        "arms": rows,
+        "interpretation_limit": (
+            "数値clock shiftは指定していない。PIO handoffが応答準備間隔を動かすかだけを判定し、"
+            "要求長が動いても公式と同じ機序だとは言わない。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"result={result} probe=pio-handoff positive_control=clock_shift_257")
+    return 0 if result == "handoff_controls_ready_wait" else 2
+
+
 def probe_no_disk_256(args: argparse.Namespace) -> int:
     calibration, reference = load_no_disk_calibration(args)
     targets = (int(no_disk_target_specs(calibration)["response256"]["run"]),)
@@ -1253,6 +1416,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
                                          "interrupt-attribute",
+                                         "ready-sweep", "ready-handoff-probe",
                                          "probe256", "search"))
     parser.add_argument("--scenario", choices=("unreadable_disk", "no_disk"),
                         default="unreadable_disk")
@@ -1286,6 +1450,14 @@ def main() -> int:
             if args.scenario != "no_disk":
                 raise SearchError("interrupt-attributeは--scenario no_disk専用")
             return interrupt_attribute_no_disk(args)
+        if args.mode == "ready-sweep":
+            if args.scenario != "no_disk":
+                raise SearchError("ready-sweepは--scenario no_disk専用")
+            return ready_sweep_no_disk(args)
+        if args.mode == "ready-handoff-probe":
+            if args.scenario != "no_disk":
+                raise SearchError("ready-handoff-probeは--scenario no_disk専用")
+            return ready_handoff_probe_no_disk(args)
         if args.mode == "probe256":
             if args.scenario != "no_disk":
                 raise SearchError("probe256は--scenario no_disk専用")

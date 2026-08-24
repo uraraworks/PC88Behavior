@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as tmp:
     if diff["interrupt_counts_mixed_minus_official"]["sub"]["axis_near"] != 2:
         raise SystemExit("NG: 軸近傍sub割り込み受理件数差を検出できない")
     if result["official"]["fe_handshake"]["main"]["transition_count"] != 1:
-        raise SystemExit("NG: main側$FE状態遷移列を抽出できない")
+        raise SystemExit("NG: main側FEポート状態遷移列を抽出できない")
     intervals = result["differences"]["one_byte_response_mixed_minus_official"]
     if intervals != {"main_wait_until_sub_ready": 5,
                      "sub_ready_until_main_read": 4}:
@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory() as tmp:
     report = "\n".join(timing.report_lines(result))
     if "校正窓" not in report or "軸直前1バイト応答" not in report:
         raise SystemExit("NG: 値なしレポートへ全指標を出力できない")
-    print("OK: 割り込み件数・到達位相・$FE遷移・1バイト応答間隔を値なしで抽出")
+    print("OK: 割り込み件数・到達位相・FEポート遷移・1バイト応答間隔を値なしで抽出")
 
     # 故障注入1: 件数計算を定数化すると、既知のmain/sub割り込み件数差が消える。
     constant = timing.compare(
@@ -138,8 +138,8 @@ with tempfile.TemporaryDirectory() as tmp:
     shifted_phase = timing.fe_transition_summary(
         off_rows, off_bounds, "main", fault_shift=1)
     if normal_phase == shifted_phase:
-        raise SystemExit("NG: $FE遷移の位相ずらし故障を検出できない")
-    print("OK: $FE状態遷移列の位相をずらす故障を検出")
+        raise SystemExit("NG: FEポート遷移の位相ずらし故障を検出できない")
+    print("OK: FEポート状態遷移列の位相をずらす故障を検出")
 
     # 故障注入3: 混成遷移列の1要素だけを壊し、既定の要約が位置を報告する。
     injected = json.loads(json.dumps(result))
@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "interval_from_previous_fe"] += 1
     summary_report = "\n".join(timing.report_lines(injected))
     if "$FE main差" not in summary_report or "差異位置=0" not in summary_report:
-        raise SystemExit("NG: 1点だけの$FE差を要約が報告しない")
+        raise SystemExit("NG: 1点だけのFEポート差を要約が報告しない")
     compact = timing.compact_result(injected)
     if compact["differences"]["fe_transition_difference_positions"]["main"] != [0]:
         raise SystemExit("NG: 既定JSON要約が1点差を保持しない")
@@ -161,5 +161,5 @@ with tempfile.TemporaryDirectory() as tmp:
     for forbidden in ('"value"', 'ret_pc', 'handler_pc', 'absolute_clock'):
         if forbidden in encoded:
             raise SystemExit(f"NG: 情報境界外の項目を結果へ保存した: {forbidden}")
-    print("OK: 交換値・生$FE値・PC・絶対clockを集約結果へ保存しない")
+    print("OK: 交換値・生FEポート値・PC・絶対clockを集約結果へ保存しない")
 PY

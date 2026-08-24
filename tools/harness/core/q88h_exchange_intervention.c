@@ -19,8 +19,57 @@ void retro_q88h_exchange_intervention_reset(void)
     unsigned i;
     memset(&g_xi, 0, sizeof(g_xi));
     g_xi.current_run = -1;
+    g_xi.ready_handoff_run = -1;
     for (i = 0; i < Q88H_EXCHANGE_INTERVENTION_SLOTS; i++)
         g_xi.slot[i].run_index = -1;
+}
+
+int retro_q88h_exchange_ready_handoff_configure(int32_t run_index, int32_t mode)
+{
+    if (run_index < 1 ||
+        (mode != Q88H_READY_HANDOFF_NOW &&
+         mode != Q88H_READY_HANDOFF_DEFER_ONCE))
+        return 0;
+    g_xi.ready_handoff_run = run_index;
+    g_xi.ready_handoff_mode = mode;
+    g_xi.ready_handoff_configured = 1;
+    return 1;
+}
+
+void q88h_exchange_ready_handoff_before_main_io(uint8_t kind, uint8_t port,
+                                                uint16_t pc)
+{
+    /* RECV前のFE待機だけを対象にする。対象応答runの一つ前まで交換列を
+     * 再構成できていることも要求し、同形の別窓へ漏らさない。 */
+    if (!g_xi.ready_handoff_configured || g_xi.ready_handoff_action_count ||
+        kind != Q88H_IOLOG_IN || port != 0xFE ||
+        pc != 0x3853 ||
+        g_xi.current_run != g_xi.ready_handoff_run - 1)
+        return;
+    g_xi.ready_handoff_matched_waits++;
+    g_xi.ready_handoff_armed = 1;
+}
+
+int q88h_exchange_ready_handoff_on_pio_c_read(int main_side,
+                                              int would_handoff)
+{
+    int action = Q88H_READY_PIO_NORMAL;
+    if (!g_xi.ready_handoff_armed || !main_side ||
+        g_xi.ready_handoff_action_count)
+        return action;
+    if (g_xi.ready_handoff_mode == Q88H_READY_HANDOFF_NOW) {
+        /* 既に通常切替点なら追加操作は不要だが、この読出しを作用点として
+         * 一度だけ確定する。 */
+        action = would_handoff ? Q88H_READY_PIO_NORMAL
+                               : Q88H_READY_PIO_FORCE_HANDOFF;
+    } else if (g_xi.ready_handoff_mode == Q88H_READY_HANDOFF_DEFER_ONCE) {
+        if (!would_handoff)
+            return action;
+        action = Q88H_READY_PIO_SUPPRESS_HANDOFF;
+    }
+    g_xi.ready_handoff_action = action;
+    g_xi.ready_handoff_action_count++;
+    return action;
 }
 
 int retro_q88h_exchange_intervention_configure(unsigned slot, int32_t run_index,

@@ -59,6 +59,40 @@ int main(void)
             return 1;
         }
     }
+    /* 応答準備介入は対象run直前のRECV前でだけarmし、実際にcpu_timing=0を
+     * 支配するPIO C handoffへ一度だけ作用しなければならない。 */
+    retro_q88h_exchange_intervention_reset();
+    if (!retro_q88h_exchange_ready_handoff_configure(
+            3, Q88H_READY_HANDOFF_NOW)) return 1;
+    send_run(2); (void)receive_run(1); send_run(1);
+    q88h_exchange_ready_handoff_before_main_io(
+        Q88H_IOLOG_IN, 0xFE, 0x3853);
+    if (q88h_exchange_ready_handoff_on_pio_c_read(1, 0) !=
+            Q88H_READY_PIO_FORCE_HANDOFF ||
+        q88h_exchange_ready_handoff_on_pio_c_read(1, 0) !=
+            Q88H_READY_PIO_NORMAL ||
+        retro_q88h_exchange_intervention()->ready_handoff_action_count != 1) {
+        fprintf(stderr, "NG: 即時PIO handoff介入が対象で一度だけ発火しない\n");
+        return 1;
+    }
+
+    retro_q88h_exchange_intervention_reset();
+    if (!retro_q88h_exchange_ready_handoff_configure(
+            3, Q88H_READY_HANDOFF_DEFER_ONCE)) return 1;
+    send_run(2); (void)receive_run(1); send_run(1);
+    q88h_exchange_ready_handoff_before_main_io(
+        Q88H_IOLOG_IN, 0xFE, 0x3853);
+    if (q88h_exchange_ready_handoff_on_pio_c_read(1, 0) !=
+            Q88H_READY_PIO_NORMAL ||
+        q88h_exchange_ready_handoff_on_pio_c_read(1, 1) !=
+            Q88H_READY_PIO_SUPPRESS_HANDOFF ||
+        retro_q88h_exchange_intervention()->ready_handoff_action !=
+            Q88H_READY_PIO_SUPPRESS_HANDOFF ||
+        retro_q88h_exchange_intervention()->ready_handoff_action_count != 1) {
+        fprintf(stderr, "NG: PIO handoff一回抑止が実際の切替点だけへ効かない\n");
+        return 1;
+    }
     puts("OK: 対照/-3のみ/-1のみ/両方が各対象runだけへ効く");
+    puts("OK: 応答準備介入は実支配点のPIO handoffへ即時/一回抑止で作用");
     return 0;
 }
