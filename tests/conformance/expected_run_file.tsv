@@ -1,0 +1,6 @@
+# RUN"file"入口。値は置かず、件数とSHA-256だけを置く。
+# 公式一式でSAVEした使い捨て複製を別プロセスへ渡し、9000 frames、
+# 300FでRETURN、700FからRUN"Q7U"だけを打鍵。2026-08-25初回校正値。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cs-run-file-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cs-run-file-main-fc	main	00FC	IN	8222	26e2210ec072dccd575a6be4f5584ba5925bfbf3add98687fe2e3a400dac0d4e

@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第86版 / 2026-08-25
+仕様書 第87版 / 2026-08-25
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第87版 | 2026-08-25 | RUN"file" / MERGE需要入口の公式環境適合 | 両入口とも公式・混成各2回、取りこぼし0件で、FDC種別列・main受信列・画面が入口終端まで全長一致した。main `IN $FD`は5635件、`IN $FC`は両入口とも既存単独LOADと同じ8222件で、実装追加は不要だった。入口名が違っても256バイト単位の汎用読み書き経路は同じと判断し、次境界をBSAVE/BLOADとFIELD/GET/PUTへ移した。根拠は`docs/notes/m7cs-run-merge-entry-conformance.md`。 |
 | 第86版 | 2026-08-25 | no_disk分岐順序・応答準備短縮・早期応答sweep | 交換がFDCより先と確定。応答準備を公式と同じ2clockへ短縮しても分岐は不変で、早期応答N=3〜6は全arm実行1回・成果物変化の成立下で交換prefixを36から12〜18へ悪化させた。原因は未確定のまま通算6容疑者を除外し、実行回数を含む三段の介入関門を確立した。根拠は`docs/notes/m7cr-early-response-length-sweep.md`。 |
 | 第85版 | 2026-08-25 | no_disk応答準備待ちの離散介入 | PIO C handoffを1回遅らせる介入は成立し、応答準備と到達clock差を正確に2clock遅らせたが、要求長6とexchange prefix 36は不変だった。遅い方向への2clock摂動では分岐しないと確定した。一方、即時handoffは対照とビット単位で同一のineffective armで、公式の2clockへ寄せる速い方向は未測定。5clockの支配要因とmain側割り込み受理差4件も未帰属のまま。根拠は`docs/notes/m7cp-no-disk-response-ready-sweep.md`。 |
 | 第84版 | 2026-08-24 | no_disk要求長分岐の3候補を帰属実験で除外 | 成果物変化を介入成立条件として、相対-3の256バイト応答内容、相対-1の1バイト応答内容、軸近傍の自作sub割り込み受理2件を個別に変えたが、+0要求長・prefix・画面・到達clock差は不変だった。割り込み抑止は公式と同じ0件まで効き、clockを+257する陽性対照は全到達差を正確に+257動かし、arm別metric_sourceで独立再計算も確認した。確定したのは3候補が原因でないことだけで、原因は未確定。次境界はmain側割り込み受理差4件と応答準備の遅さの帰属。根拠は`docs/notes/m7co-no-disk-request-branch-hypothesis.md`。 |
@@ -119,6 +120,7 @@
 | 測定ノート | `docs/notes/m7cn-no-disk-visible-signals.md`（第83版。no_disk可視信号、公式待ちの反復分布、mainタイムアウト仮説の否定、5対6の次境界） |
 | 測定ノート | `docs/notes/m7co-no-disk-request-branch-hypothesis.md`（第84版。要求長分岐の3候補除外、陽性対照、残る帰属候補、検査資産と情報境界） |
 | 測定ノート | `docs/notes/m7cp-no-disk-response-ready-sweep.md`（第85版。数値掃引の不成立、PIO C handoff離散介入、遅い方向の2clock摂動と速い方向の測定限界） |
+| 測定ノート | `docs/notes/m7cs-run-merge-entry-conformance.md`（第87版。RUN"file" / MERGEの事前登録、入口終端までの公式・混成適合、情報境界、次境界） |
 | 測定ノート | `docs/notes/m6-conformance.md`（第2版で追加。適合条件の検証: 決定論性、L1型の当てはめ結果、`--port/--kind`の新設） |
 | 測定ノート | `docs/notes/m6-fdc-ports.md`（第3版で追加。`$FA`/`$FB`の意味論: bit7相関・バースト構造・先頭バイト分布） |
 | 測定ノート | `docs/notes/m6-main-to-sub.md`（第4版で追加。main→sub要求プロトコル: SEND/RECVプリミティブ、256バイト読み出し要求のヘッダ構造、`$FE`/`$FF`のフェーズ/待ち状態） |

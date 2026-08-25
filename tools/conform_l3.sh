@@ -30,6 +30,8 @@ LOAD_EXISTING_EXPECTED="$REPO/tests/conformance/expected_load_existing.tsv"
 SEQFILE_EXPECTED="$REPO/tests/conformance/expected_seqfile.tsv"
 KILL_EXPECTED="$REPO/tests/conformance/expected_kill.tsv"
 NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
+RUN_FILE_EXPECTED="$REPO/tests/conformance/expected_run_file.tsv"
+MERGE_EXPECTED="$REPO/tests/conformance/expected_merge.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
@@ -69,6 +71,10 @@ fi
 if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
    || [ ! -f "$KILL_EXPECTED" ] || [ ! -f "$NAME_EXPECTED" ]; then
   echo "エラー: m7cg需要入口の期待値ファイルが無い" >&2
+  exit 2
+fi
+if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ]; then
+  echo "エラー: RUN\"file\"/MERGE需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
@@ -688,6 +694,8 @@ fi
 # q88measure --save-to-disk-imageを使い、SAVE結果を使い捨てD88複製へ直接保存する。
 # 完成した同じ複製を公式／混成の入力へ二分し、2回目はLOADだけを打鍵する。
 # seqfile/KILL/NAMEも9000Fとし、対象コマンドの画面反映と直後Okを到達指標にする。
+# RUN"file"は別プロセスの準備SAVEで実行対象を作り、実行マーカーとOkまで確認する。
+# MERGEも準備SAVEを分離し、元の行と併合行の両マーカーを後続RUNで確認する。
 # 各実行は新規ROMディレクトリ・新規ディスク複製を使い、300秒で打ち切る。
 # 期待値不一致のうち、列が公式件数へ届かないものは「未到達」であって
 # 適合条件1〜5の失格にはしない。公式件数まで届いてハッシュだけ違う場合は、
@@ -749,6 +757,55 @@ prepare_existing_load_disk() {
   return 3
 }
 
+prepare_run_merge_disk() {
+  local scenario="$1" out_disk="$2"
+  local attempt=1 rc=1 rom prep_iolog prep_report prep_cmds type_text check_scenario
+  case "$scenario" in
+    run_file)
+      type_text='10 PRINT "R7X"\nSAVE"Q7U"\n'
+      check_scenario=run_prepare
+      ;;
+    merge)
+      # MERGE対象はASCII保存が必要。通常のトークン化SAVEではMERGEできない。
+      type_text='20 PRINT "M7B"\nSAVE"Q7M",A\n'
+      check_scenario=merge_prepare
+      ;;
+    *) return 2 ;;
+  esac
+  prep_iolog="$WORK/${scenario}.prepare.iolog.txt"
+  prep_report="$WORK/${scenario}.prepare.report.txt"
+  : > "$WORK/${scenario}.prepare.stderr.txt"
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    rom="$WORK/${scenario}.prepare.attempt${attempt}.rom"
+    copy_entry_roms official "$rom" || return 1
+    cp "$DISK" "$out_disk" || return 1
+    printf '\x00' | dd of="$out_disk" bs=1 seek=26 count=1 conv=notrunc status=none
+    rm -f "$prep_iolog" "$prep_report"
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
+        "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$out_disk" \
+        --save-to-disk-image --frames 9000 --io-log "$prep_iolog" \
+        --out "$prep_report" --type-at 300 --type '\n' --type-at 700 \
+        --type "$type_text" \
+        >"$WORK/${scenario}.prepare.stdout.txt" \
+        2>>"$WORK/${scenario}.prepare.stderr.txt"
+    rc=$?
+    if [ "$rc" -eq 0 ] \
+       && python3 "$ENTRY_SCREEN_CHECK" --report "$prep_report" \
+                  --scenario "$check_scenario" >/dev/null 2>&1; then
+      prep_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$prep_iolog" \
+                    2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+      if [ "${prep_cmds:-0}" -gt 0 ]; then
+        ok "${scenario}準備: SAVEの打鍵反映・直後Ok・WRITE DATA発行を確認"
+        return 0
+      fi
+    fi
+    echo "  [注記] ${scenario}準備: 未到達または${ENTRY_TIMEOUT}秒上限"
+    echo "         （${attempt}/${Q88_MEASURE_ATTEMPTS}回、rc=${rc}）。新規複製で再試行する。"
+    attempt=$((attempt + 1))
+  done
+  return 3
+}
+
 run_entry_measurement() {
   local label="$1" mode="$2" scenario="$3" out_iolog="$4"
   local source_disk="${5:-$DISK}"
@@ -785,6 +842,15 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 \
                  --type '10 PRINT "T"\nSAVE"Q7N"\nNAME"Q7N" AS "Q7R"\n')
       ;;
+    run_file)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type 'RUN"Q7U"\n')
+      ;;
+    merge)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 \
+                 --type '10 PRINT "M7A"\nMERGE"Q7M"\nRUN\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -811,8 +877,13 @@ run_entry_measurement() {
         >"$WORK/${label}.stdout.txt" 2>>"$WORK/${label}.stderr.txt"
     rc=$?
     if [ "$rc" -eq 0 ]; then
+      if grep -Eq '^# 取りこぼし: [1-9][0-9]*件' "$out_iolog"; then
+        ng "${label}: I/Oログに取りこぼしがある"
+        return 4
+      fi
+      ok "${label}: I/Oログ取りこぼし0件"
       case "$scenario" in
-        load_existing|seqfile|kill|name)
+        load_existing|seqfile|kill|name|run_file|merge)
           if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
                      --scenario "$scenario" >/dev/null 2>&1; then
             ok "${label}: 対象打鍵の画面反映と直後Okを確認"
@@ -828,6 +899,31 @@ run_entry_measurement() {
     attempt=$((attempt + 1))
   done
   return "$rc"
+}
+
+entry_event_sha() {
+  local iolog="$1"
+  awk 'seen || /^# main$/ {seen=1; print}' "$iolog" | shasum -a 256 | awk '{print $1}'
+}
+
+check_entry_determinism() {
+  local label="$1" mode="$2" log1="$3" log2="$4" report1="$5" report2="$6"
+  local h1 h2 out="$WORK/entry.${label}.${mode}.screen-determinism.txt"
+  h1="$(entry_event_sha "$log1")"
+  h2="$(entry_event_sha "$log2")"
+  if [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+    ok "${label}-${mode}: main/sub全イベント列は2回決定論的に一致"
+  else
+    ng "${label}-${mode}: main/sub全イベント列が2回で一致しない"
+    overall_rc=1
+  fi
+  if python3 "$SCREEN_CHECK" --report "$report1" --compare-report "$report2" > "$out"; then
+    ok "${label}-${mode}: 画面出力は2回決定論的に一致"
+  else
+    ng "${label}-${mode}: 画面出力が2回で一致しない"
+    sed 's/^/       /' "$out"
+    overall_rc=1
+  fi
 }
 
 entry_expected_fault_selftest() {
@@ -877,9 +973,11 @@ entry_stream_is_short() {
 }
 
 judge_entry() {
-  local scenario="$1" expected="$2" label="$3"
+  local scenario="$1" expected="$2" label="$3" repeats="${4:-1}"
   local official="$WORK/${scenario}.official.iolog.txt"
   local mixed="$WORK/${scenario}.mixed.iolog.txt"
+  local official2="$WORK/${scenario}.official.run2.iolog.txt"
+  local mixed2="$WORK/${scenario}.mixed.run2.iolog.txt"
   local official_ok=0 mixed_ok=0 fdc_rc=0 prepared=""
 
   say "需要入口 ${label}: 公式一式と混成を同条件で実測（各実行${ENTRY_TIMEOUT}秒上限）"
@@ -887,6 +985,14 @@ judge_entry() {
     prepared="$WORK/load_existing.prepared.d88"
     if ! prepare_existing_load_disk "$prepared"; then
       na "${label}: 準備SAVEが完了せず、2回目のLOAD入口は未到達"
+      na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
+      overall_rc=1
+      return
+    fi
+  elif [ "$scenario" = "run_file" ] || [ "$scenario" = "merge" ]; then
+    prepared="$WORK/${scenario}.prepared.d88"
+    if ! prepare_run_merge_disk "$scenario" "$prepared"; then
+      na "${label}: 準備SAVEが完了せず、対象入口は未到達"
       na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
       overall_rc=1
       return
@@ -902,6 +1008,31 @@ judge_entry() {
     na "${label}: 混成の測定が完了せず未到達（停止位置は測定ログ末尾）"
     na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
     return
+  fi
+
+  if [ "$repeats" -eq 2 ]; then
+    if ! run_entry_measurement "${scenario}.official.run2" official "$scenario" \
+         "$official2" "$prepared" \
+       || ! run_entry_measurement "${scenario}.mixed.run2" mixed "$scenario" \
+         "$mixed2" "$prepared"; then
+      ng "${label}: 決定論性確認の2回目を測定できない"
+      overall_rc=1
+      return
+    fi
+    check_entry_determinism "$scenario" official "$official" "$official2" \
+      "$WORK/${scenario}.official.report.txt" \
+      "$WORK/${scenario}.official.run2.report.txt"
+    check_entry_determinism "$scenario" mixed "$mixed" "$mixed2" \
+      "$WORK/${scenario}.mixed.report.txt" \
+      "$WORK/${scenario}.mixed.run2.report.txt"
+    if ! run_conformance "$official2" "$expected" "${label}-公式run2"; then
+      ng "${label}: 公式2回目が固定した期待値と一致しない"
+      overall_rc=1
+    fi
+    if ! run_conformance "$mixed2" "$expected" "${label}-混成run2"; then
+      ng "${label}: 混成2回目が固定した期待値と一致しない"
+      overall_rc=1
+    fi
   fi
 
   report_screen_comparison "$scenario" "$label" \
@@ -971,6 +1102,8 @@ judge_entry load_existing "$LOAD_EXISTING_EXPECTED" "既存ファイル単独LOA
 judge_entry seqfile "$SEQFILE_EXPECTED" "シーケンシャルファイル出力・入力"
 judge_entry kill "$KILL_EXPECTED" KILL
 judge_entry name "$NAME_EXPECTED" NAME
+judge_entry run_file "$RUN_FILE_EXPECTED" 'RUN"file"' 2
+judge_entry merge "$MERGE_EXPECTED" MERGE 2
 
 # -----------------------------------------------------------------------
 # m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。

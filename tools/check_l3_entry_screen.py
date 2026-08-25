@@ -16,6 +16,10 @@ from pathlib import Path
 
 
 COMMANDS = {
+    "run_file": ['run"q7u"'],
+    "merge": ['merge"q7m"'],
+    "run_prepare": ['save"q7u"'],
+    "merge_prepare": ['save"q7m"'],
     "load_existing": ['load"q7l"'],
     "seqfile": [
         'open "q7s" for output as #1',
@@ -68,6 +72,51 @@ def reached(rows: list[str], commands: list[str]) -> bool:
     return True
 
 
+def next_nonempty(rows: list[str], start: int) -> tuple[int, str] | None:
+    return next(((i, row) for i, row in enumerate(rows[start:], start) if row), None)
+
+
+def reached_run_file(rows: list[str]) -> bool:
+    """RUNの反映だけでなく、保存プログラムの実行結果とOkまで確認する。"""
+    pos = next((i for i, row in enumerate(rows) if 'run"q7u"' in row), None)
+    if pos is None:
+        return False
+    marker = next_nonempty(rows, pos + 1)
+    if marker is None or marker[1] != "r7x":
+        return False
+    response = next_nonempty(rows, marker[0] + 1)
+    return response is not None and response[1] == "ok"
+
+
+def reached_merge(rows: list[str]) -> bool:
+    """MERGE後も元の行と併合行が共存し、実行できることを確認する。"""
+    base = next((i for i, row in enumerate(rows) if '10 print "m7a"' in row), None)
+    if base is None:
+        return False
+    merge = next(
+        (i for i in range(base + 1, len(rows)) if 'merge"q7m"' in rows[i]),
+        None,
+    )
+    if merge is None:
+        return False
+    merge_ok = next_nonempty(rows, merge + 1)
+    if merge_ok is None or merge_ok[1] != "ok":
+        return False
+    run = next(
+        (i for i in range(merge_ok[0] + 1, len(rows)) if rows[i] == "run"), None
+    )
+    if run is None:
+        return False
+    first = next_nonempty(rows, run + 1)
+    if first is None or first[1] != "m7a":
+        return False
+    second = next_nonempty(rows, first[0] + 1)
+    if second is None or second[1] != "m7b":
+        return False
+    response = next_nonempty(rows, second[0] + 1)
+    return response is not None and response[1] == "ok"
+
+
 def reached_error(rows: list[str], command: str) -> bool:
     """打鍵反映と、一覧を伴わない短いエラー画面形を本文なしで確認する。"""
     pos = next((i for i, row in enumerate(rows) if command in row), None)
@@ -104,7 +153,11 @@ def main() -> int:
     except OSError:
         print("screen_reach=parse_error")
         return 2
-    if args.scenario in ERROR_SCENARIOS:
+    if args.scenario == "run_file":
+        is_reached = reached_run_file(rows)
+    elif args.scenario == "merge":
+        is_reached = reached_merge(rows)
+    elif args.scenario in ERROR_SCENARIOS:
         is_reached = reached_error(rows, COMMANDS[args.scenario][0])
     elif args.scenario in OUTPUT_SUCCESS_SCENARIOS:
         is_reached = reached_output_success(rows, COMMANDS[args.scenario][0])

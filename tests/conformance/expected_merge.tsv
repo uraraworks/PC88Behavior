@@ -1,0 +1,6 @@
+# MERGE入口。値は置かず、件数とSHA-256だけを置く。
+# 公式一式でSAVEした使い捨て複製を別プロセスへ渡し、9000 frames、
+# 300FでRETURN、700Fから元行入力→MERGE→RUN。2026-08-25初回校正値。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cs-merge-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cs-merge-main-fc	main	00FC	IN	8222	727c9d4f208b54580f8c06791c534549fa767fdf4f7c93ba2ed56d9480400d2a
