@@ -842,6 +842,8 @@ def build_subrom(break_write_ack=False,
                   break_drive_selector=False,
                   break_error_response_bit6=False,
                   intervene_no_disk_wait=False,
+                  fast_no_disk_response_ready=False,
+                  early_response_after=None,
                   error_response_candidate=None,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
@@ -931,6 +933,21 @@ def build_subrom(break_write_ack=False,
     介入。一般読み出し要求へ入ったら応答を返さず、B-unitへ伝播済みの
     SENSE DRIVE STATUSを反復する。媒体有無の検出条件だとは主張せず、
     未指定時には命令を1バイトも追加しない。"""
+
+    # fast_no_disk_response_ready: no_diskの軸直前1バイト応答は、
+    # EXCHANGE3_RESPONSE_PENDINGではなく、要求表の0x06エントリから
+    # SEND_BOOT_SINGLE_TRACKEDを経てSEND_BYTEへ入る。起動時の最初の
+    # 3応答は交換順序状態の構築に必要なので変えず、4件目以降の
+    # tracked応答だけ、IDLE_DISPATCHが確認済みのbit1をSEND_BYTEで
+    # 再確認しない使い捨て介入。既定Falseの実行経路は不変。
+
+    # early_response_after: no_disk +0要求の受信進行帰属用。先頭0x02の
+    # 一般READ要求をNバイト受信後に
+    # READ DATAを発行せず、既存の一般READ用1バイト応答経路へ入る。
+    # Nはbyte2を受信済みの3〜12とする。5に仕様上の特権は与えない。
+    # この表はsubの内部処理開始位置だけを変え、mainが既に選んだ送信run長を
+    # Nへ短縮するものではない。実行到達は専用マーカーCALLをトラップして
+    # 別途確認する。未指定時はHEADと同じROMを生成する。
     a = Asm(0x0000)
 
     # ====================================================================
@@ -1108,6 +1125,10 @@ def build_subrom(break_write_ack=False,
     a.push_af()
     a.call("WAIT_FE_SEND_RECV_READY")       # 手順1: 相手の受信準備待ち(bit1=1)
     a.pop_af()
+    # 測定介入用入口。IDLE_DISPATCHが同じbit1を確認済みの経路だけが使う。
+    # このラベル自体はバイトを生成しない。介入版の追加命令はROM末尾の
+    # FAST_NO_DISK_RESPONSE_READY_EPILOGUEにだけ置き、既定版はHEADと同じ命令列を保つ。
+    a.label("SEND_BYTE_READY")
     a.out_a(P_PIO_B)                        # 手順2: OUT $FD（main IN $FCと対応）
     a.xor_a()
     a.ld_mem_a(WINDOW_RUN_POS)               # OUT $FDはwindow(a)のrun終端
@@ -1125,8 +1146,14 @@ def build_subrom(break_write_ack=False,
     # ---- SEND_BOOT_SINGLE_TRACKED: 起動時の単発応答を1件送り、交換順序を
     #      数える。第32版1.25節の分節開始は要求値ではなく、交換#0〜#2の
     #      3応答を完遂したという外部構造だけで決める。引数Aは送信値。 ----
+    # 介入版の分岐終端は既定より3バイト長く、介入版の後続ラベルは
+    # その分だけ移動する。既定版にパディングは追加せず、HEADと同じ
+    # 2042バイトの命令列を保つ。介入版の差分数と位置は実測前関門で照合する。
     a.label("SEND_BOOT_SINGLE_TRACKED")
-    a.push_af()
+    if fast_no_disk_response_ready:
+        a.ld_b_a()                          # Aを保存し、CPのcarryを終端へ渡す
+    else:
+        a.push_af()
     a.ld_a_mem(BOOT_SINGLE_RESPONSE_COUNT)
     a.inc_a()
     a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
@@ -1138,9 +1165,18 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(RUN_LEN)
     a.inc_a()
     a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
+    if fast_no_disk_response_ready:
+        # count==3も起動経路なので通常SENDへ振る。count 1/2は
+        # 直前CP 3のcarry=1、4以上だけcarry=0のままここへ来ない。
+        a.db(0x37)                           # SCF
     a.label("_boot_single_track_done")
-    a.pop_af()
-    a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+    if fast_no_disk_response_ready:
+        a.ld_a_b()
+        a.jr_c("SEND_BYTE")                # 起動時3応答は既定経路のまま
+        a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
+    else:
+        a.pop_af()
+        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
@@ -1608,7 +1644,8 @@ def build_subrom(break_write_ack=False,
     a.ret()
     a.label("_window_run_lengths")
     for _head in range(0x18):
-        a.db({0x00: 0, 0x02: (0 if restore_request_kind_length6 else 5),
+        a.db({0x00: 0, 0x02: (0 if restore_request_kind_length6 else
+                             (early_response_after or 5)),
               0x06: 1, 0x07: 1, 0x0B: 5,
               0x0D: 4, 0x0E: 7, REQUEST_KIND_WRITE: 5,
               0x12: 1, 0x14: 2, 0x17: 7}.get(_head, 0))
@@ -2166,9 +2203,26 @@ def build_subrom(break_write_ack=False,
         a.jp_z("_exchange11_prepare_sector")
         a.cp_n(0x02)
         a.jr_nz("_recv_dispatch_run_done")
-        a.ld_a_mem(POST_BULK_ACTIVE)
-        a.or_a()
-        a.jp_nz("_general_read_request")
+        if early_response_after is not None:
+            # 専用RETをこの判定経路の直前へ置く。通常のフォールスルーは
+            # JRで飛び越し、下の条件CALLだけが実行する。ROM末尾へ置くと
+            # 0x0800フェッチ窓の外へ押し出されるため、ここで窓内到達を保証する。
+            a.jr("_early_response_intervention_check")
+            a.label("EARLY_RESPONSE_INTERVENTION_REACHED")
+            a.ret()
+            a.label("_early_response_intervention_check")
+            # 使い捨て介入: no_disk校正済み+0の先頭0x02要求を対象にする。
+            # 分岐先は一般READが使う観測済み1バイト
+            # 応答の共通入口で、新しい応答形式や値は作らない。
+            # トラップ対象はRETだけの専用マーカー。retモードで
+            # 実命令と同じRETを返すため、観測自体は介入動作を変えない。
+            # 1回関門により、対象が+0の1件だけであることも確認する。
+            a.call("EARLY_RESPONSE_INTERVENTION_REACHED")
+            a.jp("_exchange3_normal_response")
+        else:
+            a.ld_a_mem(POST_BULK_ACTIVE)
+            a.or_a()
+            a.jp_nz("_general_read_request")
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.dec_a()                      # Zだけを見るCP 1相当（m7bw容量圧縮）
         if not break_drive_selector:
@@ -2914,7 +2968,10 @@ def build(break_write_ack=False,
           break_drive_selector=False,
           break_error_response_bit6=False,
           intervene_no_disk_wait=False,
-          error_response_candidate=None):
+          fast_no_disk_response_ready=False,
+          early_response_after=None,
+          error_response_candidate=None,
+          metadata=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
@@ -2939,6 +2996,8 @@ def build(break_write_ack=False,
                           break_drive_selector=break_drive_selector,
                           break_error_response_bit6=break_error_response_bit6,
                           intervene_no_disk_wait=intervene_no_disk_wait,
+                          fast_no_disk_response_ready=fast_no_disk_response_ready,
+                          early_response_after=early_response_after,
                           error_response_candidate=error_response_candidate,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
@@ -2972,6 +3031,8 @@ def build(break_write_ack=False,
         raise SystemExit(f"ROM に収まらない: {len(code)} > {ROM_SIZE}")
     rom = bytearray([0x00] * ROM_SIZE)
     rom[: len(code)] = code
+    if metadata is not None:
+        metadata["labels"] = dict(a.labels)
     return rom, len(code)
 
 
@@ -3048,6 +3109,17 @@ def main():
     ap.add_argument("--intervene-no-disk-wait", action="store_true",
                     help="no_diskのmainタイムアウト仮説用。一般READ要求で応答せず、"
                          "SENSE DRIVE STATUSを反復する使い捨て介入。既定は無効。")
+    ap.add_argument("--fast-no-disk-response-ready", action="store_true",
+                    help="no_disk軸直前の単発応答だけ、IDLE_DISPATCHで確認済みの"
+                         "受信準備bitをSEND_BYTEで再確認しない使い捨て介入。"
+                         "既定は無効。")
+    ap.add_argument("--early-response-after", type=int, metavar="N",
+                    help="no_disk +0受信終端の帰属用。先頭0x02要求を"
+                         "Nバイト受信後に既存の"
+                         "1バイト応答へ転じる使い捨て介入（3〜12）。")
+    ap.add_argument("--early-response-trap-map", type=pathlib.Path, metavar="PATH",
+                    help="--early-response-afterの専用到達マーカー番地を"
+                         "q88measure用trap.mapとして書く。")
     ap.add_argument("--error-response-candidate", type=lambda value: int(value, 0),
                     metavar="N",
                     help="READ DATA結果がST0 IC=異常終了かつST1 MISSING ADDRESS "
@@ -3057,8 +3129,15 @@ def main():
     if args.error_response_candidate is not None and not (
             0 <= args.error_response_candidate <= 0xFF):
         ap.error("--error-response-candidate は0〜255で指定する")
+    if args.early_response_after is not None and not (
+            3 <= args.early_response_after <= 12):
+        ap.error("--early-response-after は3〜12で指定する")
+    if (args.early_response_trap_map is not None
+            and args.early_response_after is None):
+        ap.error("--early-response-trap-map は --early-response-after と併用する")
     if args.break_error_response_bit6 and args.error_response_candidate is not None:
         ap.error("--break-error-response-bit6 と --error-response-candidate は併用不可")
+    metadata = {}
     rom, used = build(break_write_ack=args.break_write_ack,
                        break_write_coords=args.break_write_coords,
                        break_write_data_window=args.break_write_data_window,
@@ -3075,10 +3154,18 @@ def main():
                        break_drive_selector=args.break_drive_selector,
                        break_error_response_bit6=args.break_error_response_bit6,
                        intervene_no_disk_wait=args.intervene_no_disk_wait,
-                       error_response_candidate=args.error_response_candidate)
+                       fast_no_disk_response_ready=args.fast_no_disk_response_ready,
+                       early_response_after=args.early_response_after,
+                       error_response_candidate=args.error_response_candidate,
+                       metadata=metadata)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
+    if args.early_response_trap_map is not None:
+        address = metadata["labels"]["EARLY_RESPONSE_INTERVENTION_REACHED"]
+        args.early_response_trap_map.write_text(
+            "# early-response介入の実行到達マーカー\n"
+            f"sub {address:04X}-{address:04X}\n", encoding="utf-8")
     print(f"生成した: {d/'DISK.ROM'} ({ROM_SIZE} bytes, コード {used} bytes)")
     return 0
 

@@ -19,6 +19,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
 import analyze_error_exchange_shape as shape  # noqa: E402
+import analyze_no_disk_branch_order as branch_order  # noqa: E402
 import analyze_no_disk_timing as no_disk_timing  # noqa: E402
 import check_l3_screen_output as screen  # noqa: E402
 
@@ -401,6 +403,10 @@ READY_HANDOFF_LINE_RE = re.compile(
     r"応答準備handoff介入 run=(\d+) mode=(\d+) action=(\d+) "
     r"matched=(\d+) count=(\d+)"
 )
+EARLY_RESPONSE_TRAP_MAP_RE = re.compile(
+    r"^sub +([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})$"
+)
+EARLY_RESPONSE_EXPECTED_EXECUTIONS = 1
 
 
 def sub_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
@@ -430,6 +436,55 @@ def response_ready_handoff_receipt(iolog: Path) -> dict[str, int] | None:
                 keys = ("run", "mode", "action", "matched", "count")
                 found = dict(zip(keys, map(int, match.groups())))
     return found
+
+
+def early_response_trap_address(trap_map: Path) -> int:
+    """早期応答介入用mapから、1番地だけのsub実行対象を読む。"""
+    found = []
+    with trap_map.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = EARLY_RESPONSE_TRAP_MAP_RE.match(line.strip())
+            if match:
+                lo, hi = (int(value, 16) for value in match.groups())
+                if lo != hi:
+                    raise SearchError("早期応答trap-mapが1番地ではない")
+                found.append(lo)
+    if len(found) != 1:
+        raise SearchError("早期応答trap-mapのsub対象が1件ではない")
+    return found[0]
+
+
+def trap_exec_count(report: Path, address: int, *, cpu: str = "サブCPU") -> int:
+    """トラップ報告の指定CPU・指定番地の実行回数。未到達は0。"""
+    header = f"[トラップ {cpu}] 要求された入口（実行）"
+    line_re = re.compile(rf"^  {address:04X}  回数=(\d+)(?:  |$)")
+    in_section = False
+    with report.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            stripped = line.rstrip("\n")
+            if stripped == header:
+                in_section = True
+                continue
+            if in_section and stripped.startswith("[トラップ "):
+                break
+            if in_section:
+                match = line_re.match(stripped)
+                if match:
+                    return int(match.group(1))
+    return 0
+
+
+def validate_early_response_execution(report: Path, trap_map: Path,
+                                      *, expected: int =
+                                      EARLY_RESPONSE_EXPECTED_EXECUTIONS) -> int:
+    """介入判定の実行回数を実測値で関門化する。"""
+    address = early_response_trap_address(trap_map)
+    actual = trap_exec_count(report, address)
+    if actual != expected:
+        raise SearchError(
+            "早期応答介入の実行到達不成立 "
+            f"address=0x{address:04X} expected={expected} actual={actual}")
+    return actual
 
 
 def metric_source_sha256(*paths: Path) -> str:
@@ -601,7 +656,9 @@ def calibration_gate(official_log: Path, mixed_log: Path,
 def calibration_measure(args: argparse.Namespace, official: bool,
                         tag: str, *, with_intlog: bool = False,
                         sub_interrupt_intervention: str | None = None,
-                        response_ready_handoff: tuple[int, str] | None = None
+                        response_ready_handoff: tuple[int, str] | None = None,
+                        fast_no_disk_response_ready: bool = False,
+                        early_response_after: int | None = None,
                         ) -> tuple[AbstractResult, Path, Path, Path, Path | None]:
     """関門用に生ログを一時保持するmeasure_once相当。"""
     run_dir = args.state_dir / "runs" / tag
@@ -610,9 +667,18 @@ def calibration_measure(args: argparse.Namespace, official: bool,
     run_dir.mkdir(parents=True)
     rom_dir = run_dir / "rom"
     copy_roms(args.rom_source, rom_dir)
+    early_response_trap_map = None
     if not official:
-        subprocess.run([sys.executable, str(REPO / "src/l3_service/make_subrom.py"),
-                        str(rom_dir)], stdout=subprocess.DEVNULL,
+        generator = [sys.executable, str(REPO / "src/l3_service/make_subrom.py"),
+                     str(rom_dir)]
+        if fast_no_disk_response_ready:
+            generator.append("--fast-no-disk-response-ready")
+        if early_response_after is not None:
+            generator += ["--early-response-after", str(early_response_after)]
+            early_response_trap_map = run_dir / "early-response.trap.map"
+            generator += ["--early-response-trap-map",
+                          str(early_response_trap_map)]
+        subprocess.run(generator, stdout=subprocess.DEVNULL,
                        stderr=subprocess.PIPE, check=True)
     disk_a, disk_b = run_dir / "a.d88", run_dir / "b.d88"
     shutil.copy2(args.disk_source, disk_a)
@@ -637,10 +703,60 @@ def calibration_measure(args: argparse.Namespace, official: bool,
     if response_ready_handoff is not None:
         run, mode = response_ready_handoff
         command += ["--response-ready-handoff", f"{run}:{mode}"]
-    run_frontend(command, iolog, args.timeout)
-    if intlog is not None and not intlog.is_file():
-        raise SearchError("割り込み受理ログが生成されなかった")
-    return abstract_result(iolog, report), run_dir, iolog, report, intlog
+    if early_response_trap_map is not None:
+        command += ["--trap-map", str(early_response_trap_map),
+                    "--trap-mode", "ret"]
+    try:
+        run_frontend(command, iolog, args.timeout)
+        if intlog is not None and not intlog.is_file():
+            raise SearchError("割り込み受理ログが生成されなかった")
+        # 介入armは、メトリクを読み結果列に入れる前に実行到達を
+        # 必須にする。0回や想定外の反復なら生ログを消し、実測結果を出さない。
+        if early_response_trap_map is not None:
+            validate_early_response_execution(report, early_response_trap_map)
+        return abstract_result(iolog, report), run_dir, iolog, report, intlog
+    except Exception:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
+
+
+def branch_order_no_disk(args: argparse.Namespace) -> int:
+    """公式/混成の2走だけでFDC 55件目と交換+0の順序を確定する。"""
+    prepare_args(args)
+    output = args.state_dir / "no-disk-branch-order.json"
+    if output.exists():
+        raise SearchError("順序判定出力が既にあるため上書きしない")
+    paths: list[Path] = []
+    try:
+        _off, off_dir, off_io, _off_report, off_int = calibration_measure(
+            args, True, "branch-order-official", with_intlog=True)
+        paths.append(off_dir)
+        _mix, mix_dir, mix_io, _mix_report, mix_int = calibration_measure(
+            args, False, "branch-order-mixed", with_intlog=True)
+        paths.append(mix_dir)
+        if off_int is None or mix_int is None:
+            raise SearchError("順序判定に必要なintlogが無い")
+        result = branch_order.analyze(off_io, mix_io, off_int, mix_int)
+        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    for name in ("official", "mixed"):
+        arm = result[name]
+        print(f"{name}: order={arm['order']} "
+              f"fdc_clock={arm['fdc_clock_from_anchor']} "
+              f"exchange_clock={arm['exchange_clock_from_anchor']} "
+              f"distance={arm['clock_distance']} "
+              f"events_between={arm['events_strictly_between']}")
+    assoc = result["mixed_fdc_association"]
+    relative = assoc["exchange_run_relative_to_plus0"]
+    relative_text = "none" if relative is None else f"{relative:+d}"
+    print(f"mixed_read_data: exchange_run={relative_text} "
+          f"phase={assoc['phase']} received={assoc['received_events']}/"
+          f"{assoc['run_length']}")
+    print("result=no-disk-branch-order.json")
+    return 0
 
 
 def prepare_args(args: argparse.Namespace) -> None:
@@ -1267,6 +1383,393 @@ READY_HANDOFF_ARMS = (
     ("defer_once", "defer-once", 2),
 )
 
+READY_ROM_FAST_EXPECTED_SHIFT = -3
+# no_disk +0の物理runは混成側で6件。7以上はそのrun中に到達不能なので、
+# 実行到達を関門化できる3〜6だけを測る。
+EARLY_RESPONSE_LENGTHS = tuple(range(3, 7))
+
+
+def format_rom_diff_offsets(offsets: tuple[int, ...]) -> str:
+    """差分位置を「0x0005,0x00BD-0x00C8」形式で欠落なく圧縮する。"""
+    ranges = []
+    start = previous = offsets[0]
+    for offset in offsets[1:]:
+        if offset == previous + 1:
+            previous = offset
+            continue
+        ranges.append((start, previous))
+        start = previous = offset
+    ranges.append((start, previous))
+    return ",".join(f"0x{start:04X}" if start == end else
+                    f"0x{start:04X}-0x{end:04X}"
+                    for start, end in ranges)
+
+
+def validate_default_rom_bytes(baseline: bytes, control: bytes) -> None:
+    """ROM介入の既定ビルドはHEAD基準と完全一致させる。"""
+    if baseline != control:
+        offsets = tuple(i for i, pair in enumerate(zip(baseline, control))
+                        if pair[0] != pair[1])
+        extra = abs(len(baseline) - len(control))
+        rendered = format_rom_diff_offsets(offsets) if offsets else "none"
+        raise SearchError(
+            "ROM既定版前段不成立 "
+            f"size={len(baseline)}/{len(control)} "
+            f"diff_bytes={len(offsets) + extra} offsets={rendered}")
+
+
+def validate_rom_intervention_bytes(control: bytes, intervention: bytes,
+                                    *, name: str) -> tuple[int, ...]:
+    """ROM側介入は実測前に最終バイト列の差分を必須とする。"""
+    if len(control) != len(intervention):
+        raise SearchError(
+            f"ROM介入前段不成立 name={name} size={len(control)}/{len(intervention)}")
+    offsets = tuple(i for i, pair in enumerate(zip(control, intervention))
+                    if pair[0] != pair[1])
+    if not offsets:
+        raise SearchError(f"ROM介入前段不成立 name={name} diff_bytes=0")
+    return offsets
+
+
+def ready_rom_preflight(args: argparse.Namespace) -> dict:
+    """既定/介入の最終DISK.ROMを別ディレクトリで生成し比較する。"""
+    with tempfile.TemporaryDirectory(prefix="ready-rom-preflight-",
+                                     dir=args.state_dir) as work_text:
+        work = Path(work_text)
+        head_script = work / "head_subrom.py"
+        head_script.write_bytes(subprocess.run(
+            ["git", "show", "HEAD:src/l3_service/make_subrom.py"],
+            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=True).stdout)
+        head_dir = work / "head"
+        subprocess.run([sys.executable, str(head_script), str(head_dir)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                       check=True)
+        baseline = (head_dir / "DISK.ROM").read_bytes()
+        outputs = []
+        for directory, option in ((work / "control", None),
+                                  (work / "rom-fast",
+                                   "--fast-no-disk-response-ready")):
+            copy_roms(args.rom_source, directory)
+            command = [sys.executable,
+                       str(REPO / "src/l3_service/make_subrom.py"),
+                       str(directory)]
+            if option is not None:
+                command.append(option)
+            subprocess.run(command, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, check=True)
+            outputs.append((directory / "DISK.ROM").read_bytes())
+    validate_default_rom_bytes(baseline, outputs[0])
+    offsets = validate_rom_intervention_bytes(
+        outputs[0], outputs[1], name="fast_no_disk_response_ready")
+    rendered = format_rom_diff_offsets(offsets)
+    print(f"rom_preflight=OK default_vs_HEAD=identical "
+          f"diff_bytes={len(offsets)} offsets={rendered}")
+    return {"diff_bytes": len(offsets),
+            "offsets": [f"0x{i:04X}" for i in offsets],
+            "offset_ranges": rendered}
+
+
+def early_response_rom_preflight(args: argparse.Namespace) -> dict:
+    """HEAD/既定/可変長ROMを実走前に別生成し、全介入差分を確認する。"""
+    with tempfile.TemporaryDirectory(prefix="early-response-preflight-",
+                                     dir=args.state_dir) as work_text:
+        work = Path(work_text)
+        head_script = work / "head_subrom.py"
+        head_script.write_bytes(subprocess.run(
+            ["git", "show", "HEAD:src/l3_service/make_subrom.py"],
+            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=True).stdout)
+        head_dir = work / "head"
+        subprocess.run([sys.executable, str(head_script), str(head_dir)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                       check=True)
+        baseline = (head_dir / "DISK.ROM").read_bytes()
+
+        control_dir = work / "control"
+        copy_roms(args.rom_source, control_dir)
+        subprocess.run([sys.executable,
+                        str(REPO / "src/l3_service/make_subrom.py"),
+                        str(control_dir)], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, check=True)
+        control = (control_dir / "DISK.ROM").read_bytes()
+        validate_default_rom_bytes(baseline, control)
+
+        rows = {}
+        for length in EARLY_RESPONSE_LENGTHS:
+            directory = work / f"length-{length}"
+            copy_roms(args.rom_source, directory)
+            subprocess.run([
+                sys.executable, str(REPO / "src/l3_service/make_subrom.py"),
+                str(directory), "--early-response-after", str(length),
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+            intervention = (directory / "DISK.ROM").read_bytes()
+            offsets = validate_rom_intervention_bytes(
+                control, intervention, name=f"early_response_after_{length}")
+            rows[str(length)] = {
+                "diff_bytes": len(offsets),
+                "offset_ranges": format_rom_diff_offsets(offsets),
+            }
+    print("rom_preflight=OK default_vs_HEAD=identical "
+          "early_response_lengths=3-6 all_nonidentical "
+          "execution_gate=required")
+    return {"default_vs_HEAD": "identical", "lengths": rows,
+            "execution_gate": {
+                "expected_per_arm": EARLY_RESPONSE_EXPECTED_EXECUTIONS,
+                "marker": "EARLY_RESPONSE_INTERVENTION_REACHED",
+            }}
+
+
+def validate_ready_rom_fast(requested_shift: int, control_clock: int,
+                            fast_clock: int, official_clock: int,
+                            artifact_changed: bool, *, fault: int = 0) -> int:
+    """ROM短縮指定・実測clock差・公式到達点・成果物差の成立関門。"""
+    effective = fast_clock - control_clock + fault
+    if (requested_shift != READY_ROM_FAST_EXPECTED_SHIFT or
+            effective != requested_shift or fast_clock != official_clock or
+            not artifact_changed):
+        raise SearchError(
+            "ROM応答準備短縮不成立 "
+            f"requested={requested_shift} effective={effective} "
+            f"control={control_clock} fast={fast_clock} official={official_clock} "
+            f"artifact_changed={artifact_changed}")
+    return effective
+
+
+def ready_rom_probe_no_disk(args: argparse.Namespace) -> int:
+    """自作subの重複bit1確認を省き、軸直前応答を速い方向へ動かす。"""
+    calibration, reference = load_no_disk_calibration(args)
+    # ROM側フラグはこの関門を通すまでq88measureを1回も起動しない。
+    rom_preflight = ready_rom_preflight(args)
+    output = args.state_dir / "response-ready-rom-probe.json"
+    if output.exists():
+        raise SearchError("応答準備ROM probe出力が既にあるため上書きしない")
+    axis_off = int(calibration["axis_official"])
+    axis_mix = int(calibration["axis_mixed"])
+    paths: list[Path] = []
+    rows = []
+    try:
+        _off, off_dir, off_io, _off_report, off_int = calibration_measure(
+            args, True, "ready-rom-official", with_intlog=True)
+        paths.append(off_dir)
+        if off_int is None:
+            raise SearchError("公式armの割り込み受理ログが無い")
+        arms = (("control", False), ("rom_fast", True),
+                ("clock_shift_257", False))
+        for ordinal, (name, fast_rom) in enumerate(arms):
+            actual, run_dir, iolog, report, intlog = calibration_measure(
+                args, False, f"ready-rom-{name}", with_intlog=True,
+                fast_no_disk_response_ready=fast_rom)
+            paths.append(run_dir)
+            if intlog is None:
+                raise SearchError(f"{name} armの割り込み受理ログが無い")
+            if name == "clock_shift_257":
+                runs = shape.exchange_runs(iolog)
+                inject_clock_shift((iolog, intlog),
+                                   after_clock=runs[axis_mix - 4].start_clock,
+                                   delta=257)
+                actual = abstract_result(iolog, report)
+            timing = no_disk_timing.compare(
+                off_io, off_int, iolog, intlog, axis_off, axis_mix)
+            metric = compare_result(reference, actual, ordinal,
+                                    request_axis=axis_mix)
+            rows.append({
+                "arm": name,
+                "fast_rom": fast_rom,
+                "metrics": asdict(metric),
+                "official_ready_clock": timing["official"]["one_byte_response"][
+                    "main_wait_until_sub_ready"],
+                "ready_clock": timing["mixed"]["one_byte_response"][
+                    "main_wait_until_sub_ready"],
+                "logical_arrival_mixed_minus_official":
+                    timing["differences"]["logical_arrival_mixed_minus_official"],
+                "artifact_fingerprint": response_timing_artifact(actual, timing),
+                "metric_source": metric_source_sha256(
+                    iolog, intlog, report, iolog.with_suffix(".stderr.txt")),
+            })
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+    control = rows[0]
+    for row in rows[1:]:
+        row["artifact_changed"] = (
+            row["artifact_fingerprint"] != control["artifact_fingerprint"])
+        row["observed_ready_clock_delta"] = (
+            row["ready_clock"] - control["ready_clock"])
+    fast = rows[1]
+    validate_ready_rom_fast(
+        READY_ROM_FAST_EXPECTED_SHIFT, control["ready_clock"],
+        fast["ready_clock"], fast["official_ready_clock"],
+        fast["artifact_changed"])
+    diagnostic = rows[-1]
+    expected_diagnostic = {
+        key: value + 257
+        for key, value in control["logical_arrival_mixed_minus_official"].items()
+    }
+    if diagnostic["logical_arrival_mixed_minus_official"] != expected_diagnostic:
+        raise SearchError("clock_shift_257陽性対照が全arrival_deltaを+257動かさない")
+    if not diagnostic["artifact_changed"]:
+        raise SearchError("clock_shift_257陽性対照で成果物が変化しない")
+    if len({row["metric_source"] for row in rows}) != len(rows):
+        raise SearchError("arm別metric_sourceが一意でなく、入力流用の疑いがある")
+
+    output.write_text(json.dumps({
+        "version": 1, "scenario": "no_disk",
+        "result": "fast_ready_matches_official",
+        "probe": {
+            "arms": ["control", "rom_fast"],
+            "requested_ready_clock_shift": READY_ROM_FAST_EXPECTED_SHIFT,
+            "rom_intervention": (
+                "要求表0x06のtracked単発応答（4件目以降）で、"
+                "IDLE_DISPATCHが確認済みのbit1をSEND_BYTEで再確認しない"),
+            "clock_definition": "main/sub共通I/Oイベント通番の差（T-stateではない）",
+            "rom_preflight": rom_preflight,
+        },
+        "positive_control": "clock_shift_257",
+        "arms": rows,
+        "interpretation_limit": (
+            "一致しても『自作subの重複確認を省くとこの条件で一致する』まで。"
+            "公式subが同じ命令経路・省略機序を持つとは言わない。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for row in rows:
+        metric = row["metrics"]
+        print(f"arm={row['arm']} ready_clock={row['ready_clock']} "
+              f"req_len={metric['request_length']} "
+              f"exchange_prefix={metric['exchange_prefix']} "
+              f"fdc_prefix={metric['fdc_prefix']} "
+              f"screen={int(metric['screen_lines_match'])}/"
+              f"{int(metric['screen_chars_match'])}/"
+              f"{int(metric['screen_sha256_match'])} "
+              f"artifact_changed={row.get('artifact_changed', 'control')}")
+    print("result=fast_ready_matches_official positive_control=clock_shift_257")
+    print("注: 一致しても自作subの介入成立までで、公式の機序は断定しない")
+    return 0
+
+
+def early_response_sweep_no_disk(args: argparse.Namespace) -> int:
+    """B-unitの+0要求で、READの代わりに応答する受信長を振る。"""
+    calibration, reference = load_no_disk_calibration(args)
+    rom_preflight = early_response_rom_preflight(args)
+    output = args.state_dir / "early-response-sweep.json"
+    summary = args.state_dir / "early-response-sweep.tsv"
+    if output.exists() or summary.exists():
+        raise SearchError("早期応答sweep出力が既にあるため上書きしない")
+    axis_mix = int(calibration["axis_mixed"])
+    paths: list[Path] = []
+    rows = []
+    try:
+        arms = (("control", None),) + tuple(
+            (f"length_{length}", length) for length in EARLY_RESPONSE_LENGTHS)
+        for ordinal, (name, length) in enumerate(arms):
+            actual, run_dir, iolog, report, _intlog = calibration_measure(
+                args, False, f"early-response-{name}",
+                early_response_after=length)
+            paths.append(run_dir)
+            execution_count = None
+            if length is not None:
+                trap_map = run_dir / "early-response.trap.map"
+                execution_count = trap_exec_count(
+                    report, early_response_trap_address(trap_map))
+            metric = compare_result(reference, actual, ordinal,
+                                    request_axis=axis_mix)
+            rows.append({
+                "arm": name,
+                "early_response_after": length,
+                "intervention_execution_count": execution_count,
+                "metrics": asdict(metric),
+                "artifact_fingerprint": hashlib.sha256(json.dumps(
+                    {"artifacts": actual.artifacts,
+                     "exchange": actual.exchange,
+                     "fdc": actual.fdc,
+                     "screen": (actual.screen_line_count,
+                                actual.screen_char_count,
+                                actual.screen_sha256)},
+                    ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
+                "metric_source": metric_source_sha256(
+                    iolog, report, iolog.with_suffix(".stderr.txt")),
+            })
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+    if len({row["metric_source"] for row in rows}) != len(rows):
+        raise SearchError("arm別metric_sourceが一意でなく、入力流用の疑いがある")
+
+    control_fingerprint = rows[0]["artifact_fingerprint"]
+    for row in rows[1:]:
+        row["artifact_changed"] = (
+            row["artifact_fingerprint"] != control_fingerprint)
+    # N=3は物理run短縮の対照ではない。介入が最も早い判定点で実行され、
+    # 対照とは異なる観測成果物を作ることを実測系の陽性対照にする。
+    positive = next(row for row in rows
+                    if row["early_response_after"] == 3)
+    if not positive["artifact_changed"]:
+        raise SearchError(
+            "N=3陽性対照で観測成果物が変化せず、早期応答掃引の検出力が無い")
+    matching = []
+    for row in rows[1:]:
+        metric = CandidateMetrics(**row["metrics"])
+        if exact_match(metric):
+            matching.append(int(row["early_response_after"]))
+
+    output.write_text(json.dumps({
+        "version": 1,
+        "scenario": "no_disk",
+        "result": "matching_lengths_found" if matching else "no_exact_match",
+        "scope": (
+            "no_disk校正済み+0の先頭0x02要求。"
+            "3未満は要求種別の既知範囲外なので対象外"),
+        "lengths": list(EARLY_RESPONSE_LENGTHS),
+        "execution_control": {
+            "condition": "全介入armの専用マーカー実行が各1回",
+            "trap_mode": "ret",
+            "behavior": "マーカー自身のRETと同じ命令を返す"},
+        "positive_control": {
+            "arm": "length_3",
+            "condition": "controlと観測成果物が異なる",
+            "claim_limit": "物理run短縮の対照ではなく介入・観測系の検出力だけ"},
+        "rom_preflight": rom_preflight,
+        "matching_lengths": matching,
+        "arms": rows,
+        "interpretation_limit": (
+            "一致しても『自作subをその長さで既存の1バイト応答へ"
+            "転じるとこの条件で一致する』まで。公式subの内部判定は断定しない"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with summary.open("w", encoding="utf-8") as fp:
+        fp.write("arm\tearly_response_after\tintervention_execution_count\t"
+                 "request_length_at_plus0\t"
+                 "exchange_prefix\tfdc_prefix\tscreen_lines_match\t"
+                 "screen_chars_match\tscreen_sha256_match\tartifact_changed\n")
+        for row in rows:
+            metric = row["metrics"]
+            fp.write(
+                f"{row['arm']}\t{row['early_response_after'] or ''}\t"
+                f"{row['intervention_execution_count'] if row['intervention_execution_count'] is not None else ''}\t"
+                f"{metric['request_length'] if metric['request_length'] is not None else ''}\t"
+                f"{metric['exchange_prefix']}\t{metric['fdc_prefix']}\t"
+                f"{int(metric['screen_lines_match'])}\t"
+                f"{int(metric['screen_chars_match'])}\t"
+                f"{int(metric['screen_sha256_match'])}\t"
+                f"{row.get('artifact_changed', 'control')}\n")
+    for row in rows:
+        metric = row["metrics"]
+        print(f"arm={row['arm']} exec_count="
+              f"{row['intervention_execution_count'] if row['intervention_execution_count'] is not None else 'control'} "
+              f"req_len={metric['request_length']} "
+              f"exchange_prefix={metric['exchange_prefix']} "
+              f"fdc_prefix={metric['fdc_prefix']} "
+              f"screen={int(metric['screen_lines_match'])}/"
+              f"{int(metric['screen_chars_match'])}/"
+              f"{int(metric['screen_sha256_match'])} "
+              f"artifact_changed={row.get('artifact_changed', 'control')}")
+    print("execution_gate=all_intervention_arms_exactly_once")
+    print("positive_control=length_3_artifact_changed")
+    print("matching_lengths=" + (",".join(map(str, matching)) if matching else "none"))
+    print(f"summary={summary}")
+    print("注: 一致しても自作subの介入成立までで、公式subの内部判定は断定しない")
+    return 0
+
 
 def ready_handoff_probe_no_disk(args: argparse.Namespace) -> int:
     """軸直前応答を支配するPIO C handoffへ離散介入する。"""
@@ -1417,6 +1920,9 @@ def main() -> int:
     parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
                                          "interrupt-attribute",
                                          "ready-sweep", "ready-handoff-probe",
+                                         "ready-rom-probe",
+                                         "early-response-sweep",
+                                         "branch-order",
                                          "probe256", "search"))
     parser.add_argument("--scenario", choices=("unreadable_disk", "no_disk"),
                         default="unreadable_disk")
@@ -1458,6 +1964,18 @@ def main() -> int:
             if args.scenario != "no_disk":
                 raise SearchError("ready-handoff-probeは--scenario no_disk専用")
             return ready_handoff_probe_no_disk(args)
+        if args.mode == "ready-rom-probe":
+            if args.scenario != "no_disk":
+                raise SearchError("ready-rom-probeは--scenario no_disk専用")
+            return ready_rom_probe_no_disk(args)
+        if args.mode == "early-response-sweep":
+            if args.scenario != "no_disk":
+                raise SearchError("early-response-sweepは--scenario no_disk専用")
+            return early_response_sweep_no_disk(args)
+        if args.mode == "branch-order":
+            if args.scenario != "no_disk":
+                raise SearchError("branch-orderは--scenario no_disk専用")
+            return branch_order_no_disk(args)
         if args.mode == "probe256":
             if args.scenario != "no_disk":
                 raise SearchError("probe256は--scenario no_disk専用")
