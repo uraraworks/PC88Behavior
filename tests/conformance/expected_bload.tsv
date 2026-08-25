@@ -1,0 +1,5 @@
+# BLOAD入口。値は置かず、件数とSHA-256だけを置く。
+# BSAVE済み複製を別プロセスで読み、&HC000の効果を確認。2026-08-25初回校正値。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7ct-bload-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7ct-bload-main-fc	main	00FC	IN	8222	d5daedd728acc8a3080989c47c72512ee5048d76e38166d1134cd0834af57c4f

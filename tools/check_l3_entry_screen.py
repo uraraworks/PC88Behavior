@@ -16,6 +16,8 @@ from pathlib import Path
 
 
 COMMANDS = {
+    "bsave": ['bsave"q7b",&hc000,4'],
+    "bload": ['bload"q7b"'],
     "run_file": ['run"q7u"'],
     "merge": ['merge"q7m"'],
     "run_prepare": ['save"q7u"'],
@@ -61,7 +63,7 @@ def reached(rows: list[str], commands: list[str]) -> bool:
             (i for i in range(cursor, len(rows)) if command in rows[i]), None
         )
         if pos is None:
-            return False
+            return None
         response = next(
             ((i, row) for i, row in enumerate(rows[pos + 1 :], pos + 1) if row),
             None,
@@ -117,6 +119,69 @@ def reached_merge(rows: list[str]) -> bool:
     return response is not None and response[1] == "ok"
 
 
+def reached_commands(rows: list[str], commands: tuple[str, ...]) -> int | None:
+    """各コマンドと直後Okを順に確認し、次の探索位置を返す。"""
+    cursor = 0
+    for command in commands:
+        pos = next(
+            (i for i in range(cursor, len(rows)) if command in rows[i]), None
+        )
+        if pos is None:
+            return False
+        response = next_nonempty(rows, pos + 1)
+        if response is None or response[1] != "ok":
+            return None
+        cursor = response[0] + 1
+    return cursor
+
+
+def reached_bsave(rows: list[str]) -> bool:
+    """自作4値の事前一致とBSAVE正常終了を確認する。"""
+    cursor = reached_commands(rows, (
+        "clear ,&hbfff",
+        "poke &hc000,71:poke &hc001,149:poke &hc002,203:poke &hc003,37",
+    ))
+    if cursor is None:
+        return False
+    condition = next(
+        (i for i in range(cursor, len(rows)) if "if peek(&hc000)=71" in rows[i]),
+        None,
+    )
+    if condition is None:
+        return False
+    marker = next((i for i in range(condition + 1, len(rows)) if rows[i] == "b7s"), None)
+    if marker is None:
+        return False
+    marker_ok = next_nonempty(rows, marker + 1)
+    if marker_ok is None or marker_ok[1] != "ok":
+        return False
+    return reached_commands(rows[marker_ok[0] + 1 :], ('bsave"q7b",&hc000,4',)) is not None
+
+
+def reached_bload(rows: list[str]) -> bool:
+    """事前ゼロ化後、BLOADした自作4値の効果とOkまで確認する。"""
+    cursor = reached_commands(rows, (
+        "clear ,&hbfff",
+        "poke &hc000,0:poke &hc001,0:poke &hc002,0:poke &hc003,0",
+        'bload"q7b"',
+    ))
+    if cursor is None:
+        return False
+    condition = next(
+        (i for i in range(cursor, len(rows)) if "if peek(&hc000)=71" in rows[i]),
+        None,
+    )
+    if condition is None:
+        return False
+    marker_pos = next(
+        (i for i in range(condition + 1, len(rows)) if rows[i] == "b7x"), None
+    )
+    if marker_pos is None:
+        return False
+    response = next_nonempty(rows, marker_pos + 1)
+    return response is not None and response[1] == "ok"
+
+
 def reached_error(rows: list[str], command: str) -> bool:
     """打鍵反映と、一覧を伴わない短いエラー画面形を本文なしで確認する。"""
     pos = next((i for i, row in enumerate(rows) if command in row), None)
@@ -153,7 +218,11 @@ def main() -> int:
     except OSError:
         print("screen_reach=parse_error")
         return 2
-    if args.scenario == "run_file":
+    if args.scenario == "bsave":
+        is_reached = reached_bsave(rows)
+    elif args.scenario == "bload":
+        is_reached = reached_bload(rows)
+    elif args.scenario == "run_file":
         is_reached = reached_run_file(rows)
     elif args.scenario == "merge":
         is_reached = reached_merge(rows)

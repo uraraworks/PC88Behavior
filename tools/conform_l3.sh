@@ -32,6 +32,8 @@ KILL_EXPECTED="$REPO/tests/conformance/expected_kill.tsv"
 NAME_EXPECTED="$REPO/tests/conformance/expected_name.tsv"
 RUN_FILE_EXPECTED="$REPO/tests/conformance/expected_run_file.tsv"
 MERGE_EXPECTED="$REPO/tests/conformance/expected_merge.tsv"
+BSAVE_EXPECTED="$REPO/tests/conformance/expected_bsave.tsv"
+BLOAD_EXPECTED="$REPO/tests/conformance/expected_bload.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
@@ -73,8 +75,9 @@ if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
   echo "エラー: m7cg需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
-if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ]; then
-  echo "エラー: RUN\"file\"/MERGE需要入口の期待値ファイルが無い" >&2
+if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ] \
+   || [ ! -f "$BSAVE_EXPECTED" ] || [ ! -f "$BLOAD_EXPECTED" ]; then
+  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
@@ -806,6 +809,42 @@ prepare_run_merge_disk() {
   return 3
 }
 
+prepare_bload_disk() {
+  local out_disk="$1"
+  local attempt=1 rc=1 rom prep_iolog prep_report prep_cmds
+  prep_iolog="$WORK/bload.prepare.iolog.txt"
+  prep_report="$WORK/bload.prepare.report.txt"
+  : > "$WORK/bload.prepare.stderr.txt"
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    rom="$WORK/bload.prepare.attempt${attempt}.rom"
+    copy_entry_roms official "$rom" || return 1
+    cp "$DISK" "$out_disk" || return 1
+    printf '\x00' | dd of="$out_disk" bs=1 seek=26 count=1 conv=notrunc status=none
+    rm -f "$prep_iolog" "$prep_report"
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
+        "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$out_disk" \
+        --save-to-disk-image --frames 9000 --io-log "$prep_iolog" \
+        --out "$prep_report" --type-at 300 --type '\n' --type-at 700 \
+        --type 'CLEAR ,&HBFFF\nPOKE &HC000,71:POKE &HC001,149:POKE &HC002,203:POKE &HC003,37\nIF PEEK(&HC000)=71 AND PEEK(&HC001)=149 AND PEEK(&HC002)=203 AND PEEK(&HC003)=37 THEN PRINT"B7S" ELSE PRINT"B7F"\nBSAVE"Q7B",&HC000,4\n' \
+        >"$WORK/bload.prepare.stdout.txt" 2>>"$WORK/bload.prepare.stderr.txt"
+    rc=$?
+    if [ "$rc" -eq 0 ] \
+       && python3 "$ENTRY_SCREEN_CHECK" --report "$prep_report" \
+                  --scenario bsave >/dev/null 2>&1; then
+      prep_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$prep_iolog" \
+                    2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+      if [ "${prep_cmds:-0}" -gt 0 ]; then
+        ok "BLOAD準備: 自作4値一致・BSAVE直後Ok・WRITE DATA発行を確認"
+        return 0
+      fi
+    fi
+    echo "  [注記] BLOAD準備: 未到達または${ENTRY_TIMEOUT}秒上限"
+    echo "         （${attempt}/${Q88_MEASURE_ATTEMPTS}回、rc=${rc}）。新規複製で再試行する。"
+    attempt=$((attempt + 1))
+  done
+  return 3
+}
+
 run_entry_measurement() {
   local label="$1" mode="$2" scenario="$3" out_iolog="$4"
   local source_disk="${5:-$DISK}"
@@ -851,6 +890,16 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 \
                  --type '10 PRINT "M7A"\nMERGE"Q7M"\nRUN\n')
       ;;
+    bsave)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type \
+                 'CLEAR ,&HBFFF\nPOKE &HC000,71:POKE &HC001,149:POKE &HC002,203:POKE &HC003,37\nIF PEEK(&HC000)=71 AND PEEK(&HC001)=149 AND PEEK(&HC002)=203 AND PEEK(&HC003)=37 THEN PRINT"B7S" ELSE PRINT"B7F"\nBSAVE"Q7B",&HC000,4\n')
+      ;;
+    bload)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type \
+                 'CLEAR ,&HBFFF\nPOKE &HC000,0:POKE &HC001,0:POKE &HC002,0:POKE &HC003,0\nBLOAD"Q7B"\nIF PEEK(&HC000)=71 AND PEEK(&HC001)=149 AND PEEK(&HC002)=203 AND PEEK(&HC003)=37 THEN PRINT"B7X" ELSE PRINT"B7N"\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -864,7 +913,8 @@ run_entry_measurement() {
     copy_entry_roms "$mode" "$rom" || return 1
     cp "$source_disk" "$disk" || return 1
     if [ "$scenario" = "load" ] || [ "$scenario" = "seqfile" ] \
-       || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ]; then
+       || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ] \
+       || [ "$scenario" = "bsave" ]; then
       printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
     fi
 
@@ -883,10 +933,23 @@ run_entry_measurement() {
       fi
       ok "${label}: I/Oログ取りこぼし0件"
       case "$scenario" in
-        load_existing|seqfile|kill|name|run_file|merge)
+        load_existing|seqfile|kill|name|run_file|merge|bsave|bload)
           if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
                      --scenario "$scenario" >/dev/null 2>&1; then
-            ok "${label}: 対象打鍵の画面反映と直後Okを確認"
+            if [ "$scenario" = "bsave" ]; then
+              local write_cmds
+              write_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$out_iolog" \
+                            2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+              if [ "${write_cmds:-0}" -le 0 ]; then
+                rc=3
+                break
+              fi
+              ok "${label}: 自作4値一致・BSAVE直後Ok・WRITE DATA発行を確認"
+            elif [ "$scenario" = "bload" ]; then
+              ok "${label}: 事前ゼロ化後の自作4値一致マーカーと直後Okを確認"
+            else
+              ok "${label}: 対象打鍵の画面反映と直後Okを確認"
+            fi
             return 0
           fi
           rc=3
@@ -985,6 +1048,14 @@ judge_entry() {
     prepared="$WORK/load_existing.prepared.d88"
     if ! prepare_existing_load_disk "$prepared"; then
       na "${label}: 準備SAVEが完了せず、2回目のLOAD入口は未到達"
+      na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
+      overall_rc=1
+      return
+    fi
+  elif [ "$scenario" = "bload" ]; then
+    prepared="$WORK/bload.prepared.d88"
+    if ! prepare_bload_disk "$prepared"; then
+      na "${label}: 準備BSAVEが完了せず、BLOAD入口は未到達"
       na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
       overall_rc=1
       return
@@ -1104,6 +1175,8 @@ judge_entry kill "$KILL_EXPECTED" KILL
 judge_entry name "$NAME_EXPECTED" NAME
 judge_entry run_file "$RUN_FILE_EXPECTED" 'RUN"file"' 2
 judge_entry merge "$MERGE_EXPECTED" MERGE 2
+judge_entry bsave "$BSAVE_EXPECTED" BSAVE 2
+judge_entry bload "$BLOAD_EXPECTED" BLOAD 2
 
 # -----------------------------------------------------------------------
 # m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。

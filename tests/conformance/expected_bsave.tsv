@@ -1,0 +1,5 @@
+# BSAVE入口。値は置かず、件数とSHA-256だけを置く。
+# &HC000から自作4バイトを保存し、9000 frames。2026-08-25初回校正値。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7ct-bsave-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7ct-bsave-main-fc	main	00FC	IN	7976	f954cf15bfb07725a411b83f461e1071e422f9de9d0c836f4a1b17685e88ad86
