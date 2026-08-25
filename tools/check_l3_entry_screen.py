@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 COMMANDS = {
+    "random_file": ['open "q7r" as #1'],
     "bsave": ['bsave"q7b",&hc000,4'],
     "bload": ['bload"q7b"'],
     "run_file": ['run"q7u"'],
@@ -182,6 +183,21 @@ def reached_bload(rows: list[str]) -> bool:
     return response is not None and response[1] == "ok"
 
 
+def reached_random_file(rows: list[str]) -> bool:
+    """2レコードのPUT後、各GETが事前破壊値を置換した末端効果を確認する。"""
+    run = next((i for i, row in enumerate(rows) if row == "run"), None)
+    if run is None:
+        return False
+    cursor = run + 1
+    for marker in ("r7c", "r7a", "r7d", "r7b", "r7e"):
+        found = next_nonempty(rows, cursor)
+        if found is None or found[1] != marker:
+            return False
+        cursor = found[0] + 1
+    response = next_nonempty(rows, cursor)
+    return response is not None and response[1] == "ok"
+
+
 def reached_error(rows: list[str], command: str) -> bool:
     """打鍵反映と、一覧を伴わない短いエラー画面形を本文なしで確認する。"""
     pos = next((i for i, row in enumerate(rows) if command in row), None)
@@ -218,7 +234,9 @@ def main() -> int:
     except OSError:
         print("screen_reach=parse_error")
         return 2
-    if args.scenario == "bsave":
+    if args.scenario == "random_file":
+        is_reached = reached_random_file(rows)
+    elif args.scenario == "bsave":
         is_reached = reached_bsave(rows)
     elif args.scenario == "bload":
         is_reached = reached_bload(rows)

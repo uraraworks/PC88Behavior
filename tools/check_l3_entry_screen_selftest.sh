@@ -93,6 +93,17 @@ cat > "$WORK/bload-negative.txt" <<'EOF'
   7| B7N
   8| Ok
 EOF
+cat > "$WORK/random-positive.txt" <<'EOF'
+  0| run
+  1| R7C
+  2| R7A
+  3| R7D
+  4| R7B
+  5| R7E
+  6| Ok
+EOF
+sed 's/  2| R7A/  2| R7N/' "$WORK/random-positive.txt" > "$WORK/random-bad-record1.txt"
+sed 's/  4| R7B/  4| R7N/' "$WORK/random-positive.txt" > "$WORK/random-bad-record2.txt"
 
 if python3 "$CHECK" --report "$WORK/run-positive.txt" --scenario run_file >/dev/null 2>&1 \
    && ! python3 "$CHECK" --report "$WORK/run-negative.txt" --scenario run_file >/dev/null 2>&1; then
@@ -121,6 +132,14 @@ if python3 "$CHECK" --report "$WORK/bload-positive.txt" --scenario bload >/dev/n
   ok 'BLOAD: 読込み効果を持つ陽性と、直後Okだけの陰性を区別'
 else
   ng 'BLOAD: 陽性・陰性対照を区別できない'
+fi
+
+if python3 "$CHECK" --report "$WORK/random-positive.txt" --scenario random_file >/dev/null 2>&1 \
+   && ! python3 "$CHECK" --report "$WORK/random-bad-record1.txt" --scenario random_file >/dev/null 2>&1 \
+   && ! python3 "$CHECK" --report "$WORK/random-bad-record2.txt" --scenario random_file >/dev/null 2>&1; then
+  ok 'ランダムファイル: 2レコード読戻し陽性と、各片方だけ失敗する陰性を区別'
+else
+  ng 'ランダムファイル: 陽性・陰性対照を区別できない'
 fi
 
 exit "$rc"

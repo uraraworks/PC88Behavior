@@ -85,6 +85,7 @@ SCRIPTS_EXPECTED=(
   "tools/diag_post_bulk_selftest.sh:0"
   "tools/check_l3_screen_output_selftest.sh:0"
   "tools/check_l3_entry_screen_selftest.sh:0"
+  "tools/l3_entry_expected_fault_selftest.sh:0"
   "tools/conform_l3.sh:0"
   "tools/diag_l3_mixed.sh:0"
   "tools/verify_l1.sh:0"

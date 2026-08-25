@@ -248,6 +248,9 @@ def main() -> int:
 
     print(f"公式FDCコマンド種別列({len(off_names)}件): {compact(off_names)}")
     print(f"混成FDCコマンド種別列({len(mix_names)}件): {compact(mix_names)}")
+    for name in ("READ DATA", "WRITE DATA"):
+        print(f"FDC {name}発行件数: 公式={off_names.count(name)}件、"
+              f"混成={mix_names.count(name)}件")
     print(f"FDCコマンド種別の一致prefix: {prefix}件")
     if same:
         print("FDCコマンド種別の最初の差: なし（全長一致）")

@@ -41,6 +41,8 @@ make_log "$WORK/bad-status.txt" 1 33
 if out="$(python3 "$CHECK" --official "$WORK/base.txt" --mixed "$WORK/same.txt" \
       --after-frame 700 2>&1)" \
    && printf '%s\n' "$out" | grep -q '公式入口区間unit/head分類:.*B/head0' \
+   && printf '%s\n' "$out" | grep -q 'FDC READ DATA発行件数: 公式=0件、混成=0件' \
+   && printf '%s\n' "$out" | grep -q 'FDC WRITE DATA発行件数: 公式=0件、混成=0件' \
    && printf '%s\n' "$out" | grep -q '入口区間のunit/head差: なし' \
    && printf '%s\n' "$out" | grep -q '入口区間の結果ステータス差: なし'; then
   ok "同じunit/head・結果分類を全長一致と判定"

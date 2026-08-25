@@ -34,6 +34,7 @@ RUN_FILE_EXPECTED="$REPO/tests/conformance/expected_run_file.tsv"
 MERGE_EXPECTED="$REPO/tests/conformance/expected_merge.tsv"
 BSAVE_EXPECTED="$REPO/tests/conformance/expected_bsave.tsv"
 BLOAD_EXPECTED="$REPO/tests/conformance/expected_bload.tsv"
+RANDOM_FILE_EXPECTED="$REPO/tests/conformance/expected_random_file.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
@@ -46,6 +47,7 @@ FRONTEND="$REPO/tools/harness/frontend/q88measure"
 # build_mixed_rom は tools/lib_l3_measure.sh に切り出した（tools/diag_l3_mixed.sh
 # と共有するため。二重実装を避ける。詳細はそのファイル冒頭のコメント参照）。
 source "$REPO/tools/lib_l3_measure.sh"
+source "$REPO/tools/lib_l3_conformance.sh"
 # 検出力の自己検査は、公式ディスクの実測ログ(measurements/m6g-d0-boot-run1.iolog.txt)
 # ではなく、tests/fixtures/ の合成フィクスチャを使う。2026-08-10、
 # measurements/*.iolog.txt にデータポート伏せ字を適用したため、実測ログを
@@ -76,8 +78,9 @@ if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
   exit 2
 fi
 if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ] \
-   || [ ! -f "$BSAVE_EXPECTED" ] || [ ! -f "$BLOAD_EXPECTED" ]; then
-  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD需要入口の期待値ファイルが無い" >&2
+   || [ ! -f "$BSAVE_EXPECTED" ] || [ ! -f "$BLOAD_EXPECTED" ] \
+   || [ ! -f "$RANDOM_FILE_EXPECTED" ]; then
+  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD/ランダムファイル需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
@@ -112,39 +115,6 @@ overall_rc=0
 # 自己検査（このスクリプトが検出力を持つか）と本番（公式環境）の両方で
 # 同じ関数を使う。二重実装を避けるため。
 # -----------------------------------------------------------------------
-run_conformance() {
-  local iolog="$1" expected="$2" label="$3"
-  local rc=0
-  local line name cpu port kind count sha out a_count a_sha
-
-  while IFS=$'\t' read -r name cpu port kind count sha; do
-    [ -z "${name:-}" ] && continue
-    case "$name" in \#*) continue ;; esac
-
-    if out="$(python3 "$HASH" "$iolog" --cpu "$cpu" --port "$port" --kind "$kind" 2>"$WORK/err.$name")"; then
-      a_count="$(printf '%s\n' "$out" | awk -F'\t' '$1=="count"{print $2}')"
-      a_sha="$(printf '%s\n' "$out" | awk -F'\t' '$1=="sha256"{print $2}')"
-    else
-      ng "[$label] ${name}: 抽出に失敗（${cpu}/${kind}/${port}）"
-      sed 's/^/       /' "$WORK/err.$name"
-      rc=1
-      continue
-    fi
-
-    if [ "$a_count" != "$count" ]; then
-      ng "[$label] ${name}: 件数不一致（期待 ${count} 件 ／ 実測 ${a_count} 件。ハッシュ以前に検出）"
-      rc=1
-    elif [ "$a_sha" != "$sha" ]; then
-      ng "[$label] ${name}: 件数(${a_count}件)は一致するがSHA-256が不一致"
-      rc=1
-    else
-      ok "[$label] ${name}: 件数(${a_count})・SHA-256とも一致"
-    fi
-  done < "$expected"
-
-  return "$rc"
-}
-
 # -----------------------------------------------------------------------
 # テキスト画面の追加測定。5.2節の適合条件1〜5は維持する。第82版以降は
 # unreadable_diskだけ末端一致を新しい追加条件とし、それ以外（no_diskを含む）の
@@ -166,7 +136,8 @@ report_screen_comparison() {
     else
       rc=$?
       if [ "$rc" -eq 1 ]; then
-        if [ "$scenario" = unreadable_disk ] && [ "$mode" = mixed ]; then
+        if { [ "$scenario" = unreadable_disk ] && [ "$mode" = mixed ]; } \
+           || [ "$scenario" = random_file ]; then
           ng "${label}-${mode}: 固定した画面期待値と不一致（第82版の末端一致条件）"
           overall_rc=1
         else
@@ -188,7 +159,7 @@ report_screen_comparison() {
   else
     rc=$?
     if [ "$rc" -eq 1 ]; then
-      if [ "$scenario" = unreadable_disk ]; then
+      if [ "$scenario" = unreadable_disk ] || [ "$scenario" = random_file ]; then
         ng "${label}: 公式一式と混成の画面出力が不一致（第82版の末端一致条件）"
         overall_rc=1
       else
@@ -900,6 +871,11 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 --type \
                  'CLEAR ,&HBFFF\nPOKE &HC000,0:POKE &HC001,0:POKE &HC002,0:POKE &HC003,0\nBLOAD"Q7B"\nIF PEEK(&HC000)=71 AND PEEK(&HC001)=149 AND PEEK(&HC002)=203 AND PEEK(&HC003)=37 THEN PRINT"B7X" ELSE PRINT"B7N"\n')
       ;;
+    random_file)
+      frames=9000
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type \
+                 '10 OPEN "Q7R" AS #1:FIELD #1,128 AS A$\n20 RSET A$="A":PUT #1,1\n30 RSET A$="B":PUT #1,2\n40 CLOSE:OPEN "Q7R" AS #1:FIELD #1,128 AS A$\n50 LSET A$="X":IF LEFT$(A$,1)="X" THEN PRINT"R7C" ELSE PRINT"R7N"\n60 GET #1,1:IF RIGHT$(A$,1)="A" THEN PRINT"R7A" ELSE PRINT"R7N"\n70 RSET A$="Y":IF RIGHT$(A$,1)="Y" THEN PRINT"R7D" ELSE PRINT"R7N"\n80 GET #1,2:IF RIGHT$(A$,1)="B" THEN PRINT"R7B" ELSE PRINT"R7N"\n90 CLOSE:PRINT"R7E"\nRUN\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -914,7 +890,7 @@ run_entry_measurement() {
     cp "$source_disk" "$disk" || return 1
     if [ "$scenario" = "load" ] || [ "$scenario" = "seqfile" ] \
        || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ] \
-       || [ "$scenario" = "bsave" ]; then
+       || [ "$scenario" = "bsave" ] || [ "$scenario" = "random_file" ]; then
       printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
     fi
 
@@ -933,7 +909,7 @@ run_entry_measurement() {
       fi
       ok "${label}: I/Oログ取りこぼし0件"
       case "$scenario" in
-        load_existing|seqfile|kill|name|run_file|merge|bsave|bload)
+        load_existing|seqfile|kill|name|run_file|merge|bsave|bload|random_file)
           if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
                      --scenario "$scenario" >/dev/null 2>&1; then
             if [ "$scenario" = "bsave" ]; then
@@ -947,6 +923,16 @@ run_entry_measurement() {
               ok "${label}: 自作4値一致・BSAVE直後Ok・WRITE DATA発行を確認"
             elif [ "$scenario" = "bload" ]; then
               ok "${label}: 事前ゼロ化後の自作4値一致マーカーと直後Okを確認"
+            elif [ "$scenario" = "random_file" ]; then
+              local write_cmds
+              write_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$out_iolog" \
+                            2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+              if [ "${write_cmds:-0}" -le 0 ]; then
+                rc=3
+                break
+              fi
+              ok "${label}: 2レコードPUT後、事前破壊したFIELD変数へGETした末端マーカー2個を確認"
+              ok "${label}: WRITE DATA発行を確認（READ DATA件数はFDC比較で表示）"
             else
               ok "${label}: 対象打鍵の画面反映と直後Okを確認"
             fi
@@ -987,34 +973,6 @@ check_entry_determinism() {
     sed 's/^/       /' "$out"
     overall_rc=1
   fi
-}
-
-entry_expected_fault_selftest() {
-  local iolog="$1" expected="$2" label="$3"
-  local bad_sha="$WORK/${label}.bad-sha.tsv"
-  local bad_count="$WORK/${label}.bad-count.tsv"
-  local rc=0
-
-  awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
-       { sha=$6; last=substr(sha,length(sha),1)
-         $6=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print }' \
-      "$expected" > "$bad_sha"
-  if run_conformance "$iolog" "$bad_sha" "${label}-hash故障" >/dev/null 2>&1; then
-    ng "${label}: 壊したSHA-256が一致してしまった"
-    rc=1
-  else
-    ok "${label}: SHA-256を壊した期待値コピーを不一致検出"
-  fi
-
-  awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
-       {$5=$5+1; print}' "$expected" > "$bad_count"
-  if run_conformance "$iolog" "$bad_count" "${label}-件数故障" >/dev/null 2>&1; then
-    ng "${label}: 壊した件数が一致してしまった"
-    rc=1
-  else
-    ok "${label}: 件数を壊した期待値コピーを不一致検出"
-  fi
-  return "$rc"
 }
 
 entry_stream_is_short() {
@@ -1177,6 +1135,7 @@ judge_entry run_file "$RUN_FILE_EXPECTED" 'RUN"file"' 2
 judge_entry merge "$MERGE_EXPECTED" MERGE 2
 judge_entry bsave "$BSAVE_EXPECTED" BSAVE 2
 judge_entry bload "$BLOAD_EXPECTED" BLOAD 2
+judge_entry random_file "$RANDOM_FILE_EXPECTED" "ランダムアクセスファイルPUT/GET" 2
 
 # -----------------------------------------------------------------------
 # m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。
