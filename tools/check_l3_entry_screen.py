@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 COMMANDS = {
+    "direct_sector": ['dsko$ 1,0,39,16', 'dski$(1,0,39,16)'],
     "random_file": ['open "q7r" as #1'],
     "bsave": ['bsave"q7b",&hc000,4'],
     "bload": ['bload"q7b"'],
@@ -198,6 +199,24 @@ def reached_random_file(rows: list[str]) -> bool:
     return response is not None and response[1] == "ok"
 
 
+def reached_direct_sector(rows: list[str]) -> bool:
+    """0番バッファの全長破壊後、直接セクタ再読出しの末端効果を確認する。"""
+    run = next((i for i, row in enumerate(rows) if row == "run"), None)
+    if run is None:
+        return False
+    if not all(any(command in row for row in rows[:run])
+               for command in COMMANDS["direct_sector"]):
+        return False
+    cursor = run + 1
+    for marker in ("d8c", "d8r", "d8e"):
+        found = next_nonempty(rows, cursor)
+        if found is None or found[1] != marker:
+            return False
+        cursor = found[0] + 1
+    response = next_nonempty(rows, cursor)
+    return response is not None and response[1] == "ok"
+
+
 def reached_error(rows: list[str], command: str) -> bool:
     """打鍵反映と、一覧を伴わない短いエラー画面形を本文なしで確認する。"""
     pos = next((i for i, row in enumerate(rows) if command in row), None)
@@ -234,7 +253,9 @@ def main() -> int:
     except OSError:
         print("screen_reach=parse_error")
         return 2
-    if args.scenario == "random_file":
+    if args.scenario == "direct_sector":
+        is_reached = reached_direct_sector(rows)
+    elif args.scenario == "random_file":
         is_reached = reached_random_file(rows)
     elif args.scenario == "bsave":
         is_reached = reached_bsave(rows)

@@ -35,6 +35,7 @@ MERGE_EXPECTED="$REPO/tests/conformance/expected_merge.tsv"
 BSAVE_EXPECTED="$REPO/tests/conformance/expected_bsave.tsv"
 BLOAD_EXPECTED="$REPO/tests/conformance/expected_bload.tsv"
 RANDOM_FILE_EXPECTED="$REPO/tests/conformance/expected_random_file.tsv"
+DIRECT_SECTOR_EXPECTED="$REPO/tests/conformance/expected_direct_sector.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
@@ -79,8 +80,9 @@ if [ ! -f "$LOAD_EXISTING_EXPECTED" ] || [ ! -f "$SEQFILE_EXPECTED" ] \
 fi
 if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ] \
    || [ ! -f "$BSAVE_EXPECTED" ] || [ ! -f "$BLOAD_EXPECTED" ] \
-   || [ ! -f "$RANDOM_FILE_EXPECTED" ]; then
-  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD/ランダムファイル需要入口の期待値ファイルが無い" >&2
+   || [ ! -f "$RANDOM_FILE_EXPECTED" ] \
+   || [ ! -f "$DIRECT_SECTOR_EXPECTED" ]; then
+  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD/ランダムファイル/直接セクタ需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
@@ -137,7 +139,7 @@ report_screen_comparison() {
       rc=$?
       if [ "$rc" -eq 1 ]; then
         if { [ "$scenario" = unreadable_disk ] && [ "$mode" = mixed ]; } \
-           || [ "$scenario" = random_file ]; then
+           || [ "$scenario" = random_file ] || [ "$scenario" = direct_sector ]; then
           ng "${label}-${mode}: 固定した画面期待値と不一致（第82版の末端一致条件）"
           overall_rc=1
         else
@@ -159,7 +161,8 @@ report_screen_comparison() {
   else
     rc=$?
     if [ "$rc" -eq 1 ]; then
-      if [ "$scenario" = unreadable_disk ] || [ "$scenario" = random_file ]; then
+      if [ "$scenario" = unreadable_disk ] || [ "$scenario" = random_file ] \
+         || [ "$scenario" = direct_sector ]; then
         ng "${label}: 公式一式と混成の画面出力が不一致（第82版の末端一致条件）"
         overall_rc=1
       else
@@ -821,7 +824,8 @@ run_entry_measurement() {
   local source_disk="${5:-$DISK}"
   local attempt=1 rc=1 rom disk report
   local frames
-  local -a type_args
+  local -a type_args run_args
+  run_args=()
 
   case "$scenario" in
     files)
@@ -876,6 +880,12 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 --type \
                  '10 OPEN "Q7R" AS #1:FIELD #1,128 AS A$\n20 RSET A$="A":PUT #1,1\n30 RSET A$="B":PUT #1,2\n40 CLOSE:OPEN "Q7R" AS #1:FIELD #1,128 AS A$\n50 LSET A$="X":IF LEFT$(A$,1)="X" THEN PRINT"R7C" ELSE PRINT"R7N"\n60 GET #1,1:IF RIGHT$(A$,1)="A" THEN PRINT"R7A" ELSE PRINT"R7N"\n70 RSET A$="Y":IF RIGHT$(A$,1)="Y" THEN PRINT"R7D" ELSE PRINT"R7N"\n80 GET #1,2:IF RIGHT$(A$,1)="B" THEN PRINT"R7B" ELSE PRINT"R7N"\n90 CLOSE:PRINT"R7E"\nRUN\n')
       ;;
+    direct_sector)
+      frames=9000
+      run_args=(--save-to-disk-image)
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type \
+                 '10 P=VARPTR(#0)+9:FOR I=0 TO 255:POKE P+I,81:NEXT\n20 DSKO$ 1,0,39,16\n30 FOR I=0 TO 255:POKE P+I,88:NEXT\n40 F=0:FOR I=0 TO 255:IF PEEK(P+I)<>88 THEN F=1\n50 NEXT:IF F=0 THEN PRINT"D8C" ELSE PRINT"D8N"\n60 C$=DSKI$(1,0,39,16):P=VARPTR(#0)+9\n70 F=0:FOR I=0 TO 255:IF PEEK(P+I)<>81 THEN F=1\n80 NEXT:IF F=0 THEN PRINT"D8R" ELSE PRINT"D8N"\n90 PRINT"D8E"\nRUN\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -890,7 +900,8 @@ run_entry_measurement() {
     cp "$source_disk" "$disk" || return 1
     if [ "$scenario" = "load" ] || [ "$scenario" = "seqfile" ] \
        || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ] \
-       || [ "$scenario" = "bsave" ] || [ "$scenario" = "random_file" ]; then
+       || [ "$scenario" = "bsave" ] || [ "$scenario" = "random_file" ] \
+       || [ "$scenario" = "direct_sector" ]; then
       printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
     fi
 
@@ -898,6 +909,7 @@ run_entry_measurement() {
     rm -f "$out_iolog" "$report"
     /usr/bin/perl -e 'alarm shift; exec @ARGV' "$ENTRY_TIMEOUT" \
         "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$disk" \
+        ${run_args[@]+"${run_args[@]}"} \
         --frames "$frames" --io-log "$out_iolog" --out "$report" \
         "${type_args[@]}" \
         >"$WORK/${label}.stdout.txt" 2>>"$WORK/${label}.stderr.txt"
@@ -909,7 +921,7 @@ run_entry_measurement() {
       fi
       ok "${label}: I/Oログ取りこぼし0件"
       case "$scenario" in
-        load_existing|seqfile|kill|name|run_file|merge|bsave|bload|random_file)
+        load_existing|seqfile|kill|name|run_file|merge|bsave|bload|random_file|direct_sector)
           if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
                      --scenario "$scenario" >/dev/null 2>&1; then
             if [ "$scenario" = "bsave" ]; then
@@ -932,6 +944,16 @@ run_entry_measurement() {
                 break
               fi
               ok "${label}: 2レコードPUT後、事前破壊したFIELD変数へGETした末端マーカー2個を確認"
+              ok "${label}: WRITE DATA発行を確認（READ DATA件数はFDC比較で表示）"
+            elif [ "$scenario" = "direct_sector" ]; then
+              local write_cmds
+              write_cmds="$(python3 "$REPO/tools/hash_write_stream.py" "$out_iolog" \
+                            2>/dev/null | awk -F'\t' '$1=="commands"{print $2}')"
+              if [ "${write_cmds:-0}" -le 0 ]; then
+                rc=3
+                break
+              fi
+              ok "${label}: 0番バッファ全256バイトの事前破壊・DSKI\$読戻し一致・末端を確認"
               ok "${label}: WRITE DATA発行を確認（READ DATA件数はFDC比較で表示）"
             else
               ok "${label}: 対象打鍵の画面反映と直後Okを確認"
@@ -1125,6 +1147,47 @@ else
   overall_rc=1
 fi
 
+cat > "$WORK/direct-sector-screen.positive.txt" <<'EOF'
+  0| 20 dsko$ 1,0,39,16
+  1| 60 c$=dski$(1,0,39,16)
+  2| run
+  3| D8C
+  4| D8R
+  5| D8E
+  6| Ok
+EOF
+for fault in no_destroy no_readback no_end; do
+  case "$fault" in
+    no_destroy) markers='D8R D8E' ;;
+    no_readback) markers='D8C D8E' ;;
+    no_end) markers='D8C D8R' ;;
+  esac
+  {
+    echo '  0| 20 dsko$ 1,0,39,16'
+    echo '  1| 60 c$=dski$(1,0,39,16)'
+    echo '  2| run'
+    row=3
+    for marker in $markers; do
+      printf '  %s| %s\n' "$row" "$marker"
+      row=$((row + 1))
+    done
+    printf '  %s| Ok\n' "$row"
+  } > "$WORK/direct-sector-screen.${fault}.txt"
+done
+if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/direct-sector-screen.positive.txt" \
+     --scenario direct_sector >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/direct-sector-screen.no_destroy.txt" \
+     --scenario direct_sector >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/direct-sector-screen.no_readback.txt" \
+     --scenario direct_sector >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/direct-sector-screen.no_end.txt" \
+     --scenario direct_sector >/dev/null 2>&1; then
+  ok "直接セクタ到達判定器: 陽性対照と破壊・読戻し・末端の3欠落故障を区別"
+else
+  ng "直接セクタ到達判定器: 陽性・陰性対照を正しく区別できない"
+  overall_rc=1
+fi
+
 judge_entry files "$FILES_EXPECTED" FILES
 judge_entry load "$LOAD_EXPECTED" LOAD
 judge_entry load_existing "$LOAD_EXISTING_EXPECTED" "既存ファイル単独LOAD"
@@ -1136,6 +1199,7 @@ judge_entry merge "$MERGE_EXPECTED" MERGE 2
 judge_entry bsave "$BSAVE_EXPECTED" BSAVE 2
 judge_entry bload "$BLOAD_EXPECTED" BLOAD 2
 judge_entry random_file "$RANDOM_FILE_EXPECTED" "ランダムアクセスファイルPUT/GET" 2
+judge_entry direct_sector "$DIRECT_SECTOR_EXPECTED" '直接セクタDSKI$/DSKO$' 2
 
 # -----------------------------------------------------------------------
 # m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。

@@ -1,0 +1,5 @@
+# 直接セクタ入出力入口。値は置かず、件数とSHA-256だけを置く。
+# 0番バッファ256バイトをDSKO$し、全長破壊後にDSKI$で完全一致を確認する。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cv-direct-sector-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cv-direct-sector-main-fc	main	00FC	IN	6931	02c8f75b60c7ff8f77e1f822ab9cb10fa4047c4f358301415e0463274d16f2fd

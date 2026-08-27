@@ -47,17 +47,28 @@ run_conformance() {
 
 entry_expected_fault_selftest() {
   local iolog="$1" expected="$2" label="$3"
-  local bad_sha bad_count
+  local bad_sha bad_count empty rows
   local rc=0
 
   bad_sha="$(mktemp "$WORK/entry-expected.bad-sha.XXXXXX")" || return 1
   bad_count="$(mktemp "$WORK/entry-expected.bad-count.XXXXXX")" || return 1
+  empty="$(mktemp "$WORK/entry-expected.empty.XXXXXX")" || return 1
+
+  rows="$(awk '!/^#/ && NF {n++} END {print n+0}' "$expected")" || return 1
+  if [ "$rows" -eq 0 ]; then
+    ng "${label}: 元の期待値のデータ行が0件"
+    return 1
+  fi
 
   if ! awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
        { sha=$6; last=substr(sha,length(sha),1)
          $6=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print }' \
       "$expected" > "$bad_sha"; then
     ng "${label}: SHA-256故障コピーを生成できない"
+    return 1
+  fi
+  if [ "$(awk '!/^#/ && NF {n++} END {print n+0}' "$bad_sha")" -eq 0 ]; then
+    ng "${label}: SHA-256故障コピーのデータ行が0件"
     return 1
   fi
   if run_conformance "$iolog" "$bad_sha" "${label}-hash故障" >/dev/null 2>&1; then
@@ -68,8 +79,12 @@ entry_expected_fault_selftest() {
   fi
 
   if ! awk 'BEGIN{FS=OFS="\t"} /^#/ || NF==0 {print; next}
-       {$5=$5+1; print}' "$expected" > "$bad_count"; then
+      {$5=$5+1; print}' "$expected" > "$bad_count"; then
     ng "${label}: 件数故障コピーを生成できない"
+    return 1
+  fi
+  if [ "$(awk '!/^#/ && NF {n++} END {print n+0}' "$bad_count")" -eq 0 ]; then
+    ng "${label}: 件数故障コピーのデータ行が0件"
     return 1
   fi
   if run_conformance "$iolog" "$bad_count" "${label}-件数故障" >/dev/null 2>&1; then
@@ -77,6 +92,17 @@ entry_expected_fault_selftest() {
     rc=1
   else
     ok "${label}: 件数を壊した期待値コピーを不一致検出"
+  fi
+
+  if ! : > "$empty"; then
+    ng "${label}: 空期待値コピーを生成できない"
+    return 1
+  fi
+  if run_conformance "$iolog" "$empty" "${label}-空期待値故障" >/dev/null 2>&1; then
+    ng "${label}: 期待値0行が一致してしまった"
+    rc=1
+  else
+    ok "${label}: 期待値0行を不一致検出"
   fi
   return "$rc"
 }
