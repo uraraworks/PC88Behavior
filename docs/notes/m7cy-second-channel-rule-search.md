@@ -152,3 +152,17 @@ m7bbで既に陰性だった同位置、前後1位置、直前値の複製、FDC
 
 探索器selftestでは合成入力の正解規則だけを779から6423へ伸ばした。常に779を返す故障と
 常に一致とする故障を2/2検出し、空振り0件だった。候補名、件数、prefix以外は出力していない。
+
+## 検証
+
+`PC88_REF_ROM_DIR=$PWD/private/rom PC88_REF_DISK_DIR=$PWD/private/disk
+tools/conform_l3.sh`はrc=0、OK 432件、NG 3件、SKIP 1件だった。NG 3件は
+自己検査b/c/dの陽性対照だけで、SKIP 1件はDISKB未設定である。
+
+`tools/run_all_selftests.sh`はrc=0、OK 53件、NG 0件、SKIP 3件、
+Traceback 0件だった。今回追加した構造解析と規則探索のselftestもC/UTF-8の両ロケールで
+期待rc=0となった。`tools/check_cleanroom.sh`はrc=0だった。
+
+検証中の行き止まりとして、最初の`conform_l3.sh`は実行セッションの保持方法を誤り、
+需要入口KILLの途中、OK 83件の時点でプロセスが終了した。この不完走は結果へ採用せず、
+全入口を先頭から再実行して上記rc=0と末端の適合表示を確認した。
