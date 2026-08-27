@@ -214,3 +214,18 @@ sub SEND前脱出候補が0件だった。データ値を使わず、これ以�
 全結果で記録したのは件数、clock差統計、構造SHA-256だけである。データポート値列は
 解析報告・ノート・コミットへ1バイトも出力していない。公式ROM・公式ディスクの内容は
 直接読まず、媒体は測定器に実行させ、書込み条件では使い捨て複製だけを変更した。
+
+## 検証
+
+`PC88_REF_ROM_DIR=$PWD/private/rom PC88_REF_DISK_DIR=$PWD/private/disk
+tools/conform_l3.sh`はrc=0、OK 432件、NG 3件、SKIP 1件だった。NG 3件は
+自己検査b/c/dの陽性対照、SKIP 1件はDISKB未設定である。
+
+`tools/run_all_selftests.sh`はrc=0、OK 54件、NG 0件、SKIP 3件、
+Traceback 0件だった。今回追加した解析器もC/UTF-8両ロケールで期待rc=0となった。
+`tools/check_cleanroom.sh`はrc=0だった。
+
+作業開始時コミットから`src/l3_service/make_subrom.py`の差分は0件だった。
+開始時版の生成器と現HEADの生成器を別々の一時ディレクトリで実行し、既定`DISK.ROM`は
+8192バイト、両者がバイト一致した。現HEADからの2回生成もバイト一致し、SHA-256は
+`419d9565963b8262650fa5e2bbf9c97a2c1c29db49785cae4d0c2f744ca070b4`だった。
