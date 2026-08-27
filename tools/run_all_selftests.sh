@@ -83,6 +83,7 @@ SCRIPTS_EXPECTED=(
   "tools/compare_drive_request_runs_selftest.sh:0"
   "tools/verify_drive_byte2_attribution.sh:0"
   "tools/diag_post_bulk_selftest.sh:0"
+  "tools/analyze_second_channel_structure_selftest.sh:0"
   "tools/check_l3_screen_output_selftest.sh:0"
   "tools/check_l3_entry_screen_selftest.sh:0"
   "tools/l3_entry_expected_fault_selftest.sh:0"
