@@ -416,7 +416,7 @@ report_screen_comparison disk_boot "diskA起動" \
 
 say "混成ROMのI/Oストリームを期待値と照合"
 if run_conformance "$WORK/mixed.iolog.txt" "$EXPECTED" "混成(自作サブROM)"; then
-  ok "混成: 自作サブROMが適合条件1を満たした（想定より進んでいた場合。docs/PLAN.mdの状況認識を更新すること）"
+  ok "混成: 自作サブROMが適合条件1を満たした（現状はdocs/PLAN.mdへ反映済み）"
 else
   overall_rc=1
   # ---------------------------------------------------------------
