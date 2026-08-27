@@ -1,0 +1,5 @@
+# 同一runで自作ファイルをSAVE・KILL後、同名LOADのエラー行だけを捕捉する入口。
+# 値は置かず、件数とSHA-256だけを置く。
+# name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
+m7cw-missing-load-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7cw-missing-load-main-fc	main	00FC	IN	10571	ad42427321c15e54e0c0292cff8b6ee628a39822f728da23a89404e57f26c5a5

@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 COMMANDS = {
+    "missing_load": ['save"q8m"', 'kill"q8m"', 'load"q8m"'],
     "direct_sector": ['dsko$ 1,0,39,16', 'dski$(1,0,39,16)'],
     "random_file": ['open "q7r" as #1'],
     "bsave": ['bsave"q7b",&hc000,4'],
@@ -217,6 +218,23 @@ def reached_direct_sector(rows: list[str]) -> bool:
     return response is not None and response[1] == "ok"
 
 
+def reached_missing_load(rows: list[str]) -> bool:
+    """同一runで自作ファイルを削除後、LOAD失敗行だけを捕捉した効果を確認する。"""
+    run = next((i for i, row in enumerate(rows) if row == "run"), None)
+    if run is None:
+        return False
+    if not all(any(command in row for row in rows[:run])
+               for command in COMMANDS["missing_load"]):
+        return False
+    cursor = run + 1
+    for marker in ("m8e", "m8x"):
+        found = next_nonempty(rows, cursor)
+        if found is None or found[1] != marker:
+            return False
+        cursor = found[0] + 1
+    return True
+
+
 def reached_error(rows: list[str], command: str) -> bool:
     """打鍵反映と、一覧を伴わない短いエラー画面形を本文なしで確認する。"""
     pos = next((i for i, row in enumerate(rows) if command in row), None)
@@ -253,7 +271,9 @@ def main() -> int:
     except OSError:
         print("screen_reach=parse_error")
         return 2
-    if args.scenario == "direct_sector":
+    if args.scenario == "missing_load":
+        is_reached = reached_missing_load(rows)
+    elif args.scenario == "direct_sector":
         is_reached = reached_direct_sector(rows)
     elif args.scenario == "random_file":
         is_reached = reached_random_file(rows)

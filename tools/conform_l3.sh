@@ -36,6 +36,7 @@ BSAVE_EXPECTED="$REPO/tests/conformance/expected_bsave.tsv"
 BLOAD_EXPECTED="$REPO/tests/conformance/expected_bload.tsv"
 RANDOM_FILE_EXPECTED="$REPO/tests/conformance/expected_random_file.tsv"
 DIRECT_SECTOR_EXPECTED="$REPO/tests/conformance/expected_direct_sector.tsv"
+MISSING_LOAD_EXPECTED="$REPO/tests/conformance/expected_missing_load.tsv"
 WRITE_PROTECT_EXPECTED="$REPO/tests/conformance/expected_write_protect.tsv"
 NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
@@ -81,8 +82,9 @@ fi
 if [ ! -f "$RUN_FILE_EXPECTED" ] || [ ! -f "$MERGE_EXPECTED" ] \
    || [ ! -f "$BSAVE_EXPECTED" ] || [ ! -f "$BLOAD_EXPECTED" ] \
    || [ ! -f "$RANDOM_FILE_EXPECTED" ] \
-   || [ ! -f "$DIRECT_SECTOR_EXPECTED" ]; then
-  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD/ランダムファイル/直接セクタ需要入口の期待値ファイルが無い" >&2
+   || [ ! -f "$DIRECT_SECTOR_EXPECTED" ] \
+   || [ ! -f "$MISSING_LOAD_EXPECTED" ]; then
+  echo "エラー: RUN\"file\"/MERGE/BSAVE・BLOAD/ランダムファイル/直接セクタ/不存在LOAD需要入口の期待値ファイルが無い" >&2
   exit 2
 fi
 if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
@@ -139,7 +141,8 @@ report_screen_comparison() {
       rc=$?
       if [ "$rc" -eq 1 ]; then
         if { [ "$scenario" = unreadable_disk ] && [ "$mode" = mixed ]; } \
-           || [ "$scenario" = random_file ] || [ "$scenario" = direct_sector ]; then
+           || [ "$scenario" = random_file ] || [ "$scenario" = direct_sector ] \
+           || [ "$scenario" = missing_load ]; then
           ng "${label}-${mode}: 固定した画面期待値と不一致（第82版の末端一致条件）"
           overall_rc=1
         else
@@ -162,7 +165,7 @@ report_screen_comparison() {
     rc=$?
     if [ "$rc" -eq 1 ]; then
       if [ "$scenario" = unreadable_disk ] || [ "$scenario" = random_file ] \
-         || [ "$scenario" = direct_sector ]; then
+         || [ "$scenario" = direct_sector ] || [ "$scenario" = missing_load ]; then
         ng "${label}: 公式一式と混成の画面出力が不一致（第82版の末端一致条件）"
         overall_rc=1
       else
@@ -886,6 +889,12 @@ run_entry_measurement() {
       type_args=(--type-at 300 --type '\n' --type-at 700 --type \
                  '10 P=VARPTR(#0)+9:FOR I=0 TO 255:POKE P+I,81:NEXT\n20 DSKO$ 1,0,39,16\n30 FOR I=0 TO 255:POKE P+I,88:NEXT\n40 F=0:FOR I=0 TO 255:IF PEEK(P+I)<>88 THEN F=1\n50 NEXT:IF F=0 THEN PRINT"D8C" ELSE PRINT"D8N"\n60 C$=DSKI$(1,0,39,16):P=VARPTR(#0)+9\n70 F=0:FOR I=0 TO 255:IF PEEK(P+I)<>81 THEN F=1\n80 NEXT:IF F=0 THEN PRINT"D8R" ELSE PRINT"D8N"\n90 PRINT"D8E"\nRUN\n')
       ;;
+    missing_load)
+      frames=9000
+      run_args=(--save-to-disk-image)
+      type_args=(--type-at 300 --type '\n' --type-at 700 --type \
+                 '10 ON ERROR GOTO 100\n20 KILL"Q8M"\n30 LOAD"Q8M"\n40 PRINT"M8N":END\n100 IF ERL=30 THEN PRINT"M8E":RESUME 120\n110 PRINT"M8N":END\n120 PRINT"M8X"\nSAVE"Q8M"\nRUN\n')
+      ;;
     *)
       echo "エラー: 未知の入口シナリオ: $scenario" >&2
       return 2
@@ -901,7 +910,7 @@ run_entry_measurement() {
     if [ "$scenario" = "load" ] || [ "$scenario" = "seqfile" ] \
        || [ "$scenario" = "kill" ] || [ "$scenario" = "name" ] \
        || [ "$scenario" = "bsave" ] || [ "$scenario" = "random_file" ] \
-       || [ "$scenario" = "direct_sector" ]; then
+       || [ "$scenario" = "direct_sector" ] || [ "$scenario" = "missing_load" ]; then
       printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none
     fi
 
@@ -921,7 +930,7 @@ run_entry_measurement() {
       fi
       ok "${label}: I/Oログ取りこぼし0件"
       case "$scenario" in
-        load_existing|seqfile|kill|name|run_file|merge|bsave|bload|random_file|direct_sector)
+        load_existing|seqfile|kill|name|run_file|merge|bsave|bload|random_file|direct_sector|missing_load)
           if python3 "$ENTRY_SCREEN_CHECK" --report "$report" \
                      --scenario "$scenario" >/dev/null 2>&1; then
             if [ "$scenario" = "bsave" ]; then
@@ -955,6 +964,8 @@ run_entry_measurement() {
               fi
               ok "${label}: 0番バッファ全256バイトの事前破壊・DSKI\$読戻し一致・末端を確認"
               ok "${label}: WRITE DATA発行を確認（READ DATA件数はFDC比較で表示）"
+            elif [ "$scenario" = "missing_load" ]; then
+              ok "${label}: SAVE後に同名KILLを通過し、不存在LOAD行だけの捕捉と末端復帰を確認"
             else
               ok "${label}: 対象打鍵の画面反映と直後Okを確認"
             fi
@@ -1188,6 +1199,66 @@ else
   overall_rc=1
 fi
 
+cat > "$WORK/missing-load-screen.positive.txt" <<'EOF'
+  0| save"q8m"
+  1| 20 kill"q8m"
+  2| 30 load"q8m"
+  3| run
+  4| M8E
+  5| M8X
+EOF
+for fault in no_save no_kill no_load no_run no_error no_end wrong_line; do
+  case "$fault" in
+    no_save) commands='kill load run'; markers='M8E M8X' ;;
+    no_kill) commands='save load run'; markers='M8E M8X' ;;
+    no_load) commands='save kill run'; markers='M8E M8X' ;;
+    no_run) commands='save kill load'; markers='M8E M8X' ;;
+    no_error) markers='M8X' ;;
+    no_end) markers='M8E' ;;
+    wrong_line) markers='M8N M8X' ;;
+  esac
+  {
+    commands="${commands:-save kill load run}"
+    row=0
+    for command in $commands; do
+      case "$command" in
+        save) text='save"q8m"' ;;
+        kill) text='20 kill"q8m"' ;;
+        load) text='30 load"q8m"' ;;
+        run) text='run' ;;
+      esac
+      printf '  %s| %s\n' "$row" "$text"
+      row=$((row + 1))
+    done
+    for marker in $markers; do
+      printf '  %s| %s\n' "$row" "$marker"
+      row=$((row + 1))
+    done
+  } > "$WORK/missing-load-screen.${fault}.txt"
+  unset commands
+done
+if python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.positive.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_save.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_kill.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_load.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_run.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_error.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.no_end.txt" \
+     --scenario missing_load >/dev/null 2>&1 \
+   && ! python3 "$ENTRY_SCREEN_CHECK" --report "$WORK/missing-load-screen.wrong_line.txt" \
+     --scenario missing_load >/dev/null 2>&1; then
+  ok "不存在LOAD到達判定器: 陽性対照とSAVE/RUN/KILL/LOAD・エラー捕捉・末端の7故障を区別"
+else
+  ng "不存在LOAD到達判定器: 陽性・陰性対照を正しく区別できない"
+  overall_rc=1
+fi
+
 judge_entry files "$FILES_EXPECTED" FILES
 judge_entry load "$LOAD_EXPECTED" LOAD
 judge_entry load_existing "$LOAD_EXISTING_EXPECTED" "既存ファイル単独LOAD"
@@ -1200,6 +1271,7 @@ judge_entry bsave "$BSAVE_EXPECTED" BSAVE 2
 judge_entry bload "$BLOAD_EXPECTED" BLOAD 2
 judge_entry random_file "$RANDOM_FILE_EXPECTED" "ランダムアクセスファイルPUT/GET" 2
 judge_entry direct_sector "$DIRECT_SECTOR_EXPECTED" '直接セクタDSKI$/DSKO$' 2
+judge_entry missing_load "$MISSING_LOAD_EXPECTED" '削除済みファイルのLOADエラー' 2
 
 # -----------------------------------------------------------------------
 # m7ci: 汎用256バイト経路とは別の、エラー結果相とB: unit/head経路。
