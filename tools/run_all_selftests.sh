@@ -86,6 +86,7 @@ SCRIPTS_EXPECTED=(
   "tools/diag_post_bulk_selftest.sh:0"
   "tools/analyze_second_channel_structure_selftest.sh:0"
   "tools/search_second_channel_rules_selftest.sh:0"
+  "tools/check_5635_origin_structure_selftest.sh:0"
   "tools/check_l3_screen_output_selftest.sh:0"
   "tools/check_l3_entry_screen_selftest.sh:0"
   "tools/l3_entry_expected_fault_selftest.sh:0"
