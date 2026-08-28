@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第99版 / 2026-08-28
+仕様書 第100版 / 2026-08-29
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第100版 | 2026-08-29 | 自作ファイル本数ラダーによるディレクトリ拡張アクセスの16本周期 | 1.55節を新設し、固定した公式diskA複製へ自作空ファイルを1本ずつ追加して固定不存在名OPENを測ると、N=11・27・43で`main IN $FC`が各258件・READが各1単位増え、間隔16・増分完全一致、中間は全てゼロ差分となる周期を確定した。各点は独立再構築でも再現し、各Nの作成、`FILES`成果物変化、2走決定論性、取りこぼし0件を確認済みで、N=48まで作成できたため容量上限による頭打ちではない。1段階の258件・1単位が1.54節のD段階と同額である事実は記録するが、同一機構とは推論しない。元媒体の既存項目数を読んでいないためN=11を絶対項目数とせず、16本周期から管理形式・エントリ長・セクタ長も逆算しない。3節とm7cxへ、この周期が媒体上の何に対応するかを新規未確定1件として追加した。根拠は`docs/notes/m7dv-directory-expansion-boundary-preregistration.md`・`docs/notes/m7dw-directory-expansion-boundary-first-block-results.md`・`docs/notes/m7dx-directory-expansion-boundary-continuation.md`・`docs/notes/m7dy-directory-expansion-jump-periodicity-preregistration.md`・`docs/notes/m7dz-directory-expansion-jump-periodicity-results.md`。 |
 | 第99版 | 2026-08-28 | 第98版「複数ファイル読出し削減」の固定費訂正 | **第98版の「同一セッションへの集約で削減の大部分が再現される」という記述を訂正した。** 同じadjacent媒体の段階ラダーとQ9B/Q9C単独各2走により、P0=6672件・READ 9単位が起動時第2チャンネルとSHA-256・区間構造・位置署名まで同一で、単独値8222件・17単位はこの起動固定費とファイル1本分1550件・8単位の和だと確定した。別ブート単独2回の合計は固定費を二重計上しており、逐次R2=9772件・25単位とR3=11322件・33単位は固定費モデルへ完全一致する。段階差もE1=E2=E3=1292件・7単位、D1=D2=D3=258件・1単位で、後続OPEN／読出しが安くなるH-D/H-Bは反証された。一方、同時オープンだけが固定費予測より518件・4単位少ない残差は未説明として独立に残した。1.54節は第98版原文を取り消し線で残して訂正し、3節とm7cxの未確定をこの残差へ絞った。根拠は`docs/notes/m7ds-read-reduction-stage-intervention-preregistration.md`・`docs/notes/m7dt-read-reduction-stage-ladder-results.md`・`docs/notes/m7du-fixed-cost-model-and-p0-identity.md`。 |
 | 第98版 | 2026-08-28 | 複数ファイル読出し需要入口の非加法性と同一セッション対照 | 1.54節を新設し、同じQ9A/Q9Bを読む場合でも、別ブート単独2回の合計（`main IN $FC` 16444件・READ 34単位）に対して、同時オープン（9254件・21単位）と同一セッション逐次（9772件・25単位）は大幅に少なく、需要入口の読出しアクセスが加法的でないことを確定した。同一セッションへの集約だけで削減の大部分が再現されるため、削減の主因を「同時に開いていること」には置かず、純粋な同時性効果はA–B間の518件・4単位を上限とした。ただし、引き継ぎ状態、読出し順・ハンドル・CLOSE位置、Cだけが2ブート分の固定費を持つ交絡は除去できず、キャッシュ等の機構や削減段階へは帰属しない。3節へ削減段階を新規未確定事項として追加した。根拠は`docs/notes/m7do-multi-file-open-entry-preregistration.md`・`docs/notes/m7dp-multi-file-open-entry-conformance.md`／`docs/notes/m7dq-same-session-sequential-open-preregistration.md`・`docs/notes/m7dr-same-session-sequential-open-conformance.md`。 |
 | 第97版 | 2026-08-25（記録は2026-08-28に追記） | ランダムアクセス需要入口の公式環境適合（記載漏れの追記） | **本行は測定時（2026-08-25 17:17、コミット`fb72984`）に本表への反映が漏れていたものを、2026-08-28の未踏入口サーベイ（`m7dn`）で発覚後に追記した。** 番号は発覚時点の最新版（第95版）の後ろへ付け、既存の版番号は振り直していない。測定順序としては第87版（RUN"file"/MERGE）と第88版（直接セクタ入出力）の間にあたる。128バイトレコード粒度のランダムアクセス（`OPEN ... AS #n` / `FIELD` / `PUT` / `GET`、保存はRSET・破壊確認にLSETを使用）を、GET直後の「Okが出た」を条件にせずFIELD変数を事前に別値で潰してから読み戻し一致を見るマーカー方式で事前登録し、公式・混成各2回、取りこぼし0件、画面完全一致、入口終端到達を確認した。実装追加は不要。`main IN $FC`は9788件で、既存単独LOAD/RUN/MERGE/BLOADの8222件・BSAVEの7976件のいずれとも異なる足跡だった。初回実走では表示ラベル中の`/`を一時ファイル名へ使ったため期待値0行を成功扱いする判定器の不具合があり（`m7cj`と同型の再発）、mktemp化と0行失敗扱いを入れて直してから測り直した。根拠は`docs/notes/m7cu-random-file-entry-conformance.md`。 |
@@ -2294,6 +2295,53 @@ BがCより6672件・9単位少ないのは、同一セッションでは起動�
 [docs/notes/m7dt-read-reduction-stage-ladder-results.md](../notes/m7dt-read-reduction-stage-ladder-results.md)・
 [docs/notes/m7du-fixed-cost-model-and-p0-identity.md](../notes/m7du-fixed-cost-model-and-p0-identity.md)。
 
+### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100版）
+
+固定した公式diskAの使い捨て複製へ、自作の空シーケンシャルファイルを同じ命名規則で
+1本ずつ追加し、各Nで固定した有効形式の不存在名をINPUT OPENした。Nは元媒体へ追加した
+自作ファイル本数であり、元から存在する項目名・内容・総数は読んでいない。
+
+介入が実際に効いたことを、アクセス件数とは独立に確認した。各作成runはWRITE非0、
+固有マーカー、媒体SHA-256変化を満たし、各Nの`FILES`画面は行数・文字数・SHA-256の
+少なくとも一つが前段から変化した。ブロック末端では追加した全自作名をINPUT OPENできた。
+また前半N=0〜8の固定不存在OPENは毎回READ 7単位を実行し、そのmain `IN $FC`応答の
+SHA-256がNごとに変化した。従って、ファイルが増えていない、または検索前に媒体と無関係な
+別経路で一律拒否されたという空振りではない。この確認を経たうえで、N=0〜10のアクセス
+件数差が0件・0単位だったことを、非ゼロの「1本当たり一定コスト」とは呼ばず、
+**ファイル追加に伴うアクセス件数のゼロ差分**とした。
+
+確認済みの正方向ジャンプは次の3点である。各点は直前8本境界アンカーから媒体を独立に
+再構築し、N-1/Nを公式各2走で再測定して、差分・符号・FDC構造的延長を完全再現した。
+
+| 追加本数N | 入口main `IN $FC` | READ単位 | 直前Nからの増分 | 前ジャンプとの間隔 |
+|---:|---:|---:|---:|---:|
+| 11 | 1550 | 8 | **258件・1単位** | — |
+| 27 | 1808 | 9 | **258件・1単位** | **16本** |
+| 43 | 2066 | 10 | **258件・1単位** | **16本** |
+
+N=12〜26、28〜42の各ジャンプ間は全て0件・0単位のゼロ差分だった。三点の全間隔が
+16本、全増分ベクトルが258件・1単位へ完全一致し、間に別の正方向ジャンプ、負方向変化、
+方向不一致も無かったため、**固定した条件の観測範囲では、追加16本ごとに不存在OPENの
+アクセスが1段階（main `IN $FC` 258件・READ 1単位）増える。** N=48まで作成run、
+`FILES`各2走、ブロック全名OPENが成立しており、容量上限による頭打ちではない。
+
+この1段階の増分**258件・READ 1単位**は、1.54節のファイル内容読出し追加D
+（`D1=D2=D3`）と同額である。これは測定された数値の一致として記録するが、同額だけを
+根拠に同じ管理表、バッファ、SEEK、ROM内機構が働いたとは推論しない。
+
+言えるのは、固定した元媒体・空ファイル・作成順・不存在OPENという条件で、追加本数軸に
+16本周期のアクセス段階が現れたことまでである。この周期が媒体上のディレクトリ、
+エントリ、セクタ、クラスタ、割付表、検索ブロック等のどれに対応するかは未確定である
+（3節）。**16からエントリ長、セクタ長、媒体上のバイト数・アドレスを逆算しない。**
+最初のジャンプN=11も、元媒体の既存項目数を観測していないため、絶対的な項目数11の
+境界とは解釈しない。
+
+根拠: [docs/notes/m7dv-directory-expansion-boundary-preregistration.md](../notes/m7dv-directory-expansion-boundary-preregistration.md)・
+[docs/notes/m7dw-directory-expansion-boundary-first-block-results.md](../notes/m7dw-directory-expansion-boundary-first-block-results.md)・
+[docs/notes/m7dx-directory-expansion-boundary-continuation.md](../notes/m7dx-directory-expansion-boundary-continuation.md)・
+[docs/notes/m7dy-directory-expansion-jump-periodicity-preregistration.md](../notes/m7dy-directory-expansion-jump-periodicity-preregistration.md)・
+[docs/notes/m7dz-directory-expansion-jump-periodicity-results.md](../notes/m7dz-directory-expansion-jump-periodicity-results.md)。
+
 ## 2. 明示的に「採用できない」こと
 
 ### 2.1 `$FD`→`$FC` の値一致率100.0% は実装上ほぼ必然であり、実機の証拠として採用しない
@@ -2771,6 +2819,13 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   518件・4単位だけである。** A/Bは交互／連続読出し、ファイル番号、CLOSE時点も異なるため、
   この残差を純粋な同時性へ帰属できない。切り分けには、これらを可能な限り揃えた同時／
   非同時対照が要る。特定のキャッシュ、ディレクトリ検索、SEEK機構を推測で補わない。
+- **（第100版で追加）1.55節の16本周期が媒体上の何に対応するか。** 固定した公式diskA
+  複製へ自作空ファイルを追加したとき、N=11・27・43で各258件・READ 1単位増え、
+  16本間隔・同一増分となることは独立再構築込みで確定した。しかし元媒体の既存項目数を
+  読んでおらず、周期の1段階がディレクトリ、エントリ、セクタ、クラスタ、割付表、
+  検索ブロック等のどれに対応するかは未確定である。公開D88仕様との別照合や、初期占有、
+  削除・再利用、配置を独立に動かす追加介入なしに、16からエントリ長・セクタ長・媒体上の
+  バイト数を逆算しない。1.54節のDと同額であることから同一機構とも推論しない。
 
 ---
 
