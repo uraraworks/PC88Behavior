@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第93版 / 2026-08-28
+仕様書 第94版 / 2026-08-28
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第94版 | 2026-08-28 | boundary_match残差の規則探索と3節の統合 | m7dhでX判定に残った`0F`先頭専有・run長偶奇の`boundary_match`残差（各48件・50件）について、発行pc・共通clock間隔・フェーズ・条件・run長・pc列パターンの単一軸5種と2軸コンボ3系統を事前登録・探索したが、誤り0件（偽陽性0・偽陰性0）の候補は1件も無く打ち切った。先に確認した論点0で、`0F`側`boundary_match`が4条件すべてで偶奇側`boundary_match`の部分集合（Jaccard 0.96）と分かったため、3節の該当2項目を1つの未確定事項へ統合した（指標ごとの分母・分子は維持）。「間隔が短いrunほど起きる」仮説は偽陰性全数で反証、run長6への約9割の偏りは分離し切れない手掛かりとして記録するにとどめた。根拠は`docs/notes/m7dj-boundary-match-residual-rule-search-preregistration.md`・`docs/notes/m7dk-boundary-match-residual-rule-search-results.md`。 |
 | 第93版 | 2026-08-28 | run切り出し誤差の3件をアンカーで帰属・仕様書へ反映 | 1.19節RECV前後の0.11〜0.18%例外を、判定対象の指標を使わない独立境界アンカー（main視点`OUT $FD`/`IN $FC`選択イベントだけで区切る）で帰属した。d0-boot/d1-files/d2-save/d5-seqfile相当4条件×各2走を新規実測し、アンカーcutは全条件例外0件、現cut例外は100%が`false_split`へ一意に帰属してM（手法由来）と確定した。「アンカー例外0件」が空検査でないことは、境界を保ったまま本物のbit0違反を仕込む陰性対照で別途確認した。1.20節`OUT $FF 0F`のrun先頭専有（92件）とrun長偶奇（81件）は、同じアンカーで`boundary_match`が過半（各48件・50件）を占め、m7dgのどの境界誤認腕にも対応しない残差のためX（混在／識別不能）のまま件数付きで残した。分類器自体が6カテゴリを独立に出し分けられることも単体で確認済み。根拠は`docs/notes/m7df-run-cutter-error-preregistration.md`・`docs/notes/m7dg-run-cutter-positive-selftest.md`・`docs/notes/m7dh-run-cutter-independent-anchor-attribution.md`・`docs/notes/m7di-attribution-tool-negative-control.md`。 |
 | 第92版 | 2026-08-28 | 5635の由来を公開D88仕様との算術照合・再現対照・媒体形状介入で測定 | `5635 = 3 + 5632`の直接説明を、交換#14の44セクタ窓を2チャンネルへ交互配置した片側長とプリアンブル3件として公式diskA 2走で再現した。5632は22×256、両チャンネル合算11264は44×256で、媒体データ1トラック4096バイトにもD88トラック部4352バイトにも一致しない。44セクタを選ぶ上流理由は、媒体形状追随と固定`0x1600`カウンタが形状介入3条件でも観測等価で未確定とし、識別に必要な値非表示ハーネス介入を記録した。根拠は`docs/notes/m7da-5635-origin-preregistration.md`・`docs/notes/m7db-5635-stage1-saved-log-recount.md`・`docs/notes/m7dc-5635-h1-reproduction-control.md`・`docs/notes/m7dd-5635-stage3-feasibility.md`・`docs/notes/m7de-5635-stage3-shape-intervention.md`。 |
 | 第91版 | 2026-08-27 | 共通クロックで区分Cの3問を測定 | QUASI88のd1-files/d5-seqfileを各2回取得し、1.18節のFDC時間相関が追加2条件でも成立すること、1.22節の起動時FDC初期化列が同一条件2回の直接突き合わせで決定論的なことを確認した。SEND/RECV遅延は通常標本の分布を得たが、d5ストリーミング等で1バイトごとの`$FE`終点へ一意対応できず、完全分布には届かない境界を記録した。解析器selftestはOK 17・NG 0、故障注入13件・空振り0件。これはQUASI88実装の定性的結論だけで、定量精度・実機一般性は主張しない。根拠は`docs/notes/m7cz-common-clock-three-questions.md`。 |
@@ -2544,31 +2545,47 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   確認できなかった。直前に受け取ったデータ値（伏せ字済み）に依存する
   可能性が最も自然だが裏付けは無い。1.17節の未確定事項の範囲内であり、
   本版はそれをより詳細なPC単位の裏付けとともに再確認したに過ぎない。
-- **（第11版で追加、第93版で性質を再確認）main側SEND run内`OUT $FF 0F`の
-  run先頭専有仮説が100%でない理由（1.20節）。** 「切り出し手法の誤差
-  かもしれない」という段階は終わった。判定対象の指標を使わない独立
-  境界アンカー（main視点の選択イベントだけで区切る`anchor_send_runs`）
-  で4条件×各2走の現cut例外92件を件数付きで帰属したところ、
+- **（第11版で追加、第93版で性質を再確認、第94版で1項目へ統合）
+  main側SEND run内`OUT $FF 0F`のrun先頭専有仮説が100%でない理由と、
+  run長の偶奇と`pc=3811`／`37F4`の対応の反証後、両者の出現が実際に
+  何に依存するか（1.20節）。** 「切り出し手法の誤差かもしれない」という
+  段階は終わった。判定対象の指標を使わない独立境界アンカー（main視点の
+  選択イベントだけで区切る`anchor_send_runs`）で4条件×各2走の現cut例外を
+  帰属したところ、`0F`側92件中`boundary_match`48件・`false_split`27件・
+  `interrupt_boundary`17件、偶奇側81件中`boundary_match`50件・
+  `false_split`31件（`interrupt_boundary`0件）だった。過半を占める
   `boundary_match`（アンカーが現cutと**同じ**境界を引いたのに例外が残る）
-  48件、`false_split`27件、`interrupt_boundary`17件だった。過半を占める
-  `boundary_match`は、m7dg（合成陽性対照、23腕）のどの境界誤認腕にも
-  対応しない——境界が一致しているのに残る以上、境界誤認モデルだけでは
-  説明できない残差である。一方で`false_split`・`interrupt_boundary`
-  （計44件）は境界差にも帰属できるため、「本当の例外」だと確定する
-  こともできない。**M（手法由来）・R（実挙動）のいずれの到達条件も
-  満たさず、X（混在／識別不能）のまま件数付きで残す。**
-- **（第11版で追加、第93版で性質を再確認）run長の偶奇と`pc=3811`／
-  `37F4`の対応の反証後、両者の出現が実際に何に依存するか（1.20節）。**
-  同じ独立境界アンカーで偶奇・末尾pc反例81件を帰属したところ、
-  `boundary_match`50件、`false_split`31件（`interrupt_boundary`は0件）
-  だった。`0F`指標と同様、過半（62%）を占める`boundary_match`は境界
-  誤認モデルの予測に対応しない残差であり、m7df事前登録の「`0F`と偶奇を
-  別々に判定し、片方だけ残るならその指標だけをRとする」を試みても
-  どちらか一方に寄らなかった。**X（混在／識別不能）のまま件数付きで
-  残す。** 根拠（両項目共通）は`docs/notes/m7df-run-cutter-error-preregistration.md`・
+  は、m7dg（合成陽性対照、23腕）のどの境界誤認腕にも対応しない——境界が
+  一致しているのに残る以上、境界誤認モデルだけでは説明できない残差である。
+  **この2項目はもともと別々の未確定事項として並べていたが、実態は別の
+  現象ではなかった。** `0F`側`boundary_match`の48件は、4条件すべてで
+  例外なく偶奇側`boundary_match`（50件）の部分集合になっており
+  （共通部分48・和集合50、Jaccard 0.96）、偶奇側だけが持つ2件を除けば
+  同一のrun群を指す。従って本版から**1つの未確定事項として扱う**
+  （項目としては統合するが、`0F`側92件・偶奇側81件という指標ごとの
+  分母・分子はそれぞれ独立に維持し、混同しない）。
+  この共通run群を説明する規則をm7djで事前登録し、m7dkで軸探索した
+  （発行pc・共通clock間隔・フェーズ・条件・run長・pc列パターン、
+  単一軸5種＋2軸コンボ3系統）。**誤り0件（偽陽性0・偽陰性0）に届いた
+  候補は1件も無く、事前登録した打ち切り条件に該当したため探索を終了した。**
+  分かった否定的事実は次のとおり: 「直前runとの間隔が短いrunほど
+  `boundary_match`になりやすい」という候補は、どの間隔閾値でも偽陰性が
+  全数（`0F`側48/48・偶奇側50/50）となり積極的に反証された——むしろ
+  `boundary_match`は間隔が広いrunに起きている。`boundary_match`の
+  約9割（`0F`側44/48・偶奇側44/50）がrun長6に集中するが、run長6の
+  `false_split`等も同数程度存在するためrun長だけでは分離し切れず、
+  **これは手掛かりとして記録するにとどめ、部分的にでも確定した規則とは
+  呼ばない。** pc列パターン軸は今回のデータでは常にrun長軸と同一の
+  予測になり、独立に効いている証拠は無かった。起動バルク区間か通常区間
+  かという軸は、SEND runが構造上バルク区間の内側に位置し得ないため
+  判別力を持たなかった。**M（手法由来）・R（実挙動）のいずれの到達条件も
+  満たさず、X（混在／識別不能）のまま件数付きで残す。** 根拠は
+  `docs/notes/m7df-run-cutter-error-preregistration.md`・
   `docs/notes/m7dg-run-cutter-positive-selftest.md`・
   `docs/notes/m7dh-run-cutter-independent-anchor-attribution.md`・
-  `docs/notes/m7di-attribution-tool-negative-control.md`。
+  `docs/notes/m7di-attribution-tool-negative-control.md`・
+  `docs/notes/m7dj-boundary-match-residual-rule-search-preregistration.md`・
+  `docs/notes/m7dk-boundary-match-residual-rule-search-results.md`。
 - **（第13版で追加、第29版更新）交換#3/#4以外の応答形式を識別する
   一般規則。** 第29版で「run長==8なら256バイト応答」という旧規則は
   誤りと確定し、交換#3=8バイト要求・1バイト内部状態応答、交換#4=
