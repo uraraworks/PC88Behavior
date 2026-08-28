@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第94版 / 2026-08-28
+仕様書 第95版 / 2026-08-28
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第95版 | 2026-08-28 | main視点SEND runとsub視点受信runの非対応を確定・run長6探索の追記 | 1.53節を新設し、main視点SEND run（`main_send_runs()`）と1.36節のsub視点受信run（`window_a_runs()`）が1:1対応しないことを4条件の件数（22/25・40/49・58/74・82/100）と位置対応での長さ一致率（13〜21%）で確定した。両者は同じ送受信を別々の許容規則（$FE/$FF許容 対 OUT $FB/OUT $FD遮断）で切り出しており境界が一般には一致しないため、理由も明記した。1.20節・1.36節へ相互参照を張り、1.36節の表引きをmain視点SEND runへ流用しないよう注意書きを追加した。3節では、run長6偏りをsub側FDCアクセス件数・往復の位置・直後FDCコマンド種別の単一軸3種＋2軸コンボ3系統でも説明できなかったことを追記した（誤り0件の候補なし、最良でも誤り31件以上）。「部分確定」とは書いていない。根拠は`docs/notes/m7dl-run-length-6-protocol-axis-preregistration.md`・`docs/notes/m7dm-run-length-6-protocol-axis-results.md`。 |
 | 第94版 | 2026-08-28 | boundary_match残差の規則探索と3節の統合 | m7dhでX判定に残った`0F`先頭専有・run長偶奇の`boundary_match`残差（各48件・50件）について、発行pc・共通clock間隔・フェーズ・条件・run長・pc列パターンの単一軸5種と2軸コンボ3系統を事前登録・探索したが、誤り0件（偽陽性0・偽陰性0）の候補は1件も無く打ち切った。先に確認した論点0で、`0F`側`boundary_match`が4条件すべてで偶奇側`boundary_match`の部分集合（Jaccard 0.96）と分かったため、3節の該当2項目を1つの未確定事項へ統合した（指標ごとの分母・分子は維持）。「間隔が短いrunほど起きる」仮説は偽陰性全数で反証、run長6への約9割の偏りは分離し切れない手掛かりとして記録するにとどめた。根拠は`docs/notes/m7dj-boundary-match-residual-rule-search-preregistration.md`・`docs/notes/m7dk-boundary-match-residual-rule-search-results.md`。 |
 | 第93版 | 2026-08-28 | run切り出し誤差の3件をアンカーで帰属・仕様書へ反映 | 1.19節RECV前後の0.11〜0.18%例外を、判定対象の指標を使わない独立境界アンカー（main視点`OUT $FD`/`IN $FC`選択イベントだけで区切る）で帰属した。d0-boot/d1-files/d2-save/d5-seqfile相当4条件×各2走を新規実測し、アンカーcutは全条件例外0件、現cut例外は100%が`false_split`へ一意に帰属してM（手法由来）と確定した。「アンカー例外0件」が空検査でないことは、境界を保ったまま本物のbit0違反を仕込む陰性対照で別途確認した。1.20節`OUT $FF 0F`のrun先頭専有（92件）とrun長偶奇（81件）は、同じアンカーで`boundary_match`が過半（各48件・50件）を占め、m7dgのどの境界誤認腕にも対応しない残差のためX（混在／識別不能）のまま件数付きで残した。分類器自体が6カテゴリを独立に出し分けられることも単体で確認済み。根拠は`docs/notes/m7df-run-cutter-error-preregistration.md`・`docs/notes/m7dg-run-cutter-positive-selftest.md`・`docs/notes/m7dh-run-cutter-independent-anchor-attribution.md`・`docs/notes/m7di-attribution-tool-negative-control.md`。 |
 | 第92版 | 2026-08-28 | 5635の由来を公開D88仕様との算術照合・再現対照・媒体形状介入で測定 | `5635 = 3 + 5632`の直接説明を、交換#14の44セクタ窓を2チャンネルへ交互配置した片側長とプリアンブル3件として公式diskA 2走で再現した。5632は22×256、両チャンネル合算11264は44×256で、媒体データ1トラック4096バイトにもD88トラック部4352バイトにも一致しない。44セクタを選ぶ上流理由は、媒体形状追随と固定`0x1600`カウンタが形状介入3条件でも観測等価で未確定とし、識別に必要な値非表示ハーネス介入を記録した。根拠は`docs/notes/m7da-5635-origin-preregistration.md`・`docs/notes/m7db-5635-stage1-saved-log-recount.md`・`docs/notes/m7dc-5635-h1-reproduction-control.md`・`docs/notes/m7dd-5635-stage3-feasibility.md`・`docs/notes/m7de-5635-stage3-shape-intervention.md`。 |
@@ -1028,6 +1029,10 @@ pc=00CC本体でこの分岐が実際に使われているかどうかは、本�
 
 ### 1.20 run境界（連続送信の途中か終わりか）の判別 — 構造は確定、選択根拠は未確定（第11版）
 
+**本節が扱うrunはmain視点SEND run（`main OUT $FD`の連続、`main_send_runs()`が
+切り出す）である。1.36節のsub視点受信run（先頭バイト表引き）とは1:1対応
+しない別対象なので、1.36節の表をここへ流用しないこと（1.53節）。**
+
 `docs/notes/m6n-run-boundary.md`。1.17節は「通常のRECV+SEND応答ペア」
 「ストリーミングRECVループ（d5-seqfile固有）」という2種の呼び出しパターン
 の**存在**までは確定していたが、両者を切り替える条件は未確定のまま
@@ -1663,6 +1668,10 @@ READ側と同値」は公式WRITEと6/8位置しか一致せず、書き込み�
 
 ### 1.36 バルク直後の受信runは先頭バイトの表引きでrun長・座標フィールド位置が決まる（第63版）
 
+**本節が扱うrunはsub視点受信run（`sub IN $FC`の連続、`window_a_runs()`が
+切り出す）である。1.20節のmain視点SEND run（`main_send_runs()`）とは1:1対応
+しない別対象なので、本節の表をmain視点SEND runへ流用しないこと（1.53節）。**
+
 `docs/notes/m7bh-post-bulk-read-coordinates.md`・`m7bi-post-bulk-record-length.md`
 （伏せ字済みログの再解析。値は見ていない）で、バルク直後の最初のREADが
 公式では**受信5件の時点**で行われ、自作の6バイトレコード規則（1.35節・
@@ -2174,6 +2183,47 @@ PIO Cのmain→sub handoffを1回だけ抑止する`defer_once`は介入が成�
 
 根拠: [docs/notes/m7cr-early-response-length-sweep.md](../notes/m7cr-early-response-length-sweep.md)。
 
+### 1.53 main視点SEND runとsub視点受信runは1:1対応しない（第95版）
+
+**取り違え注意（実装者向け）: 1.36節の要求種別テーブル（先頭バイト→run長の
+表引き）は、sub視点受信run（`window_a_runs()`：連続する`sub IN $FC`を
+`OUT $FB`/`OUT $FD`の割り込みで切る）に対して確定したものである。1.20節が
+扱うmain視点SEND run（`main_send_runs()`：連続する`main OUT $FD`を`$FE`/`$FF`
+だけ許容して束ねる）へこの表引きをそのまま適用してはならない。** 両者は
+同じ物理的な送受信を両エンドポイントから見た対応物のはずだが、**実際には
+1:1に対応しない**ことを本節で確定する。
+
+`docs/notes/m7dm-run-length-6-protocol-axis-results.md`で、共通clock付き
+iolog4条件（d0-boot/d1-files/d2-save/d5-seqfile相当）×各run1について、
+`main_send_runs()`の返すrun数と`window_a_runs()`の返すrun数、および
+clock順の位置対応でのrun長一致率を比較した。
+
+| 条件 | main視点SEND run数 | sub視点受信run数 | 位置対応での長さ一致率 |
+|---|---:|---:|---:|
+| d0-boot | 22 | 25 | 4/22（18%） |
+| d1-files | 40 | 49 | 7/40（18%） |
+| d2-save | 58 | 74 | 12/58（21%） |
+| d5-seqfile | 82 | 100 | 11/82（13%） |
+
+**4条件すべてで件数が一致せず、位置対応での長さ一致率も13〜21%にとどまった。**
+理由は、両者が同じ物理的な送受信を**別々の許容規則で切り出している**ため
+である。`main_send_runs()`は`main OUT $FD`の並びを、間に`$FE`/`$FE`以外の
+ポートが挟まらない限り束ねる。`window_a_runs()`は`sub IN $FC`の並びを、
+間に`OUT $FB`か`OUT $FD`が挟まらない限り束ねる。この2つの許容条件は独立
+であり、一方だけに現れる境界イベント（例: main側だけの`$FE`ポーリング、
+sub側だけの`$FB`アクセス）がもう一方の切り出しに影響しないため、境界の
+位置は一般には一致しない。
+
+**結論: 1.36節の先頭バイト表引き（run長・座標フィールド位置）は、
+sub視点受信runに固有の結果として扱い、1.20節のmain視点SEND runへ流用
+しない。** 両節を混同すると、「run長6は公式に存在しない」（1.36節、
+sub視点のレコード長の話）と「main視点SEND runにrun長6が集中する」
+（1.20節・m7dk、別の対象の話）を同一の主張だと誤読しかねない。両者は
+無関係ではないが同一でもない、別々に測定された別々の対象である。
+
+根拠: [docs/notes/m7dl-run-length-6-protocol-axis-preregistration.md](../notes/m7dl-run-length-6-protocol-axis-preregistration.md)・
+[docs/notes/m7dm-run-length-6-protocol-axis-results.md](../notes/m7dm-run-length-6-protocol-axis-results.md)。
+
 ## 2. 明示的に「採用できない」こと
 
 ### 2.1 `$FD`→`$FC` の値一致率100.0% は実装上ほぼ必然であり、実機の証拠として採用しない
@@ -2545,7 +2595,8 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   確認できなかった。直前に受け取ったデータ値（伏せ字済み）に依存する
   可能性が最も自然だが裏付けは無い。1.17節の未確定事項の範囲内であり、
   本版はそれをより詳細なPC単位の裏付けとともに再確認したに過ぎない。
-- **（第11版で追加、第93版で性質を再確認、第94版で1項目へ統合）
+- **（第11版で追加、第93版で性質を再確認、第94版で1項目へ統合、第95版で
+  プロトコル軸の探索結果を追記）
   main側SEND run内`OUT $FF 0F`のrun先頭専有仮説が100%でない理由と、
   run長の偶奇と`pc=3811`／`37F4`の対応の反証後、両者の出現が実際に
   何に依存するか（1.20節）。** 「切り出し手法の誤差かもしれない」という
@@ -2579,13 +2630,25 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   予測になり、独立に効いている証拠は無かった。起動バルク区間か通常区間
   かという軸は、SEND runが構造上バルク区間の内側に位置し得ないため
   判別力を持たなかった。**M（手法由来）・R（実挙動）のいずれの到達条件も
-  満たさず、X（混在／識別不能）のまま件数付きで残す。** 根拠は
+  満たさず、X（混在／識別不能）のまま件数付きで残す。**
+
+  **run長6偏りは、プロトコル側の軸でも説明できなかった（第95版）。**
+  1.36節の要求種別（先頭バイト表引き）を使う軸は、対応する1.36節sub視点
+  受信runとの1:1対応を検証したところ成り立たず（1.53節、件数不一致・
+  位置対応での長さ一致率13〜21%）、使わずに除外した。残るsub側FDCアクセス
+  件数・往復の位置（通し番号／起動ラウンド番号）・run直後のFDCコマンド
+  種別の単一軸3種と2軸コンボ3系統を評価したが、誤り0件の候補は1件も無く、
+  最良でも誤り31〜36件（run長軸単独の誤り8〜10件より判別力が低い）
+  だった。**この探索でもrun長6偏りは説明できておらず、依然として
+  手掛かりの域を出ない。** 根拠は
   `docs/notes/m7df-run-cutter-error-preregistration.md`・
   `docs/notes/m7dg-run-cutter-positive-selftest.md`・
   `docs/notes/m7dh-run-cutter-independent-anchor-attribution.md`・
   `docs/notes/m7di-attribution-tool-negative-control.md`・
   `docs/notes/m7dj-boundary-match-residual-rule-search-preregistration.md`・
-  `docs/notes/m7dk-boundary-match-residual-rule-search-results.md`。
+  `docs/notes/m7dk-boundary-match-residual-rule-search-results.md`・
+  `docs/notes/m7dl-run-length-6-protocol-axis-preregistration.md`・
+  `docs/notes/m7dm-run-length-6-protocol-axis-results.md`。
 - **（第13版で追加、第29版更新）交換#3/#4以外の応答形式を識別する
   一般規則。** 第29版で「run長==8なら256バイト応答」という旧規則は
   誤りと確定し、交換#3=8バイト要求・1バイト内部状態応答、交換#4=
