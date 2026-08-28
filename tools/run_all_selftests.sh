@@ -57,6 +57,7 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_common_clock_three_questions_selftest.sh:0"
   "tools/analyze_run_boundary_selftest.sh:0"
   "tools/run_cutter_positive_selftest.sh:0"
+  "tools/analyze_run_cutter_attribution_selftest.sh:0"
   "tools/analyze_record_boundaries_selftest.sh:0"
   "tools/analyze_request_kinds_selftest.sh:0"
   "tools/analyze_k00_variants_selftest.sh:0"
