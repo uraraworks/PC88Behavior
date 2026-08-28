@@ -59,6 +59,7 @@ SCRIPTS_EXPECTED=(
   "tools/run_cutter_positive_selftest.sh:0"
   "tools/analyze_run_cutter_attribution_selftest.sh:0"
   "tools/boundary_match_rule_search_selftest.sh:0"
+  "tools/run_length6_protocol_axis_selftest.sh:0"
   "tools/analyze_record_boundaries_selftest.sh:0"
   "tools/analyze_request_kinds_selftest.sh:0"
   "tools/analyze_k00_variants_selftest.sh:0"
