@@ -194,7 +194,7 @@ def analyze(report: Path, iolog: Path, kind: str, typed: list[str],
     reached = reach(kind, rows, typed, marker)
     screen_class, ok_after_error = (
         create_screen_classification(rows, marker)
-        if kind == "create" else ("not_applicable", False)
+        if kind in {"create", "verify"} else ("not_applicable", False)
     )
 
     accepted = reached and main_drop == 0 and sub_drop == 0

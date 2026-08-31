@@ -19,8 +19,8 @@ usage() {
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh calibrate
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh build 8|16|...|64
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure N
-  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure
-  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure [FRAMES]
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure-terminal N K
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh single-open N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh summary N...
@@ -88,18 +88,24 @@ PY
 
 run_frontend() {
   local label="$1" disk="$2" save="$3" text="$4"
+  local run_frames="${5:-$FRAMES}"
   shift 4
-  local dir="$WORK/raw/$label" rc=0
+  local dir="$WORK/raw/$label" rc=0 start_ns end_ns
   mkdir -p "$dir"
   : >"$dir/stdout.txt"; : >"$dir/stderr.txt"
   local save_args=()
   [ "$save" = yes ] && save_args=(--save-to-disk-image)
+  start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
   /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" \
     "$FRONTEND" --core "$CORE" --rom-dir "$ROM_DIR" --disk "$disk" \
-    ${save_args[@]+"${save_args[@]}"} --frames "$FRAMES" --io-log "$dir/iolog.txt" \
+    ${save_args[@]+"${save_args[@]}"} --frames "$run_frames" --io-log "$dir/iolog.txt" \
     --out "$dir/report.txt" --type-at 300 --type '\n' \
     --type-at "$ENTRY_FRAME" --type "$text" \
     >"$dir/stdout.txt" 2>"$dir/stderr.txt" || rc=$?
+  end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+  LAST_WALL_MILLIS=$(( (end_ns - start_ns) / 1000000 ))
+  LAST_Q88_RC="$rc"
+  LAST_RUN_FRAMES="$run_frames"
   # 既知の終了時異常でも成果物が完全なら判定器へ渡す。欠落なら不合格。
   [ -s "$dir/report.txt" ] && [ -s "$dir/iolog.txt" ] || return "${rc:-1}"
   return 0
@@ -305,11 +311,13 @@ cmd_measure() {
 
 cmd_probe_create() {
   local base="${1:-}" name="${2:-}" label="${3:-}" marker="${4:-}" expect="${5:-}"
+  local probe_frames="${6:-$FRAMES}"
   [[ "$base" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "probe-createのBASEは0〜64"
   [[ "$name" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのNAMEは英大文字・数字1〜6文字"
   [[ "$label" =~ ^[a-z0-9-]+$ ]] || die "probe-createのLABELが不正"
   [[ "$marker" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのMARKERが不正"
   [ "$expect" = success ] || [ "$expect" = failure ] || die "期待分類はsuccess|failure"
+  [[ "$probe_frames" =~ ^[0-9]+$ ]] && [ "$probe_frames" -gt 0 ] || die "FRAMESは正整数"
   local source; source="$(checkpoint "$base")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$base" --disk "$source" \
     || die "probe-createの基準チェックポイントが未受理"
@@ -323,19 +331,21 @@ cmd_probe_create() {
   local before after text safe rc=0
   before="$(python3 "$HELPER" media-sha "$disk")"
   text="10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
-  run_frontend "$run_label" "$disk" yes "$text" || die "$label が到達前に終了"
+  run_frontend "$run_label" "$disk" yes "$text" "$probe_frames" || die "$label が到達前に終了"
   safe="$WORK/safe/probe-$label.json"
   analyze_one "$run_label" create "$marker" "$safe" \
     "10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1" \
     "20 PRINT \"$marker\":END" RUN || rc=$?
   after="$(python3 "$HELPER" media-sha "$disk")"
-  python3 - "$safe" "$base" "$name" "$label" "$before" "$after" <<'PY'
+  python3 - "$safe" "$base" "$name" "$label" "$before" "$after" \
+    "$LAST_RUN_FRAMES" "$LAST_WALL_MILLIS" "$LAST_Q88_RC" <<'PY'
 import json,sys
-p,base,name,label,before,after=sys.argv[1:]
+p,base,name,label,before,after,frames,wall_ms,process_rc=sys.argv[1:]
 x=json.load(open(p,encoding='utf-8'))
 x.update({"probe_base_n":int(base),"probe_name":name,"probe_label":label,
           "media_changed":before!=after,"media_before_sha256":before,
-          "media_after_sha256":after})
+          "media_after_sha256":after,"completed_frames":int(frames),
+          "wall_millis":int(wall_ms),"process_rc":int(process_rc)})
 with open(p,'w',encoding='utf-8') as f:
  json.dump(x,f,ensure_ascii=False,sort_keys=True); f.write('\n')
 PY
@@ -361,10 +371,13 @@ PY
 
 cmd_terminal_verify() {
   local k="${1:-}"; [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  local verify_frames="${2:-$FRAMES}"
+  [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
   local disk_source; disk_source="$(checkpoint "$k")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$k" --disk "$disk_source" \
     || die "K=${k}チェックポイントが未受理"
   local marker="V$(printf '%03d' "$k")" label="terminal-verify-n$(printf '%03d' "$k")"
+  [ "$verify_frames" -eq "$FRAMES" ] || label="${label}-f${verify_frames}"
   local text line disk="$WORK/raw/${label}.d88" safe rec
   text="10 K=$k\n20 FOR I=1 TO K\n30 F\$=\"QD\"+CHR\$(65+INT((I-1)/26))+CHR\$(65+((I-1) MOD 26))\n40 OPEN F\$ FOR INPUT AS #1:CLOSE #1\n50 NEXT I\n60 PRINT \"$marker\":END\nRUN\n"
   if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.d88"; fi
@@ -372,13 +385,24 @@ cmd_terminal_verify() {
     mv "$WORK/raw/$label" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.raw"
   fi
   cp "$disk_source" "$disk"
-  run_frontend "$label" "$disk" no "$text" || die "K=${k}末端検証が到達前に終了"
+  run_frontend "$label" "$disk" no "$text" "$verify_frames" || die "K=${k}末端検証が到達前に終了"
   safe="$WORK/safe/$label.json"
+  local analyze_rc=0
   analyze_one "$label" verify "$marker" "$safe" \
     "10 K=$k" "20 FOR I=1 TO K" \
     '30 F$="QD"+CHR$(65+INT((I-1)/26))+CHR$(65+((I-1) MOD 26))' \
     '40 OPEN F$ FOR INPUT AS #1:CLOSE #1' '50 NEXT I' \
-    "60 PRINT \"$marker\":END" RUN || return 1
+    "60 PRINT \"$marker\":END" RUN || analyze_rc=$?
+  python3 - "$safe" "$LAST_RUN_FRAMES" "$LAST_WALL_MILLIS" "$LAST_Q88_RC" <<'PY'
+import json,sys
+p,frames,wall_ms,process_rc=sys.argv[1:]
+x=json.load(open(p,encoding='utf-8'))
+x.update({"completed_frames":int(frames),"wall_millis":int(wall_ms),
+          "process_rc":int(process_rc)})
+with open(p,'w',encoding='utf-8') as f:
+ json.dump(x,f,ensure_ascii=False,sort_keys=True); f.write('\n')
+PY
+  [ "$analyze_rc" -eq 0 ] || return 1
   rec="$WORK/safe/record-terminal-block-n$(printf '%03d' "$k").json"
   record_json "$rec" terminal-block "$k" true "" "$safe"
   note "K=${k}終端全名OPEN検証合格"
@@ -450,8 +474,8 @@ case "${1:-}" in
   calibrate) cmd_calibrate ;;
   build) cmd_build "${2:-}" ;;
   measure) cmd_measure "${2:-}" ;;
-  probe-create) cmd_probe_create "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
-  terminal-verify) cmd_terminal_verify "${2:-}" ;;
+  probe-create) cmd_probe_create "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
+  terminal-verify) cmd_terminal_verify "${2:-}" "${3:-}" ;;
   measure-terminal) cmd_measure_terminal "${2:-}" "${3:-}" ;;
   single-open) cmd_single_open "${2:-}" ;;
   summary) shift; [ "$#" -gt 0 ] || die "summaryにはNが必要"; cmd_summary "$@" ;;
