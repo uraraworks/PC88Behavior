@@ -264,7 +264,14 @@ build_block() {
 cmd_build() {
   local target="${1:-}"; [[ "$target" =~ ^(8|16|24|32|40|48|56|64)$ ]] \
     || die "build上限は8の倍数（8〜64）で指定"
-  cmd_calibrate
+  cmd_init
+  if python3 "$HELPER" status --manifest "$MANIFEST" --stage calibration --n 0 2>/dev/null \
+     && python3 "$HELPER" status --manifest "$MANIFEST" --stage files --n 0 2>/dev/null \
+     && [ -f "$WORK/safe/files-n000.json" ]; then
+    note "N=0校正・FILES基準は受理済み（再利用）"
+  else
+    cmd_calibrate
+  fi
   local end start
   for ((end=8; end<=target; end+=8)); do
     if python3 "$HELPER" status --manifest "$MANIFEST" --stage block --n "$end" 2>/dev/null \
