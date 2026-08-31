@@ -19,6 +19,9 @@ usage() {
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh calibrate
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh build 8|16|...|64
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure N
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure-terminal N K
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh summary N...
   tools/ladder_dirfiles.sh selftest
 
@@ -299,6 +302,104 @@ cmd_measure() {
   note "N=$n 不存在OPEN公式2run合格・完全一致"
 }
 
+cmd_probe_create() {
+  local base="${1:-}" name="${2:-}" label="${3:-}" marker="${4:-}" expect="${5:-}"
+  [[ "$base" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "probe-createのBASEは0〜64"
+  [[ "$name" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのNAMEは英大文字・数字1〜6文字"
+  [[ "$label" =~ ^[a-z0-9-]+$ ]] || die "probe-createのLABELが不正"
+  [[ "$marker" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのMARKERが不正"
+  [ "$expect" = success ] || [ "$expect" = failure ] || die "期待分類はsuccess|failure"
+  local source; source="$(checkpoint "$base")"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$base" --disk "$source" \
+    || die "probe-createの基準チェックポイントが未受理"
+  local run_label="probe-$label" disk="$WORK/raw/probe-$label.d88"
+  local stamp="$(date +%Y%m%d%H%M%S).$$"
+  if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/probe-$label.$stamp.d88"; fi
+  if [ -d "$WORK/raw/$run_label" ]; then
+    mv "$WORK/raw/$run_label" "$WORK/archive/probe-$label.$stamp.raw"
+  fi
+  cp "$source" "$disk"; chmod u+w "$disk"
+  local before after text safe rc=0
+  before="$(python3 "$HELPER" media-sha "$disk")"
+  text="10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
+  run_frontend "$run_label" "$disk" yes "$text" || die "$label が到達前に終了"
+  safe="$WORK/safe/probe-$label.json"
+  analyze_one "$run_label" create "$marker" "$safe" \
+    "10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1" \
+    "20 PRINT \"$marker\":END" RUN || rc=$?
+  after="$(python3 "$HELPER" media-sha "$disk")"
+  python3 - "$safe" "$base" "$name" "$label" "$before" "$after" <<'PY'
+import json,sys
+p,base,name,label,before,after=sys.argv[1:]
+x=json.load(open(p,encoding='utf-8'))
+x.update({"probe_base_n":int(base),"probe_name":name,"probe_label":label,
+          "media_changed":before!=after,"media_before_sha256":before,
+          "media_after_sha256":after})
+with open(p,'w',encoding='utf-8') as f:
+ json.dump(x,f,ensure_ascii=False,sort_keys=True); f.write('\n')
+PY
+  # 対照用媒体複製は系列へ使わず、集計後に明示的に破棄する。
+  rm -f "$disk"
+  python3 - "$safe" "$expect" "$rc" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding='utf-8')); expect=sys.argv[2]
+if expect=='success':
+ ok=(x['accepted'] and x['screen_classification']=='normal_success'
+     and x['write_count']>0 and x['media_changed']
+     and x['main_dropped']==0 and x['sub_dropped']==0)
+else:
+ ok=(not x['accepted'] and x['screen_classification']=='error_display'
+     and x['ok_after_error'] and x['write_count']==0 and not x['media_changed']
+     and x['main_dropped']==0 and x['sub_dropped']==0)
+print('分類=%s Ok直後=%s WRITE=%d 媒体差=%s 取りこぼし=%d/%d' %
+      (x['screen_classification'],x['ok_after_error'],x['write_count'],
+       x['media_changed'],x['main_dropped'],x['sub_dropped']))
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+cmd_terminal_verify() {
+  local k="${1:-}"; [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  local disk_source; disk_source="$(checkpoint "$k")"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$k" --disk "$disk_source" \
+    || die "K=${k}チェックポイントが未受理"
+  local marker="V$(printf '%03d' "$k")" label="terminal-verify-n$(printf '%03d' "$k")"
+  local text line disk="$WORK/raw/${label}.d88" safe rec
+  text="10 K=$k\n20 FOR I=1 TO K\n30 F\$=\"QD\"+CHR\$(65+INT((I-1)/26))+CHR\$(65+((I-1) MOD 26))\n40 OPEN F\$ FOR INPUT AS #1:CLOSE #1\n50 NEXT I\n60 PRINT \"$marker\":END\nRUN\n"
+  if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.d88"; fi
+  if [ -d "$WORK/raw/$label" ]; then
+    mv "$WORK/raw/$label" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.raw"
+  fi
+  cp "$disk_source" "$disk"
+  run_frontend "$label" "$disk" no "$text" || die "K=${k}末端検証が到達前に終了"
+  safe="$WORK/safe/$label.json"
+  analyze_one "$label" verify "$marker" "$safe" \
+    "10 K=$k" "20 FOR I=1 TO K" \
+    '30 F$="QD"+CHR$(65+INT((I-1)/26))+CHR$(65+((I-1) MOD 26))' \
+    '40 OPEN F$ FOR INPUT AS #1:CLOSE #1' '50 NEXT I' \
+    "60 PRINT \"$marker\":END" RUN || return 1
+  rec="$WORK/safe/record-terminal-block-n$(printf '%03d' "$k").json"
+  record_json "$rec" terminal-block "$k" true "" "$safe"
+  note "K=${k}終端全名OPEN検証合格"
+}
+
+cmd_measure_terminal() {
+  local n="${1:-}" k="${2:-}"
+  [[ "$n" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは0〜64"
+  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [ "$n" -le "$k" ] || die "NはK以下"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage terminal-block --n "$k" \
+    || die "K=${k}終端検証が未受理"
+  local disk; disk="$(checkpoint "$n")"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$n" --disk "$disk" \
+    || die "N=${n}チェックポイントが未受理またはSHA不一致"
+  local prefix="missing-n$(printf '%03d' "$n")"
+  run_pair "$prefix" "$disk" missing "$missing_text" "" "${missing_typed[@]}"
+  local rec="$WORK/safe/record-measure-n$(printf '%03d' "$n").json"
+  record_json "$rec" measure "$n" true "" "$WORK/safe/$prefix.json"
+  note "N=$n 不存在OPEN公式2run合格・完全一致（K=${k}終端検証採用）"
+}
+
 cmd_summary() {
   local n file prev fc read fdc delta_fc delta_read verdict
   for n in "$@"; do
@@ -332,6 +433,9 @@ case "${1:-}" in
   calibrate) cmd_calibrate ;;
   build) cmd_build "${2:-}" ;;
   measure) cmd_measure "${2:-}" ;;
+  probe-create) cmd_probe_create "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
+  terminal-verify) cmd_terminal_verify "${2:-}" ;;
+  measure-terminal) cmd_measure_terminal "${2:-}" "${3:-}" ;;
   summary) shift; [ "$#" -gt 0 ] || die "summaryにはNが必要"; cmd_summary "$@" ;;
   *) usage; exit 2 ;;
 esac

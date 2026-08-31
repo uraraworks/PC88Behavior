@@ -66,6 +66,15 @@ report('no_ok',['D9E','D9C']); iolog('no_ok')
 report('io_zero',['D9E','D9C','Ok']); iolog('io_zero',entry=False)
 report('write',['D9E','D9C','Ok']); iolog('write',write=True)
 report('dropped',['D9E','D9C','Ok']); iolog('dropped',dropped=1)
+create_program=['10 OPEN "QDCA" FOR OUTPUT AS #1:CLOSE #1',
+                '20 PRINT "P53A":END','RUN']
+def create_report(name,tail):
+    rows=create_program+tail
+    text='[測定終了時のテキスト画面]\n'
+    text+='\n'.join(f'  {i:2d}| {row}' for i,row in enumerate(rows))+'\n\n'
+    (root/f'{name}.report').write_text(text,encoding='utf-8')
+create_report('create_ok',['P53A','Ok']); iolog('create_ok',write=True)
+create_report('create_error',['Synthetic error','Ok']); iolog('create_error')
 PY
 
 typed=(
@@ -94,6 +103,32 @@ for case_name in no_open d9n wrong_line no_d9e no_d9c no_ok io_zero write droppe
     printf 'OK: 陰性対照 %s を実際に不合格にした\n' "$case_name"; pass=$((pass+1))
   fi
 done
+
+if python3 "$HELPER" analyze --report "$TMP/create_ok.report" \
+  --iolog "$TMP/create_ok.io" --kind create --marker P53A \
+  --typed '10 OPEN "QDCA" FOR OUTPUT AS #1:CLOSE #1' \
+  --typed '20 PRINT "P53A":END' --typed RUN --out "$TMP/create_ok.json" \
+  && python3 - "$TMP/create_ok.json" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding='utf-8'))
+raise SystemExit(0 if x['screen_classification']=='normal_success' else 1)
+PY
+then printf 'OK: 作成正常形をnormal_successに分類した\n'; pass=$((pass+1))
+else printf 'NG: 作成正常形の分類に失敗した\n'; fail=$((fail+1)); fi
+
+if python3 "$HELPER" analyze --report "$TMP/create_error.report" \
+  --iolog "$TMP/create_error.io" --kind create --marker P53A \
+  --typed '10 OPEN "QDCA" FOR OUTPUT AS #1:CLOSE #1' \
+  --typed '20 PRINT "P53A":END' --typed RUN --out "$TMP/create_error.json" \
+  >/dev/null 2>&1; then
+  printf 'NG: 作成エラー形を誤って合格にした\n'; fail=$((fail+1))
+elif python3 - "$TMP/create_error.json" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding='utf-8'))
+raise SystemExit(0 if x['screen_classification']=='error_display' and x['ok_after_error'] else 1)
+PY
+then printf 'OK: 作成エラー形を本文なしでerror_display/直後Okに分類した\n'; pass=$((pass+1))
+else printf 'NG: 作成エラー形の安全分類に失敗した\n'; fail=$((fail+1)); fi
 
 # 同一Nの2runについて、件数・SHA-256・期待値0行の故障も不一致にする。
 cp "$TMP/ok.json" "$TMP/ok2.json"

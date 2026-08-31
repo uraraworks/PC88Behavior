@@ -84,6 +84,26 @@ def marker_then_ok(rows: list[str], marker: str) -> bool:
     return next_exact(rows, "ok", pos + 1) is not None
 
 
+def create_screen_classification(rows: list[str], marker: str | None) -> tuple[str, bool]:
+    """本文を見ず、RUN後のマーカー／非空行／Okの位置だけで分類する。"""
+    run = next_exact(rows, "run")
+    marker_pos = next_exact(rows, marker) if marker else None
+    if run is not None and marker_pos is not None:
+        ok = next_exact(rows, "ok", marker_pos + 1)
+        if ok is not None:
+            return "normal_success", False
+    if run is None:
+        return "run_not_reflected", False
+    ok = next_exact(rows, "ok", run + 1)
+    if marker_pos is None and ok is not None:
+        # write_screenは空行を出さない。RUNとOkの間に1行以上あれば、
+        # 本文を照合せず「正常マーカーでない表示を挟んでOkへ復帰」と言える。
+        if ok > run + 1:
+            return "error_display", ok == run + 2
+        return "marker_missing_direct_ok", False
+    return "incomplete", False
+
+
 def reach(kind: str, rows: list[str], typed: list[str], marker: str | None) -> bool:
     low = [r.strip().lower() for r in rows]
     if kind == "missing":
@@ -172,6 +192,10 @@ def analyze(report: Path, iolog: Path, kind: str, typed: list[str],
     entry_writes = sum(entry_names.count(n) for n in
                        ("WRITE DATA", "WRITE DELETED DATA", "FORMAT TRACK"))
     reached = reach(kind, rows, typed, marker)
+    screen_class, ok_after_error = (
+        create_screen_classification(rows, marker)
+        if kind == "create" else ("not_applicable", False)
+    )
 
     accepted = reached and main_drop == 0 and sub_drop == 0
     if kind == "missing":
@@ -191,6 +215,8 @@ def analyze(report: Path, iolog: Path, kind: str, typed: list[str],
         "reach": reached,
         "typed": typed,
         "marker": marker,
+        "screen_classification": screen_class,
+        "ok_after_error": ok_after_error,
         "screen_lines": len(rows),
         "screen_chars": sum(len(r) for r in rows),
         "screen_sha256": sha(screen_blob.encode("utf-8")),
