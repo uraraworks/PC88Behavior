@@ -75,6 +75,15 @@ def create_report(name,tail):
     (root/f'{name}.report').write_text(text,encoding='utf-8')
 create_report('create_ok',['P53A','Ok']); iolog('create_ok',write=True)
 create_report('create_error',['Synthetic error','Ok']); iolog('create_error')
+verify_program=['10 OPEN "QDAA" FOR INPUT AS #1:CLOSE #1',
+                '20 PRINT "VTEST":END','RUN']
+def verify_report(name,tail):
+    rows=verify_program+tail
+    text='[測定終了時のテキスト画面]\n'
+    text+='\n'.join(f'  {i:2d}| {row}' for i,row in enumerate(rows))+'\n\n'
+    (root/f'{name}.report').write_text(text,encoding='utf-8')
+verify_report('verify_ok',['VTEST','Ok']); iolog('verify_ok')
+verify_report('verify_missing',['Synthetic error','Ok']); iolog('verify_missing')
 PY
 
 typed=(
@@ -129,6 +138,22 @@ raise SystemExit(0 if x['screen_classification']=='error_display' and x['ok_afte
 PY
 then printf 'OK: 作成エラー形を本文なしでerror_display/直後Okに分類した\n'; pass=$((pass+1))
 else printf 'NG: 作成エラー形の安全分類に失敗した\n'; fail=$((fail+1)); fi
+
+verify_typed=(--typed '10 OPEN "QDAA" FOR INPUT AS #1:CLOSE #1'
+              --typed '20 PRINT "VTEST":END' --typed RUN)
+if python3 "$HELPER" analyze --report "$TMP/verify_ok.report" \
+  --iolog "$TMP/verify_ok.io" --kind verify --marker VTEST \
+  "${verify_typed[@]}" --out "$TMP/verify_ok.json"; then
+  printf 'OK: 全名OPEN陽性対照を合格にした\n'; pass=$((pass+1))
+else printf 'NG: 全名OPEN陽性対照を不合格にした\n'; fail=$((fail+1)); fi
+
+if python3 "$HELPER" analyze --report "$TMP/verify_missing.report" \
+  --iolog "$TMP/verify_missing.io" --kind verify --marker VTEST \
+  "${verify_typed[@]}" --out "$TMP/verify_missing.json" >/dev/null 2>&1; then
+  printf 'NG: 全名OPEN陰性対照を誤って合格にした\n'; fail=$((fail+1))
+else
+  printf 'OK: 全名OPEN陰性対照を実際に不合格にした\n'; pass=$((pass+1))
+fi
 
 # 同一Nの2runについて、件数・SHA-256・期待値0行の故障も不一致にする。
 cp "$TMP/ok.json" "$TMP/ok2.json"

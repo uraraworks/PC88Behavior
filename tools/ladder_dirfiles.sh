@@ -21,6 +21,8 @@ usage() {
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K [FRAMES]
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh full-verify K [FRAMES]
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh full-verify-selftest K [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure-terminal N K
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh single-open N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh summary N...
@@ -408,13 +410,126 @@ PY
   note "K=${k}終端全名OPEN検証合格"
 }
 
+# m7dv規則4のN=1..Kを、1run最大8名のリテラルOPENへ分割して検査する。
+# 全chunkの固有マーカー到達を要求するため、名前検査の省略はない。
+full_verify_disk() {
+  local k="$1" disk_source="$2" prefix="$3" verify_frames="$4"
+  local start end n line marker text label disk safe stamp
+  local checked_names=() chunk_safes=()
+  for ((start=1; start<=k; start+=8)); do
+    end=$((start + 7)); [ "$end" -le "$k" ] || end="$k"
+    text=""; local typed=()
+    for ((n=start; n<=end; n++)); do
+      local name; name="$(name_for_n "$n")"; checked_names+=("$name")
+      line="$(printf '%d' $((10 + (n - start) * 10))) OPEN \"$name\" FOR INPUT AS #1:CLOSE #1"
+      text+="$line\n"; typed+=("$line")
+    done
+    marker="V$(printf '%02d%02d' "$k" "$start")"
+    line="90 PRINT \"$marker\":END"; text+="$line\nRUN\n"; typed+=("$line" RUN)
+    label="${prefix}-c$(printf '%03d' "$start")-$(printf '%03d' "$end")"
+    disk="$WORK/raw/${label}.d88"; stamp="$(date +%Y%m%d%H%M%S).$$"
+    if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/${label}.${stamp}.d88"; fi
+    if [ -d "$WORK/raw/$label" ]; then
+      mv "$WORK/raw/$label" "$WORK/archive/${label}.${stamp}.raw"
+    fi
+    cp "$disk_source" "$disk"
+    run_frontend "$label" "$disk" no "$text" "$verify_frames" \
+      || die "K=${k} 全名検証chunk ${start}-${end}が到達前に終了"
+    safe="$WORK/safe/${label}.json"
+    analyze_one "$label" verify "$marker" "$safe" "${typed[@]}" || return 1
+    chunk_safes+=("$safe")
+  done
+
+  local aggregate="$WORK/safe/${prefix}.json"
+  python3 - "$aggregate" "$k" "${#checked_names[@]}" \
+    "${checked_names[@]}" -- "${chunk_safes[@]}" <<'PY'
+import hashlib,json,sys
+out=sys.argv[1]; k=int(sys.argv[2]); count=int(sys.argv[3]); args=sys.argv[4:]
+sep=args.index('--'); names=args[:sep]; paths=args[sep+1:]
+chunks=[]
+for path in paths:
+ data=json.load(open(path,encoding='utf-8'))
+ if not data.get('accepted'):
+  raise SystemExit(1)
+ chunks.append({'marker':data['marker'],'accepted':True,
+                'safe_sha256':hashlib.sha256(open(path,'rb').read()).hexdigest()})
+if len(names)!=count or count!=k or len(set(names))!=k:
+ raise SystemExit(1)
+blob=json.dumps(names,ensure_ascii=True,separators=(',',':')).encode('ascii')
+result={'schema':1,'accepted':True,'k':k,'checked_count':count,
+        'checked_names':names,'checked_names_sha256':hashlib.sha256(blob).hexdigest(),
+        'chunk_count':len(chunks),'chunks':chunks}
+with open(out,'w',encoding='utf-8') as f:
+ json.dump(result,f,ensure_ascii=False,sort_keys=True); f.write('\n')
+PY
+}
+
+cmd_full_verify() {
+  local k="${1:-}" verify_frames="${2:-$FRAMES}"
+  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
+  local disk; disk="$(checkpoint "$k")"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$k" --disk "$disk" \
+    || die "K=${k}チェックポイントが未受理"
+  local prefix="full-verify-k$(printf '%03d' "$k")"
+  full_verify_disk "$k" "$disk" "$prefix" "$verify_frames" \
+    || die "K=${k} 修正版全名OPEN検証不合格"
+  local rec="$WORK/safe/record-full-block-n$(printf '%03d' "$k").json"
+  record_json "$rec" full-block "$k" true "" "$WORK/safe/${prefix}.json"
+  note "K=${k} 修正版全名OPEN検証合格（N=1..${k}、省略なし）"
+}
+
+cmd_full_verify_selftest() {
+  local k="${1:-}" verify_frames="${2:-$FRAMES}"
+  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  cmd_full_verify "$k" "$verify_frames"
+
+  local source; source="$(checkpoint "$k")"
+  local label="full-control-kill-k$(printf '%03d' "$k")"
+  local disk="$WORK/raw/${label}.d88" marker="XKILL" safe before after
+  if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.d88"; fi
+  if [ -d "$WORK/raw/$label" ]; then
+    mv "$WORK/raw/$label" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.raw"
+  fi
+  cp "$source" "$disk"; chmod u+w "$disk"
+  before="$(python3 "$HELPER" media-sha "$disk")"
+  local text=$'10 KILL "QDAA"\n20 PRINT "XKILL":END\nRUN\n'
+  run_frontend "$label" "$disk" yes "$text" "$verify_frames" \
+    || die "陰性対照の故障注入runが到達前に終了"
+  safe="$WORK/safe/${label}.json"
+  analyze_one "$label" create "$marker" "$safe" \
+    '10 KILL "QDAA"' '20 PRINT "XKILL":END' RUN \
+    || die "陰性対照のKILLが成立しない"
+  after="$(python3 "$HELPER" media-sha "$disk")"
+  [ "$before" != "$after" ] || die "陰性対照の媒体SHAが変化しない"
+  python3 - "$safe" "$before" "$after" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding='utf-8'))
+x.update({'media_before_sha256':sys.argv[2],'media_after_sha256':sys.argv[3],
+          'media_changed':sys.argv[2]!=sys.argv[3]})
+with open(sys.argv[1],'w',encoding='utf-8') as f:
+ json.dump(x,f,ensure_ascii=False,sort_keys=True); f.write('\n')
+raise SystemExit(0 if x['accepted'] and x['write_count']>0 and
+                 x['media_changed'] and x['main_dropped']==0 and
+                 x['sub_dropped']==0 else 1)
+PY
+  note "陰性対照: QDAAのKILL成立・WRITE非0・媒体SHA差を確認"
+
+  if full_verify_disk "$k" "$disk" "full-control-negative-k$(printf '%03d' "$k")" \
+       "$verify_frames"; then
+    die "陰性対照を誤って合格にした"
+  fi
+  rm -f "$disk"
+  note "陰性対照: 欠落1本を修正版全名OPEN検証で実際に不合格にした"
+}
+
 cmd_measure_terminal() {
   local n="${1:-}" k="${2:-}"
   [[ "$n" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは0〜64"
   [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
   [ "$n" -le "$k" ] || die "NはK以下"
-  python3 "$HELPER" status --manifest "$MANIFEST" --stage terminal-block --n "$k" \
-    || die "K=${k}終端検証が未受理"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage full-block --n "$k" \
+    || die "K=${k}修正版全名検証が未受理"
   local disk; disk="$(checkpoint "$n")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$n" --disk "$disk" \
     || die "N=${n}チェックポイントが未受理またはSHA不一致"
@@ -476,6 +591,8 @@ case "${1:-}" in
   measure) cmd_measure "${2:-}" ;;
   probe-create) cmd_probe_create "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
   terminal-verify) cmd_terminal_verify "${2:-}" "${3:-}" ;;
+  full-verify) cmd_full_verify "${2:-}" "${3:-}" ;;
+  full-verify-selftest) cmd_full_verify_selftest "${2:-}" "${3:-}" ;;
   measure-terminal) cmd_measure_terminal "${2:-}" "${3:-}" ;;
   single-open) cmd_single_open "${2:-}" ;;
   summary) shift; [ "$#" -gt 0 ] || die "summaryにはNが必要"; cmd_summary "$@" ;;
