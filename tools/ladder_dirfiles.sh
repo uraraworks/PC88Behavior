@@ -23,7 +23,9 @@ usage() {
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh full-verify K [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh full-verify-selftest K [FRAMES]
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh m7ed-verify K [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure-terminal N K
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh rebuild-candidate N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh single-open N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh summary N...
   tools/ladder_dirfiles.sh selftest
@@ -53,10 +55,14 @@ case "$WORK" in /*) ;; *) die "PC88_LADDER_WORK_DIRは絶対パスで指定し�
 ROM_DIR="${PC88_REF_ROM_DIR:-$REPO/private/rom}"
 DISK_DIR="${PC88_REF_DISK_DIR:-$REPO/private/disk}"
 SOURCE_DISK="${PC88_LADDER_SOURCE_DISK:-$DISK_DIR/$DISK_NAME}"
+BOOT_DISK="${PC88_LADDER_BOOT_DISK:-}"
+NAME_PREFIX="${PC88_LADDER_NAME_PREFIX:-}"
+FILES_COMMAND="${PC88_LADDER_FILES_COMMAND:-FILES}"
 MANIFEST="$WORK/manifest.jsonl"
 mkdir -p "$WORK/checkpoints" "$WORK/raw" "$WORK/safe" "$WORK/archive"
 [ -d "$ROM_DIR" ] || die "参照ROMディレクトリが無い"
 [ -f "$SOURCE_DISK" ] || die "参照ディスクが無い"
+[ -z "$BOOT_DISK" ] || [ -f "$BOOT_DISK" ] || die "起動ディスクが無い"
 [ -x "$FRONTEND" ] || make -s -C "$REPO/tools/harness/frontend"
 CORE=""
 for candidate in "$VENDOR"/quasi88_libretro.*; do
@@ -70,6 +76,8 @@ name_for_n() {
   printf 'QD'
   printf "$(printf '\\%03o' "$a")$(printf '\\%03o' "$b")"
 }
+
+file_ref() { printf '%s%s' "$NAME_PREFIX" "$1"; }
 
 checkpoint() { printf '%s/checkpoints/n%03d.d88' "$WORK" "$1"; }
 
@@ -101,11 +109,15 @@ run_frontend() {
   local dir="$WORK/raw/$label" rc=0 start_ns end_ns
   mkdir -p "$dir"
   : >"$dir/stdout.txt"; : >"$dir/stderr.txt"
-  local save_args=()
+  local save_args=() disk_args=(--disk "$disk") boot_before=""
   [ "$save" = yes ] && save_args=(--save-to-disk-image)
+  if [ -n "$BOOT_DISK" ]; then
+    disk_args=(--disk "$BOOT_DISK" --disk2 "$disk")
+    boot_before="$(python3 "$HELPER" media-sha "$BOOT_DISK")"
+  fi
   start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
   /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" \
-    "$FRONTEND" --core "$CORE" --rom-dir "$ROM_DIR" --disk "$disk" \
+    "$FRONTEND" --core "$CORE" --rom-dir "$ROM_DIR" "${disk_args[@]}" \
     ${save_args[@]+"${save_args[@]}"} --frames "$run_frames" --io-log "$dir/iolog.txt" \
     --out "$dir/report.txt" --type-at 300 --type '\n' \
     --type-at "$ENTRY_FRAME" --type "$text" \
@@ -114,6 +126,10 @@ run_frontend() {
   LAST_WALL_MILLIS=$(( (end_ns - start_ns) / 1000000 ))
   LAST_Q88_RC="$rc"
   LAST_RUN_FRAMES="$run_frames"
+  if [ -n "$BOOT_DISK" ]; then
+    [ "$boot_before" = "$(python3 "$HELPER" media-sha "$BOOT_DISK")" ] \
+      || die "$label でドライブ1媒体SHAが変化"
+  fi
   # 既知の終了時異常でも成果物が完全なら判定器へ渡す。欠落なら不合格。
   [ -s "$dir/report.txt" ] && [ -s "$dir/iolog.txt" ] || return "${rc:-1}"
   return 0
@@ -158,7 +174,7 @@ run_pair() {
 files_pair() {
   local n="$1" disk="$2" prefix
   prefix="files-n$(printf '%03d' "$n")"
-  run_pair "$prefix" "$disk" files $'FILES\n' ""
+  run_pair "$prefix" "$disk" files "$FILES_COMMAND"$'\n' ""
   if [ "$n" -gt 0 ]; then
     local prev="$WORK/safe/files-n$(printf '%03d' $((n - 1))).json"
     [ -f "$prev" ] || die "N=$((n - 1))のFILES基準が無い"
@@ -193,10 +209,11 @@ cmd_init() {
   note "N=0基準複製を作成し、媒体SHA-256をmanifestへ記録"
 }
 
-missing_text=$'10 ON ERROR GOTO 100\n20 OPEN "QZ9X" FOR INPUT AS #1\n30 PRINT "D9N":END\n100 IF ERL<>20 THEN PRINT "D9N":END\n110 PRINT "D9E"\n120 RESUME 130\n130 PRINT "D9C":END\nRUN\n'
+missing_ref="$(file_ref QZ9X)"
+missing_text="10 ON ERROR GOTO 100\n20 OPEN \"$missing_ref\" FOR INPUT AS #1\n30 PRINT \"D9N\":END\n100 IF ERL<>20 THEN PRINT \"D9N\":END\n110 PRINT \"D9E\"\n120 RESUME 130\n130 PRINT \"D9C\":END\nRUN\n"
 missing_typed=(
   '10 ON ERROR GOTO 100'
-  '20 OPEN "QZ9X" FOR INPUT AS #1'
+  "20 OPEN \"$missing_ref\" FOR INPUT AS #1"
   '30 PRINT "D9N":END'
   '100 IF ERL<>20 THEN PRINT "D9N":END'
   '110 PRINT "D9E"'
@@ -211,7 +228,7 @@ cmd_calibrate() {
   run_pair calibration-n000 "$cp0" missing "$missing_text" "" "${missing_typed[@]}"
   local rec="$WORK/safe/record-calibration-n000.json"
   record_json "$rec" calibration 0 true "" "$WORK/safe/calibration-n000.json"
-  note "N=0校正合格: QZ9Xの不存在OPENはD9E/D9C/Okへ到達"
+  note "N=0校正合格: 固定不存在名のOPENはD9E/D9C/Okへ到達"
   files_pair 0 "$cp0"
 }
 
@@ -234,7 +251,7 @@ build_block() {
   for ((n=start; n<=end; n++)); do
     prev="$(checkpoint $((n - 1)))"; cand="$(checkpoint "$n")"
     cp "$prev" "$cand"; chmod u+w "$cand"
-    name="$(name_for_n "$n")"; marker="C$(printf '%03d' "$n")"
+    name="$(file_ref "$(name_for_n "$n")")"; marker="C$(printf '%03d' "$n")"
     text="10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
     label="create-n$(printf '%03d' "$n")"
     run_frontend "$label" "$cand" yes "$text" || die "N=${n}作成runが到達前に終了"
@@ -254,7 +271,7 @@ build_block() {
 
   local verify_text="" verify_typed=() line block_start=$((end - 7))
   for ((n=block_start; n<=end; n++)); do
-    name="$(name_for_n "$n")"
+    name="$(file_ref "$(name_for_n "$n")")"
     line="$(printf '%d' $((10 + (n - block_start) * 10))) OPEN \"$name\" FOR INPUT AS #1:CLOSE #1"
     verify_text+="$line\n"; verify_typed+=("$line")
   done
@@ -426,7 +443,7 @@ full_verify_disk() {
     end=$((start + 7)); [ "$end" -le "$k" ] || end="$k"
     text=""; local typed=()
     for ((n=start; n<=end; n++)); do
-      local name; name="$(name_for_n "$n")"; checked_names+=("$name")
+      local name; name="$(file_ref "$(name_for_n "$n")")"; checked_names+=("$name")
       line="$(printf '%d' $((10 + (n - start) * 10))) OPEN \"$name\" FOR INPUT AS #1:CLOSE #1"
       text+="$line\n"; typed+=("$line")
     done
@@ -499,12 +516,13 @@ cmd_full_verify_selftest() {
   fi
   cp "$source" "$disk"; chmod u+w "$disk"
   before="$(python3 "$HELPER" media-sha "$disk")"
-  local text=$'10 KILL "QDAA"\n20 PRINT "XKILL":END\nRUN\n'
+  local kill_ref; kill_ref="$(file_ref QDAA)"
+  local text="10 KILL \"$kill_ref\"\n20 PRINT \"XKILL\":END\nRUN\n"
   run_frontend "$label" "$disk" yes "$text" "$verify_frames" \
     || die "陰性対照の故障注入runが到達前に終了"
   safe="$WORK/safe/${label}.json"
   analyze_one "$label" create "$marker" "$safe" \
-    '10 KILL "QDAA"' '20 PRINT "XKILL":END' RUN \
+    "10 KILL \"$kill_ref\"" '20 PRINT "XKILL":END' RUN \
     || die "陰性対照のKILLが成立しない"
   after="$(python3 "$HELPER" media-sha "$disk")"
   [ "$before" != "$after" ] || die "陰性対照の媒体SHAが変化しない"
@@ -519,7 +537,7 @@ raise SystemExit(0 if x['accepted'] and x['write_count']>0 and
                  x['media_changed'] and x['main_dropped']==0 and
                  x['sub_dropped']==0 else 1)
 PY
-  note "陰性対照: QDAAのKILL成立・WRITE非0・媒体SHA差を確認"
+  note "陰性対照: 先頭自作名のKILL成立・WRITE非0・媒体SHA差を確認"
 
   if full_verify_disk "$k" "$disk" "full-control-negative-k$(printf '%03d' "$k")" \
        "$verify_frames"; then
@@ -527,6 +545,60 @@ PY
   fi
   rm -f "$disk"
   note "陰性対照: 欠落1本を修正版全名OPEN検証で実際に不合格にした"
+}
+
+# m7ed固定規則: 各Kで、受理済みK=8を使った陽性・故障注入陰性対照を
+# 対象Kの全名OPEN検証より先に実施する。
+cmd_m7ed_verify() {
+  local k="${1:-}" verify_frames="${2:-$FRAMES}"
+  [[ "$k" =~ ^(8|16|24|32|40|48|56|64)$ ]] || die "Kは8の倍数（8〜64）"
+  [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
+  local control; control="$(checkpoint 8)"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n 8 --disk "$control" \
+    || die "K=8対照アンカーが未受理"
+
+  full_verify_disk 8 "$control" "m7ed-control-positive-k$(printf '%03d' "$k")" \
+    "$verify_frames" || die "K=${k}の陽性対照が不合格"
+  note "K=${k}陽性対照: 受理済みK=8の全名OPEN検証合格"
+
+  local label="m7ed-control-kill-k$(printf '%03d' "$k")"
+  local disk="$WORK/raw/${label}.d88" marker="XKILL" safe before after kill_ref text
+  kill_ref="$(file_ref QDAA)"
+  if [ -e "$disk" ]; then mv "$disk" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.d88"; fi
+  if [ -d "$WORK/raw/$label" ]; then
+    mv "$WORK/raw/$label" "$WORK/archive/${label}.$(date +%Y%m%d%H%M%S).$$.raw"
+  fi
+  cp "$control" "$disk"; chmod u+w "$disk"
+  before="$(python3 "$HELPER" media-sha "$disk")"
+  text="10 KILL \"$kill_ref\"\n20 PRINT \"XKILL\":END\nRUN\n"
+  run_frontend "$label" "$disk" yes "$text" "$verify_frames" \
+    || die "K=${k}陰性対照の故障注入runが到達前に終了"
+  safe="$WORK/safe/${label}.json"
+  analyze_one "$label" create "$marker" "$safe" \
+    "10 KILL \"$kill_ref\"" '20 PRINT "XKILL":END' RUN \
+    || die "K=${k}陰性対照のKILLが成立しない"
+  after="$(python3 "$HELPER" media-sha "$disk")"
+  [ "$before" != "$after" ] || die "K=${k}陰性対照の媒体SHAが変化しない"
+  python3 - "$safe" "$before" "$after" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding='utf-8'))
+x.update({'media_before_sha256':sys.argv[2],'media_after_sha256':sys.argv[3],
+          'media_changed':sys.argv[2]!=sys.argv[3]})
+with open(sys.argv[1],'w',encoding='utf-8') as f:
+ json.dump(x,f,ensure_ascii=False,sort_keys=True); f.write('\n')
+raise SystemExit(0 if x['accepted'] and x['write_count']>0 and
+                 x['media_changed'] and x['main_dropped']==0 and
+                 x['sub_dropped']==0 else 1)
+PY
+  note "K=${k}陰性対照: 故障注入でWRITE非0・媒体SHA差を先に確認"
+  if full_verify_disk 8 "$disk" "m7ed-control-negative-k$(printf '%03d' "$k")" \
+       "$verify_frames"; then
+    die "K=${k}陰性対照を誤って合格にした"
+  fi
+  rm -f "$disk"
+  note "K=${k}陰性対照: 欠落1本を全名OPEN検証で実際に不合格にした"
+
+  cmd_full_verify "$k" "$verify_frames"
 }
 
 cmd_measure_terminal() {
@@ -546,10 +618,59 @@ cmd_measure_terminal() {
   note "N=$n 不存在OPEN公式2run合格・完全一致（K=${k}終端検証採用）"
 }
 
+cmd_rebuild_candidate() {
+  local target="${1:-}"
+  [[ "$target" =~ ^([2-9]|[1-5][0-9]|6[0-4])$ ]] || die "候補Nは2〜64"
+  local anchor=$(( (target - 1) / 8 * 8 ))
+  local root="$WORK/rebuild/j$(printf '%03d' "$target")"
+  local cpdir="$root/checkpoints" n prev cand name marker text label safe before after
+  mkdir -p "$cpdir"
+  cp "$(checkpoint "$anchor")" "$cpdir/n$(printf '%03d' "$anchor").d88"
+  for ((n=anchor + 1; n<=target; n++)); do
+    prev="$cpdir/n$(printf '%03d' $((n - 1))).d88"
+    cand="$cpdir/n$(printf '%03d' "$n").d88"
+    cp "$prev" "$cand"; chmod u+w "$cand"
+    before="$(python3 "$HELPER" media-sha "$cand")"
+    name="$(file_ref "$(name_for_n "$n")")"; marker="R$(printf '%03d' "$n")"
+    text="10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
+    label="rebuild-j$(printf '%03d' "$target")-create-n$(printf '%03d' "$n")"
+    run_frontend "$label" "$cand" yes "$text" || die "候補N=${target}の独立再構築N=${n}が到達前に終了"
+    safe="$WORK/safe/${label}.json"
+    analyze_one "$label" create "$marker" "$safe" \
+      "10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1" \
+      "20 PRINT \"$marker\":END" RUN || die "候補N=${target}の独立再構築N=${n}が不合格"
+    chmod a-w "$cand"
+    after="$(python3 "$HELPER" media-sha "$cand")"
+    [ "$before" != "$after" ] || die "候補N=${target}の独立再構築N=${n}で媒体SHAが不変"
+
+    local fp="rebuild-j$(printf '%03d' "$target")-files-n$(printf '%03d' "$n")"
+    run_pair "$fp" "$cand" files "$FILES_COMMAND"$'\n' ""
+    local prior_files
+    if [ "$n" -eq $((anchor + 1)) ]; then
+      prior_files="$WORK/safe/files-n$(printf '%03d' "$anchor").json"
+    else
+      prior_files="$WORK/safe/rebuild-j$(printf '%03d' "$target")-files-n$(printf '%03d' $((n - 1))).json"
+    fi
+    python3 - "$prior_files" "$WORK/safe/${fp}.json" <<'PY' || die "候補の独立再構築FILES成果物が直前Nから不変"
+import json,sys
+a,b=(json.load(open(p,encoding='utf-8')) for p in sys.argv[1:])
+keys=('screen_lines','screen_chars','screen_sha256')
+raise SystemExit(0 if any(a[k]!=b[k] for k in keys) else 1)
+PY
+  done
+
+  for n in $((target - 1)) "$target"; do
+    cand="$cpdir/n$(printf '%03d' "$n").d88"
+    label="rebuild-j$(printf '%03d' "$target")-missing-n$(printf '%03d' "$n")"
+    run_pair "$label" "$cand" missing "$missing_text" "" "${missing_typed[@]}"
+  done
+  note "候補N=${target}: 8本境界N=${anchor}から独立再構築し、N=$((target - 1))／${target}を各2run測定"
+}
+
 cmd_single_open() {
   local n="${1:-}"; [[ "$n" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは1〜64"
   local disk name marker text prefix rec
-  disk="$(checkpoint "$n")"; name="$(name_for_n "$n")"; marker="S$(printf '%03d' "$n")"
+  disk="$(checkpoint "$n")"; name="$(file_ref "$(name_for_n "$n")")"; marker="S$(printf '%03d' "$n")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$n" --disk "$disk" \
     || die "N=${n}チェックポイントが未受理またはSHA不一致"
   text="10 OPEN \"$name\" FOR INPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
@@ -599,7 +720,9 @@ case "${1:-}" in
   terminal-verify) cmd_terminal_verify "${2:-}" "${3:-}" ;;
   full-verify) cmd_full_verify "${2:-}" "${3:-}" ;;
   full-verify-selftest) cmd_full_verify_selftest "${2:-}" "${3:-}" ;;
+  m7ed-verify) cmd_m7ed_verify "${2:-}" "${3:-}" ;;
   measure-terminal) cmd_measure_terminal "${2:-}" "${3:-}" ;;
+  rebuild-candidate) cmd_rebuild_candidate "${2:-}" ;;
   single-open) cmd_single_open "${2:-}" ;;
   summary) shift; [ "$#" -gt 0 ] || die "summaryにはNが必要"; cmd_summary "$@" ;;
   *) usage; exit 2 ;;
