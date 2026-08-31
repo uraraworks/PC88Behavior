@@ -142,6 +142,7 @@ echo "  OK: built_in_font_* への実参照は残っていない（コメント�
 say "疎通試験"
 # ここまでで「ビルドできた」だけ。フックが末端まで生きているかは別問題なので測る。
 "$REPO/tools/harness/selftest.sh"
+"$REPO/tools/harness/disk2_selftest.sh"
 "$REPO/tools/harness/trap_selftest.sh"
 "$REPO/tools/harness/iolog_selftest.sh"
 "$REPO/tools/harness/intlog_selftest.sh"

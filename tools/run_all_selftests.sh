@@ -100,6 +100,7 @@ SCRIPTS_EXPECTED=(
   "tools/verify_l2.sh:0"
   "tools/verify_l3.sh:0"
   "tools/harness/clock_selftest.sh:0"
+  "tools/harness/disk2_selftest.sh:0"
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
   "tools/harness/iolog_capacity_selftest.sh:0"

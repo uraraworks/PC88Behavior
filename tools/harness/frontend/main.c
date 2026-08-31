@@ -10,6 +10,7 @@
  *
  * 使い方:
  *   q88measure --core <core.so|dylib> --rom-dir <dir> [--disk <a.d88>]
+ *              [--disk2 <b.d88>]
  *              [--frames N] [--out <file>] [--expect-exec ADDR]...
  *
  *   --rom-dir      公式 ROM の置き場。PC88_REF_ROM_DIR でも指定できる
@@ -26,6 +27,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <dlfcn.h>
+#include <sys/stat.h>
 
 #include "libretro.h"
 #include "q88h_trace.h"
@@ -47,6 +49,7 @@ static void (*p_set_input_state)(retro_input_state_t);
 static void (*p_init)(void);
 static void (*p_deinit)(void);
 static bool (*p_load_game)(const struct retro_game_info *);
+static bool (*p_load_game_special)(unsigned, const struct retro_game_info *, size_t);
 static void (*p_unload_game)(void);
 static void (*p_run)(void);
 static void (*p_reset)(void);
@@ -56,6 +59,11 @@ static q88h_trace_t *(*p_trace)(void);
 static q88h_trace_t *(*p_trace_sub)(void);
 static void          (*p_trace_reset)(void);
 static void          (*p_text)(uint8_t *, uint32_t, uint32_t, uint32_t);
+
+/* 二本ロード時の末端検査。QUASI88 は quasi88_disk_insert() が成功した後だけ
+ * filename_get_disk() の返す状態へ実パスを保存する。単にspecialへ渡した引数を
+ * 見直すのではなく、DRIVE_1/2への挿入が完了した後の状態を検査する。 */
+static const char *(*p_filename_get_disk)(int);
 
 /* トラップROM足場（M2）。無いコアもあり得るので dlsym は load_core とは
  * 別枠にして、失敗しても致命的にしない。「見つからなければ従来どおり
@@ -377,6 +385,11 @@ static bool load_core(const char *path)
     SYM(p_reset,                  "retro_reset");
     SYM(p_get_system_av_info,     "retro_get_system_av_info");
 
+    /* 一枚だけの既存経路では要求しない。古いコアでも従来測定を変えないため、
+     * 二本時にだけ呼出側で存在を必須にする。 */
+    *(void **)(&p_load_game_special) = dlsym(h, "retro_load_game_special");
+    *(void **)(&p_filename_get_disk) = dlsym(h, "filename_get_disk");
+
     /* 計測フックが入っていないコアを黙って使うと、
      * 「アクセスが無かった」と「観測していない」の区別がつかなくなる。 */
     SYM(p_trace,       "retro_q88h_trace");
@@ -629,7 +642,7 @@ static void write_iolog_cpu(FILE *fp, const char *who, const q88h_iolog_t *l)
 }
 
 static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
-                               const char *disk, unsigned frames,
+                               const char *disk, const char *disk2, unsigned frames,
                                unsigned from_frame,
                                const q88h_iolog_t *l, const q88h_iolog_t *ls)
 {
@@ -650,6 +663,7 @@ static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
     fprintf(fp, "frames    : %u\n\n", frames);
     fprintf(fp, "io-log-from-frame: %u\n\n", from_frame);
 
@@ -677,7 +691,7 @@ static void write_intlog_cpu(FILE *fp, const char *who, const q88h_intlog_t *l)
 }
 
 static void write_intlog_report(FILE *fp, const char *core, const char *romdir,
-                                const char *disk, unsigned frames,
+                                const char *disk, const char *disk2, unsigned frames,
                                 const q88h_intlog_t *l, const q88h_intlog_t *ls)
 {
     fprintf(fp, "# PC88Behavior 割り込み受理ログ\n");
@@ -699,6 +713,7 @@ static void write_intlog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
     fprintf(fp, "frames    : %u\n\n", frames);
 
     write_intlog_cpu(fp, "main", l);
@@ -735,7 +750,7 @@ static const char *fontsrc_tag_name(uint8_t src)
 }
 
 static void write_fontsrc_report(FILE *fp, const char *core, const char *romdir,
-                                 const char *disk, unsigned frames,
+                                 const char *disk, const char *disk2, unsigned frames,
                                  const q88h_fontsrc_t *f)
 {
     int i;
@@ -750,6 +765,7 @@ static void write_fontsrc_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
     fprintf(fp, "frames    : %u\n\n", frames);
 
     fprintf(fp, "# region                          source                                    writes  crc32\n");
@@ -780,13 +796,14 @@ static int write_screenshot_ppm(const char *path, const q88h_screenshot_t *s)
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
-                         const char *disk, unsigned frames)
+                         const char *disk, const char *disk2, unsigned frames)
 {
     fprintf(fp, "# PC88Behavior バスアクセス採取結果\n");
     fprintf(fp, "# 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。\n\n");
     fprintf(fp, "core      : %s\n", core);
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
     write_screen(fp);
@@ -807,6 +824,7 @@ static void usage(void)
 {
     fprintf(stderr,
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
+        "                   [--disk2 <path>] [--expect-disk2-empty]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
@@ -829,12 +847,13 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-    const char *core = NULL, *disk = NULL, *out = NULL;
+    const char *core = NULL, *disk = NULL, *disk2 = NULL, *out = NULL;
     unsigned frames = 600, next_at = 180, key_hold = 4, key_gap = 4;
     unsigned reset_at = UINT32_MAX;
     unsigned io_log_from_frame = 0;
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
+    bool expect_disk2_empty = false;
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
      * まとめて 1 つ確認しただけでは、どれが死んでいるか分からない。 */
     struct { const char *name; const uint8_t *map; size_t size; unsigned a[16]; int n; } chk[] = {
@@ -866,6 +885,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--core")    && i + 1 < argc) core = argv[++i];
         else if (!strcmp(argv[i], "--disk")    && i + 1 < argc) disk = argv[++i];
+        else if (!strcmp(argv[i], "--disk2")   && i + 1 < argc) disk2 = argv[++i];
+        else if (!strcmp(argv[i], "--expect-disk2-empty")) expect_disk2_empty = true;
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
@@ -1008,6 +1029,21 @@ int main(int argc, char **argv)
         }
     }
     if (!core || !g_rom_dir[0]) { usage(); return 2; }
+    if (disk2 && !disk) {
+        fprintf(stderr, "[q88measure] --disk2 には --disk が要る\n");
+        return 2;
+    }
+    if (disk2 && expect_disk2_empty) {
+        fprintf(stderr, "[q88measure] --disk2 と --expect-disk2-empty は同時指定できない\n");
+        return 2;
+    }
+    if (disk2) {
+        struct stat st;
+        if (stat(disk2, &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "[q88measure] --disk2 の通常ファイルを読めない: %s\n", disk2);
+            return 2;
+        }
+    }
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
         return 2;
@@ -1018,8 +1054,17 @@ int main(int argc, char **argv)
     fprintf(stderr, "[q88measure] core    = %s\n", core);
     fprintf(stderr, "[q88measure] rom-dir = %s\n", g_rom_dir);
     fprintf(stderr, "[q88measure] disk    = %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(stderr, "[q88measure] disk2   = %s\n", disk2);
 
     if (!load_core(core)) return 1;
+    if ((disk2 || expect_disk2_empty) && !p_filename_get_disk) {
+        fprintf(stderr, "[q88measure] DRIVE_2末端状態を検査できないコア\n");
+        return 2;
+    }
+    if (disk2 && !p_load_game_special) {
+        fprintf(stderr, "[q88measure] retro_load_game_specialを持たないコア\n");
+        return 2;
+    }
     if ((n_xi || ready_handoff_mode) && !g_exchange_intervention_available) {
         fprintf(stderr, "[q88measure] 交換run介入を持たないコア\n"); return 2;
     }
@@ -1037,7 +1082,33 @@ int main(int argc, char **argv)
 
     p_init();
 
-    {
+    if (disk2) {
+        enum { Q88_SUBSYSTEM_2_DISK = 0x0101 };
+        struct retro_game_info info[2];
+        const char *actual1, *actual2;
+        memset(info, 0, sizeof(info));
+        info[0].path = disk;
+        info[1].path = disk2;
+#ifdef Q88MEASURE_FAULT_SWAP_DISKS
+        /* disk2_selftest.shだけが別成果物へ有効化する故障注入。通常ビルドには入らない。 */
+        info[0].path = disk2;
+        info[1].path = disk;
+#endif
+        if (!p_load_game_special(Q88_SUBSYSTEM_2_DISK, info, 2)) {
+            fprintf(stderr, "[q88measure] 二本のディスクで起動に失敗した\n");
+            p_deinit();
+            return 1;
+        }
+        actual1 = p_filename_get_disk(0);
+        actual2 = p_filename_get_disk(1);
+        if (!actual1 || !actual2 || strcmp(actual1, disk) || strcmp(actual2, disk2)) {
+            fprintf(stderr, "[q88measure] NG: 二本のディスクがDRIVE_1/2へ指定順に入っていない\n");
+            p_unload_game();
+            p_deinit();
+            return 1;
+        }
+        fprintf(stderr, "[q88measure] OK: 二本目のDRIVE_2挿入をコア末端状態で確認\n");
+    } else {
         struct retro_game_info info;
         memset(&info, 0, sizeof(info));
         info.path = disk;
@@ -1048,6 +1119,15 @@ int main(int argc, char **argv)
             p_deinit();
             return 1;
         }
+    }
+    if (expect_disk2_empty) {
+        if (p_filename_get_disk(1)) {
+            fprintf(stderr, "[q88measure] NG: --disk2未指定なのにDRIVE_2へ媒体が入っている\n");
+            p_unload_game();
+            p_deinit();
+            return 1;
+        }
+        fprintf(stderr, "[q88measure] OK: --disk2未指定時のDRIVE_2空状態をコア末端で確認\n");
     }
 
     if (g_exchange_intervention_available) {
@@ -1189,11 +1269,13 @@ int main(int argc, char **argv)
             q88h_trap_t *tp  = (g_trap_available && g_trap_map_path[0]) ? p_trap()     : NULL;
             q88h_trap_t *tps = (g_trap_available && g_trap_map_path[0]) ? p_trap_sub() : NULL;
 
-            write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir, disk, frames);
+            write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
+                         disk, disk2, frames);
             if (out) {
                 FILE *fp = fopen(out, "w");
                 if (!fp) { perror(out); return 1; }
-                write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir, disk, frames);
+                write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
+                             disk, disk2, frames);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
             }
@@ -1206,7 +1288,7 @@ int main(int argc, char **argv)
                 q88h_iolog_t *ls = p_iolog_sub();
                 FILE *fp = fopen(io_log_path, "w");
                 if (!fp) { perror(io_log_path); return 1; }
-                write_iolog_report(fp, core, g_rom_dir, disk, frames,
+                write_iolog_report(fp, core, g_rom_dir, disk, disk2, frames,
                                    io_log_from_frame, l, ls);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
@@ -1221,7 +1303,7 @@ int main(int argc, char **argv)
                 q88h_intlog_t *ls = p_intlog_sub();
                 FILE *fp = fopen(int_log_path, "w");
                 if (!fp) { perror(int_log_path); return 1; }
-                write_intlog_report(fp, core, g_rom_dir, disk, frames, l, ls);
+                write_intlog_report(fp, core, g_rom_dir, disk, disk2, frames, l, ls);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 割り込み受理ログを書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
@@ -1236,7 +1318,7 @@ int main(int argc, char **argv)
                 q88h_fontsrc_t *f = p_fontsrc();
                 FILE *fp = fopen(font_log_path, "w");
                 if (!fp) { perror(font_log_path); return 1; }
-                write_fontsrc_report(fp, core, g_rom_dir, disk, frames, f);
+                write_fontsrc_report(fp, core, g_rom_dir, disk, disk2, frames, f);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] フォント供給源記録を書き出した: %s\n",
                         font_log_path);
