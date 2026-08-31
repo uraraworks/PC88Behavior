@@ -22,6 +22,7 @@ usage() {
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure-terminal N K
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh single-open N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh summary N...
   tools/ladder_dirfiles.sh selftest
 
@@ -400,6 +401,22 @@ cmd_measure_terminal() {
   note "N=$n 不存在OPEN公式2run合格・完全一致（K=${k}終端検証採用）"
 }
 
+cmd_single_open() {
+  local n="${1:-}"; [[ "$n" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは1〜64"
+  local disk name marker text prefix rec
+  disk="$(checkpoint "$n")"; name="$(name_for_n "$n")"; marker="S$(printf '%03d' "$n")"
+  python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$n" --disk "$disk" \
+    || die "N=${n}チェックポイントが未受理またはSHA不一致"
+  text="10 OPEN \"$name\" FOR INPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
+  prefix="single-open-n$(printf '%03d' "$n")"
+  run_pair "$prefix" "$disk" verify "$text" "$marker" \
+    "10 OPEN \"$name\" FOR INPUT AS #1:CLOSE #1" \
+    "20 PRINT \"$marker\":END" RUN
+  rec="$WORK/safe/record-single-open-n$(printf '%03d' "$n").json"
+  record_json "$rec" single-open "$n" true "" "$WORK/safe/$prefix.json"
+  note "N=$n 自身の自作名INPUT OPEN公式2run合格・完全一致"
+}
+
 cmd_summary() {
   local n file prev fc read fdc delta_fc delta_read verdict
   for n in "$@"; do
@@ -436,6 +453,7 @@ case "${1:-}" in
   probe-create) cmd_probe_create "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
   terminal-verify) cmd_terminal_verify "${2:-}" ;;
   measure-terminal) cmd_measure_terminal "${2:-}" "${3:-}" ;;
+  single-open) cmd_single_open "${2:-}" ;;
   summary) shift; [ "$#" -gt 0 ] || die "summaryにはNが必要"; cmd_summary "$@" ;;
   *) usage; exit 2 ;;
 esac
