@@ -30,6 +30,7 @@ usage() {
 
 作業領域に既定値はない。参照ROM/ディスクはPC88_REF_ROM_DIR/
 PC88_REF_DISK_DIRを使い、未設定時だけmeasure.shと同じリポジトリ内規定位置を使う。
+自作媒体系列ではPC88_M7EB_WORK_DIRとPC88_LADDER_SOURCE_DISKを明示する。
 EOF
 }
 
@@ -40,13 +41,18 @@ if [ "${1:-}" = selftest ]; then
   exec "$REPO/tools/ladder_dirfiles_selftest.sh"
 fi
 
-: "${PC88_LADDER_WORK_DIR:?PC88_LADDER_WORK_DIRを明示してください}"
-WORK="$PC88_LADDER_WORK_DIR"
+if [ -n "${PC88_LADDER_WORK_DIR:-}" ]; then
+  WORK="$PC88_LADDER_WORK_DIR"
+elif [ -n "${PC88_M7EB_WORK_DIR:-}" ]; then
+  WORK="$PC88_M7EB_WORK_DIR"
+else
+  die "PC88_LADDER_WORK_DIRまたはPC88_M7EB_WORK_DIRを明示してください"
+fi
 case "$WORK" in /*) ;; *) die "PC88_LADDER_WORK_DIRは絶対パスで指定してください" ;; esac
 [ "$WORK" != / ] || die "作業領域に/は指定できません"
 ROM_DIR="${PC88_REF_ROM_DIR:-$REPO/private/rom}"
 DISK_DIR="${PC88_REF_DISK_DIR:-$REPO/private/disk}"
-SOURCE_DISK="$DISK_DIR/$DISK_NAME"
+SOURCE_DISK="${PC88_LADDER_SOURCE_DISK:-$DISK_DIR/$DISK_NAME}"
 MANIFEST="$WORK/manifest.jsonl"
 mkdir -p "$WORK/checkpoints" "$WORK/raw" "$WORK/safe" "$WORK/archive"
 [ -d "$ROM_DIR" ] || die "参照ROMディレクトリが無い"
@@ -202,11 +208,11 @@ missing_typed=(
 cmd_calibrate() {
   cmd_init
   local cp0; cp0="$(checkpoint 0)"
-  files_pair 0 "$cp0"
   run_pair calibration-n000 "$cp0" missing "$missing_text" "" "${missing_typed[@]}"
   local rec="$WORK/safe/record-calibration-n000.json"
   record_json "$rec" calibration 0 true "" "$WORK/safe/calibration-n000.json"
   note "N=0校正合格: QZ9Xの不存在OPENはD9E/D9C/Okへ到達"
+  files_pair 0 "$cp0"
 }
 
 archive_block() {
