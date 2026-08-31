@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第101版 / 2026-08-31
+仕様書 第102版 / 2026-09-01
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第102版 | 2026-09-01 | 二ドライブ・二媒体ラダーと自作空媒体での第四ジャンプ | 1.55節へ、ドライブ1を起動用、ドライブ2をラダー対象とし、全名へ`2:`を付けた二系列を追加した。独立生成した自作空媒体の系列Bでは、独立再構築済みのN=16・32・48・64が全間隔16、全増分`(+258,+1)`へ完全一致し、容量端点未到達のまま周期が4点目まで継続した。公式媒体対照の系列Aは通常系列N=1〜48で候補11・27・43と同じ間隔・増分を観測し、絶対値もドライブ1・接頭辞なしの既存系列と一致したが、独立再構築runが存在しないため候補に留め、`m7ed`の媒体間比較は不成立とした。位置が媒体の初期状態に応じて動いた観測を追加し、既存項目数や絶対境界は逆算しない。3節では公式媒体の予測位置N=59が依然未検査で、自作空媒体のN=64結果はその欠測を埋めないことを明記した。根拠は`docs/notes/m7ec-blank-medium-boot-diagnosis.md`・`docs/notes/m7ed-two-drive-blank-medium-ladder-preregistration.md`・`docs/notes/m7ee-blank-medium-ladder-first-three-jumps-results.md`・`docs/notes/m7ef-blank-medium-ladder-fourth-jump-results.md`・`docs/notes/m7eg-official-medium-drive2-ladder-results.md`。 |
 | 第101版 | 2026-08-31 | ディレクトリ拡張ラダーの容量端点と後続周期判定 | 1.55節の観測範囲をN=52まで延長した。N=44〜52は全てゼロ差分で四点目は現れず、N=53の作成不成立を同名3回・別名・N=51→52成立・30000F再確認で切り分け、受理済み終端N=52を容量端点と確定した。予測位置N=59より手前で打ち切られたため、後続周期は周期破れでなく検査不能とし、既存三点のP=16・V=(+258,+1)は維持する。消失した外部作業領域をN=0から再構築した系列でも三点の絶対値・差分・FDC構造分類を完全再現した。事前登録の`CHR$`式全名検証がK=8でも動かなかった器材不一致を記録し、ホスト生成・最大8名分割の全名OPEN検証へ訂正して陽性／欠落陰性対照後にK=8〜52を再検証した。3節へ、N=59の検査がこの媒体・この手順の容量端点により未了であることを追加した。根拠は`docs/notes/m7ea-directory-expansion-capacity-endpoint-results.md`。 |
 | 第100版 | 2026-08-29 | 自作ファイル本数ラダーによるディレクトリ拡張アクセスの16本周期 | 1.55節を新設し、固定した公式diskA複製へ自作空ファイルを1本ずつ追加して固定不存在名OPENを測ると、N=11・27・43で`main IN $FC`が各258件・READが各1単位増え、間隔16・増分完全一致、中間は全てゼロ差分となる周期を確定した。各点は独立再構築でも再現し、各Nの作成、`FILES`成果物変化、2走決定論性、取りこぼし0件を確認済みで、N=48まで作成できたため容量上限による頭打ちではない。1段階の258件・1単位が1.54節のD段階と同額である事実は記録するが、同一機構とは推論しない。元媒体の既存項目数を読んでいないためN=11を絶対項目数とせず、16本周期から管理形式・エントリ長・セクタ長も逆算しない。3節とm7cxへ、この周期が媒体上の何に対応するかを新規未確定1件として追加した。根拠は`docs/notes/m7dv-directory-expansion-boundary-preregistration.md`・`docs/notes/m7dw-directory-expansion-boundary-first-block-results.md`・`docs/notes/m7dx-directory-expansion-boundary-continuation.md`・`docs/notes/m7dy-directory-expansion-jump-periodicity-preregistration.md`・`docs/notes/m7dz-directory-expansion-jump-periodicity-results.md`。 |
 | 第99版 | 2026-08-28 | 第98版「複数ファイル読出し削減」の固定費訂正 | **第98版の「同一セッションへの集約で削減の大部分が再現される」という記述を訂正した。** 同じadjacent媒体の段階ラダーとQ9B/Q9C単独各2走により、P0=6672件・READ 9単位が起動時第2チャンネルとSHA-256・区間構造・位置署名まで同一で、単独値8222件・17単位はこの起動固定費とファイル1本分1550件・8単位の和だと確定した。別ブート単独2回の合計は固定費を二重計上しており、逐次R2=9772件・25単位とR3=11322件・33単位は固定費モデルへ完全一致する。段階差もE1=E2=E3=1292件・7単位、D1=D2=D3=258件・1単位で、後続OPEN／読出しが安くなるH-D/H-Bは反証された。一方、同時オープンだけが固定費予測より518件・4単位少ない残差は未説明として独立に残した。1.54節は第98版原文を取り消し線で残して訂正し、3節とm7cxの未確定をこの残差へ絞った。根拠は`docs/notes/m7ds-read-reduction-stage-intervention-preregistration.md`・`docs/notes/m7dt-read-reduction-stage-ladder-results.md`・`docs/notes/m7du-fixed-cost-model-and-p0-identity.md`。 |
@@ -2296,7 +2297,7 @@ BがCより6672件・9単位少ないのは、同一セッションでは起動�
 [docs/notes/m7dt-read-reduction-stage-ladder-results.md](../notes/m7dt-read-reduction-stage-ladder-results.md)・
 [docs/notes/m7du-fixed-cost-model-and-p0-identity.md](../notes/m7du-fixed-cost-model-and-p0-identity.md)。
 
-### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100版、第101版更新）
+### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100〜102版更新）
 
 固定した公式diskAの使い捨て複製へ、自作の空シーケンシャルファイルを同じ命名規則で
 1本ずつ追加し、各Nで固定した有効形式の不存在名をINPUT OPENした。Nは元媒体へ追加した
@@ -2336,6 +2337,27 @@ N=0から作り直した系列全体の独立再構築でも、三点の絶対�
 従って後続周期は**周期破れではなく検査不能**である。既存三点の`P=16`、
 `V=(+258,+1)`は撤回せず、N=53以降をゼロ差分や周期なしへ読み替えない。
 
+第102版では、起動用媒体とラダー対象媒体を分けた。全runでドライブ1を公式システム
+ディスク、ドライブ2をラダー対象とし、全ファイル名へ`2:`を前置した。ドライブ2だけを
+変える二系列のうち、公開規則から独立に生成した自作空媒体の系列Bでは、確認済みジャンプ
+N=16・32・48・64を得た。各点は直前の8本境界アンカーから独立再構築し、N-1/Nを各2runで
+再測定して、同じ符号、差分、FDC構造的延長を完全再現した。全隣接間隔は16、全増分は
+`(+258,+1)`へ完全一致し、中間の成立済みNは全てゼロ差分だった。従って、**独立に生成した
+自作空媒体でも16本間隔・同一増分の周期が成立し、容量端点未到達のまま4点目まで継続した。**
+
+公式媒体対照の系列Aは、通常系列N=1〜48の全点が公式2runで成立し、N=11・27・43に
+`(+258,+1)`の正方向ジャンプ候補を得た。候補間隔は16へ完全一致し、N=1〜48の絶対値も
+ドライブ1・接頭辞なしの既存公式媒体系列と完全一致した。しかし系列Aの外部成果物には
+各候補の独立再構築runが存在しなかったため、三点は確認済みジャンプでなく候補に留める。
+このため、二系列の通常観測で間隔と増分が完全一致した事実は記録するが、`m7ed`が事前登録
+した媒体間比較は**不成立**であり、H-M、H-M'のどちらも支持しない。
+
+同じドライブ番号と名前接頭辞の通常観測で、ジャンプ位置は公式媒体の11・27・43から
+自作空媒体の16・32・48・64へ動いた。従って位置は媒体の初期状態に依存して動いたという
+観測事実として扱い、媒体間比較の指標には使わない。この差から公式媒体の既存項目数を
+逆算せず、元媒体の既存項目数を含む絶対境界とは呼ばない。間隔と増分の一致から内部形式、
+同一経路、原因、実機一般性も断定しない。
+
 この1段階の増分**258件・READ 1単位**は、1.54節のファイル内容読出し追加D
 （`D1=D2=D3`）と同額である。これは測定された数値の一致として記録するが、同額だけを
 根拠に同じ管理表、バッファ、SEEK、ROM内機構が働いたとは推論しない。
@@ -2352,7 +2374,12 @@ N=0から作り直した系列全体の独立再構築でも、三点の絶対�
 [docs/notes/m7dx-directory-expansion-boundary-continuation.md](../notes/m7dx-directory-expansion-boundary-continuation.md)・
 [docs/notes/m7dy-directory-expansion-jump-periodicity-preregistration.md](../notes/m7dy-directory-expansion-jump-periodicity-preregistration.md)・
 [docs/notes/m7dz-directory-expansion-jump-periodicity-results.md](../notes/m7dz-directory-expansion-jump-periodicity-results.md)・
-[docs/notes/m7ea-directory-expansion-capacity-endpoint-results.md](../notes/m7ea-directory-expansion-capacity-endpoint-results.md)。
+[docs/notes/m7ea-directory-expansion-capacity-endpoint-results.md](../notes/m7ea-directory-expansion-capacity-endpoint-results.md)・
+[docs/notes/m7ec-blank-medium-boot-diagnosis.md](../notes/m7ec-blank-medium-boot-diagnosis.md)・
+[docs/notes/m7ed-two-drive-blank-medium-ladder-preregistration.md](../notes/m7ed-two-drive-blank-medium-ladder-preregistration.md)・
+[docs/notes/m7ee-blank-medium-ladder-first-three-jumps-results.md](../notes/m7ee-blank-medium-ladder-first-three-jumps-results.md)・
+[docs/notes/m7ef-blank-medium-ladder-fourth-jump-results.md](../notes/m7ef-blank-medium-ladder-fourth-jump-results.md)・
+[docs/notes/m7eg-official-medium-drive2-ladder-results.md](../notes/m7eg-official-medium-drive2-ladder-results.md)。
 
 ## 2. 明示的に「採用できない」こと
 
@@ -2842,7 +2869,10 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   自作空ファイルを追加する系列はN=52が容量端点となり、N=59へ到達できなかったため、
   同じ増分`(+258,+1)`が四点目でも現れるかは検査不能である。これは周期破れではなく、
   この媒体・この手順での到達不能を示す。別媒体、または介入成立を独立に確認できる別手順で
-  N=59へ到達できるなら検査し得るが、その結果を本観測から推定しない。
+  N=59へ到達できるなら検査し得るが、その結果を本観測から推定しない。第102版で自作空媒体
+  の別系列がN=64まで到達し、N=64で四点目を確認したことは、**公式媒体のN=59を測定した
+  ものではなく、公式媒体のN=59は依然として未検査である。** 媒体と絶対位置が異なるため、
+  自作空媒体の結果でこの未了を埋めない。
 
 ---
 
