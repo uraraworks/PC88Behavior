@@ -552,7 +552,7 @@ PY
 # 対象Kの全名OPEN検証より先に実施する。
 cmd_m7ed_verify() {
   local k="${1:-}" verify_frames="${2:-$FRAMES}"
-  [[ "$k" =~ ^(8|16|24|32|40|48|56|64)$ ]] || die "Kは8の倍数（8〜64）"
+  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
   [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
   local control; control="$(checkpoint 8)"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n 8 --disk "$control" \
