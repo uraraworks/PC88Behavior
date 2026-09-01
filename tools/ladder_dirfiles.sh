@@ -17,7 +17,7 @@ usage() {
 使い方:
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh init
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh calibrate
-  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh build 8|16|...|64
+  PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh build 8|16|...|128
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh measure N
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh probe-create BASE NAME LABEL MARKER success|failure [FRAMES]
   PC88_LADDER_WORK_DIR=... tools/ladder_dirfiles.sh terminal-verify K [FRAMES]
@@ -297,8 +297,9 @@ build_block() {
 }
 
 cmd_build() {
-  local target="${1:-}"; [[ "$target" =~ ^(8|16|24|32|40|48|56|64)$ ]] \
-    || die "build上限は8の倍数（8〜64）で指定"
+  local target="${1:-}"; [[ "$target" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$target" -ge 8 ] && [ "$target" -le 128 ] && [ $((target % 8)) -eq 0 ] \
+    || die "build上限は8の倍数（8〜128）で指定"
   cmd_init
   if python3 "$HELPER" status --manifest "$MANIFEST" --stage calibration --n 0 2>/dev/null \
      && python3 "$HELPER" status --manifest "$MANIFEST" --stage files --n 0 2>/dev/null \
@@ -320,7 +321,8 @@ cmd_build() {
 }
 
 cmd_measure() {
-  local n="${1:-}"; [[ "$n" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは0〜64"
+  local n="${1:-}"; [[ "$n" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$n" -ge 0 ] && [ "$n" -le 128 ] || die "Nは0〜128"
   local block=$(( (n + 7) / 8 * 8 ))
   [ "$n" -eq 0 ] || python3 "$HELPER" status --manifest "$MANIFEST" --stage block --n "$block" \
     || die "N=${n}を含むブロックが未受理"
@@ -337,7 +339,8 @@ cmd_measure() {
 cmd_probe_create() {
   local base="${1:-}" name="${2:-}" label="${3:-}" marker="${4:-}" expect="${5:-}"
   local probe_frames="${6:-$FRAMES}"
-  [[ "$base" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "probe-createのBASEは0〜64"
+  [[ "$base" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$base" -ge 0 ] && [ "$base" -le 128 ] || die "probe-createのBASEは0〜128"
   [[ "$name" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのNAMEは英大文字・数字1〜6文字"
   [[ "$label" =~ ^[a-z0-9-]+$ ]] || die "probe-createのLABELが不正"
   [[ "$marker" =~ ^[A-Z0-9]{1,6}$ ]] || die "probe-createのMARKERが不正"
@@ -396,7 +399,8 @@ PY
 }
 
 cmd_terminal_verify() {
-  local k="${1:-}"; [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  local k="${1:-}"; [[ "$k" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$k" -ge 1 ] && [ "$k" -le 128 ] || die "Kは1〜128"
   local verify_frames="${2:-$FRAMES}"
   [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
   local disk_source; disk_source="$(checkpoint "$k")"
@@ -490,7 +494,8 @@ PY
 
 cmd_full_verify() {
   local k="${1:-}" verify_frames="${2:-$FRAMES}"
-  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [[ "$k" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$k" -ge 1 ] && [ "$k" -le 128 ] || die "Kは1〜128"
   [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
   local disk; disk="$(checkpoint "$k")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$k" --disk "$disk" \
@@ -505,7 +510,8 @@ cmd_full_verify() {
 
 cmd_full_verify_selftest() {
   local k="${1:-}" verify_frames="${2:-$FRAMES}"
-  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [[ "$k" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$k" -ge 1 ] && [ "$k" -le 128 ] || die "Kは1〜128"
   cmd_full_verify "$k" "$verify_frames"
 
   local source; source="$(checkpoint "$k")"
@@ -552,7 +558,8 @@ PY
 # 対象Kの全名OPEN検証より先に実施する。
 cmd_m7ed_verify() {
   local k="${1:-}" verify_frames="${2:-$FRAMES}"
-  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [[ "$k" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$k" -ge 1 ] && [ "$k" -le 128 ] || die "Kは1〜128"
   [[ "$verify_frames" =~ ^[0-9]+$ ]] && [ "$verify_frames" -gt 0 ] || die "FRAMESは正整数"
   local control; control="$(checkpoint 8)"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n 8 --disk "$control" \
@@ -604,8 +611,10 @@ PY
 
 cmd_measure_terminal() {
   local n="${1:-}" k="${2:-}"
-  [[ "$n" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは0〜64"
-  [[ "$k" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Kは1〜64"
+  [[ "$n" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$n" -ge 0 ] && [ "$n" -le 128 ] || die "Nは0〜128"
+  [[ "$k" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$k" -ge 1 ] && [ "$k" -le 128 ] || die "Kは1〜128"
   [ "$n" -le "$k" ] || die "NはK以下"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage full-block --n "$k" \
     || die "K=${k}修正版全名検証が未受理"
@@ -621,7 +630,8 @@ cmd_measure_terminal() {
 
 cmd_rebuild_candidate() {
   local target="${1:-}"
-  [[ "$target" =~ ^([2-9]|[1-5][0-9]|6[0-4])$ ]] || die "候補Nは2〜64"
+  [[ "$target" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$target" -ge 2 ] && [ "$target" -le 128 ] || die "候補Nは2〜128"
   local anchor=$(( (target - 1) / 8 * 8 ))
   local root="$WORK/rebuild/j$(printf '%03d' "$target")"
   if [ -d "$root" ]; then
@@ -672,7 +682,8 @@ PY
 }
 
 cmd_single_open() {
-  local n="${1:-}"; [[ "$n" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || die "Nは1〜64"
+  local n="${1:-}"; [[ "$n" =~ ^(0|[1-9][0-9]*)$ ]] \
+    && [ "$n" -ge 1 ] && [ "$n" -le 128 ] || die "Nは1〜128"
   local disk name marker text prefix rec
   disk="$(checkpoint "$n")"; name="$(file_ref "$(name_for_n "$n")")"; marker="S$(printf '%03d' "$n")"
   python3 "$HELPER" status --manifest "$MANIFEST" --stage checkpoint --n "$n" --disk "$disk" \
