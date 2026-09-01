@@ -624,6 +624,9 @@ cmd_rebuild_candidate() {
   [[ "$target" =~ ^([2-9]|[1-5][0-9]|6[0-4])$ ]] || die "候補Nは2〜64"
   local anchor=$(( (target - 1) / 8 * 8 ))
   local root="$WORK/rebuild/j$(printf '%03d' "$target")"
+  if [ -d "$root" ]; then
+    mv "$root" "$WORK/archive/rebuild-j$(printf '%03d' "$target").$(date +%Y%m%d%H%M%S).$$.raw"
+  fi
   local cpdir="$root/checkpoints" n prev cand name marker text label safe before after
   mkdir -p "$cpdir"
   cp "$(checkpoint "$anchor")" "$cpdir/n$(printf '%03d' "$anchor").d88"
