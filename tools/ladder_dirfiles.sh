@@ -353,16 +353,17 @@ cmd_probe_create() {
     mv "$WORK/raw/$run_label" "$WORK/archive/probe-$label.$stamp.raw"
   fi
   cp "$source" "$disk"; chmod u+w "$disk"
-  local before after text safe rc=0
+  local before after text safe ref rc=0
+  ref="$(file_ref "$name")"
   before="$(python3 "$HELPER" media-sha "$disk")"
-  text="10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
+  text="10 OPEN \"$ref\" FOR OUTPUT AS #1:CLOSE #1\n20 PRINT \"$marker\":END\nRUN\n"
   run_frontend "$run_label" "$disk" yes "$text" "$probe_frames" || die "$label が到達前に終了"
   safe="$WORK/safe/probe-$label.json"
   analyze_one "$run_label" create "$marker" "$safe" \
-    "10 OPEN \"$name\" FOR OUTPUT AS #1:CLOSE #1" \
+    "10 OPEN \"$ref\" FOR OUTPUT AS #1:CLOSE #1" \
     "20 PRINT \"$marker\":END" RUN || rc=$?
   after="$(python3 "$HELPER" media-sha "$disk")"
-  python3 - "$safe" "$base" "$name" "$label" "$before" "$after" \
+  python3 - "$safe" "$base" "$ref" "$label" "$before" "$after" \
     "$LAST_RUN_FRAMES" "$LAST_WALL_MILLIS" "$LAST_Q88_RC" <<'PY'
 import json,sys
 p,base,name,label,before,after,frames,wall_ms,process_rc=sys.argv[1:]
