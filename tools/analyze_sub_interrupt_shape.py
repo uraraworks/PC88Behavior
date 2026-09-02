@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import hashlib
 import json
 import re
 import sys
@@ -21,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cmp_io  # noqa: E402
+import compare_l3_entry_fdc as entry_fdc  # noqa: E402
 
 
 IO_RE = re.compile(
@@ -33,6 +35,10 @@ INT_RE = re.compile(
 )
 DROP_RE = re.compile(r"取りこぼし:\s*(\d+)件")
 LONG_RUN_MIN = 16
+
+
+class AnalysisError(Exception):
+    """値を診断へ漏らさずに解析不能を通知する。"""
 
 
 @dataclass(frozen=True)
@@ -114,9 +120,32 @@ def key(event: Io) -> str:
     return f"{event.cpu} {event.kind} ${event.port[-2:]}"
 
 
+def command_kinds(path: Path) -> tuple[list[str], list[int]]:
+    """既存器材を再利用し、公開FDC種別名と発行clockだけを返す。
+
+    `compare_l3_entry_fdc.command_names()` が使う生のコマンド語・パラメータ・
+    結果・データは種別境界の判定中だけに留め、この関数の戻り値にも診断にも
+    含めない。未知コマンド等の例外文には生値が入り得るため、外側へは固定文の
+    `AnalysisError` だけを返す。
+    """
+    try:
+        names, commands, _rows = entry_fdc.command_names(path)
+    except (OSError, ValueError, entry_fdc.awp.SafeError):
+        raise AnalysisError("公開FDCコマンド種別列を抽出できない") from None
+    return names, [command.clock for command in commands]
+
+
+def names_sha256(names: list[str]) -> str:
+    """既存 `ladder_dirfiles.py` と同じ正規JSON表現で種別列を要約する。"""
+    data = json.dumps(names, ensure_ascii=True, sort_keys=True,
+                      separators=(",", ":")).encode("ascii")
+    return hashlib.sha256(data).hexdigest()
+
+
 def analyze(io_path: Path, int_path: Path) -> dict:
     io = read_io(io_path)
     intr, dropped = read_intr(int_path)
+    fdc_names, fdc_clocks = command_kinds(io_path)
     merged = sorted(io, key=lambda e: e.clock)
     clocks = [e.clock for e in merged]
     sub = sorted((e for e in io if e.cpu == "sub"), key=lambda e: e.clock)
@@ -131,8 +160,17 @@ def analyze(io_path: Path, int_path: Path) -> dict:
     long_run_by_direction: Counter[str] = Counter()
     sense_candidates = 0
     missing_before = missing_after = 0
+    interrupts_by_fdc_command_index: Counter[int] = Counter()
+    interrupts_by_fb_run_index: Counter[int] = Counter()
+    interrupt_position_in_run: Counter[int] = Counter()
+    interrupts_without_fb_run_position = 0
 
     for event in intr:
+        # コマンド段 j は、公開FDCコマンド j の発行時点以上、次のコマンドの
+        # 発行時点未満とする。最初の発行より前は段 -1、列末尾は測定終了まで。
+        command_index = bisect.bisect_right(fdc_clocks, event.clock) - 1
+        interrupts_by_fdc_command_index[command_index] += 1
+
         idx = bisect.bisect_left(clocks, event.clock)
         if idx == 0:
             missing_before += 1
@@ -148,11 +186,16 @@ def analyze(io_path: Path, int_path: Path) -> dict:
         if prev is not None and prev.clock in where:
             ri, pos = where[prev.clock]
             run = runs[ri]
+            interrupts_by_fb_run_index[ri] += 1
+            interrupt_position_in_run[pos] += 1
             loc = "末尾" if pos == len(run) - 1 else "途中"
             fb_position[f"{prev.kind} run {loc}"] += 1
             if len(run) >= LONG_RUN_MIN:
                 long_run_interrupts += 1
                 long_run_by_direction[prev.kind] += 1
+        else:
+            # run内位置を持たない受理も除外せず、別の整数として残す。
+            interrupts_without_fb_run_position += 1
 
         # 受理後、最初の$FBから見てOUT 1件→IN 1〜2件ならSENSE候補。
         # 受理直前のOUTと方向が同じでも、受理点を局所境界として数える。
@@ -173,6 +216,11 @@ def analyze(io_path: Path, int_path: Path) -> dict:
 
     frame_counts = Counter(e.frame for e in intr)
     active_frames = sorted(frame_counts)
+    run_length_histogram = Counter(len(run) for run in runs)
+    fb_runs_with_interrupt = sum(
+        1 for run_index in range(len(runs))
+        if interrupts_by_fb_run_index[run_index]
+    )
     return {
         "interrupts": len(intr),
         "dropped": dropped,
@@ -195,6 +243,25 @@ def analyze(io_path: Path, int_path: Path) -> dict:
             round(len(intr) / len(active_frames), 6) if active_frames else 0
         ),
         "frame_counts": [[f, frame_counts[f]] for f in active_frames],
+        "fdc_command_kinds": fdc_names,
+        "fdc_command_count": len(fdc_names),
+        "fdc_command_kinds_sha256": names_sha256(fdc_names),
+        # 大量出力を避けるため非0の段だけを出す。キー名の `_nonzero` は、
+        # 省略した全段（段 -1 と全コマンド段のうち未掲載）が0件であることを示す。
+        "interrupts_by_fdc_command_index_nonzero":
+            dict(sorted(interrupts_by_fdc_command_index.items())),
+        "fb_run_count": len(runs),
+        "fb_run_length_histogram": dict(sorted(run_length_histogram.items())),
+        # 非0のrunだけを出し、省略されたrun番号は全て0件と明示する。
+        "interrupts_by_fb_run_index_nonzero":
+            dict(sorted(interrupts_by_fb_run_index.items())),
+        "fb_runs_with_interrupt": fb_runs_with_interrupt,
+        "fb_runs_without_interrupt": len(runs) - fb_runs_with_interrupt,
+        # 非0の相対位置だけを出し、省略された位置は全て0件と明示する。
+        "interrupt_position_in_run_histogram_nonzero":
+            dict(sorted(interrupt_position_in_run.items())),
+        "interrupts_without_fb_run_position":
+            interrupts_without_fb_run_position,
     }
 
 
@@ -230,7 +297,11 @@ def main() -> int:
                     help="観測外形（直前main=0、直後sub IN $FA=全件）を検査")
     ap.add_argument("--expect-no-interrupt", action="store_true")
     args = ap.parse_args()
-    result = analyze(args.iolog, args.intlog)
+    try:
+        result = analyze(args.iolog, args.intlog)
+    except AnalysisError as ex:
+        print(f"解析不能: {ex}", file=sys.stderr)
+        return 2
     print(json.dumps({"label": args.label, **result}, ensure_ascii=False,
                      sort_keys=True, indent=2))
     if not args.check:
