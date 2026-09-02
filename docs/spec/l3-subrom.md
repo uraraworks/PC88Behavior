@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第113版 | 2026-09-02 | `m7ew`起動ログの既存器材による再解析 | `m7ew`の条件O（公式一式）・条件M（混成）の起動ログを既存器材で再解析し、**起動区間にunit/head差が2件（段3 `SEEK`、段5 `RECALIBRATE`、いずれも公式A/混成B）残っている**ことを記録した。1.46節の差0件は**入口区間**についての主張で、`verify_drive_byte2_attribution.sh`も入口区間を検査しているため矛盾しないが、起動区間はこれまで検査対象になっていなかった。`READ DATA` 9件のunit/headは両条件で完全一致し、最初のエラー結果も両条件ともコマンド15件目の`SENSE INTERRUPT STATUS`で内容まで一致した。**段30の差をドライブ指定差に帰属する見立ては、位置関係（段30の直前`SEEK`は段27で差が無い）により否定された。** 2件の理由、不具合か設計か、段30との因果は決めない。根拠は`docs/notes/m7ex-boot-region-drive-selector-difference.md`。 |
 | 第112版 | 2026-09-02 | FDCコマンド軸で割り込み受理を整列し、frame軸の像を訂正 | `m7ev`の事前登録に基づき、条件O（公式一式）と条件M（混成）をFDCコマンド種別列で整列して比較した。検査Pでは両条件の種別列が51件で完全一致し、SHA-256も一致した。受理は同じ25段に現れ、**段30の`READ DATA`だけO=257 / M=2で`d=-255`、他24段は全て`d=+1`**だった。`$FB` run長ヒストグラムは条件Mだけ長さ263が1本少なく長さ7が1本多く、`$FB`イベント総数の差はちょうど256である。**`m7eu`の「ほぼ別物」という像は軸の選び方が作ったものであり、FDC段で整列すると段構造は一致する。** frame粒度の`A=22917`という事実は撤回しない。事前登録した規則4は`Z=0`で既定の分岐からH-Sを出しており、局在を導いたのは規則ではなく件数の大きさである。段30の差の意味・原因・不具合か設計かは決めない。根拠は`docs/notes/m7ev-interrupt-alignment-preregistration.md`・`docs/notes/m7ew-interrupt-alignment-results.md`。 |
 | 第111版 | 2026-09-02 | 割り込み受理外形の公式・混成差をframe粒度で再評価 | `m7et`の事前登録に基づき、条件O（公式一式）と条件M（混成）をframes 1800・各2runで実走した。受理件数13593 / 13362は`m7ce`と完全一致して再現したが、**frame粒度の絶対差分は22917であり、符号付き差分の231はほぼ相殺の結果で差の大きさを表さない**。受理直前1件はOの`sub IN $FB`が13559件、Mの`sub IN $FA`が13337件で互いに0件、`$FB`長run直後の受理はO=13559 / M=0、受理のあるframeの共通は4つだけだった。受理直後は両条件とも`sub IN $FA`だけで一致した。事前登録した幅100・18区間では全受理がframe 13〜79の`B_0`だけに入り、規則上H-LとH-Aを支持したが判定は自明で差の形を識別できなかった。区間幅は変更せず、この解像度不足を記録した。適合条件3は直前1件がmain側でないことだけを問うため、合格は覆らない。原因、割り込みモード、どこを直せば一致するかは決めない。根拠は`docs/notes/m7et-interrupt-shape-gap-preregistration.md`・`docs/notes/m7eu-interrupt-shape-gap-results.md`。 |
 | 第110版 | 2026-09-02 | 系列Bの容量端点を確定し5系列の端点確定を完了 | `m7er`で系列Bの上限N=256を資源上限として事前登録し、器材変更なしで測定した。N=129〜158は成立し、N=159の作成不成立を6対照で確定して**容量端点N=158**とした。`build 160`の3試行はN=153〜158の作成に成立後、N=159だけ不合格で、一過性abortは0件だった。終端K=153〜158は1ずつ両対照つきで検証し不合格Kは無い。N=144を独立再構築の完全再現により確認済みジャンプへ採用してk=9となり、観測範囲N=1〜158で`P_B=16`・`V_B=(+258,+1)`が成立した。十点目N=160は容量端点の外で検査不能。これで5系列全ての容量端点がA=52・B=158・C=155・D=60・E=23と確定した。k>=3の4系列は引き続きH-M支持であり、系列Bの端点158と系列Cの端点155の差3からは何も導かない。根拠は`docs/notes/m7er-series-b-capacity-endpoint-preregistration.md`・`docs/notes/m7es-series-b-capacity-endpoint-results.md`。 |
@@ -2115,7 +2116,7 @@ unit/headへ伝播し、ドライブ別のシーク・モータ状態を保持�
 
 根拠: [docs/notes/m7ci-error-and-drive2-paths.md](../notes/m7ci-error-and-drive2-paths.md)。
 
-### 1.46 main要求byte2 bit0はFDCドライブ指定であり恒久実装済みである（第78〜80版）
+### 1.46 main要求byte2 bit0はFDCドライブ指定であり恒久実装済みである（第78〜80版、第113版追記）
 
 同内容のdiskA複製をA:/B:へ入れた`FILES 1/2`を公式・混成各2回比較した。
 700F以降のmain `OUT $FD`は17 run、run長列は同一で、全位置の差12件はすべて
@@ -2142,6 +2143,28 @@ ROM全体でバイト一致するため、第78版の帰属測定は恒久版の
 
 根拠: [docs/notes/m7cj-drive-selector-request-byte.md](../notes/m7cj-drive-selector-request-byte.md)。
 第80版の根拠: [docs/notes/m7ck-drive-selector-permanent-conformance.md](../notes/m7ck-drive-selector-permanent-conformance.md)。
+
+第113版では、`m7ew`で取得済みの条件O（公式一式）・条件M（混成）の起動ログを、
+既存器材`tools/compare_l3_entry_fdc.py`へ`--after-frame 0`を与えて再解析した。
+これは新しい実測ではなく、エミュレータ、器材、`src/`の変更も行っていない。
+起動区間にはunit/head差が2件残っており、段3の`SEEK`と段5の`RECALIBRATE`が、
+いずれも公式`A/head0`、混成`B/head0`だった。一方、`READ DATA` 9件の
+unit/headは両条件で完全一致し、最初のエラー結果も両条件ともコマンド15件目の
+`SENSE INTERRUPT STATUS`で内容まで一致した。
+
+本節の第80版までの「差0件」は**入口区間**についての主張である。
+`tools/verify_drive_byte2_attribution.sh`も`--after-frame 700`以降の入口区間を
+検査しており、本稿の2件はその範囲外にある。従って既存記述とは矛盾せず、入口区間の
+差0件を覆さない。ただし、起動区間はこれまで検査対象になっておらず、この2件は既存の
+検査が通り続けたまま残っていた差である。
+
+再解析の動機だった「段30の直前にドライブ指定差がある」という見立ては、位置関係で
+否定された。差は段3と段5にあり、段30の直前の`SEEK`は段27で差が無く、
+`READ DATA` 9件のunit/headも一致するため、段30の差をドライブ指定差に帰属しない。
+2件が生じる理由、不具合か設計か、機能差の有無、段30との因果は決まらない。
+
+第113版の根拠:
+[docs/notes/m7ex-boot-region-drive-selector-difference.md](../notes/m7ex-boot-region-drive-selector-difference.md)。
 
 ### 1.47 no_diskとunreadable_diskのエラー経路は異なる（第81版）
 
@@ -3058,6 +3081,17 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   見つかったため、機能上の欠落とは言えない。値を読んでいないため、何を読まなかったかも
   決めない。根拠は`docs/notes/m7ev-interrupt-alignment-preregistration.md`・
   `docs/notes/m7ew-interrupt-alignment-results.md`。
+- **（第113版で追加）起動区間で段3の `SEEK` と段5の `RECALIBRATE` がB-unitへ出る理由。**
+  `m7ew`の既存起動ログを`--after-frame 0`で再解析すると、unit/head差は2件あり、
+  段3の`SEEK`と段5の`RECALIBRATE`が、いずれも公式`A/head0`、混成
+  `B/head0`だった。`READ DATA` 9件のunit/headは両条件で完全一致し、最初の
+  エラー結果も両条件ともコマンド15件目の`SENSE INTERRUPT STATUS`で内容まで
+  一致した。この2件がB-unitへ出る理由、それが不具合か設計か、機能差を生むかは
+  決まらない。段30の直前の`SEEK`は段27で差が無いため、段30の差をこの2件へ
+  帰属しないが、因果も無関係であることも決めない。既存の
+  `tools/verify_drive_byte2_attribution.sh`は入口区間を検査しており、本差は
+  検査範囲外だった。根拠は
+  `docs/notes/m7ex-boot-region-drive-selector-difference.md`。
 - **（第92版で更新）5635という数値の直接説明と、44セクタを選ぶ上流理由。**
   公開D88仕様との算術照合は実施済みで、`5635 = 3 + 5632`、
   `5632 = 22 * 256`、両チャンネル合算では`11264 = 44 * 256`となる。
