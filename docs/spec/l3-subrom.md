@@ -2302,7 +2302,7 @@ BがCより6672件・9単位少ないのは、同一セッションでは起動�
 [docs/notes/m7dt-read-reduction-stage-ladder-results.md](../notes/m7dt-read-reduction-stage-ladder-results.md)・
 [docs/notes/m7du-fixed-cost-model-and-p0-identity.md](../notes/m7du-fixed-cost-model-and-p0-identity.md)。
 
-### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100〜102版更新）
+### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100〜108版更新）
 
 固定した公式diskAの使い捨て複製へ、自作の空シーケンシャルファイルを同じ命名規則で
 1本ずつ追加し、各Nで固定した有効形式の不存在名をINPUT OPENした。Nは元媒体へ追加した
@@ -2524,6 +2524,42 @@ k>=3の4系列（A・B・C・D）は引き続き`P=16`・`V=(+258,+1)`で完全�
 最初のジャンプN=11も、元媒体の既存項目数を観測していないため、絶対的な項目数11の
 境界とは解釈しない。
 
+第108版では、`m7en`で系列Cだけの登録上限を次の実測前にN=128へ引き直した。これは
+N=64までの実測後に既存上限を事後延長したものではなく、新しい実測範囲を先に固定した
+事前登録のやり直しである。系列CのN=65〜128は全点で作成、`FILES 2`各2run、8本ごとの
+修正版全名OPEN検証、固定不存在OPEN各2runが成立し、容量端点未到達のまま登録上限まで
+走り切った。
+
+新たな候補N=79・95・111・127は、直前の受理済み8本境界アンカーからの独立再構築でも、
+差分ベクトル`(+258,+1)`、絶対値、FDC種別列SHA-256、strict prefixによる構造的延長を
+完全再現したため確認済みジャンプへ採用した。既存の15・31・47・63と合わせてk=8となり、
+7つの隣接間隔は全て16、8点の増分は全て`(+258,+1)`へ完全一致し、中間の成立済みNは全て
+ゼロ差分だった。従って、周期性の固定判定規則3により、**観測範囲N=1〜128で`P_C=16`、
+`V_C=(+258,+1)`が成立する。** `m7en`が事前登録した五〜八点目の予測位置4点は全て
+的中したが、これは系列C自身の確認済みジャンプN=63と成立済み周期からの外挿であり、
+`m7ej`型の「N=0基準値から位置を予測する」立て方の復権ではない。位置の的中と、H-Mの
+判定材料であるP・Vの完全一致は別の事実として扱う。九点目の予測位置N=143は登録上限の
+外で**検査不能**であり、周期がN=128で終わった、または九点目が無いとはしない。
+
+一過性の`Abort trap: 6`は測定・検証フェーズ4件、独立再構築4件の計8件発生したが、
+検証そのものの不合格ではなく欠測として扱い、同条件で再実行して全て成立させた。欠測を
+ゼロ差分、周期破れ、容量端点へ読み替えない。
+
+| 系列 | 媒体 | 確認済みジャンプ | k | 停止理由 | P | V | 比較への算入 |
+|---|---|---|---:|---|---:|---|---|
+| A | 公式diskA複製 | 11, 27, 43 | 3 | 容量端点N=52 | 16 | (+258,+1) | 算入 |
+| B | 自作空媒体 | 16, 32, 48, 64, 80, 96, 112, 128 | 8 | 登録上限N=128（容量端点未到達） | 16 | (+258,+1) | 算入 |
+| C | `ALPHA-MINI DOS 1.5`複製 | 15, 31, 47, 63, 79, 95, 111, 127 | 8 | 登録上限N=128（容量端点未到達） | 16 | (+258,+1) | 算入 |
+| D | `MUCOM88em`複製 | 7, 23, 39, 55 | 4 | 容量端点N=60 | 16 | (+258,+1) | 算入 |
+| E | `voiceeditor`複製 | 2, 18 | 2 | 容量端点N=23 | — | — | 規則4により不成立 |
+
+k>=3の4系列（A・B・C・D）は引き続き`P=16`・`V=(+258,+1)`へ完全一致するため、絶対位置と
+絶対値を使わない媒体間比較規則1により**H-M（媒体不変）支持**とする。系列Bに続いて
+系列Cも8点となり、公式媒体で八点目まで確認済みジャンプを得た最初の例となったが、
+反復回数を根拠に規則を書き換えない。系列Cは容量端点に達する前に登録上限で停止したため、
+その容量端点は未確定である。8点から媒体容量、内部形式、原因、実機一般性を決めず、周期が
+無限に続くとも解釈しない。
+
 根拠: [docs/notes/m7dv-directory-expansion-boundary-preregistration.md](../notes/m7dv-directory-expansion-boundary-preregistration.md)・
 [docs/notes/m7dw-directory-expansion-boundary-first-block-results.md](../notes/m7dw-directory-expansion-boundary-first-block-results.md)・
 [docs/notes/m7dx-directory-expansion-boundary-continuation.md](../notes/m7dx-directory-expansion-boundary-continuation.md)・
@@ -2540,7 +2576,9 @@ k>=3の4系列（A・B・C・D）は引き続き`P=16`・`V=(+258,+1)`で完全�
 [docs/notes/m7ej-official-media-fourth-jump-preregistration.md](../notes/m7ej-official-media-fourth-jump-preregistration.md)・
 [docs/notes/m7ek-series-c-fourth-jump-results.md](../notes/m7ek-series-c-fourth-jump-results.md)・
 [docs/notes/m7el-series-de-results.md](../notes/m7el-series-de-results.md)・
-[docs/notes/m7em-series-b-full-range-results.md](../notes/m7em-series-b-full-range-results.md)。
+[docs/notes/m7em-series-b-full-range-results.md](../notes/m7em-series-b-full-range-results.md)・
+[docs/notes/m7en-series-c-extension-preregistration.md](../notes/m7en-series-c-extension-preregistration.md)・
+[docs/notes/m7eo-series-c-full-range-results.md](../notes/m7eo-series-c-full-range-results.md)。
 
 ## 2. 明示的に「採用できない」こと
 
