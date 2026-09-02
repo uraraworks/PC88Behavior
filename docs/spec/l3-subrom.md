@@ -2302,7 +2302,7 @@ BがCより6672件・9単位少ないのは、同一セッションでは起動�
 [docs/notes/m7dt-read-reduction-stage-ladder-results.md](../notes/m7dt-read-reduction-stage-ladder-results.md)・
 [docs/notes/m7du-fixed-cost-model-and-p0-identity.md](../notes/m7du-fixed-cost-model-and-p0-identity.md)。
 
-### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100〜108版更新）
+### 1.55 自作ファイル追加に対する不存在OPENアクセスの16本周期（第100〜109版更新）
 
 固定した公式diskAの使い捨て複製へ、自作の空シーケンシャルファイルを同じ命名規則で
 1本ずつ追加し、各Nで固定した有効形式の不存在名をINPUT OPENした。Nは元媒体へ追加した
@@ -2560,6 +2560,39 @@ k>=3の4系列（A・B・C・D）は引き続き`P=16`・`V=(+258,+1)`へ完全�
 その容量端点は未確定である。8点から媒体容量、内部形式、原因、実機一般性を決めず、周期が
 無限に続くとも解釈しない。
 
+第109版では、`m7ep`で系列Cの上限を次の実測前にN=256と事前登録した。この上限は媒体容量の
+予測ではなく実行資源の打ち切り点である。器材を事前登録へ合わせるため、入力検査の上限だけを
+128から256へ訂正し（`99a6ac7`）、その後に測定した。N=129〜155は作成成立し、N=156の
+作成不成立は、同名3回、系列外の別名、30000フレーム、直前段N=154→155成立の陽性対照を
+含む6対照が全て期待分類へ完全一致したため、**容量端点N=155を確定**した。終端が8の倍数の
+途中にあるため、直前の受理済み8本境界N=152からK=153・154・155を1ずつ、陽性・陰性の
+両対照成立後に全名OPEN検証し、全て合格した。不合格Kは出なかった。
+
+候補N=143は、直前の受理済み8本境界アンカーN=136からの独立再構築で、N=142・143の
+絶対値、差分ベクトル`(+258,+1)`、FDC+4、FDC種別列SHA-256、strict prefixによる構造的延長を
+完全再現したため確認済みジャンプへ採用した。既存の15・31・47・63・79・95・111・127と
+合わせてk=9となり、8つの隣接間隔は全て16、9点の増分は全て`(+258,+1)`へ完全一致し、
+中間の成立済みNは全てゼロ差分だった。従って、**観測範囲N=1〜155で`P_C=16`、
+`V_C=(+258,+1)`が成立する。** 十点目の予測位置N=159は容量端点の外にあり、周期破れでは
+なく検査不能である。上限N=256は使われずに終わり、停止規則1（容量端点）で打ち切った。
+
+5系列表を次のとおり更新する。
+
+| 系列 | 媒体 | 確認済みジャンプ | k | 停止理由 | P | V | 比較への算入 |
+|---|---|---|---:|---|---:|---|---|
+| A | 公式diskA複製 | 11, 27, 43 | 3 | 容量端点N=52 | 16 | (+258,+1) | 算入 |
+| B | 自作空媒体 | 16, 32, 48, 64, 80, 96, 112, 128 | 8 | 登録上限N=128（容量端点未到達） | 16 | (+258,+1) | 算入 |
+| C | `ALPHA-MINI DOS 1.5`複製 | 15, 31, 47, 63, 79, 95, 111, 127, 143 | 9 | **容量端点N=155** | 16 | (+258,+1) | 算入 |
+| D | `MUCOM88em`複製 | 7, 23, 39, 55 | 4 | 容量端点N=60 | 16 | (+258,+1) | 算入 |
+| E | `voiceeditor`複製 | 2, 18 | 2 | 容量端点N=23 | — | — | 規則4により不成立 |
+
+k>=3のA・B・C・Dは`P=16`・`V=(+258,+1)`へ完全一致するため、媒体間比較規則1による
+**H-M（媒体不変）支持**を継続する。容量端点が確定したのはA・C・D・Eの4系列となり、
+未確定は登録上限N=128で停止した系列Bだけである。系列Cは容量端点まで走り切った系列として
+最長のk=9となったが、反復回数を根拠に比較規則を書き換えない。端点N=155、16、P・V、
+9回という反復回数から、媒体容量、ディレクトリ領域、エントリ長、セクタ長、クラスタ数、
+既存項目数、バイト数、アドレス、管理単位の内部形式を逆算しない。
+
 根拠: [docs/notes/m7dv-directory-expansion-boundary-preregistration.md](../notes/m7dv-directory-expansion-boundary-preregistration.md)・
 [docs/notes/m7dw-directory-expansion-boundary-first-block-results.md](../notes/m7dw-directory-expansion-boundary-first-block-results.md)・
 [docs/notes/m7dx-directory-expansion-boundary-continuation.md](../notes/m7dx-directory-expansion-boundary-continuation.md)・
@@ -2578,7 +2611,9 @@ k>=3の4系列（A・B・C・D）は引き続き`P=16`・`V=(+258,+1)`へ完全�
 [docs/notes/m7el-series-de-results.md](../notes/m7el-series-de-results.md)・
 [docs/notes/m7em-series-b-full-range-results.md](../notes/m7em-series-b-full-range-results.md)・
 [docs/notes/m7en-series-c-extension-preregistration.md](../notes/m7en-series-c-extension-preregistration.md)・
-[docs/notes/m7eo-series-c-full-range-results.md](../notes/m7eo-series-c-full-range-results.md)。
+[docs/notes/m7eo-series-c-full-range-results.md](../notes/m7eo-series-c-full-range-results.md)・
+[docs/notes/m7ep-series-c-capacity-endpoint-preregistration.md](../notes/m7ep-series-c-capacity-endpoint-preregistration.md)・
+[docs/notes/m7eq-series-c-capacity-endpoint-results.md](../notes/m7eq-series-c-capacity-endpoint-results.md)。
 
 ## 2. 明示的に「採用できない」こと
 
