@@ -1554,6 +1554,31 @@ def build_subrom(break_write_ack=False,
     # 第70版・m7by容量圧縮: FDC_RECALIBRATEと同じ末尾呼び出し最適化。
     a.jp("FDC_SENSE_INT")
 
+    # ---- m7fv容量圧縮（候補C1）: SEEK→SENSE DRIVE STATUS→単発F7の4命令
+    #      （ld_e(0x00); call FDC_SEEK; call FDC_SENSE_DRIVE_STATUS;
+    #      out_imm(P_STROBE, BOOT_F7_VALUE)）が、WRITE直前・交換#3準備・
+    #      交換#14準備の3箇所に一字一句同一のまま重複していた
+    #      （事前登録docs/notes/m7fu-capacity-compression-preregistration.md）。
+    #      命令列は1バイトも変えず、3箇所を1箇所へ移してcallに置き換える
+    #      純粋なコード移動。到達は下の呼び出し元だけで、フォールスルーは
+    #      無い。振る舞いは不変（各呼び出し元でA・フラグへの依存が無いことを
+    #      m7fvで確認済み）。 ----
+    a.label("_seek_sense_f7_shared")
+    a.ld_e(0x00)
+    a.call("FDC_SEEK")
+    a.call("FDC_SENSE_DRIVE_STATUS")
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)
+    a.ret()
+    # 交換#3・交換#14はさらに後続の3命令
+    # （call FDC_READ_SECTOR; ld_a(0x01); ld_mem_a(SECTOR_READY)）まで
+    # 一致していたため、これも合わせて共有する。
+    a.label("_seek_sense_f7_read_shared")
+    a.call("_seek_sense_f7_shared")
+    a.call("FDC_READ_SECTOR")
+    a.ld_a(0x01)
+    a.ld_mem_a(SECTOR_READY)
+    a.ret()
+
     # ---- READ DATA 1セクタ（256バイト固定・N=1）。
     #      引数: (REQ_C)=シリンダ, (REQ_R)=セクタ番号。
     #      結果は SECTOR_BUF の256バイトに入る。 ----
@@ -1753,10 +1778,7 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(WRITE_PREV2)
     a.or_a()
     a.rra()
-    a.ld_e(0x00)
-    a.call("FDC_SEEK")
-    a.call("FDC_SENSE_DRIVE_STATUS")
-    a.out_imm(P_STROBE, BOOT_F7_VALUE)
+    a.call("_seek_sense_f7_shared")
     a.call("FDC_WRITE_SECTOR")
     if break_write_ack:
         # 故障注入: 結果後の受信ディスパッチへ戻さず、応答を抑止する。
@@ -2303,17 +2325,11 @@ def build_subrom(break_write_ack=False,
         a.out_imm(P_F8, F8_CONTROL_VALUE)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_a_hl()
-        a.ld_e(0x00)
-        a.call("FDC_SEEK")
         # 第34版1.27節: SEEK完遂後、READ DATA前にドライブ状態を1回
         # 問い合わせる。結果1バイトは外部応答へ使わず読み捨てる。
-        a.call("FDC_SENSE_DRIVE_STATUS")
         # 第35版1.28節: 状態結果の入力直後、READ DATA前に発行する
         # 単発制御。ここではIN $F8を伴わせない。
-        a.out_imm(P_STROBE, BOOT_F7_VALUE)
-        a.call("FDC_READ_SECTOR")
-        a.ld_a(0x01)
-        a.ld_mem_a(SECTOR_READY)
+        a.call("_seek_sense_f7_read_shared")
         # 交換#6/#11もREAD完了後に既存の観測済み単発応答を1件返し、
         # 保持した256件はそれぞれ交換#7/#12まで遅延する。
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
@@ -2396,13 +2412,7 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(REQ_H)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_hl_a()
-        a.ld_e(0x00)
-        a.call("FDC_SEEK")
-        a.call("FDC_SENSE_DRIVE_STATUS")
-        a.out_imm(P_STROBE, BOOT_F7_VALUE)
-        a.call("FDC_READ_SECTOR")
-        a.ld_a(0x01)
-        a.ld_mem_a(SECTOR_READY)
+        a.call("_seek_sense_f7_read_shared")
         if break_run_continuation:
             a.jp("IDLE_DISPATCH")
         else:
