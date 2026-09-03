@@ -1834,7 +1834,9 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # R = 要求末尾位置(byte6)
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # EOT = R（このセクタで終わり）
-    a.ld_a(0x2A); a.call("FDC_OUT")     # GPL
+    # 第118版・m7fc: WRITE経路で確立済みの公開μPD765形式N=1短GAP分類を、
+    # READ経路にも同じ生成規則として適用する。条件Oとの一致は事後の裏づけ。
+    a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
     a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
 
     # データ転送: 256バイト（B=0 を DJNZ で 256 回まわす定石）。
@@ -1864,7 +1866,8 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(BULK_R); a.call("FDC_OUT")
     a.ld_a(0x01); a.call("FDC_OUT")
     a.ld_a_mem(BULK_EOT); a.call("FDC_OUT")
-    a.ld_a(0x2A); a.call("FDC_OUT")
+    # 第118版・m7fc: 単発READと同じN=1短GAP分類をバルクREADにも適用する。
+    a.ld_a(0x0E); a.call("FDC_OUT")
     a.ld_a(0xFF); a.call("FDC_OUT")
     a.ld_hl_mem(BULK_DEST)
     a.label("_bulk_read_sector")
