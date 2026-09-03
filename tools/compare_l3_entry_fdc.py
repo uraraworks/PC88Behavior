@@ -2,8 +2,18 @@
 """需要入口の公式・混成FDCコマンド種別列を値なしで比較する。
 
 生iologを内部で読むが、出力するのは公開μPD765コマンド名、件数、共通
-prefix、最初の差の分類だけである。FDCパラメータ・結果・データ値は出さない。
+prefix、最初の差の分類、段番号、一致/不一致の真偽値だけである。FDC
+パラメータ・結果・データ値そのもの（シリンダ番号・PCNを含む）は出さない。
 終了コードは、コマンド種別列が完全一致なら0、不一致なら1、解析不能なら2。
+
+`--list-all-stages` を付けると、SEEKとSENSE INTERRUPT STATUSの全段を
+段番号（起動からの通番）付きで列挙する。ここでも出すのは段番号・種別名・
+（SENSE INTERRUPT STATUSのみ）公開ビットの復号名・一致/不一致の真偽で
+あり、シリンダ値・PCN値そのものは出さない。
+
+`seek_cylinder_match`・`stage_cylinder_consistency` は、いずれも2つの
+Commandのパラメータ位置1（シリンダ/C）を比較し、真偽値だけを返す。
+値そのものを戻り値にも標準出力にも載せない。
 """
 from __future__ import annotations
 
@@ -154,6 +164,75 @@ def is_error_status(field: str, value: int, write_operation: bool = False) -> bo
             or (write_operation and bool(value & 0x40)))
 
 
+def seek_cylinder_match(a: awp.Command, b: awp.Command) -> bool:
+    """2つのSEEKコマンドが指定したシリンダ（パラメータ位置1）が等しいかを
+    真偽だけで返す。値そのものは戻り値にも出力にも含めない。"""
+    if a.opcode != 0x0F or b.opcode != 0x0F:
+        raise awp.SafeError("seek_cylinder_matchはSEEKコマンド同士にのみ使える")
+    ap, bp = a.param_values or [], b.param_values or []
+    if len(ap) < 2 or len(bp) < 2:
+        raise awp.SafeError("SEEKコマンドのパラメータ位置1（シリンダ）が無い")
+    return ap[1] == bp[1]
+
+
+def stage_cylinder_consistency(seek_cmd: awp.Command, read_cmd: awp.Command) -> bool:
+    """同一ログ内で、SEEKが指定したシリンダとREAD/WRITE系コマンドが指定した
+    C（いずれもパラメータ位置1）が等しいかを真偽だけで返す。値そのものは
+    戻り値にも出力にも含めない。"""
+    if seek_cmd.opcode != 0x0F:
+        raise awp.SafeError("stage_cylinder_consistencyの第1引数はSEEKが必要")
+    if read_cmd.opcode not in (0x02, 0x05, 0x06, 0x09, 0x0C, 0x11, 0x19, 0x1D):
+        raise awp.SafeError(
+            "stage_cylinder_consistencyの第2引数はREAD/WRITE系コマンドが必要")
+    sp = seek_cmd.param_values or []
+    rp = read_cmd.param_values or []
+    if len(sp) < 2 or len(rp) < 2:
+        raise awp.SafeError("パラメータ位置1（シリンダ/C）が無い")
+    return sp[1] == rp[1]
+
+
+def print_all_stage_details(
+    official: list[awp.Command], mixed: list[awp.Command]
+) -> None:
+    """SEEKとSENSE INTERRUPT STATUSの全段を、起動からの段番号付きで列挙する。
+    出すのは段番号・コマンド種別名・（SENSE INTERRUPT STATUSのみ）公開ビット
+    の復号名・一致/不一致の真偽だけである。シリンダ値・PCN値そのものは
+    出力しない。既に一致が確認済みの種別列に基づき、位置(段番号)は
+    official・mixedの共通長までのzipで揃える。"""
+    n = min(len(official), len(mixed))
+    printed = 0
+    for index in range(1, n + 1):
+        a, b = official[index - 1], mixed[index - 1]
+        if a.opcode != b.opcode:
+            print(f"段{index}: 種別差のため対象外"
+                  f"（公式={awp.NAMES.get(a.opcode, '?')}、"
+                  f"混成={awp.NAMES.get(b.opcode, '?')}）")
+            printed += 1
+            continue
+        if a.opcode == 0x0F:  # SEEK
+            match = seek_cylinder_match(a, b)
+            print(f"段{index}(SEEK): シリンダ指定 "
+                  f"{'一致' if match else '不一致'}")
+            printed += 1
+        elif a.opcode == 0x08:  # SENSE INTERRUPT STATUS
+            af, bf = status_fields(a), status_fields(b)
+            if af and bf:
+                a_desc = describe_status(*af[0])
+                b_desc = describe_status(*bf[0])
+                match = a_desc == b_desc
+                print(f"段{index}(SENSE INTERRUPT STATUS): "
+                      f"公式={a_desc}、混成={b_desc}、"
+                      f"{'一致' if match else '不一致'}")
+            else:
+                print(f"段{index}(SENSE INTERRUPT STATUS): 結果相なし")
+            printed += 1
+    if printed == 0:
+        print("全段列挙: SEEK/SENSE INTERRUPT STATUS段なし")
+    if len(official) != len(mixed):
+        print(f"全段列挙: コマンド列長差のため{n}件までを対象とした"
+              f"（公式={len(official)}件、混成={len(mixed)}件）")
+
+
 def print_entry_classification(
     label: str, commands: list[awp.Command], write_operation: bool = False
 ) -> None:
@@ -234,6 +313,9 @@ def main() -> int:
                     help="このframe以降を入口区間としてunit/headと結果を分類する")
     ap.add_argument("--write-operation", action="store_true",
                     help="ST3 WRITE PROTECTEDをエラー原因として分類する")
+    ap.add_argument("--list-all-stages", action="store_true",
+                    help="SEEK/SENSE INTERRUPT STATUSの全段を段番号付きで"
+                         "列挙する（値は出さず一致/不一致のみ）")
     args = ap.parse_args()
     try:
         off_names, off_cmds, off_rows = command_names(args.official)
@@ -272,12 +354,15 @@ def main() -> int:
     else:
         print(f"FDCポート値列の最初の差: {raw_prefix + 1}件目、{raw_class}")
         print(first_parameter_difference(off_cmds, mix_cmds))
+    off_entry, mix_entry = off_cmds, mix_cmds
     if args.after_frame is not None:
         off_entry = [c for c in off_cmds if c.frame >= args.after_frame]
         mix_entry = [c for c in mix_cmds if c.frame >= args.after_frame]
         print_entry_classification("公式", off_entry, args.write_operation)
         print_entry_classification("混成", mix_entry, args.write_operation)
         print_first_entry_difference(off_entry, mix_entry)
+    if args.list_all_stages:
+        print_all_stage_details(off_entry, mix_entry)
     return 0 if same else 1
 
 
