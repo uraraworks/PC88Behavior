@@ -2383,12 +2383,19 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(REQ_UNIT_HEAD)
         a.ld_hl_imm(REQ_HDR + 6)
         a.ld_hl_a()
+        # m7fq: out_immをAへ目的シリンダを読み込む処理（直後のREQ_HDR+1→A→
+        # REQ_H→REQ_HDR+4の転記）より前に置く。FDC_SEEKは呼び出し直前のAを
+        # 目的シリンダとして送る仕様であり、out_imm(P_F8, F8_CONTROL_VALUE)
+        # は内部でLD A,nを含みAを破壊するため、この転記より後ろに置くと
+        # FDC_SEEKへ渡るAが目的シリンダではなくF8_CONTROL_VALUEになって
+        # しまう。2307行の_exchange3_prepare_sector経路と同じ順序にする
+        # （事前登録m7fl・実測m7fm・再検証m7fpの措置）。
+        a.out_imm(P_F8, F8_CONTROL_VALUE)
         a.ld_hl_imm(REQ_HDR + 1)
         a.ld_a_hl()
         a.ld_mem_a(REQ_H)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_hl_a()
-        a.out_imm(P_F8, F8_CONTROL_VALUE)
         a.ld_e(0x00)
         a.call("FDC_SEEK")
         a.call("FDC_SENSE_DRIVE_STATUS")
