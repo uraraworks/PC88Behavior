@@ -1235,7 +1235,15 @@ def build_subrom(break_write_ack=False,
     #      とおり、この結果はmainへ渡らずsub内部で消費され、かつ直後の
     #      RECALIBRATE（batch3、ドライブ0を無条件にトラック0へ戻す）で
     #      上書きされるため、値は区間の最終観測可能状態に影響しない。
-    a.xor_a(); a.call("FDC_SEEK")             # 保持中のドライブ0, シリンダ0
+    #      軸F（案F1）: FDC_SEEKの共有入口(1.46節)は、呼び出し側のEでは
+    #      なくREQ_HDR+2 bit0を公開unitへ伝播し直す（上のFDC_SEEK実装
+    #      参照）。起動時はREQ_HDR+2が未初期化のため、batch2の意図
+    #      （ドライブ0）と実際に送られるunitが一致する保証が無かった
+    #      （`docs/notes/m7ey-*.md`）。ここでbit0を明示的に0へ書く
+    #      （A=0は直前のxor_aで確定済み。ld_mem_aはAにもフラグにも
+    #      触れないため、シリンダ引数として使うAを壊さない）。
+    a.xor_a(); a.ld_mem_a(REQ_HDR + 2)
+    a.call("FDC_SEEK")             # 保持中のドライブ0, シリンダ0
     #      batch2の直後にはF8モータ制御を発行しない。1.22節第19版（m6s、既存ログの
     #      seq番号レベル再解析で実走診断が反証）で訂正済み：F8出力が来るのは
     #      batch1・batch4の直後のみで、batch2の直後には来ない。旧版
@@ -1264,6 +1272,15 @@ def build_subrom(break_write_ack=False,
     #      目標シリンダはbatch2と同じ理由で`0x00`固定（直後のbatch6
     #      RECALIBRATEが無条件にトラック0へ戻すため、値は区間の最終
     #      観測可能状態に影響しない。仕様書1.22節第17版）。
+    #      軸F（案F1）: batch2と同じ理由でREQ_HDR+2 bit0を明示する。
+    #      ここは1（ドライブ1）へ揃える。batch2で既にbit0=0へ揃えて
+    #      あるため、INC (HL)で1へ増やせば済む（`INC (HL)`（オペコード
+    #      0x34）はZ80の定義済み命令だが本Asmクラスに未実装なのでdbで
+    #      直接発行する。
+    #      HLだけを消費しAには触れないため、直後のxor_aが作る
+    #      シリンダ引数A=0を壊さない。INC (HL)はZ/H/PVフラグを変える
+    #      が、直後のcall("FDC_SEEK")はフラグを見ないため無害）。
+    a.ld_hl_imm(REQ_HDR + 2); a.db(0x34)  # INC (HL): REQ_HDR+2 bit0を1へ
     a.xor_a(); a.call("FDC_SEEK")             # 保持中のドライブ1, シリンダ0
     #      batch6: RECALIBRATE（ドライブ1）。
     a.call("FDC_RECALIBRATE")                 # 保持中のドライブ1
