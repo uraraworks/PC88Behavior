@@ -158,3 +158,13 @@ WRITEに対して外形不変ではなかったと判定する。容量が変わ
 [m7ex](m7ex-boot-region-drive-selector-difference.md)・
 [m7ez](m7ez-drive-selector-fix-blocked-by-window.md)・
 [L3仕様第1.21節・第1.29節・第1.34節・第3節・第5.2節・第6節7項](../spec/l3-subrom.md)。
+
+## 訂正（第122版）
+
+本稿が事前登録した合格条件4「全ビルド構成がフェッチ窓に収まり、ビルドできる
+（使用量 ≤ 2048で判定）」は誤りだった。生成器の正典（`build()`の
+`SystemExit`機構）は使用量の合計を2048と直接比較していない。訂正は
+[m7fg](m7fg-capacity-criterion-was-wrong.md)で行った。条件4は「全ビルド構成
+（8構成 × LIMIT=1〜4）で`build()`が`SystemExit`を出さずに成功すること」へ
+差し替え、合格条件1・2・3・5は変更していない。本稿の本文（介入軸・観測量・
+予想・容量制約の記述）はこの訂正を反映せず、事前登録時点のまま残す。
