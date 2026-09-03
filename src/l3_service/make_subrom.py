@@ -1400,6 +1400,13 @@ def build_subrom(break_write_ack=False,
 
     # 結果フェーズ7件の共通読み捨て。FDC_INはBを保存する。
     a.label("FDC_IN_7")
+    # 軸C1'・m7fh: 「結果7件を読む直前にTC入力(IN $F8)が1件ある」という
+    # 規則（WRITE経路が元々持っていたもの）を、WRITE・単発READ・バルクREAD
+    # 3箇所の呼び出し元へ個別に書く代わりに、共通入口のここへ1箇所だけ書く。
+    # 規則そのものは変えていない（位置の集約）。WRITE側にあった同趣旨の
+    # 単独TC入力はここへ移したので削除した（直後のコメント参照。重複を避ける
+    # ため）。正味のバイト増減は0（追加+2・削除-2）。根拠はdocs/notes/m7fh。
+    a.in_port(P_F8)
     a.ld_b(7)
     a.label("_fdc_in_7_loop")
     a.call("FDC_IN")
@@ -1616,7 +1623,9 @@ def build_subrom(break_write_ack=False,
 
     # 第68版訂正: FDCへのTCはIN F8。公式8/8でデータ256件直後・
     # 結果7件前に1件ある。これによりEOTが媒体末尾でも1セクタで完了する。
-    a.in_port(P_F8)
+    # 軸C1'・m7fh: このTC入力(IN $F8)は、ここに単独で置く代わりに
+    # FDC_IN_7の先頭へ移した（発行I/O列は不変。重複を避けるためここでは
+    # 発行しない）。
     a.call("FDC_IN_7")
     # 第68版・m7bz: 公式8/8では結果直後にTCを出さずmainからの受信が先行。
     # TC/F7は次のWRITE直前に置くため、ここはそのまま戻る。
