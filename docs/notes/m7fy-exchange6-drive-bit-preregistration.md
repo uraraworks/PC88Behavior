@@ -120,12 +120,15 @@ Z80命令表の事実であり、公式ROMの解析結果ではない。本リ�
    加えて、陽性対照ROMのSHAがベースラインと異なること、および**
    q88measureへ実際に渡した`--rom-dir`内のサブROMのSHAが、全runで毎回
    ビルド直後の期待SHAと一致すること**を要件に含める
-   （`feedback_positive_control_takes_its_own_shortcut.md`・
-   `feedback_fault_injection_must_change_the_artifact.md`の論点を踏まえる）。
+   （陽性対照が自分だけの抜け道を通ると本番が全滅でも合格し続ける、
+   故障注入は成果物が実際に変わったかを先に見る、という2つの論点を
+   踏まえる。いずれも本リポジトリ外の一般的な教訓であり、対応する
+   ノートはリポジトリ内に無い）。
 4. **合格条件を先にベースラインへ当てる**: 条件3・5の判定規則を、まず
    ベースライン同士（ベースライン2run）に当てて「差なし」と出ることを
    確認してから、注入版に当てる
-   （`feedback_run_the_acceptance_rule_against_baseline.md`の教訓）。
+   （自作の合格条件を先にベースラインへ当てないと偽の停止を作る、
+   という教訓による。これも本リポジトリ外の一般的な教訓である）。
 5. **本測定**: `break_exchange6_drive_bit_clear`と
    `break_exchange6_drive_bit_set`のそれぞれについて、ベースラインとの
    末端の差の有無を見る。見る指標は
