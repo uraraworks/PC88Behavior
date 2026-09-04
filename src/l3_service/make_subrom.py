@@ -840,6 +840,9 @@ def build_subrom(break_write_ack=False,
                   restore_request_kind_length6=False,
                   force_post_bulk_active=False,
                   break_drive_selector=False,
+                  break_exchange6_drive_bit_clear=False,
+                  break_exchange6_drive_bit_set=False,
+                  break_exchange6_cylinder=False,
                   break_error_response_bit6=False,
                   intervene_no_disk_wait=False,
                   fast_no_disk_response_ready=False,
@@ -923,6 +926,25 @@ def build_subrom(break_write_ack=False,
     ドライブ指定伝播を壊し、SEEK/SENSE DRIVE STATUS/READ DATAを
     drive0固定へ戻す。tools/verify_l3.shと
     tools/verify_drive_byte2_attribution.shの検出力確認専用。
+
+    break_exchange6_drive_bit_clear / break_exchange6_drive_bit_set /
+    break_exchange6_cylinder: m7fy（docs/notes/
+    m7fy-exchange6-drive-bit-preregistration.md、事前登録）用の故障注入
+    3種。`_exchange6_prepare_sector`はREQ_HDR+2をシリンダ転記元として
+    使いREQ_HDR+4へ転記するが、この同じREQ_HDR+2のbit0を、FDC_SEEKと
+    FDC_SENSE_DRIVE_STATUSがドライブ指定伝播（1.46節）として別途読む。
+    1つのバイトがシリンダ値とドライブ指定の2つの意味で使われている
+    箇所を切り分けるための注入で、いずれも転記2組が終わった直後・
+    `_exchange3_prepare_sector`へのjrの直前へ、REQ_HDR+4（転記済みの
+    C、目的シリンダ）には触れずREQ_HDR+2だけを対象に置く。
+    break_exchange6_drive_bit_clearはREQ_HDR+2のbit0を0へ倒す
+    （`RES 0,(HL)`、オペコード0xCB 0x86）。break_exchange6_drive_bit_set
+    は同位置でbit0を1へ倒す（`SET 0,(HL)`、オペコード0xCB 0xC6）。
+    いずれもZ80の定義済み命令だが、本リポジトリのAsmクラスにはこの
+    2命令のニーモニックが実装されていないためdb()で直接発行する。
+    break_exchange6_cylinder は陽性対照で、転記済みのREQ_HDR+4（C）の
+    ほうを`INC (HL)`（0x34）で1増やし、末端に必ず差が出ることを確認する
+    ために使う。3つとも既定（False）では1バイトも影響しない。
 
     break_error_response_bit6: unreadable_diskの帰属回帰専用。探索で末端挙動を
     分けたbit6を、既定の0から1へ倒す。測定が決めたのはbit6=0だけであり、
@@ -2374,6 +2396,28 @@ def build_subrom(break_write_ack=False,
         a.ld_a_hl()
         a.ld_hl_imm(REQ_HDR + 6)
         a.ld_hl_a()
+        # m7fy（docs/notes/m7fy-exchange6-drive-bit-preregistration.md）:
+        # 転記2組が終わった直後・jrの直前。REQ_HDR+2は転記元として使い
+        # 終わっており、REQ_HDR+4（C、目的シリンダ）へは既に転記済みの
+        # ため、ここで注入してもREQ_HDR+4には影響しない。REQ_HDR+2の
+        # bit0はFDC_SEEK/FDC_SENSE_DRIVE_STATUSがドライブ指定伝播として
+        # 別途読むため、ドライブ指定だけを独立に動かせる。
+        if break_exchange6_drive_bit_clear:
+            # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
+            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
+            a.ld_hl_imm(REQ_HDR + 2)
+            a.db(0xCB, 0x86)
+        if break_exchange6_drive_bit_set:
+            # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
+            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
+            a.ld_hl_imm(REQ_HDR + 2)
+            a.db(0xCB, 0xC6)
+        if break_exchange6_cylinder:
+            # 陽性対照: 転記済みのREQ_HDR+4（C、目的シリンダ）を
+            # INC (HL)（0x34）で1増やし、末端に必ず差が出ることを
+            # 確認するための注入。
+            a.ld_hl_imm(REQ_HDR + 4)
+            a.db(0x34)
         a.jr("_exchange3_prepare_sector")
 
         # 第42版1.33節: 交換#11は要求位置3をSEEK/C/H、位置5をR/EOTへ
@@ -3012,6 +3056,9 @@ def build(break_write_ack=False,
           restore_request_kind_length6=False,
           force_post_bulk_active=False,
           break_drive_selector=False,
+          break_exchange6_drive_bit_clear=False,
+          break_exchange6_drive_bit_set=False,
+          break_exchange6_cylinder=False,
           break_error_response_bit6=False,
           intervene_no_disk_wait=False,
           fast_no_disk_response_ready=False,
@@ -3040,6 +3087,9 @@ def build(break_write_ack=False,
                           restore_request_kind_length6=restore_request_kind_length6,
                           force_post_bulk_active=force_post_bulk_active,
                           break_drive_selector=break_drive_selector,
+                          break_exchange6_drive_bit_clear=break_exchange6_drive_bit_clear,
+                          break_exchange6_drive_bit_set=break_exchange6_drive_bit_set,
+                          break_exchange6_cylinder=break_exchange6_cylinder,
                           break_error_response_bit6=break_error_response_bit6,
                           intervene_no_disk_wait=intervene_no_disk_wait,
                           fast_no_disk_response_ready=fast_no_disk_response_ready,
@@ -3149,6 +3199,17 @@ def main():
     ap.add_argument("--break-drive-selector", action="store_true",
                     help="第78版で恒久化した要求byte2 bit0のドライブ指定を"
                          "無視し、SEEK/SENSE/READをdrive0固定へ戻す故障注入。")
+    ap.add_argument("--break-exchange6-drive-bit-clear", action="store_true",
+                    help="m7fy事前登録。_exchange6_prepare_sectorの転記直後・"
+                         "jrの直前でREQ_HDR+2のbit0を0へ倒す故障注入"
+                         "（RES 0,(HL)）。")
+    ap.add_argument("--break-exchange6-drive-bit-set", action="store_true",
+                    help="m7fy事前登録。_exchange6_prepare_sectorの転記直後・"
+                         "jrの直前でREQ_HDR+2のbit0を1へ倒す故障注入"
+                         "（SET 0,(HL)）。")
+    ap.add_argument("--break-exchange6-cylinder", action="store_true",
+                    help="m7fy事前登録の陽性対照。転記済みのREQ_HDR+4"
+                         "（目的シリンダ）をINC (HL)で1増やす故障注入。")
     ap.add_argument("--break-error-response-bit6", action="store_true",
                     help="unreadable_diskで末端挙動を分けるエラー応答bit6を、"
                          "既定の0から1へ倒す帰属回帰用の故障注入。")
@@ -3198,6 +3259,9 @@ def main():
                        restore_request_kind_length6=args.restore_request_kind_length6,
                        force_post_bulk_active=args.force_post_bulk_active,
                        break_drive_selector=args.break_drive_selector,
+                       break_exchange6_drive_bit_clear=args.break_exchange6_drive_bit_clear,
+                       break_exchange6_drive_bit_set=args.break_exchange6_drive_bit_set,
+                       break_exchange6_cylinder=args.break_exchange6_cylinder,
                        break_error_response_bit6=args.break_error_response_bit6,
                        intervene_no_disk_wait=args.intervene_no_disk_wait,
                        fast_no_disk_response_ready=args.fast_no_disk_response_ready,
