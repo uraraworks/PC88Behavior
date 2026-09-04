@@ -1693,11 +1693,27 @@ def build_subrom(break_write_ack=False,
     #      6節7項。推測で埋めない）。 ----
     a.label("FDC_WRITE_SECTOR")
     a.ld_a(0x45); a.call("FDC_BEGIN")   # クリア後にWRITE DATA + MF=1を送出
-    a.ld_a_mem(WRITE_PREV2)             # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
-    a.and_a(0x01)
-    a.rlca()
-    a.rlca()
-    a.call("FDC_OUT")
+    if break_drive_selector:
+        a.ld_a_mem(WRITE_PREV2)         # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
+        a.and_a(0x01)
+        a.rlca()
+        a.rlca()
+        a.call("FDC_OUT")
+    else:
+        # 第79版・m7go/m7gq: 公式はSAVE"2:.."条件でWRITE DATA自身のunit/head
+        # をB側で発行するが、旧実装は「drive0 | (H<<2)」のみでA側に留まって
+        # いた(m7go・U2成立)。FDC_SEEK入口(1.46節)と同じ情報源REQ_HDR+2
+        # bit0を同じ形で読み、H<<2とOR合成する(m7gq事前登録・案1)。
+        a.ld_hl_imm(REQ_HDR + 2)
+        a.ld_a_hl()
+        a.and_a(0x01)
+        a.ld_e_a()
+        a.ld_a_mem(WRITE_PREV2)         # unit/head = (REQ_HDR+2 bit0) | (H<<2)。Hは論理トラックのbit0
+        a.and_a(0x01)
+        a.rlca()
+        a.rlca()
+        a.or_e()
+        a.call("FDC_OUT")
     # 第56版・m7ax: C と H は**データ部の直前2バイト目**（論理トラック）から
     # 導く。実測で C == track>>1、H == track&1 が63/63で一致した。
     # 第54版は C を直前SEEKの目的シリンダから、H を REQ_H から取っていたが、
