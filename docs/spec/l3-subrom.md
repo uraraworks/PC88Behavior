@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第141版 / 2026-09-04
+仕様書 第142版 / 2026-09-04
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第142版 | 2026-09-04 | `bulk_read_do`・交換#11・交換#14のunit指定が公式と一致するかを測り、奇数の目的シリンダへ到達する4つ目の梃子を測った（実装変更なし） | `m7gu`が事前登録し、`m7gv`が`FILES 1`（A:読み）・`FILES 2`（B:読み）× B:候補2本の全4条件で測定した。`exchange11_fallthrough`（段24）・`exchange14_prepare_first_read`（段28）・`bulk_read_do`（段32、いずれも1起点・`--probe-mode cyl`注入で最初にシリンダ不一致が現れる段として対応づけ）が発行するSEEK・SENSE DRIVE STATUS・READ DATAのシリンダ指定・unit/head分類は、3箇所とも全4条件で公式サブROMと完全に一致した（陽性対照はunit/head差21件で検出力を確認済み、C1判定）。**したがってB:を読んでいる最中でもこれら3箇所はドライブA側を使うのが公式の挙動であり、1.46節の共有伝播はこれらの経路には通っていないままでよい。** 段階2の`set`測定では3箇所とも交換#6と同型のP4（`FDC_SEEK`共通入口が実効的だが本測定条件では自然状態のbit0が0であるだけ）に分類され、第140版が残した「bit0が効くのか効かないのか自体が未確定」を解決した。ただし、これは「到達できない入力に対する脆さ」であって公式との食い違いではなく、1.56節が記録した意味の混線（交換#6固有）とは区別する。並行して、`m7gs`が事前登録し`m7gt`が測定した——起動ディスクの配置を自作`SAVE`で1・4・16本の3水準に変え、配置が実際に変わったこと（`FILES`表示の画面署名相違）と陽性対照の通過を確認したうえで、交換#6の目的シリンダは3水準とも偶数のままだった（L2判定）。これは「バグが無い」ではなく、これまで試した4つの梃子（別起動ディスク・B:媒体状態・打鍵・配置変更）のいずれでも奇数条件へ届かなかったという、測定で示した限界の記録である。加えて、B:候補の1本（`disk#10`）で`FILES 2`条件の画面出力が公式と一致しない事実（起点は3箇所より前の段4付近）と、同候補のWRITE経路0件（第141版から既知）を、原因未調査のまま新規に記録した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gu-three-sites-unit-conformance-preregistration.md`・`docs/notes/m7gv-three-sites-unit-conformance-results.md`・`docs/notes/m7gs-odd-cylinder-by-layout-change-preregistration.md`・`docs/notes/m7gt-odd-cylinder-by-layout-change-results.md`。 |
 | 第141版 | 2026-09-04 | WRITE DATAコマンド自身のunit指定をドライブ選択ビットから作るよう修正した | `m7gk`が言語リファレンス（(a)の情報）から`SAVE"<ドライブ番号>:<ファイル名>"`構文を特定し、`m7gl`・`m7gm`がこの構文の効果を実測で裏取りしたうえで、`_recv_dispatch_write_sector`（WRITE経路）へB:の条件軸を通した。続けて`m7gn`・`m7go`が、WRITE DATAコマンド自身のunit/headを公式サブROMと比較し、B:へ保存する条件で公式はB側、自作はA側のままという食い違いを実測で確定した（U2判定）。**`m7gq`が事前登録した2案のうち、`FDC_SEEK`入口（1.46節）と同じ情報源`REQ_HDR+2`bit0を同じ形で読みH<<2とOR合成する案1を採用し（`REQ_UNIT_HEAD`経由の案2は、クリアされない中間状態に依存し過去のドライブ選択の残留bit0を排除できないため見送った）、`m7gr`が実測した。** B:保存条件でWRITE DATAのunit/headが公式と一致(差0件)し、WRITEストリームのSHA-256まで完全一致した。A:保存条件は修正前と同じく公式と完全一致を維持した。容量関門は全32構成で通過し、`conform_l3.sh`はOK=434・SKIP=0・rc=0・判定「適合」だった。実装コミット直後、コメントの版番号を「第79版」から本版へ訂正するコメントのみの変更を別コミットで行い、既定ビルドのSHA-256が完全一致することを確認した。根拠は`docs/notes/m7gk-save-drive-syntax.md`・`docs/notes/m7gl-write-path-drive-axis-preregistration.md`・`docs/notes/m7gm-write-path-drive-axis-results.md`・`docs/notes/m7gn-write-data-unit-preregistration.md`・`docs/notes/m7go-write-data-unit-results.md`・`docs/notes/m7gp-disk-name-leak-path-closed.md`・`docs/notes/m7gq-write-data-unit-fix-preregistration.md`・`docs/notes/m7gr-write-data-unit-fix-results.md`。 |
 | 第140版 | 2026-09-04 | 1.56節が記録した意味の混線が交換#6経路に固有であることを確認し、残る呼び出し元を点検した | `m7gc`が事前登録した残り6箇所への探針を`m7gh`が段階分けし、`m7gi`が測定した（段階1: `cyl`による到達可能性、段階2: `clear`によるB:軸検査）。**当初`m7gi`は`_general_read_request`の`clear`相違を「奇数シリンダ条件を確保した」と解釈したが、これは誤りだった。** `m7gj`が事前登録した弁別測定（打鍵を`FILES 2`から`FILES 1`へ変更）で、`clear`はベースラインと完全一致した。`_general_read_request`は`REQ_HDR+2`を目的シリンダの転記元として使っておらず（目的シリンダは`REQ_HDR+3`の論理トラックから作る）、探針が動かしていたのは1.46節で恒久実装済みのドライブ選択ビットそのものだった。**したがって既定ビルドの`FDC_SEEK`呼び出し元のうち、`REQ_HDR+2`を目的シリンダの転記元として使うのは`_exchange6_prepare_sector`だけであり、1.56節が記録した意味の混線はこの経路に固有である。** 残る箇所の点検では、`_bulk_read_do`・交換#11フォールスルー・`_exchange14_prepare_first_read`はB:候補7条件すべてで`clear`がベースラインと一致（bit0は現状0）、`_recv_dispatch_write_sector`は条件軸を適用できないまま単一条件で一致、`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達しなかった。**奇数の目的シリンダ条件には依然として到達できていない。** 起動ディスクをもう1本試したが（`m7gf`）、B:ディレクトリ表示の署名が既存の1本と一致し独立な2本目の刺激ではなかったことが`m7gg`の選別測定で判明し、`m7gf`側に訂正節を追記した。`m7gi`本文は書き換えず、訂正節を追記した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gc-remaining-callers-probe-preregistration.md`・`docs/notes/m7gh-remaining-callers-staged-preregistration.md`・`docs/notes/m7gi-remaining-callers-stage12-results.md`・`docs/notes/m7gj-general-read-drive-discrimination-preregistration.md`・`docs/notes/m7gd-boot-disk-screening.md`・`docs/notes/m7gg-data-disk-screening.md`・`docs/notes/m7gf-disk3-exchange6-results.md`。 |
 | 第139版 | 2026-09-04 | 軸G（交換#6経路のドライブ指定と目的シリンダのバイト共有）を測定して1.56節を新設した | `m7fx`が読解で特定した「`_exchange6_prepare_sector`が目的シリンダの転記元に使う`REQ_HDR+2`を、`FDC_SEEK`が同じ位置からドライブ指定bit0を読む」という意味の混線を、`m7fy`が事前登録した故障注入で測定した。**`m7fz`は`break_exchange6_drive_bit_set`（bit0を1へ）がベースラインから大きく乖離し、`break_exchange6_drive_bit_clear`（bit0を0へ）はベースラインと完全一致することを確認し、H1（bit0はこの経路で実効的）と判定した。** 続けて`m7ga`が事前登録し`m7gb`が実施した探索では、本ハーネスで変えられる4条件（drive2・no_disk・unreadable_disk・write_protect）すべてで交換#6の目的シリンダのbit0は偶数（陽性対照はいずれも通過）であり、奇数条件には到達できなかった。**現状の帰結として、この経路は目的シリンダが偶数である限り正しく動くが、奇数を要求されたときにドライブ指定が意図せずB側へ倒れる潜在的な食い違いが構造として残っており、「奇数条件が存在しない」ことの証明にはなっていない。** `src/`・`tools/`は変更していない。根拠は`docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・`docs/notes/m7fy-exchange6-drive-bit-preregistration.md`・`docs/notes/m7fz-exchange6-drive-bit-results.md`・`docs/notes/m7ga-odd-cylinder-condition-search-preregistration.md`・`docs/notes/m7gb-odd-cylinder-condition-search-results.md`。 |
@@ -1574,6 +1575,19 @@ Rは位置5と6が観測上同値で意味上の生成元を区別できない�
 曖昧候補選択に整合する早い位置5を採用する。この未確定性を残し、観測した交換#11以外の
 8件要求へ一般化しない。
 
+**第142版追記: unit指定は公式と一致することを確認した。** `exchange11_fallthrough`
+（交換#11フォールスルー、`--probe-site`/`--probe-mode cyl`注入で最初にシリンダ
+不一致が現れる段として段24〈1起点、SEEK〉と対応づけた）が発行するSEEK・SENSE
+DRIVE STATUS・READ DATAのシリンダ指定・unit/head分類は、`FILES 1`（A:読み）・
+`FILES 2`（B:読み）・B:候補2本の全4条件で公式サブROMと完全に一致した
+（`m7gv`、C1判定）。したがってB:を読んでいる最中でもこの箇所はドライブA側を
+使うのが公式の挙動であり、`REQ_HDR+2` bit0が現状0であることは正しい。1.46節の
+共有伝播は、この経路には通っていないままでよい（欠落ではない）。ただし段階2の
+`set`測定（bit0を1へ強制）では公式との比較ではなく自作内部の`clear`との比較で
+相違が生じ、P4（`FDC_SEEK`共通入口は読んでいるが本測定条件では自然状態が0で
+あるだけ）と分類された。詳細・陽性対照・段の対応づけの根拠は1.56節および
+[docs/notes/m7gv-three-sites-unit-conformance-results.md](../notes/m7gv-three-sites-unit-conformance-results.md)。
+
 ### 1.34 交換#14は7/11/12件境界でFDCと高速バルクを駆動する（第43〜47版、第116版更新）
 
 `docs/notes/m7y-exchange14-bulk-entry.md`。交換#13の単発応答後に来る交換#14は
@@ -1679,6 +1693,18 @@ IC=異常終了だった。自作のうち8件は`ST1=END OF CYLINDER`でデー�
 適合条件1〜5は全て合格しているため、機能上の欠落とも言えない。値は読んでおらず、
 推測して実装へ入れない。根拠は`docs/notes/m7fa-read-data-error-termination.md`。
 
+**第142版追記: unit指定は公式と一致することを確認した。** `exchange14_prepare_first_read`
+（交換#14、`cyl`注入で最初にシリンダ不一致が現れる段として段28〈1起点、SEEK〉と
+対応づけた）が発行するSEEK・SENSE DRIVE STATUS・READ DATAのシリンダ指定・
+unit/head分類は、`FILES 1`（A:読み）・`FILES 2`（B:読み）・B:候補2本の全4条件で
+公式サブROMと完全に一致した（`m7gv`、C1判定）。B:を読んでいる最中でもこの箇所は
+ドライブA側を使うのが公式の挙動であり、`REQ_HDR+2` bit0が現状0であることは正しい。
+1.46節の共有伝播は、この経路には通っていないままでよい（欠落ではない）。段階2の
+`set`測定はP4（`FDC_SEEK`共通入口は読んでいるが本測定条件では自然状態が0である
+だけ）と分類された。段の対応づけが交換#11（段24）・`bulk_read_do`（段32、1.56節）
+と異なる番号になり、出現順が呼び出し順（交換#11→交換#14→bulk_read_do）と整合
+することも確認した。詳細は1.56節および
+[docs/notes/m7gv-three-sites-unit-conformance-results.md](../notes/m7gv-three-sites-unit-conformance-results.md)。
 
 ### 1.35 書き込み経路（SAVE）: 受信列の末尾256バイトがそのままWRITE DATAのデータ部になる（第53版）
 
@@ -2992,6 +3018,55 @@ write_protect）すべてで、交換#6の目的シリンダのbit0は0（偶数
 [docs/notes/m7gg-data-disk-screening.md](../notes/m7gg-data-disk-screening.md)・
 [docs/notes/m7gf-disk3-exchange6-results.md](../notes/m7gf-disk3-exchange6-results.md)（訂正節を含む）。
 
+**第142版追記(a): 意味の混線は交換#6経路に固有のままである。** 第140版の結論は
+変わらない。`REQ_HDR+2`を目的シリンダの転記元として使うのは
+`_exchange6_prepare_sector`だけである。
+
+**第142版追記(b): ただし「bit0が現在0で、1にすると壊れる」という性質（P4分類）
+自体は、交換#6だけのものではない。** `_bulk_read_do`（`cyl`注入で最初にシリンダ
+不一致が現れる段として段32〈1起点、SEEK〉と対応づけた）・交換#11フォールスルー
+（段24）・交換#14（段28）のいずれも、`cyl`で到達し、`set`（bit0を1へ強制）で
+自作内部の`clear`ベースラインと相違し、`clear`はベースラインと一致するという、
+交換#6と同型のP4分類になることを`m7gv`が確認した。**これらは公式サブROMと一致
+しているので、適合上の食い違いではない。**「到達できない入力に対する脆さ」で
+あって、現に出ている差ではない。(a)と(b)を同一視しないこと。
+
+**第142版追記: `_bulk_read_do`・交換#11・交換#14のunit指定は公式と一致する
+ことを確認した。** `FILES 1`（A:読み）・`FILES 2`（B:読み）× B:候補2本
+（既存の起動ディスク自身の複製・別候補）の全4条件で、対応する段（段24・28・32）
+のSEEK・SENSE DRIVE STATUS・READ DATAのシリンダ指定・unit/head分類は3箇所とも
+公式サブROMと完全に一致した。陽性対照（`--break-drive-selector`）はunit/head差
+21件を検出しており、判定規則がこの種の差を検出できることを先に確認したうえでの
+一致である。段の対応づけも、その箇所だけを`--probe-mode cyl`で動かしたときに
+最初にシリンダ不一致が現れる段番号として特定し（1起点）、出現順が呼び出し順
+（交換#11→交換#14→bulk_read_do）と整合することを確認した（C1判定）。
+`FILES 2`・B:候補の一方のみ、この3段よりも前（`_general_read_request`付近、
+段4相当）でシリンダ不一致が生じ画面出力が公式と一致しなかったが、3箇所自体は
+この乖離の影響を受けずに公式と一致し続けている。**この画面不一致の原因は本節
+の測定範囲では調べていない。**
+
+**第142版追記(c): 奇数の目的シリンダには依然として到達できていない。** これまで
+試した梃子は次のとおりである。
+
+- 別の起動ディスクを持ち込む（`m7ga`/`m7gb`）——使える起動ディスクが実質1択で
+  行き詰まった。
+- B:の媒体状態を変える（drive2・no_disk・unreadable_disk・write_protect、
+  `m7ga`/`m7gb`）——4条件とも目的シリンダのbit0は偶数のままだった。
+- 打鍵を変える（既存の全稿共通）——交換#6は起動区間で1回だけ生じ打鍵後の
+  分岐に依存しないため無効だった。
+- **起動ディスクの配置を`SAVE`で変える（保存本数1・4・16本の3水準、`m7gs`/
+  `m7gt`）。** 配置が実際に変わったこと（各水準の`FILES`表示の画面署名が
+  変更前と相違したこと）と、陽性対照（`--break-exchange6-cylinder`）が
+  3水準とも通過したことを確認したうえで、3水準とも目的シリンダのbit0は
+  偶数のままだった（L2判定）。
+
+**これは「バグが無い」ではなく、「測定では届かない」ことを測定で示した記録
+である——4つの梃子で奇数条件へ届かなかった。** 根拠:
+[docs/notes/m7gu-three-sites-unit-conformance-preregistration.md](../notes/m7gu-three-sites-unit-conformance-preregistration.md)・
+[docs/notes/m7gv-three-sites-unit-conformance-results.md](../notes/m7gv-three-sites-unit-conformance-results.md)・
+[docs/notes/m7gs-odd-cylinder-by-layout-change-preregistration.md](../notes/m7gs-odd-cylinder-by-layout-change-preregistration.md)・
+[docs/notes/m7gt-odd-cylinder-by-layout-change-results.md](../notes/m7gt-odd-cylinder-by-layout-change-results.md)。
+
 ## 2. 明示的に「採用できない」こと
 
 ### 2.1 `$FD`→`$FC` の値一致率100.0% は実装上ほぼ必然であり、実機の証拠として採用しない
@@ -4025,6 +4100,17 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   「現状は0だが強制的に1にしても壊れない」のいずれであるかを区別していない。
   根拠は`docs/notes/m7gi-remaining-callers-stage12-results.md`。
 
+  **（第142版で解決）** `m7gu`が事前登録し`m7gv`が測定した。3箇所とも
+  `set`（bit0を1へ強制）は自作内部の`clear`ベースラインと相違し、`cyl`到達・
+  `clear`一致とあわせて交換#6と同型のP4に分類される——「到達しbit0が効く」
+  であることが確定した。**同時に、3箇所とも公式サブROMとの比較では
+  `FILES 1`・`FILES 2`・B:候補2本の全4条件でシリンダ指定・unit/head分類が
+  完全に一致した（C1判定）。** bit0が現状0であることは公式と一致する仕様
+  どおりの挙動であり、1.46節の共有伝播をこれらの箇所へ個別に通す必要は
+  無い。詳細は1.33節・1.34節・1.56節。根拠は
+  `docs/notes/m7gu-three-sites-unit-conformance-preregistration.md`・
+  `docs/notes/m7gv-three-sites-unit-conformance-results.md`。
+
 - **（第140版で追加）`_recv_dispatch_write_sector`は、B:の条件軸を適用できて
   いない。** 条件W（`SAVE"TQ"`、ファイル名のみでドライブ指定なし）は
   B:ディスクを使わない単一シナリオであり、`clear`を当てても唯一の測定条件
@@ -4061,6 +4147,14 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   他の打鍵パターンでも同じ結果になるかは未測定である。根拠は
   `docs/notes/m7gm-write-path-drive-axis-results.md`・
   `docs/notes/m7gr-write-data-unit-fix-results.md`。
+
+  **（第142版追記）** 同じB:候補（`m7gg`の`disk#10`、ダイジェスト
+  `0c6f7a53`）で、`FILES 2`条件の画面出力が公式と一致しないことも`m7gv`が
+  確認した。起点は`_general_read_request`付近（段4相当）であり、1.33節・
+  1.34節・1.56節が対応づけた3箇所（段24・28・32）より前で、3箇所自体は
+  この乖離の影響を受けていない。**原因は調べていない。** 本項のWRITE経路
+  0件（`SAVE"2:.."`が末端まで到達しない）と同じ原因かどうかも不明である。
+  根拠は`docs/notes/m7gv-three-sites-unit-conformance-results.md`。
 
 - **（第140版で追加）`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達
   するかどうかが未確定である。** `m7gi`の段階1（`cyl`陽性対照）はこの箇所で
