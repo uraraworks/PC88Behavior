@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第140版 / 2026-09-04
+仕様書 第141版 / 2026-09-04
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第141版 | 2026-09-04 | WRITE DATAコマンド自身のunit指定をドライブ選択ビットから作るよう修正した | `m7gk`が言語リファレンス（(a)の情報）から`SAVE"<ドライブ番号>:<ファイル名>"`構文を特定し、`m7gl`・`m7gm`がこの構文の効果を実測で裏取りしたうえで、`_recv_dispatch_write_sector`（WRITE経路）へB:の条件軸を通した。続けて`m7gn`・`m7go`が、WRITE DATAコマンド自身のunit/headを公式サブROMと比較し、B:へ保存する条件で公式はB側、自作はA側のままという食い違いを実測で確定した（U2判定）。**`m7gq`が事前登録した2案のうち、`FDC_SEEK`入口（1.46節）と同じ情報源`REQ_HDR+2`bit0を同じ形で読みH<<2とOR合成する案1を採用し（`REQ_UNIT_HEAD`経由の案2は、クリアされない中間状態に依存し過去のドライブ選択の残留bit0を排除できないため見送った）、`m7gr`が実測した。** B:保存条件でWRITE DATAのunit/headが公式と一致(差0件)し、WRITEストリームのSHA-256まで完全一致した。A:保存条件は修正前と同じく公式と完全一致を維持した。容量関門は全32構成で通過し、`conform_l3.sh`はOK=434・SKIP=0・rc=0・判定「適合」だった。実装コミット直後、コメントの版番号を「第79版」から本版へ訂正するコメントのみの変更を別コミットで行い、既定ビルドのSHA-256が完全一致することを確認した。根拠は`docs/notes/m7gk-save-drive-syntax.md`・`docs/notes/m7gl-write-path-drive-axis-preregistration.md`・`docs/notes/m7gm-write-path-drive-axis-results.md`・`docs/notes/m7gn-write-data-unit-preregistration.md`・`docs/notes/m7go-write-data-unit-results.md`・`docs/notes/m7gp-disk-name-leak-path-closed.md`・`docs/notes/m7gq-write-data-unit-fix-preregistration.md`・`docs/notes/m7gr-write-data-unit-fix-results.md`。 |
 | 第140版 | 2026-09-04 | 1.56節が記録した意味の混線が交換#6経路に固有であることを確認し、残る呼び出し元を点検した | `m7gc`が事前登録した残り6箇所への探針を`m7gh`が段階分けし、`m7gi`が測定した（段階1: `cyl`による到達可能性、段階2: `clear`によるB:軸検査）。**当初`m7gi`は`_general_read_request`の`clear`相違を「奇数シリンダ条件を確保した」と解釈したが、これは誤りだった。** `m7gj`が事前登録した弁別測定（打鍵を`FILES 2`から`FILES 1`へ変更）で、`clear`はベースラインと完全一致した。`_general_read_request`は`REQ_HDR+2`を目的シリンダの転記元として使っておらず（目的シリンダは`REQ_HDR+3`の論理トラックから作る）、探針が動かしていたのは1.46節で恒久実装済みのドライブ選択ビットそのものだった。**したがって既定ビルドの`FDC_SEEK`呼び出し元のうち、`REQ_HDR+2`を目的シリンダの転記元として使うのは`_exchange6_prepare_sector`だけであり、1.56節が記録した意味の混線はこの経路に固有である。** 残る箇所の点検では、`_bulk_read_do`・交換#11フォールスルー・`_exchange14_prepare_first_read`はB:候補7条件すべてで`clear`がベースラインと一致（bit0は現状0）、`_recv_dispatch_write_sector`は条件軸を適用できないまま単一条件で一致、`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達しなかった。**奇数の目的シリンダ条件には依然として到達できていない。** 起動ディスクをもう1本試したが（`m7gf`）、B:ディレクトリ表示の署名が既存の1本と一致し独立な2本目の刺激ではなかったことが`m7gg`の選別測定で判明し、`m7gf`側に訂正節を追記した。`m7gi`本文は書き換えず、訂正節を追記した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gc-remaining-callers-probe-preregistration.md`・`docs/notes/m7gh-remaining-callers-staged-preregistration.md`・`docs/notes/m7gi-remaining-callers-stage12-results.md`・`docs/notes/m7gj-general-read-drive-discrimination-preregistration.md`・`docs/notes/m7gd-boot-disk-screening.md`・`docs/notes/m7gg-data-disk-screening.md`・`docs/notes/m7gf-disk3-exchange6-results.md`。 |
 | 第139版 | 2026-09-04 | 軸G（交換#6経路のドライブ指定と目的シリンダのバイト共有）を測定して1.56節を新設した | `m7fx`が読解で特定した「`_exchange6_prepare_sector`が目的シリンダの転記元に使う`REQ_HDR+2`を、`FDC_SEEK`が同じ位置からドライブ指定bit0を読む」という意味の混線を、`m7fy`が事前登録した故障注入で測定した。**`m7fz`は`break_exchange6_drive_bit_set`（bit0を1へ）がベースラインから大きく乖離し、`break_exchange6_drive_bit_clear`（bit0を0へ）はベースラインと完全一致することを確認し、H1（bit0はこの経路で実効的）と判定した。** 続けて`m7ga`が事前登録し`m7gb`が実施した探索では、本ハーネスで変えられる4条件（drive2・no_disk・unreadable_disk・write_protect）すべてで交換#6の目的シリンダのbit0は偶数（陽性対照はいずれも通過）であり、奇数条件には到達できなかった。**現状の帰結として、この経路は目的シリンダが偶数である限り正しく動くが、奇数を要求されたときにドライブ指定が意図せずB側へ倒れる潜在的な食い違いが構造として残っており、「奇数条件が存在しない」ことの証明にはなっていない。** `src/`・`tools/`は変更していない。根拠は`docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・`docs/notes/m7fy-exchange6-drive-bit-preregistration.md`・`docs/notes/m7fz-exchange6-drive-bit-results.md`・`docs/notes/m7ga-odd-cylinder-condition-search-preregistration.md`・`docs/notes/m7gb-odd-cylinder-condition-search-results.md`。 |
 | 第138版 | 2026-09-03 | 軸F（起動バッチ両側のドライブ指定明示）を採用。起動区間のunit/head差が0件になった | `m7ft`が事前登録した軸F（案F1）を、`m7fv`が候補C1で確保した容量の余地の上に実装し、固定済みの合格条件1〜5をすべて満たすことを実測で確認した。**起動区間のunit/head差（ベースライン対条件O2件）が、軸F対条件Oで0件になった。** 段の分類（`RECALIBRATE:A/B×2ずつ、SEEK:A×10/B×1`）が条件Oと完全一致し、個別段（0起点段3の`SEEK`、段4・段6の`SENSE INTERRUPT STATUS`）もすべて一致に転じた。全32構成（8構成×LIMIT1〜4）で`build()`が成功、`READ DATA` 9段の正常終了・run長一致（軸D、`m7fq`）に退行なし、`SEEK`11段中2段のシリンダ不一致（1.22節が記録する意図的な定数0）は不変、WRITE経路の発行I/O列は`compare_l3_entry_fdc.py`・`diag_l3_mixed.py`の両方で完全一致、`conform_l3.sh`はOK434/NG3（既知の自己検査陽性対照）/SKIP0/rc=0だった。**陽性対照でbatch2側・batch5側それぞれの変化を個別確認し、`m7fs`が示した「片側だけ動いて総数が変わらない」失敗パターンでないことを検出した。** ただし**WRITE経路は各1回のみ測定しており、決定論性は今回未確認である。** 開示: 委譲先が`conform_l3.sh`をフィルタ無しで1回直接見てしまったこと、およびその実行中に別作業の`git stash`/`stash pop`と並行し、後半のビルドがどのソース状態を使ったか保証できなくなったため当該ログを破棄しクリーンに再実行したことを自己申告した。根拠は`docs/notes/m7fw-boot-drive-selector-adoption.md`。 |
@@ -1776,6 +1777,50 @@ READ側と同値」は公式WRITEと6/8位置しか一致せず、書き込み�
 外す）を使うこと。原本には決して書かせない（使い捨て複製に対してのみ
 ライトプロテクトを外す。`tools/measure.sh` と同じ手順）。
 
+**測定条件が広がったこと（第141版）:** `SAVE"<ドライブ番号>:<ファイル名>"`
+という構文により、WRITE経路の書き込み先ドライブを打鍵で切り替えられる
+ことが分かった。この構文はN88-BASICの言語リファレンス（(a)ハードウェア・
+言語仕様の情報）から得た仮説であり（`m7gk`）、その仮説を実測で裏取りした
+（`m7gl`・`m7gm`）。**資料が唯一の出所ではなく、独立に測定で確認できた
+一例である。** 従来の測定（第53〜68版）は`SAVE"<ファイル名>"`（ドライブ
+指定なし）に限られており、B:へ保存する条件は本節のこの追記以前には
+測定できていなかった。
+
+**WRITE DATAコマンド自身のunit/head（第141版）:** WRITE DATAコマンド自身の
+unit/headは、要求byte2 bit0（1.46節のドライブ指定）と論理トラックのHから
+作る。旧実装は「ドライブ0固定 | (H<<2)」だけで組み立てており、
+`SAVE"<ドライブ番号>:<ファイル名>"`でB:へ保存する条件で、**公式はWRITE
+DATAのunitをB側で発行するのに自作はA側のままだった**（`m7go`、U2判定。
+陽性対照`--break-drive-selector`でunit/head差を検出できることを先に確認
+した上での判定）。A:へ保存する条件では公式と完全一致していた。
+
+第141版で`FDC_SEEK`入口（1.46節）と同じ情報源・同じ取り出し方で
+`REQ_HDR+2`bit0を読み、`H<<2`とOR合成する形へ直した（`m7gq`事前登録の
+案1）。
+
+**測定結果**: B:保存条件でWRITE DATAのunit/headが公式と一致（差0件）し、
+**WRITEストリームのSHA-256まで完全一致した。** A:保存条件は修正前と同じく
+公式と完全一致を維持した。容量関門は全32構成通過。`conform_l3.sh`は
+OK=434・SKIP=0・rc=0・判定「適合」。（`m7gq`、`m7gr`、F1採用）
+
+**`REQ_UNIT_HEAD`を使う案（案2）を採らなかった理由**: `REQ_UNIT_HEAD`は
+OR専用で明示的にクリアされない中間状態であり、WRITE経路には使用直前の
+0クリアが無いため、**過去のドライブ選択の残留bit0を排除できない**
+（`m7gq`の読解）。
+
+なお、本節の一致（B:保存条件でのWRITE DATA unit/head一致・WRITEストリーム
+SHA-256一致）が確認できたのは、単一の打鍵パターン（`SAVE"1:.."`／
+`SAVE"2:.."`）・単一のB:候補ディスクに対してである。他のB:候補・他の
+打鍵パターンでの一致は測っていない（3節）。
+
+根拠: [docs/notes/m7gk-save-drive-syntax.md](../notes/m7gk-save-drive-syntax.md)・
+[docs/notes/m7gl-write-path-drive-axis-preregistration.md](../notes/m7gl-write-path-drive-axis-preregistration.md)・
+[docs/notes/m7gm-write-path-drive-axis-results.md](../notes/m7gm-write-path-drive-axis-results.md)・
+[docs/notes/m7gn-write-data-unit-preregistration.md](../notes/m7gn-write-data-unit-preregistration.md)・
+[docs/notes/m7go-write-data-unit-results.md](../notes/m7go-write-data-unit-results.md)・
+[docs/notes/m7gq-write-data-unit-fix-preregistration.md](../notes/m7gq-write-data-unit-fix-preregistration.md)・
+[docs/notes/m7gr-write-data-unit-fix-results.md](../notes/m7gr-write-data-unit-fix-results.md)。
+
 ### 1.36 バルク直後の受信runは先頭バイトの表引きでrun長・座標フィールド位置が決まる（第63版）
 
 **本節が扱うrunはsub視点受信run（`sub IN $FC`の連続、`window_a_runs()`が
@@ -2275,6 +2320,12 @@ unit/headは両条件で完全一致し、最初のエラー結果も両条件�
 
 根拠: [docs/notes/m7gj-general-read-drive-discrimination-preregistration.md](../notes/m7gj-general-read-drive-discrimination-preregistration.md)（弁別の事前登録と結果は
 [m7gi](../notes/m7gi-remaining-callers-stage12-results.md)の訂正節に記載）。
+
+**第141版追記:** 本節の共有伝播は、**WRITE DATAコマンド自身には通っていな
+かった。** 旧`FDC_WRITE_SECTOR`は`REQ_HDR+2`を参照せず、「ドライブ0固定 |
+(H<<2)」だけでunit/headを組み立てており、B:へ保存する条件でも公式と異なり
+unitをA側で発行し続けていた（`m7go`）。第141版でWRITE経路にも本節の伝播と
+同じ情報源・同じ取り出し方を通した。詳細・測定結果は1.35節。
 
 ### 1.47 no_diskとunreadable_diskのエラー経路は異なる（第81版）
 
@@ -3981,6 +4032,35 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   いないため、この箇所のbit0が奇数か偶数かは判定材料が単一条件しかなく、
   他の箇所ほど確度が高くない。根拠は
   `docs/notes/m7gi-remaining-callers-stage12-results.md`。
+
+  **（第141版で解決）** 上記の課題は`m7gk`が言語リファレンスから特定した
+  `SAVE"<ドライブ番号>:<ファイル名>"`構文で解消した。`m7gl`・`m7gm`が
+  この構文の効果を実測で裏取りし（段階A）、`_recv_dispatch_write_sector`
+  （WRITE経路）にB:の条件軸を適用できることを確認した（段階B）。続けて
+  `m7gn`・`m7go`がWRITE DATAコマンド自身のunit/headを公式サブROMと比較し、
+  B:へ保存する条件で食い違いを検出した（U2判定）。`m7gq`・`m7gr`がこの
+  食い違いを修正し、B:保存条件でWRITE DATA unit/headが公式と一致（差0件）
+  し、WRITEストリームのSHA-256まで完全一致することを確認した。詳細は
+  1.35節・1.46節。根拠は
+  `docs/notes/m7gk-save-drive-syntax.md`・
+  `docs/notes/m7gl-write-path-drive-axis-preregistration.md`・
+  `docs/notes/m7gm-write-path-drive-axis-results.md`・
+  `docs/notes/m7gn-write-data-unit-preregistration.md`・
+  `docs/notes/m7go-write-data-unit-results.md`・
+  `docs/notes/m7gq-write-data-unit-fix-preregistration.md`・
+  `docs/notes/m7gr-write-data-unit-fix-results.md`。
+
+- **（第141版で追加）B:候補は1本でしかWRITE経路の一致（第141版の修正後の
+  比較）を確認していない。** `m7gr`が主指標として測ったのは`disk#8`
+  1本だけである。`m7gm`が修正前の探針で試した他候補のうち`disk#1`・
+  `disk#2`はWRITE経路への到達を確認しているが（修正前の実装への探針であり、
+  修正後との公式比較ではない）、**`disk#10`はベースラインでWRITE系コマンド
+  が0件（`SAVE`が末端まで到達しない）となり使えなかった。その理由は
+  調べていない。** `disk#4`・`#5`・`#7`・`#9`（`m7gg`の残り候補）や、
+  ファイル名の長さ・複数ファイルの連続SAVE・SAVE中のエラー条件といった
+  他の打鍵パターンでも同じ結果になるかは未測定である。根拠は
+  `docs/notes/m7gm-write-path-drive-axis-results.md`・
+  `docs/notes/m7gr-write-data-unit-fix-results.md`。
 
 - **（第140版で追加）`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達
   するかどうかが未確定である。** `m7gi`の段階1（`cyl`陽性対照）はこの箇所で
