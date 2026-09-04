@@ -848,6 +848,8 @@ def build_subrom(break_write_ack=False,
                   fast_no_disk_response_ready=False,
                   early_response_after=None,
                   error_response_candidate=None,
+                  probe_site=None,
+                  probe_mode=None,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
@@ -954,7 +956,31 @@ def build_subrom(break_write_ack=False,
     intervene_no_disk_wait: no_diskのmainタイムアウト仮説を実走するためだけの
     介入。一般読み出し要求へ入ったら応答を返さず、B-unitへ伝播済みの
     SENSE DRIVE STATUSを反復する。媒体有無の検出条件だとは主張せず、
-    未指定時には命令を1バイトも追加しない。"""
+    未指定時には命令を1バイトも追加しない。
+
+    probe_site / probe_mode: docs/notes/
+    m7gc-remaining-callers-probe-preregistration.md（事前登録）用の故障注入。
+    m7fy/m7fzが交換#6（#6-ii）で確立した探針（REQ_HDR+2 bit0の
+    clear/set故障注入＋陽性対照）を、FDC_SEEKへ目的シリンダを渡す残り
+    6つの呼び出し元へ広げる。probe_siteが選んだ1箇所にだけ、probe_mode
+    に応じた命令列を注入する。両方の指定が無ければ何も生成しない
+    （既定ビルドはバイト単位で不変）。6箇所:
+    general_read_request（_general_read_request）、bulk_read_do
+    （_bulk_read_do）、recv_dispatch_hdr_done（_recv_dispatch_hdr_done）、
+    recv_dispatch_write_sector（_recv_dispatch_write_sector、WRITE経路）、
+    exchange11_fallthrough（_exchange11_prepare_sectorから
+    _exchange3_prepare_sectorへのフォールスルー）、
+    exchange14_prepare_first_read（_exchange14_prepare_first_read）。
+    clear/setはいずれもREQ_HDR+2のbit0を対象にする（clear: RES 0,(HL)
+    オペコード0xCB 0x86、set: SET 0,(HL) オペコード0xCB 0xC6）。cylは
+    陽性対照で、原則INC A（オペコード0x3C）だが、exchange11_fallthrough
+    だけはINC (HL)（オペコード0x34、対象REQ_HDR+4）に置き換える。
+    exchange11_fallthroughの直後で制御が渡る_exchange3_prepare_sectorが
+    入口でREQ_HDR+4からAをフレッシュに読み直すため、この位置でAを
+    INC AしてもFDC_SEEKへ渡る目的シリンダには反映されない
+    （事前登録「#6-iiiの訂正」節）。RES 0,(HL)・SET 0,(HL)・INC A・
+    INC (HL)はいずれもZ80の定義済み命令であり、本リポジトリのAsmクラス
+    に未実装のためdb()で直接発行する。"""
 
     # fast_no_disk_response_ready: no_diskの軸直前1バイト応答は、
     # EXCHANGE3_RESPONSE_PENDINGではなく、要求表の0x06エントリから
@@ -971,6 +997,36 @@ def build_subrom(break_write_ack=False,
     # Nへ短縮するものではない。実行到達は専用マーカーCALLをトラップして
     # 別途確認する。未指定時はHEADと同じROMを生成する。
     a = Asm(0x0000)
+
+    # m7gc（docs/notes/m7gc-remaining-callers-probe-preregistration.md）:
+    # probe_site/probe_modeが選んだ1箇所にだけ探針を出す共通ヘルパ。
+    # 6箇所へ同じ3分岐をベタ書きしないための共有クロージャ。probe_site/
+    # probe_modeのいずれかがNoneのままなら何も生成しない。
+    def _emit_probe(site):
+        if probe_site != site or probe_mode is None:
+            return
+        if probe_mode == "clear":
+            # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
+            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
+            a.ld_hl_imm(REQ_HDR + 2)
+            a.db(0xCB, 0x86)
+        elif probe_mode == "set":
+            # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
+            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
+            a.ld_hl_imm(REQ_HDR + 2)
+            a.db(0xCB, 0xC6)
+        elif probe_mode == "cyl":
+            if site == "exchange11_fallthrough":
+                # exchange11_fallthroughだけは直後の
+                # _exchange3_prepare_sectorがREQ_HDR+4からAを読み直すため
+                # INC Aでは末端に届かない。INC (HL)（0x34）でREQ_HDR+4
+                # 自体を動かす（m7gc「#6-iiiの訂正」節）。
+                a.ld_hl_imm(REQ_HDR + 4)
+                a.db(0x34)
+            else:
+                # INC A: Z80の定義済み命令（オペコード0x3C）。
+                # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
+                a.db(0x3C)
 
     # ====================================================================
     # リセットベクタ
@@ -1769,6 +1825,9 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_imm(REQ_HDR + 4)
     a.ld_hl_a()                       # FDC_SEEK/FDC_READ_SECTORが読む共有位置へ置く
     a.ld_e(0x00)
+    # m7gc事前登録（general_read_request）: FDC_SEEK直前・A=C(目的シリンダ)
+    # のまま。cylはこのAを直接動かす陽性対照。
+    _emit_probe("general_read_request")
     a.call("FDC_SEEK")                # A = C のまま
     a.call("FDC_SENSE_DRIVE_STATUS")
     a.call("FDC_READ_SECTOR")
@@ -1817,6 +1876,10 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(WRITE_PREV2)
     a.or_a()
     a.rra()
+    # m7gc事前登録（recv_dispatch_write_sector）: 共有ルーチン呼び出し直前。
+    # 共有ルーチンはAを読み直さずFDC_SEEKへ渡すため、cylはこの位置で
+    # 直接末端に届く。
+    _emit_probe("recv_dispatch_write_sector")
     a.call("_seek_sense_f7_shared")
     a.call("FDC_WRITE_SECTOR")
     if break_write_ack:
@@ -1854,6 +1917,8 @@ def build_subrom(break_write_ack=False,
     a.ld_a_hl()
     a.ld_mem_a(BULK_C)
     a.ld_e(0x00)
+    # m7gc事前登録（bulk_read_do）: FDC_SEEK直前。
+    _emit_probe("bulk_read_do")
     a.call("FDC_SEEK")
     a.call("FDC_SENSE_DRIVE_STATUS")
 
@@ -2345,6 +2410,10 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_imm(REQ_HDR + 4)
     a.ld_a_hl()
     a.ld_e(0x00)
+    # m7gc事前登録（recv_dispatch_hdr_done）: FDC_SEEK直前。到達自体が
+    # 不確かな箇所（m7fx「到達するかも不明」）なので、cylが差を出すかで
+    # まず到達を判定する。
+    _emit_probe("recv_dispatch_hdr_done")
     a.call("FDC_SEEK")
 
     a.call("FDC_READ_SECTOR")
@@ -2445,6 +2514,10 @@ def build_subrom(break_write_ack=False,
         a.ld_a_hl()
         a.ld_hl_imm(REQ_HDR + 6)
         a.ld_hl_a()
+        # m7gc事前登録（exchange11_fallthrough）: _exchange3_prepare_sectorへの
+        # jr直前。直後の入口がREQ_HDR+4からAを読み直すため、cylはAではなく
+        # REQ_HDR+4自体を動かす（_emit_probe内で分岐）。
+        _emit_probe("exchange11_fallthrough")
         a.jr("_exchange3_prepare_sector")
 
         # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
@@ -2473,6 +2546,9 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(REQ_H)
         a.ld_hl_imm(REQ_HDR + 4)
         a.ld_hl_a()
+        # m7gc事前登録（exchange14_prepare_first_read）: 共有ルーチン
+        # 呼び出し直前。共有ルーチンはAを読み直さずFDC_SEEKへ渡す。
+        _emit_probe("exchange14_prepare_first_read")
         a.call("_seek_sense_f7_read_shared")
         if break_run_continuation:
             a.jp("IDLE_DISPATCH")
@@ -3064,6 +3140,8 @@ def build(break_write_ack=False,
           fast_no_disk_response_ready=False,
           early_response_after=None,
           error_response_candidate=None,
+          probe_site=None,
+          probe_mode=None,
           metadata=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
@@ -3095,6 +3173,8 @@ def build(break_write_ack=False,
                           fast_no_disk_response_ready=fast_no_disk_response_ready,
                           early_response_after=early_response_after,
                           error_response_candidate=error_response_candidate,
+                          probe_site=probe_site,
+                          probe_mode=probe_mode,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
@@ -3232,7 +3312,27 @@ def main():
                     help="READ DATA結果がST0 IC=異常終了かつST1 MISSING ADDRESS "
                          "MARKのとき、交換#3型1バイト応答をNへ差し替える探索用"
                          "候補（0〜255）。未指定時は自作既定値0x00。")
+    ap.add_argument("--probe-site",
+                    choices=(
+                        "general_read_request",
+                        "bulk_read_do",
+                        "recv_dispatch_hdr_done",
+                        "recv_dispatch_write_sector",
+                        "exchange11_fallthrough",
+                        "exchange14_prepare_first_read",
+                    ),
+                    help="m7gc事前登録（docs/notes/"
+                         "m7gc-remaining-callers-probe-preregistration.md）用。"
+                         "FDC_SEEKへ目的シリンダを渡す残り6箇所のうち探針を"
+                         "注入する1箇所。--probe-modeと併用する。")
+    ap.add_argument("--probe-mode", choices=("clear", "set", "cyl"),
+                    help="m7gc事前登録用。--probe-siteが選んだ箇所へ出す注入の"
+                         "種類（clear/set: REQ_HDR+2のbit0を倒す、"
+                         "cyl: 陽性対照でシリンダ相当値を1増やす）。"
+                         "--probe-siteと併用する。")
     args = ap.parse_args()
+    if (args.probe_site is None) != (args.probe_mode is None):
+        ap.error("--probe-site と --probe-mode は両方指定するか、両方省略する")
     if args.error_response_candidate is not None and not (
             0 <= args.error_response_candidate <= 0xFF):
         ap.error("--error-response-candidate は0〜255で指定する")
@@ -3267,6 +3367,8 @@ def main():
                        fast_no_disk_response_ready=args.fast_no_disk_response_ready,
                        early_response_after=args.early_response_after,
                        error_response_candidate=args.error_response_candidate,
+                       probe_site=args.probe_site,
+                       probe_mode=args.probe_mode,
                        metadata=metadata)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
