@@ -93,9 +93,8 @@ FILES経路7箇所（対象外の#3を除く6箇所のうち4箇所）が呼び�
 `break_drive_selector`ビルドの挙動（呼び出し側のE、この場合は常に
 ドライブ0）が変わってしまい、`tools/verify_drive_byte2_attribution.sh`
 が要求する「故障注入版は差ありになる」という陰性対照が壊れる
-（`docs/notes/feedback_positive_control_takes_its_own_shortcut.md`・
-`docs/notes/feedback_fault_injection_needs_positive_control.md`と同種の
-懸念）。将来の容量圧縮候補としてこの`ld_e(0x00)`列を検討する際は、
+（陰性対照が「自分だけの抜け道」を通って常に成立してしまう類の
+懸念である。リポジトリ内に該当ノートは無い）。将来の容量圧縮候補としてこの`ld_e(0x00)`列を検討する際は、
 必ずこの制約を先に確認すること。
 
 ## 言えること・言えないこと
