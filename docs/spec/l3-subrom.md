@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第142版 / 2026-09-04
+仕様書 第143版 / 2026-09-04
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第143版 | 2026-09-04 | 第142版が`disk#10`関連に残した2項目（`FILES 2`画面不一致の起点／`SAVE"2:.."`WRITE0件）を対照条件つきで切り分けた（実装変更なし） | `m7gw`が事前登録し、`m7gx`が測定した。**起点は段4付近ではなかった**——対照B:候補（`disk#1`）にも同じ段のシリンダ不一致が現れたが下流に影響せず、段4は原因から棄却された。**実際の分岐点はFDCコマンド種別列の56件目（1起点、公式=READ DATA／混成=SEEK）であり、`FILES 2`・`SAVE"2:.."`の両シナリオに共通して現れる。** `SAVE"2:.."`のWRITE0件は**症状ではないと判明し解決扱いとする**——公式ROMでも同じくWRITE0件だった。`READ DATA`108件も同様に公式でも同じ件数であり、`disk#10`自体の性質である（`m7gg`が記録した候補間の件数差はディスクの性質差であって実装差ではない）。**判定できなかったこと**として、`SAVE"2:.."`のB:固有性を確かめる`SAVE"1:.."`対照は、別候補（`disk#1`）でも同じくWRITE0件になり物差しとして機能しなかった。新規の未確定として、FDCコマンド種別列56件目での分岐原因そのものは未特定であり、分岐の形は1.47節・1.48節の`unreadable_disk`と部分的に同型（交換run構造の先頭一致prefixは`unreadable_disk`より短い）と記録した。陽性対照2件（unit/head差15件、`analyze_error_exchange_shape_selftest.sh`全項目OK・rc=0）は通過済み。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gw-disk10-divergence-preregistration.md`・`docs/notes/m7gx-disk10-divergence-results.md`。 |
 | 第142版 | 2026-09-04 | `bulk_read_do`・交換#11・交換#14のunit指定が公式と一致するかを測り、奇数の目的シリンダへ到達する4つ目の梃子を測った（実装変更なし） | `m7gu`が事前登録し、`m7gv`が`FILES 1`（A:読み）・`FILES 2`（B:読み）× B:候補2本の全4条件で測定した。`exchange11_fallthrough`（段24）・`exchange14_prepare_first_read`（段28）・`bulk_read_do`（段32、いずれも1起点・`--probe-mode cyl`注入で最初にシリンダ不一致が現れる段として対応づけ）が発行するSEEK・SENSE DRIVE STATUS・READ DATAのシリンダ指定・unit/head分類は、3箇所とも全4条件で公式サブROMと完全に一致した（陽性対照はunit/head差21件で検出力を確認済み、C1判定）。**したがってB:を読んでいる最中でもこれら3箇所はドライブA側を使うのが公式の挙動であり、1.46節の共有伝播はこれらの経路には通っていないままでよい。** 段階2の`set`測定では3箇所とも交換#6と同型のP4（`FDC_SEEK`共通入口が実効的だが本測定条件では自然状態のbit0が0であるだけ）に分類され、第140版が残した「bit0が効くのか効かないのか自体が未確定」を解決した。ただし、これは「到達できない入力に対する脆さ」であって公式との食い違いではなく、1.56節が記録した意味の混線（交換#6固有）とは区別する。並行して、`m7gs`が事前登録し`m7gt`が測定した——起動ディスクの配置を自作`SAVE`で1・4・16本の3水準に変え、配置が実際に変わったこと（`FILES`表示の画面署名相違）と陽性対照の通過を確認したうえで、交換#6の目的シリンダは3水準とも偶数のままだった（L2判定）。これは「バグが無い」ではなく、これまで試した4つの梃子（別起動ディスク・B:媒体状態・打鍵・配置変更）のいずれでも奇数条件へ届かなかったという、測定で示した限界の記録である。加えて、B:候補の1本（`disk#10`）で`FILES 2`条件の画面出力が公式と一致しない事実（起点は3箇所より前の段4付近）と、同候補のWRITE経路0件（第141版から既知）を、原因未調査のまま新規に記録した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gu-three-sites-unit-conformance-preregistration.md`・`docs/notes/m7gv-three-sites-unit-conformance-results.md`・`docs/notes/m7gs-odd-cylinder-by-layout-change-preregistration.md`・`docs/notes/m7gt-odd-cylinder-by-layout-change-results.md`。 |
 | 第141版 | 2026-09-04 | WRITE DATAコマンド自身のunit指定をドライブ選択ビットから作るよう修正した | `m7gk`が言語リファレンス（(a)の情報）から`SAVE"<ドライブ番号>:<ファイル名>"`構文を特定し、`m7gl`・`m7gm`がこの構文の効果を実測で裏取りしたうえで、`_recv_dispatch_write_sector`（WRITE経路）へB:の条件軸を通した。続けて`m7gn`・`m7go`が、WRITE DATAコマンド自身のunit/headを公式サブROMと比較し、B:へ保存する条件で公式はB側、自作はA側のままという食い違いを実測で確定した（U2判定）。**`m7gq`が事前登録した2案のうち、`FDC_SEEK`入口（1.46節）と同じ情報源`REQ_HDR+2`bit0を同じ形で読みH<<2とOR合成する案1を採用し（`REQ_UNIT_HEAD`経由の案2は、クリアされない中間状態に依存し過去のドライブ選択の残留bit0を排除できないため見送った）、`m7gr`が実測した。** B:保存条件でWRITE DATAのunit/headが公式と一致(差0件)し、WRITEストリームのSHA-256まで完全一致した。A:保存条件は修正前と同じく公式と完全一致を維持した。容量関門は全32構成で通過し、`conform_l3.sh`はOK=434・SKIP=0・rc=0・判定「適合」だった。実装コミット直後、コメントの版番号を「第79版」から本版へ訂正するコメントのみの変更を別コミットで行い、既定ビルドのSHA-256が完全一致することを確認した。根拠は`docs/notes/m7gk-save-drive-syntax.md`・`docs/notes/m7gl-write-path-drive-axis-preregistration.md`・`docs/notes/m7gm-write-path-drive-axis-results.md`・`docs/notes/m7gn-write-data-unit-preregistration.md`・`docs/notes/m7go-write-data-unit-results.md`・`docs/notes/m7gp-disk-name-leak-path-closed.md`・`docs/notes/m7gq-write-data-unit-fix-preregistration.md`・`docs/notes/m7gr-write-data-unit-fix-results.md`。 |
 | 第140版 | 2026-09-04 | 1.56節が記録した意味の混線が交換#6経路に固有であることを確認し、残る呼び出し元を点検した | `m7gc`が事前登録した残り6箇所への探針を`m7gh`が段階分けし、`m7gi`が測定した（段階1: `cyl`による到達可能性、段階2: `clear`によるB:軸検査）。**当初`m7gi`は`_general_read_request`の`clear`相違を「奇数シリンダ条件を確保した」と解釈したが、これは誤りだった。** `m7gj`が事前登録した弁別測定（打鍵を`FILES 2`から`FILES 1`へ変更）で、`clear`はベースラインと完全一致した。`_general_read_request`は`REQ_HDR+2`を目的シリンダの転記元として使っておらず（目的シリンダは`REQ_HDR+3`の論理トラックから作る）、探針が動かしていたのは1.46節で恒久実装済みのドライブ選択ビットそのものだった。**したがって既定ビルドの`FDC_SEEK`呼び出し元のうち、`REQ_HDR+2`を目的シリンダの転記元として使うのは`_exchange6_prepare_sector`だけであり、1.56節が記録した意味の混線はこの経路に固有である。** 残る箇所の点検では、`_bulk_read_do`・交換#11フォールスルー・`_exchange14_prepare_first_read`はB:候補7条件すべてで`clear`がベースラインと一致（bit0は現状0）、`_recv_dispatch_write_sector`は条件軸を適用できないまま単一条件で一致、`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達しなかった。**奇数の目的シリンダ条件には依然として到達できていない。** 起動ディスクをもう1本試したが（`m7gf`）、B:ディレクトリ表示の署名が既存の1本と一致し独立な2本目の刺激ではなかったことが`m7gg`の選別測定で判明し、`m7gf`側に訂正節を追記した。`m7gi`本文は書き換えず、訂正節を追記した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gc-remaining-callers-probe-preregistration.md`・`docs/notes/m7gh-remaining-callers-staged-preregistration.md`・`docs/notes/m7gi-remaining-callers-stage12-results.md`・`docs/notes/m7gj-general-read-drive-discrimination-preregistration.md`・`docs/notes/m7gd-boot-disk-screening.md`・`docs/notes/m7gg-data-disk-screening.md`・`docs/notes/m7gf-disk3-exchange6-results.md`。 |
@@ -4155,6 +4156,37 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   この乖離の影響を受けていない。**原因は調べていない。** 本項のWRITE経路
   0件（`SAVE"2:.."`が末端まで到達しない）と同じ原因かどうかも不明である。
   根拠は`docs/notes/m7gv-three-sites-unit-conformance-results.md`。
+
+  **（第143版で訂正・一部解決）** `m7gw`が事前登録し`m7gx`が対照条件
+  つきで切り分けた。**「起点は段4付近」は誤りだった。** 対照の別B:候補
+  （`disk#1`）にも同じ段（段4・段10、いずれも1起点のSEEK）でシリンダ
+  指定不一致が現れたが、`disk#1`ではFDCコマンド種別列が全長一致し画面も
+  一致した——**段4の不一致は下流に影響しなかった。** したがって段4は
+  `FILES 2`画面不一致の原因ではない。**実際の分岐点はFDCコマンド種別列の
+  56件目（1起点、公式=READ DATA／混成=SEEK）であり、`FILES 2`・
+  `SAVE"2:.."`の両シナリオに共通して現れる。** また、**WRITE経路0件は
+  症状ではなかった。** 条件O（公式一式）でも同じ打鍵・同じB:候補で
+  `SAVE"2:.."`のWRITE DATAは0件になり、`disk#10`側の性質であって混成
+  実装の欠陥ではないことが確認できた。**この項目（WRITE0件）は解決扱い
+  とする。** 一方、`SAVE"2:.."`のB:固有性を確かめる`SAVE"1:.."`対照は、
+  別候補（`disk#1`）でも同じくWRITE0件になり、物差しとして機能しな
+  かった——判定できなかった。分岐そのものの原因は3節に新規項目として
+  残す。根拠は`docs/notes/m7gw-disk10-divergence-preregistration.md`・
+  `docs/notes/m7gx-disk10-divergence-results.md`。
+
+- **（第143版で追加）`disk#10`の`FILES 2`・`SAVE"2:.."`で共通して現れる
+  FDCコマンド種別列56件目（1起点）の分岐——公式=READ DATA、混成=SEEK——
+  の原因は未特定である。** `m7gx`が段階3で既知のエラー経路（1.47節・
+  1.48節）と照合したところ、分岐の**形**（分岐位置・分岐直前の要求形
+  6バイト一致・分岐後の応答run長1）は`unreadable_disk`と同型だった。
+  しかし**交換run構造の先頭一致prefixは`unreadable_disk`（全長一致）
+  より短い**——`disk#10`側は先頭一致prefixが途中で崩れる。したがって
+  「1.47節・1.48節の既知経路に完全に帰着する」とまでは言えず、部分的な
+  同型にとどまる。陽性対照は通過済み（`--break-drive-selector`で
+  unit/head差15件、`analyze_error_exchange_shape_selftest.sh`が全項目
+  OK・rc=0）——検出力を確認した上での分岐である。値・実ファイル名は
+  見ていない。根拠は`docs/notes/m7gw-disk10-divergence-preregistration.md`・
+  `docs/notes/m7gx-disk10-divergence-results.md`・1.47節・1.48節。
 
 - **（第140版で追加）`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達
   するかどうかが未確定である。** `m7gi`の段階1（`cyl`陽性対照）はこの箇所で
