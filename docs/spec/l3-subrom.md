@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第139版 / 2026-09-04
+仕様書 第140版 / 2026-09-04
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第140版 | 2026-09-04 | 1.56節が記録した意味の混線が交換#6経路に固有であることを確認し、残る呼び出し元を点検した | `m7gc`が事前登録した残り6箇所への探針を`m7gh`が段階分けし、`m7gi`が測定した（段階1: `cyl`による到達可能性、段階2: `clear`によるB:軸検査）。**当初`m7gi`は`_general_read_request`の`clear`相違を「奇数シリンダ条件を確保した」と解釈したが、これは誤りだった。** `m7gj`が事前登録した弁別測定（打鍵を`FILES 2`から`FILES 1`へ変更）で、`clear`はベースラインと完全一致した。`_general_read_request`は`REQ_HDR+2`を目的シリンダの転記元として使っておらず（目的シリンダは`REQ_HDR+3`の論理トラックから作る）、探針が動かしていたのは1.46節で恒久実装済みのドライブ選択ビットそのものだった。**したがって既定ビルドの`FDC_SEEK`呼び出し元のうち、`REQ_HDR+2`を目的シリンダの転記元として使うのは`_exchange6_prepare_sector`だけであり、1.56節が記録した意味の混線はこの経路に固有である。** 残る箇所の点検では、`_bulk_read_do`・交換#11フォールスルー・`_exchange14_prepare_first_read`はB:候補7条件すべてで`clear`がベースラインと一致（bit0は現状0）、`_recv_dispatch_write_sector`は条件軸を適用できないまま単一条件で一致、`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達しなかった。**奇数の目的シリンダ条件には依然として到達できていない。** 起動ディスクをもう1本試したが（`m7gf`）、B:ディレクトリ表示の署名が既存の1本と一致し独立な2本目の刺激ではなかったことが`m7gg`の選別測定で判明し、`m7gf`側に訂正節を追記した。`m7gi`本文は書き換えず、訂正節を追記した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gc-remaining-callers-probe-preregistration.md`・`docs/notes/m7gh-remaining-callers-staged-preregistration.md`・`docs/notes/m7gi-remaining-callers-stage12-results.md`・`docs/notes/m7gj-general-read-drive-discrimination-preregistration.md`・`docs/notes/m7gd-boot-disk-screening.md`・`docs/notes/m7gg-data-disk-screening.md`・`docs/notes/m7gf-disk3-exchange6-results.md`。 |
 | 第139版 | 2026-09-04 | 軸G（交換#6経路のドライブ指定と目的シリンダのバイト共有）を測定して1.56節を新設した | `m7fx`が読解で特定した「`_exchange6_prepare_sector`が目的シリンダの転記元に使う`REQ_HDR+2`を、`FDC_SEEK`が同じ位置からドライブ指定bit0を読む」という意味の混線を、`m7fy`が事前登録した故障注入で測定した。**`m7fz`は`break_exchange6_drive_bit_set`（bit0を1へ）がベースラインから大きく乖離し、`break_exchange6_drive_bit_clear`（bit0を0へ）はベースラインと完全一致することを確認し、H1（bit0はこの経路で実効的）と判定した。** 続けて`m7ga`が事前登録し`m7gb`が実施した探索では、本ハーネスで変えられる4条件（drive2・no_disk・unreadable_disk・write_protect）すべてで交換#6の目的シリンダのbit0は偶数（陽性対照はいずれも通過）であり、奇数条件には到達できなかった。**現状の帰結として、この経路は目的シリンダが偶数である限り正しく動くが、奇数を要求されたときにドライブ指定が意図せずB側へ倒れる潜在的な食い違いが構造として残っており、「奇数条件が存在しない」ことの証明にはなっていない。** `src/`・`tools/`は変更していない。根拠は`docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・`docs/notes/m7fy-exchange6-drive-bit-preregistration.md`・`docs/notes/m7fz-exchange6-drive-bit-results.md`・`docs/notes/m7ga-odd-cylinder-condition-search-preregistration.md`・`docs/notes/m7gb-odd-cylinder-condition-search-results.md`。 |
 | 第138版 | 2026-09-03 | 軸F（起動バッチ両側のドライブ指定明示）を採用。起動区間のunit/head差が0件になった | `m7ft`が事前登録した軸F（案F1）を、`m7fv`が候補C1で確保した容量の余地の上に実装し、固定済みの合格条件1〜5をすべて満たすことを実測で確認した。**起動区間のunit/head差（ベースライン対条件O2件）が、軸F対条件Oで0件になった。** 段の分類（`RECALIBRATE:A/B×2ずつ、SEEK:A×10/B×1`）が条件Oと完全一致し、個別段（0起点段3の`SEEK`、段4・段6の`SENSE INTERRUPT STATUS`）もすべて一致に転じた。全32構成（8構成×LIMIT1〜4）で`build()`が成功、`READ DATA` 9段の正常終了・run長一致（軸D、`m7fq`）に退行なし、`SEEK`11段中2段のシリンダ不一致（1.22節が記録する意図的な定数0）は不変、WRITE経路の発行I/O列は`compare_l3_entry_fdc.py`・`diag_l3_mixed.py`の両方で完全一致、`conform_l3.sh`はOK434/NG3（既知の自己検査陽性対照）/SKIP0/rc=0だった。**陽性対照でbatch2側・batch5側それぞれの変化を個別確認し、`m7fs`が示した「片側だけ動いて総数が変わらない」失敗パターンでないことを検出した。** ただし**WRITE経路は各1回のみ測定しており、決定論性は今回未確認である。** 開示: 委譲先が`conform_l3.sh`をフィルタ無しで1回直接見てしまったこと、およびその実行中に別作業の`git stash`/`stash pop`と並行し、後半のビルドがどのソース状態を使ったか保証できなくなったため当該ログを破棄しクリーンに再実行したことを自己申告した。根拠は`docs/notes/m7fw-boot-drive-selector-adoption.md`。 |
 | 第137版 | 2026-09-03 | 容量圧縮候補C1（共有4命令列のサブルーチン化）を採用。振る舞い不変を実測で確認 | `m7fu`が事前登録した候補C1を実装し、固定済みの合格条件・陽性対照どおりに測定した。**陽性対照2点で検査の検出力を確認し、その過程で器材の限界を1つ確定させた。** 既存の故障注入フラグ（余分なSENSE INTERRUPT STATUS注入）は`diag_l3_mixed.py`・`compare_l3_entry_fdc.py`いずれもrc=1で検出したが、**C1内部のSENSE DRIVE STATUS/単発F7の順序を意図的に入れ替えた版は、`diag_l3_mixed.py`ではrc=1で検出できたのに`compare_l3_entry_fdc.py`ではrc=0で検出できなかった。** `compare_l3_entry_fdc.py`はμPD765のコマンド種別列だけを見ており、765のコマンドバイト列に含まれない`$F7`（モータ制御ストローブ）は設計上見えないためであり、**「I/O列が完全一致」という主張を`compare_l3_entry_fdc.py`だけで支えてはならない**（過去の結論は撤回しないが、`$F7`について盲点があることを記録する）。**容量は全32構成（8構成×LIMIT1〜4）が-18バイトで成功し、軸F案F1を重ねても全32構成成功を再確認した（確認後に案F1は除去）。** 発行I/O列は`diag_l3_mixed.py`基準で起動区間（sub 24470/24470、main 16873/16873）・WRITE経路（種別列124/124、ポート値列18894/18894）・入口区間（unit/head差0件）のすべてが完全一致した。`conform_l3.sh`はベースライン・C1ともrc=0、OK434/NG3（既知の自己検査陽性対照）、SKIP0、標準出力が一字一句一致。**総合合格、C1を採用した。** スタック段数は最大2段（4バイト）増えるが、STACK=0x7FFEは書き込み専用領域外の空き（0x7400-0x7FFF、約3KB）の上端にあり無視できる余裕がある（スタック深さそのものは実測していない）。開示: WRITE経路の最初の測定は`q88measure`の既知の起動時クラッシュ（`m7az`記載）へのリトライを経た回で公式main側の無害なジッタが乗ったが、クリーンな組同士はすべて自己一致しており、C1の内容には依存しないと判断した。根拠は`docs/notes/m7fv-capacity-compression-results.md`。 |
@@ -2261,6 +2262,20 @@ unit/headは両条件で完全一致し、最初のエラー結果も両条件�
 前提にしている。交換#6の経路では位置2が目的シリンダの転記元であり、前提が
 成立しない。詳細は1.56節。
 
+**第140版追記:** `_general_read_request`（FILES経路の一般READ要求、`FILES 2`で
+到達する）について、本節の共有伝播（`FDC_SEEK`入口が`REQ_HDR+2`のbit0を
+ドライブ指定として読む）が正常に機能していることを実測で確認した。打鍵
+`FILES 2`（B:読み）では`REQ_HDR+2`のbit0が自然状態で1、`FILES 1`（A:読み）
+では0だった（`--probe-site general_read_request --probe-mode clear`によるbit0
+=0強制と、注入なしベースラインの比較。`FILES 2`では相違、`FILES 1`では
+完全一致）。**この箇所は`REQ_HDR+2`を目的シリンダの転記元として使っておらず**
+（目的シリンダは`REQ_HDR+3`の論理トラックから作る）、1.56節が記録したような
+シリンダとドライブ指定の同居構造を持たない。したがって本節の共有伝播はこの
+箇所では前提どおり成立している。
+
+根拠: [docs/notes/m7gj-general-read-drive-discrimination-preregistration.md](../notes/m7gj-general-read-drive-discrimination-preregistration.md)（弁別の事前登録と結果は
+[m7gi](../notes/m7gi-remaining-callers-stage12-results.md)の訂正節に記載）。
+
 ### 1.47 no_diskとunreadable_diskのエラー経路は異なる（第81版）
 
 `no_disk` / `unreadable_disk`を公式・混成各1走し、FDC種別と交換run構造を
@@ -2884,6 +2899,47 @@ write_protect）すべてで、交換#6の目的シリンダのbit0は0（偶数
 [docs/notes/m7fz-exchange6-drive-bit-results.md](../notes/m7fz-exchange6-drive-bit-results.md)・
 [docs/notes/m7ga-odd-cylinder-condition-search-preregistration.md](../notes/m7ga-odd-cylinder-condition-search-preregistration.md)・
 [docs/notes/m7gb-odd-cylinder-condition-search-results.md](../notes/m7gb-odd-cylinder-condition-search-results.md)。
+
+**第140版追記: 混線の範囲が絞られたこと。** `m7fx`が読解で挙げた、既定ビルドの
+`FDC_SEEK`呼び出し元（既定ビルドで生きている6箇所）を`m7gc`・`m7gh`・`m7gi`・
+`m7gj`が測定で点検した結果、**`REQ_HDR+2`を目的シリンダの転記元として使うのは
+`_exchange6_prepare_sector`だけであり、本節が記録した意味の混線（ドライブ指定と
+目的シリンダの同居）はこの経路に固有である**ことが確認できた。他の呼び出し元は
+`REQ_HDR+2`をシリンダに転記しない。
+
+点検結果（`cyl`を到達検査、`clear`をbit0の現状値の検査として使用。B:候補7条件
+を条件軸とした）:
+
+- `_general_read_request`: 到達。B:を読む`FILES 2`ではbit0は自然状態で1、
+  A:を読む`FILES 1`では0であり、**1.46節のドライブ選択ビットとして正常**
+  （1.46節第140版追記）。
+- `_bulk_read_do`・`_exchange11_prepare_sector`からのフォールスルー・
+  `_exchange14_prepare_first_read`: 到達。B:候補7条件すべてで`clear`（bit0を
+  0へ強制）がベースラインと一致し、この条件下ではbit0は自然状態で0だった。
+  ただし`set`（bit0を1へ強制）は測っていないため、bit0が効くのか効かないのか
+  自体は未確定（3節）。
+- `_recv_dispatch_write_sector`: 到達したが、条件WはB:ディスクを使わない単一
+  シナリオのため、B:の7条件という条件軸を適用できなかった。単一条件では
+  `clear`がベースラインと一致した。
+- `_recv_dispatch_hdr_done`: **既定ビルドの実行経路に到達しなかった**
+  （`cyl`陽性対照が末端に差を出さない）。`m7fx`が読解時に「実際に主装置から
+  発行されるか判断できない」とした疑いが、測定で裏づけられた。
+
+**奇数の目的シリンダ条件には依然として到達できていない。** 本節が記録した
+状況（本ハーネスで変えられる4条件はいずれも偶数）は変わらない。起動ディスクを
+もう1本試したが（`m7gf`）、B:ディレクトリ表示の署名が既存の1本と一致し、
+独立な2本目の刺激ではなかったことが後続の選別測定（`m7gg`）で判明した
+（`m7gf`側に訂正節を追記済み）。交換#6は起動区間で生じ打鍵後の分岐に依存
+しないため、B:のディスクを入れ替えても目的シリンダそのものは動かない。
+
+根拠:
+[docs/notes/m7gc-remaining-callers-probe-preregistration.md](../notes/m7gc-remaining-callers-probe-preregistration.md)・
+[docs/notes/m7gh-remaining-callers-staged-preregistration.md](../notes/m7gh-remaining-callers-staged-preregistration.md)・
+[docs/notes/m7gi-remaining-callers-stage12-results.md](../notes/m7gi-remaining-callers-stage12-results.md)（訂正節を含む）・
+[docs/notes/m7gj-general-read-drive-discrimination-preregistration.md](../notes/m7gj-general-read-drive-discrimination-preregistration.md)・
+[docs/notes/m7gd-boot-disk-screening.md](../notes/m7gd-boot-disk-screening.md)・
+[docs/notes/m7gg-data-disk-screening.md](../notes/m7gg-data-disk-screening.md)・
+[docs/notes/m7gf-disk3-exchange6-results.md](../notes/m7gf-disk3-exchange6-results.md)（訂正節を含む）。
 
 ## 2. 明示的に「採用できない」こと
 
@@ -3887,15 +3943,54 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   write_protect）はいずれも起動時にA:へ挿入するディスクがN88_FE.D88の
   1択に固定されており、目的シリンダのbit0はすべて偶数だった。起動可能な
   別のN88-BASICディスクが本ハーネスに無いため、奇数条件を作れていない。
-  「奇数条件が存在しない」ことの証明にはならない。加えて、交換#3・#11・
+  「奇数条件が存在しない」ことの証明にはならない。~~加えて、交換#3・#11・
   #14の各経路が同種の混線（同じバイトを別の意味で二重利用する構造）を
-  持つかどうかも調べていない。修正するかどうか、どう修正するか
+  持つかどうかも調べていない。~~ **（第140版で解決）** `_exchange3_
+  prepare_sector`（交換#3本来の経路）・`_exchange11_prepare_sector`
+  フォールスルー・`_exchange14_prepare_first_read`はいずれも`REQ_HDR+2`を
+  目的シリンダの転記元として使わないことを、`m7gc`・`m7gh`・`m7gi`・
+  `m7gj`の測定で確認した（1.56節第140版追記）。**同種の混線を持つのは
+  `_exchange6_prepare_sector`だけである。** 修正するかどうか、どう修正するか
   （`FDC_SEEK`の伝播元を専用のドライブ選択バイトへ分離する案が考えられる）
-  も決めていない。根拠は`docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・
+  は依然として決めていない。奇数の目的シリンダ条件への到達も依然として
+  できていない（起動ディスクをもう1本試したが独立な2本目の刺激ではなかった
+  ことが`m7gg`で判明した。1.56節・`m7gf`側の訂正節を参照）。根拠は
+  `docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・
   `docs/notes/m7fy-exchange6-drive-bit-preregistration.md`・
   `docs/notes/m7fz-exchange6-drive-bit-results.md`・
   `docs/notes/m7ga-odd-cylinder-condition-search-preregistration.md`・
-  `docs/notes/m7gb-odd-cylinder-condition-search-results.md`。
+  `docs/notes/m7gb-odd-cylinder-condition-search-results.md`・
+  `docs/notes/m7gc-remaining-callers-probe-preregistration.md`・
+  `docs/notes/m7gh-remaining-callers-staged-preregistration.md`・
+  `docs/notes/m7gi-remaining-callers-stage12-results.md`・
+  `docs/notes/m7gj-general-read-drive-discrimination-preregistration.md`。
+
+- **（第140版で追加）`_bulk_read_do`・交換#11フォールスルー・
+  `_exchange14_prepare_first_read`は、bit0が効くのか効かないのか自体が
+  未確定である。** `m7gi`の段階2は`clear`（bit0を0へ強制）だけを測っており、
+  B:候補7条件すべてでベースラインと一致した（bit0は現状0）ことしか分かって
+  いない。`set`（bit0を1へ強制）を測っていないため、「到達しbit0が効く
+  （現状は自然に0であるだけ）」「到達するがbit0はそもそも効かない」
+  「現状は0だが強制的に1にしても壊れない」のいずれであるかを区別していない。
+  根拠は`docs/notes/m7gi-remaining-callers-stage12-results.md`。
+
+- **（第140版で追加）`_recv_dispatch_write_sector`は、B:の条件軸を適用できて
+  いない。** 条件W（`SAVE"TQ"`、ファイル名のみでドライブ指定なし）は
+  B:ディスクを使わない単一シナリオであり、`clear`を当てても唯一の測定条件
+  では変化が無かった。ドライブ番号を明示する`SAVE`系打鍵の構文が特定できて
+  いないため、この箇所のbit0が奇数か偶数かは判定材料が単一条件しかなく、
+  他の箇所ほど確度が高くない。根拠は
+  `docs/notes/m7gi-remaining-callers-stage12-results.md`。
+
+- **（第140版で追加）`_recv_dispatch_hdr_done`は既定ビルドの実行経路に到達
+  するかどうかが未確定である。** `m7gi`の段階1（`cyl`陽性対照）はこの箇所で
+  末端に差を出さず、「未到達」と判定した。`m7fx`が読解時に指摘した疑い
+  （`EXCHANGE3_REQUEST_ACTIVE`が立っていない状態で8バイトが1本のrunとして
+  届く事例が仕様書のどの節でも確認できていない）が測定で裏づけられた形だが、
+  「既定ビルドで一度も到達しない」ことの証明ではなく、本稿の測定条件
+  （`FILES 2`、`--frames 3000`）で到達しなかったというにとどまる。根拠は
+  `docs/notes/m7fx-fdc-seek-propagation-callers-reading.md`・
+  `docs/notes/m7gi-remaining-callers-stage12-results.md`。
 
 ---
 
