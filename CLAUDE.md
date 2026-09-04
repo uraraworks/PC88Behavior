@@ -31,6 +31,19 @@
    別問題として禁止する。代わりに自作の名前とバージョンを名乗る。
    判断基準と代替案は
    [docs/notes/banner-attribution-2026-08-16.md](docs/notes/banner-attribution-2026-08-16.md)。
+7. **画面本文を、報告・ノート・コミットメッセージ・ツール出力へ書かない・
+   転記しない。** 対象は「測定終了時のテキスト画面」等の生の行そのもの
+   （公式ディスクのディレクトリ一覧・ファイル一覧を含む画面も同様）で、
+   測定ログの画面ダンプ、デバッグ目的のツール出力への貼り付け、
+   コミットメッセージ、ノート本文のいずれにも適用する。完了判定や
+   進捗確認・比較には、代わりに `tools/check_l3_screen_output.py`
+   （行数・文字数・SHA-256による署名化、および署名どうしの一致／
+   不一致判定）と `tools/check_l3_entry_screen.py`（打鍵反映と完了を
+   本文なしで真偽判定）を使う。いずれも本文を1文字も標準出力・
+   標準エラーへ出さない設計であることを自己検査
+   （`tools/screen_content_leak_selftest.sh`、陰性対照つき）で確認済み。
+   経緯は
+   [docs/notes/m7hk-screen-content-leak-path-closed.md](docs/notes/m7hk-screen-content-leak-path-closed.md)。
 
 ## やってよいこと
 
