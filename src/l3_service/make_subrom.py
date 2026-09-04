@@ -1700,7 +1700,7 @@ def build_subrom(break_write_ack=False,
         a.rlca()
         a.call("FDC_OUT")
     else:
-        # 第79版・m7go/m7gq: 公式はSAVE"2:.."条件でWRITE DATA自身のunit/head
+        # 第141版・m7go/m7gq: 公式はSAVE"2:.."条件でWRITE DATA自身のunit/head
         # をB側で発行するが、旧実装は「drive0 | (H<<2)」のみでA側に留まって
         # いた(m7go・U2成立)。FDC_SEEK入口(1.46節)と同じ情報源REQ_HDR+2
         # bit0を同じ形で読み、H<<2とOR合成する(m7gq事前登録・案1)。
