@@ -4336,6 +4336,27 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
     対照に採る前に確認する手順まで事前登録に含める。根拠は
     `docs/notes/m7hp-scene-matched-request-comparison-preregistration.md`・
     `docs/notes/m7hq-scene-matched-request-comparison-results.md`。
+  - **（第149版で追加）対照を選び直して再測定し、判定D2（要求が違う）を
+    確定した。分岐直前の要求の差は1バイト位置に局在する。** `m7hr`が事前
+    登録し`m7hs`が測定した。段階1で`--exchange-intervention`のarmを14件
+    振り、**分岐段までの受信run（0〜29）を実際に動かすarmは2件だけ**だった
+    ——残り12件は生ログが変わっても比較対象を動かさず、`--break-drive-
+    selector`と同じ迂回の型だった。**「介入を当てれば比較対象が動く」は
+    成り立たない。** arm 9（交換run9への`xor-all`）を対照に採ると比較結果は
+    D2からD3へ変わり（対照区間の不一致が0→8、分岐段の候補数が4/4→4/7）、
+    この比較が差に反応することが示された。そのうえで本体（介入なしの
+    条件O vs 条件M）は、分岐位置=56件目、対照区間22本が全位置一致（不一致0）、
+    分岐段の候補数4/4・run長`[1,1,1,5]`が一致し、**`eq`が偽になったのは
+    候補#3（run長5。1.36節の`0x02`類と同じ分類に収まる）のrun内位置4の
+    1箇所だけ**だった。**H1（要求が連続READの手がかりを伝える）は反証されて
+    いない。** ただし**この差が原因か結果かは未確定である**——比べたのは
+    main→subの要求だけで、sub→mainの応答は比べていない。mainは公式ROMで同一
+    だから、mainが違う要求を出したのはその前に自作subが違う応答を返したから
+    かもしれず、その場合この1バイト差は分岐の原因ではなく結果である。
+    次は同じ比較器・同じ場面・同じ対照で交換run（sub→main応答）を比べれば
+    決まる。根拠は
+    `docs/notes/m7hr-scene-matched-request-comparison-retry-preregistration.md`・
+    `docs/notes/m7hs-scene-matched-request-comparison-retry-results.md`。
   - 併せて`m7hm`は、READ DATAの単発run 9本がすべて起動段階（frame 35〜76）
     に、連続run 12本がすべて`FILES 2`入口（frame 759〜761）に現れることを
     確定した。したがって「単発と連続」を比べる測定は、**場面（起動か入口か）
