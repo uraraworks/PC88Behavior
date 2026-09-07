@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第145版 | 2026-09-07 | 1.57節が3節へ引き継いだ「公式が連続READへ移行する判断規則」を、受信runの内容から読む方向で測り、対応づけ不成立（判定N）に終わった（実装変更なし） | `m7hl`が事前登録し、`m7hm`が測定した。`m7hc`〜`m7hj`の4周（系統1: データの大きさ・位置を振る）がN4・O4・P3・P3と絞り込みに至らなかったため、軸を`m7hb`が提案していた「値を出さないcount-comparatorの新設」（系統2: 要求の内容を読む）へ戻した。陽性対照4件（`--break-drive-selector`のunit/head差13件、故障注入なし混成で差0件、`analyze_error_exchange_shape_selftest.sh`全項目OK・rc=0、新設`recv_run_field_leak_selftest.sh`全5項目OK・rc=0——**陰性対照つき**）を通過。条件Oの独立2回測定は**生ログがバイト単位で完全一致**し、`m7hb`の構造（195コマンド・READ DATA 117件・連続run長9が12本・単発9本）を独立に再現した。**結果は判定N**——連続READ区間の入口12箇所すべてで直前完了受信runが一意に定まらず、事前登録した中止規則により段階2は実施しなかった（`stage2`は実装上も`verdict=N`/`reason=stage1_entry_ambiguous`で停止し、中止規則が散文だけでなくコードでも効くことを確認した）。**Nの中身は「候補が無い」ではなく「候補が2本」**であり（連続READ入口12段の候補数は2件が11段・4件が1段、0件は皆無）、**連続READ区間の入口には受信runが必ず先行する**一方、**単発区間には受信runが1本も先行しないSEEK段が4件ある**——両者は非対称である（`m7hb`の定性的観察の独立再現）。したがってH2（固定カウンタ）とH1派生（要求レコード数）の区別は本稿でも付いておらず、C1・C2・C3のいずれも主張しない。**併せて事前登録自体の欠陥を1件開示した**——READ DATAの単発run 9本はすべて起動段階（frame 35〜76）、連続run 12本はすべて`FILES 2`入口（frame 759〜761）に現れるため、事前登録した群S（単発）と群R（連続）の比較は「連続か単発か」に加えて「起動か入口か」という場面の交絡を含む。測定後に群の定義は動かさず、次稿へ回した。新設したのは`tools/compare_recv_run_fields.py`・`tools/recv_run_field_leak_selftest.sh`の2本のみで、`src/`は変更していない。根拠は`docs/notes/m7hl-recv-run-count-field-preregistration.md`・`docs/notes/m7hm-recv-run-count-field-results.md`。 |
 | 第144版 | 2026-09-04 | 第143版が3節に登録した「FDCコマンド種別列56件目（1起点）で分岐する原因は未特定」を切り分け、発行経路と構造差を特定した（実装変更なし） | `m7gy`が事前登録し、`m7gz`が測定した。陽性対照2件（`--break-drive-selector`のunit/head差15件、`analyze_error_exchange_shape_selftest.sh`全項目OK・rc=0）を通過したうえで、既存6箇所への`--probe-site X --probe-mode cyl`注入を比較したところ、**段56のSEEKを発行しているのは`general_read_request`だけ**であり（2run独立測定で自己一致、決定論性を確認）、他3箇所（`recv_dispatch_hdr_done`・`recv_dispatch_write_sector`・`exchange14_prepare_first_read`）は段56まで到達しつつ一致していた。**構造差も特定した**——公式は位置48・52の2回のSEEK・READのあとは新しい受信runを要求せず連続READへ移行するのに対し、混成の`general_read_request`はレコードごとに新しい受信run（1.36節の`0x02`類と同型・run長5・直後READ）を受け取り、そのたびにSEEKからやり直すため連続READへ移行しない。**この差が`disk#10`条件でだけ観測された理由も判明した**——`READ DATA`発行件数がこの候補で108件、他候補で5〜7件（`m7gg`）であり、件数差自体はディスクの性質であって実装差ではない（第143版の訂正どおり）が、連続読み出しが続く条件でなければこの差は観測窓に現れない。一方、`bulk_read_do`・`exchange11_fallthrough`はcyl注入がブート序盤から挙動を変えコマンド列が早期に短縮終端したため、段56への関与を本測定法では判定できなかった（関与しないとは断定していない）。また、第143版が`unreadable_disk`（1.47節・1.48節）と部分同型としていた見立ては、`general_read_request`が仕様書上1.47節・1.48節とは結びつかない別役割の箇所であることが分かり、E3（既知エラー経路と同型）不成立と改めた。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gy-command56-divergence-preregistration.md`・`docs/notes/m7gz-command56-divergence-results.md`。 |
 | 第143版 | 2026-09-04 | 第142版が`disk#10`関連に残した2項目（`FILES 2`画面不一致の起点／`SAVE"2:.."`WRITE0件）を対照条件つきで切り分けた（実装変更なし） | `m7gw`が事前登録し、`m7gx`が測定した。**起点は段4付近ではなかった**——対照B:候補（`disk#1`）にも同じ段のシリンダ不一致が現れたが下流に影響せず、段4は原因から棄却された。**実際の分岐点はFDCコマンド種別列の56件目（1起点、公式=READ DATA／混成=SEEK）であり、`FILES 2`・`SAVE"2:.."`の両シナリオに共通して現れる。** `SAVE"2:.."`のWRITE0件は**症状ではないと判明し解決扱いとする**——公式ROMでも同じくWRITE0件だった。`READ DATA`108件も同様に公式でも同じ件数であり、`disk#10`自体の性質である（`m7gg`が記録した候補間の件数差はディスクの性質差であって実装差ではない）。**判定できなかったこと**として、`SAVE"2:.."`のB:固有性を確かめる`SAVE"1:.."`対照は、別候補（`disk#1`）でも同じくWRITE0件になり物差しとして機能しなかった。新規の未確定として、FDCコマンド種別列56件目での分岐原因そのものは未特定であり、分岐の形は1.47節・1.48節の`unreadable_disk`と部分的に同型（交換run構造の先頭一致prefixは`unreadable_disk`より短い）と記録した。陽性対照2件（unit/head差15件、`analyze_error_exchange_shape_selftest.sh`全項目OK・rc=0）は通過済み。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gw-disk10-divergence-preregistration.md`・`docs/notes/m7gx-disk10-divergence-results.md`。 |
 | 第142版 | 2026-09-04 | `bulk_read_do`・交換#11・交換#14のunit指定が公式と一致するかを測り、奇数の目的シリンダへ到達する4つ目の梃子を測った（実装変更なし） | `m7gu`が事前登録し、`m7gv`が`FILES 1`（A:読み）・`FILES 2`（B:読み）× B:候補2本の全4条件で測定した。`exchange11_fallthrough`（段24）・`exchange14_prepare_first_read`（段28）・`bulk_read_do`（段32、いずれも1起点・`--probe-mode cyl`注入で最初にシリンダ不一致が現れる段として対応づけ）が発行するSEEK・SENSE DRIVE STATUS・READ DATAのシリンダ指定・unit/head分類は、3箇所とも全4条件で公式サブROMと完全に一致した（陽性対照はunit/head差21件で検出力を確認済み、C1判定）。**したがってB:を読んでいる最中でもこれら3箇所はドライブA側を使うのが公式の挙動であり、1.46節の共有伝播はこれらの経路には通っていないままでよい。** 段階2の`set`測定では3箇所とも交換#6と同型のP4（`FDC_SEEK`共通入口が実効的だが本測定条件では自然状態のbit0が0であるだけ）に分類され、第140版が残した「bit0が効くのか効かないのか自体が未確定」を解決した。ただし、これは「到達できない入力に対する脆さ」であって公式との食い違いではなく、1.56節が記録した意味の混線（交換#6固有）とは区別する。並行して、`m7gs`が事前登録し`m7gt`が測定した——起動ディスクの配置を自作`SAVE`で1・4・16本の3水準に変え、配置が実際に変わったこと（`FILES`表示の画面署名相違）と陽性対照の通過を確認したうえで、交換#6の目的シリンダは3水準とも偶数のままだった（L2判定）。これは「バグが無い」ではなく、これまで試した4つの梃子（別起動ディスク・B:媒体状態・打鍵・配置変更）のいずれでも奇数条件へ届かなかったという、測定で示した限界の記録である。加えて、B:候補の1本（`disk#10`）で`FILES 2`条件の画面出力が公式と一致しない事実（起点は3箇所より前の段4付近）と、同候補のWRITE経路0件（第141版から既知）を、原因未調査のまま新規に記録した。`src/`・`tools/`は変更していない。根拠は`docs/notes/m7gu-three-sites-unit-conformance-preregistration.md`・`docs/notes/m7gv-three-sites-unit-conformance-results.md`・`docs/notes/m7gs-odd-cylinder-by-layout-change-preregistration.md`・`docs/notes/m7gt-odd-cylinder-by-layout-change-results.md`。 |
@@ -4263,10 +4264,29 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   SEEKからやり直すため、連続READへ移行しない。詳細は1.57節。
   `src/`は変更していない（測定のみ、事前登録の範囲内）。
 
-- **（第144版で追加）公式が「新しい受信runを待たずに連続READへ移行して
-  よい」とどう判断しているかは未特定である。** 自作の`general_read_
-  request`を修正するにはこの判断規則が要る。1.57節を参照。根拠は
-  `docs/notes/m7gz-command56-divergence-results.md`。
+- **（第144版で追加、第145版で更新）公式が「新しい受信runを待たずに
+  連続READへ移行してよい」とどう判断しているかは未特定である。** 自作の
+  `general_read_request`を修正するにはこの判断規則が要る。1.57節を参照。
+  **この未確定を追う測定は、性質の異なる2系統でいずれも絞り込みに至って
+  いない。**
+  - 系統1（データの性質を振る）: `m7hc`〜`m7hj`の4周。連続READ件数が
+    データの大きさで決まるか位置で決まるかを、打鍵・ディスク容量・
+    書込み可否の制約下で振った。判定はN4・O4・P3・P3で、いずれも
+    「測定できた範囲では説明できない」に終わった。
+  - 系統2（要求の内容を読む）: `m7hb`の提案に沿って`m7hl`が事前登録し
+    `m7hm`が測定した。受信runとSEEK段の対応づけが**連続READ区間の入口
+    12箇所すべてで一意に定まらず**（候補が2本、1箇所のみ4本）、事前登録
+    した中止規則により段階2は実施せず主判定Nとなった。**候補0件の箇所は
+    無く、連続READ区間の入口には受信runが必ず先行する**一方、**単発区間
+    には受信runが1本も先行しないSEEK段が4件ある**——両者は非対称である。
+  - 併せて`m7hm`は、READ DATAの単発run 9本がすべて起動段階（frame 35〜76）
+    に、連続run 12本がすべて`FILES 2`入口（frame 759〜761）に現れることを
+    確定した。したがって「単発と連続」を比べる測定は、**場面（起動か入口か）
+    の交絡を設計で排除しない限り解釈できない**。
+  根拠は`docs/notes/m7gz-command56-divergence-results.md`・
+  `docs/notes/m7hb-consecutive-read-rule-results.md`・
+  `docs/notes/m7hl-recv-run-count-field-preregistration.md`・
+  `docs/notes/m7hm-recv-run-count-field-results.md`。
 
 - **（第144版で追加）`bulk_read_do`・`exchange11_fallthrough`への`cyl`
   注入は、ブート序盤から挙動を変えてFDCコマンド種別列を早期（51件目・
