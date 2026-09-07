@@ -19,6 +19,10 @@
 #      差し替えたrunでその位置だけFalseになる
 #   d. 陰性対照: わざと値を出す壊れた版では検査(a.相当)が正しく落ちる
 #   e. 壊れた版は一時コピーのみで本体は無傷
+#   f. 応答run抽出器(stage3)が出力に合成カナリア値を1文字も出さない
+#   g. stage3の故障注入: 同一応答run列どうしはall_positions_equal=True、
+#      1バイト差し替えるとその位置(run番号・位置番号)だけ食い違う
+#   h. 陰性対照: 応答run値をわざと出す壊れたstage3では検査(f.相当)が落ちる
 #
 # 使い方: tools/recv_run_field_leak_selftest.sh
 # 全項目 OK なら終了コード 0、1つでも落ちたら 1。
@@ -226,6 +230,154 @@ if [[ -f "$COMPARATOR" ]] && ! diff -q "$COMPARATOR" "$BROKEN" > /dev/null 2>&1;
   pass "e. 壊れた版は一時コピーのみで、tools/compare_recv_run_fields.py 本体は無傷"
 else
   fail "e. tools/compare_recv_run_fields.py 本体が変更されているか、比較に失敗した"
+fi
+
+# --- stage3(応答run抽出器)向けフィクスチャ(合成データのみ) ---------------
+#
+# main視点のOUT $FD(SEND_PCS)とIN $FC(RECV_HANDSHAKE_PCS/RECV_BULK_PCS)を
+# 交互に並べ、応答run(sub→main)を2本作る。A/B2本のログで、応答run 0の
+# pos0を共通カナリアF0に揃え、pos1をF1(A)/F2(B)で分ける(1バイト差し替え
+# 相当)。応答run 1はA/Bで完全一致させる(対照)。
+CANARY_F0="F0"
+CANARY_F1="F1"
+CANARY_F2="F2"
+CANARY_F3="F3"
+
+gen_stage3_fixture() {
+  # $1: 出力パス, $2: run0 pos1のカナリア(F1 or F2)
+  python3 - "$1" "$2" <<'PYEOF'
+import sys
+
+out_path, run0_pos1 = sys.argv[1], sys.argv[2]
+lines = []
+seq = 1
+clock = 10
+
+
+def emit(cpu, kind, port, value_hex, pc):
+    global seq, clock
+    lines.append(f"{seq} {clock} 100 {cpu} {kind} {port} {value_hex} {pc}")
+    seq += 1
+    clock += 1
+
+
+# 要求run(main→sub)
+emit("main", "OUT", "00FD", "01", "37F4")
+emit("main", "OUT", "00FD", "02", "3811")
+# 応答run0(sub→main、ハンドシェイク経由): pos0共通、pos1だけ差し替え
+emit("main", "IN", "00FC", "F0", "3863")
+emit("main", "IN", "00FC", run0_pos1, "3880")
+# 次の要求run
+emit("main", "OUT", "00FD", "03", "37F4")
+# 応答run1(sub→main、バルク経由): A/Bで完全一致(対照)
+emit("main", "IN", "00FC", "F3", "C269")
+emit("main", "IN", "00FC", "F3", "C269")
+
+with open(out_path, "w", encoding="utf-8") as fp:
+    fp.write("\n".join(lines) + "\n")
+PYEOF
+}
+
+SYNTH3_A="$WORK/synth3_a.iolog.txt"
+SYNTH3_B="$WORK/synth3_b.iolog.txt"
+gen_stage3_fixture "$SYNTH3_A" "$CANARY_F1"
+gen_stage3_fixture "$SYNTH3_B" "$CANARY_F2"
+# 窓の終端は全イベントを含む十分大きな値に固定する。
+UNTIL_CLOCK=9999
+
+# --- f. stage3の出力にカナリアが出ないこと --------------------------------
+python3 "$COMPARATOR" stage3 --iolog-a "$SYNTH3_A" --iolog-b "$SYNTH3_B" \
+  --until-clock "$UNTIL_CLOCK" > "$WORK/s3.out" 2> "$WORK/s3.err"
+RC_S3=$?
+
+STAGE3_CANARIES=("$CANARY_F0" "$CANARY_F1" "$CANARY_F2" "$CANARY_F3")
+LEAKED3=0
+for c in "${STAGE3_CANARIES[@]}"; do
+  if grep -qF "$c" "$WORK/s3.out" "$WORK/s3.err"; then
+    LEAKED3=1
+  fi
+done
+
+if [[ "$LEAKED3" -eq 1 ]]; then
+  fail "f. compare_recv_run_fields.py stage3 の出力へ応答runの値(カナリア)が漏れた"
+else
+  pass "f. compare_recv_run_fields.py stage3 は値を出さない"
+fi
+
+# --- g. stage3の故障注入: 同一応答run列は一致、1バイト差し替えは局所化 ----
+if [[ "$RC_S3" -eq 0 ]] \
+  && grep -q '^run_count_equal=True$' "$WORK/s3.out" \
+  && grep -q '^run_lengths_equal=True$' "$WORK/s3.out" \
+  && grep -q '^all_positions_equal=False$' "$WORK/s3.out" \
+  && grep -q '^mismatch_count=1$' "$WORK/s3.out" \
+  && grep -q '^first_mismatch_run=0$' "$WORK/s3.out" \
+  && grep -q '^first_mismatch_pos=1$' "$WORK/s3.out"; then
+  pass "g.(前半) A≠B(応答run0 pos1のみ差し替え)は正しくその位置だけFalseになる"
+else
+  fail "g.(前半) A≠Bの故障注入結果が期待どおりでなかった(rc_s3=$RC_S3)"
+fi
+
+python3 "$COMPARATOR" stage3 --iolog-a "$SYNTH3_A" --iolog-b "$SYNTH3_A" \
+  --until-clock "$UNTIL_CLOCK" > "$WORK/s3_same.out" 2> "$WORK/s3_same.err"
+RC_S3_SAME=$?
+if [[ "$RC_S3_SAME" -eq 0 ]] && grep -q '^all_positions_equal=True$' "$WORK/s3_same.out" \
+  && grep -q '^mismatch_count=0$' "$WORK/s3_same.out"; then
+  pass "g.(後半) 同一ログどうしの応答runは全位置eq=True"
+else
+  fail "g.(後半) 同一ログどうしの応答runが一致と判定されなかった"
+fi
+
+# --- h. 陰性対照: 応答run値をわざと出す壊れたstage3では検査(f.相当)が落ちる
+BROKEN3="$SCRIPT_DIR/.broken_compare_recv_run_fields_stage3_selftest_tmp.py"
+rm -f "$BROKEN3"
+trap 'rm -rf "$WORK" "$BROKEN" "$BROKEN3"' EXIT
+cp "$COMPARATOR" "$BROKEN3"
+python3 - "$BROKEN3" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+needle = "def _print_stage3(rep: dict, out) -> None:"
+assert needle in text, "注入対象の関数定義が見つからない"
+injected = (
+    "def _debug_leak_stage3(runs_a):\n"
+    "    import sys as _sys\n"
+    "    for run in runs_a:\n"
+    "        for ev in run:\n"
+    "            print(f'DEBUG byte={ev.value:02X}', file=_sys.stderr)\n\n\n"
+    + needle
+)
+text = text.replace(needle, injected, 1)
+text = text.replace(
+    "            rep = stage3_report(args.iolog_a, args.iolog_b, args.until_clock)\n"
+    "            _print_stage3(rep, sys.stdout)\n",
+    "            rep = stage3_report(args.iolog_a, args.iolog_b, args.until_clock)\n"
+    "            _debug_leak_stage3(_response_runs(m2s.parse_iolog(args.iolog_a)[0], args.until_clock))\n"
+    "            _print_stage3(rep, sys.stdout)\n",
+    1,
+)
+open(path, "w", encoding="utf-8").write(text)
+PYEOF
+
+python3 "$BROKEN3" stage3 --iolog-a "$SYNTH3_A" --iolog-b "$SYNTH3_B" \
+  --until-clock "$UNTIL_CLOCK" > "$WORK/broken3.out" 2> "$WORK/broken3.err"
+
+BROKEN3_LEAKED=0
+for c in "${STAGE3_CANARIES[@]}"; do
+  if grep -qF "$c" "$WORK/broken3.out" "$WORK/broken3.err"; then
+    BROKEN3_LEAKED=1
+  fi
+done
+
+if [[ "$BROKEN3_LEAKED" -eq 1 ]]; then
+  pass "h. 陰性対照: 応答run値を出す壊れたstage3では検査(f.相当)が正しく落ちる（検出力あり）"
+else
+  fail "h. 陰性対照: 壊れたstage3でもカナリアが検出されなかった（検査に検出力が無い）"
+fi
+
+if [[ -f "$COMPARATOR" ]] && ! diff -q "$COMPARATOR" "$BROKEN3" > /dev/null 2>&1; then
+  pass "h.(補足) 壊れたstage3版は一時コピーのみで、tools/compare_recv_run_fields.py 本体は無傷"
+else
+  fail "h.(補足) tools/compare_recv_run_fields.py 本体が変更されているか、比較に失敗した"
 fi
 
 exit "$FAIL"

@@ -24,10 +24,19 @@
     stage2  --iolog PATH
         段階1を内部でやり直し、中止規則に該当しなければ段階2（群R・群Sの
         比較、C1/C2/C3判定）を出す。中止規則に該当すれば verdict=N を出す。
+    stage3  --iolog-a PATH --iolog-b PATH --until-clock N
+        応答run（sub→main。`docs/notes/m7ht-...`「新設する抽出器」節が
+        定める定義）を、指定clock以下の窓に絞って2本のiologで順序込みに
+        突き合わせる。出すのはrun数・run長の一致/不一致・最初に食い違う
+        位置（run番号・位置番号）・その応答runの終端clock・真偽値・件数
+        のみ。応答値そのものは出さない。
 
 再実行方法:
     python3 tools/compare_recv_run_fields.py stage1 --iolog measurements/x.iolog.txt.gz
     python3 tools/compare_recv_run_fields.py stage2 --iolog measurements/x.iolog.txt.gz
+    python3 tools/compare_recv_run_fields.py stage3 \
+        --iolog-a measurements/a.iolog.txt.gz --iolog-b measurements/b.iolog.txt.gz \
+        --until-clock 123456
 """
 from __future__ import annotations
 
@@ -279,6 +288,125 @@ def _print_stage2(rep: dict, out) -> None:
     print(f"verdict={rep['verdict']}", file=out)
 
 
+# --- 段階3（応答run: sub→main） -----------------------------------------
+#
+# `docs/notes/m7ht-response-vs-request-ordering-preregistration.md`
+# 「新設する抽出器」節の定義をそのまま実装する。定義はこの資料から採り、
+# 新たに発明しない: main視点のイベントを、`analyze_error_exchange_shape.
+# exchange_runs` と同じく「向きが切り替わったところで切る」ことで
+# run化し、そのうちsub→main方向（応答）のrunだけを残す。
+
+
+def _main_direction(e: m2s.Ev) -> Optional[str]:
+    """main視点イベント1件の向きを返す。対象外イベントはNone。"""
+    if e.cpu != "main":
+        return None
+    if e.kind == "OUT" and e.port == "00FD" and e.pc in m2s.SEND_PCS:
+        return "main->sub"
+    if e.kind == "IN" and e.port == "00FC" and (
+        e.pc in m2s.RECV_HANDSHAKE_PCS or e.pc in m2s.RECV_BULK_PCS
+    ):
+        return "sub->main"
+    return None
+
+
+def _response_runs(rows: list[m2s.Ev], until_clock: int) -> list[list[m2s.Ev]]:
+    """窓（clock<=until_clock）内の応答run（sub→main）だけを、出現順序
+    どおりのリストとして返す。各要素はrun内イベント列（値を保持するが、
+    呼び出し側は比較関数越しにしか触らない）。"""
+    ordered = sorted(
+        (e for e in rows if e.clock <= until_clock),
+        key=lambda e: (e.clock, e.seq),
+    )
+    grouped: list[list[m2s.Ev]] = []
+    directions: list[str] = []
+    for e in ordered:
+        d = _main_direction(e)
+        if d is None:
+            continue
+        if grouped and directions[-1] == d:
+            grouped[-1].append(e)
+        else:
+            grouped.append([e])
+            directions.append(d)
+    return [g for g, d in zip(grouped, directions) if d == "sub->main"]
+
+
+def stage3_report(iolog_a: Path, iolog_b: Path, until_clock: int) -> dict:
+    rows_a, masked_a = m2s.parse_iolog(iolog_a)
+    rows_b, masked_b = m2s.parse_iolog(iolog_b)
+    if sum(masked_a.values()) or sum(masked_b.values()):
+        raise SafeError("伏せ字ログでは応答runの内容を比較できない")
+
+    runs_a = _response_runs(rows_a, until_clock)
+    runs_b = _response_runs(rows_b, until_clock)
+
+    run_count_a = len(runs_a)
+    run_count_b = len(runs_b)
+    common_run_count = min(run_count_a, run_count_b)
+
+    run_lengths_equal = True
+    run_length_mismatch_index: Optional[int] = None
+    for i in range(common_run_count):
+        if len(runs_a[i]) != len(runs_b[i]):
+            run_lengths_equal = False
+            run_length_mismatch_index = i
+            break
+
+    all_positions_equal = True
+    mismatch_count = 0
+    first_mismatch_run: Optional[int] = None
+    first_mismatch_pos: Optional[int] = None
+    first_mismatch_run_end_clock: Optional[int] = None
+
+    for i in range(common_run_count):
+        run_a = runs_a[i]
+        run_b = runs_b[i]
+        pos_len = min(len(run_a), len(run_b))
+        for p in range(pos_len):
+            if _eq(run_a[p].value, run_b[p].value):
+                continue
+            all_positions_equal = False
+            mismatch_count += 1
+            if first_mismatch_run is None:
+                first_mismatch_run = i
+                first_mismatch_pos = p
+                first_mismatch_run_end_clock = max(run_a[-1].clock, run_b[-1].clock)
+
+    comparable = (run_count_a == run_count_b) and run_lengths_equal
+
+    return {
+        "run_count_a": run_count_a,
+        "run_count_b": run_count_b,
+        "run_count_equal": run_count_a == run_count_b,
+        "run_lengths_equal": run_lengths_equal,
+        "run_length_mismatch_index": run_length_mismatch_index,
+        "comparable": comparable,
+        "all_positions_equal": all_positions_equal,
+        "mismatch_count": mismatch_count,
+        "first_mismatch_run": first_mismatch_run,
+        "first_mismatch_pos": first_mismatch_pos,
+        "first_mismatch_run_end_clock": first_mismatch_run_end_clock,
+    }
+
+
+def _print_stage3(rep: dict, out) -> None:
+    for key in (
+        "run_count_a",
+        "run_count_b",
+        "run_count_equal",
+        "run_lengths_equal",
+        "run_length_mismatch_index",
+        "comparable",
+        "all_positions_equal",
+        "mismatch_count",
+        "first_mismatch_run",
+        "first_mismatch_pos",
+        "first_mismatch_run_end_clock",
+    ):
+        print(f"{key}={rep[key]}", file=out)
+
+
 # --- CLI ----------------------------------------------------------------
 
 
@@ -292,15 +420,23 @@ def main() -> int:
     p2 = sub.add_parser("stage2")
     p2.add_argument("--iolog", required=True, type=Path)
 
+    p3 = sub.add_parser("stage3")
+    p3.add_argument("--iolog-a", required=True, type=Path)
+    p3.add_argument("--iolog-b", required=True, type=Path)
+    p3.add_argument("--until-clock", required=True, type=int)
+
     args = ap.parse_args()
 
     try:
         if args.cmd == "stage1":
             rep = stage1_report(args.iolog)
             _print_stage1(rep, sys.stdout)
-        else:
+        elif args.cmd == "stage2":
             rep = stage2_report(args.iolog)
             _print_stage2(rep, sys.stdout)
+        else:
+            rep = stage3_report(args.iolog_a, args.iolog_b, args.until_clock)
+            _print_stage3(rep, sys.stdout)
     except SafeError as ex:
         # 例外メッセージは固定文言のみ(値を含めない)。
         print(f"解析不可: {ex}", file=sys.stderr)
