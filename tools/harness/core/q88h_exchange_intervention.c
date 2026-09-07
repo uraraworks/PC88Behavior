@@ -8,6 +8,7 @@
 
 enum { DIR_MAIN_TO_SUB = 1, DIR_SUB_TO_MAIN = 2 };
 static q88h_exchange_intervention_t g_xi;
+static q88h_request_intervention_t g_rxi;
 
 q88h_exchange_intervention_t *retro_q88h_exchange_intervention(void)
 {
@@ -84,6 +85,33 @@ int retro_q88h_exchange_intervention_configure(unsigned slot, int32_t run_index,
     return 1;
 }
 
+q88h_request_intervention_t *retro_q88h_request_intervention(void)
+{
+    return &g_rxi;
+}
+
+void retro_q88h_request_intervention_reset(void)
+{
+    unsigned i;
+    memset(&g_rxi, 0, sizeof(g_rxi));
+    for (i = 0; i < Q88H_REQUEST_INTERVENTION_SLOTS; i++)
+        g_rxi.slot[i].run_index = -1;
+}
+
+int retro_q88h_request_intervention_configure(unsigned slot, int32_t run_index,
+                                               uint32_t position, uint8_t mode,
+                                               uint8_t value)
+{
+    if (slot >= Q88H_REQUEST_INTERVENTION_SLOTS || run_index < 0 ||
+        mode < Q88H_RXI_XOR || mode > Q88H_RXI_REPLACE)
+        return 0;
+    g_rxi.slot[slot].run_index = run_index;
+    g_rxi.slot[slot].position = position;
+    g_rxi.slot[slot].mode = mode;
+    g_rxi.slot[slot].value = value;
+    return 1;
+}
+
 static uint8_t classify(uint8_t kind, uint8_t port, uint16_t pc)
 {
     if (kind == Q88H_IOLOG_OUT && port == 0xFD &&
@@ -122,6 +150,21 @@ uint8_t q88h_exchange_intervention_process(uint8_t kind, uint8_t port,
                 uint8_t changed = (s->mode == Q88H_XI_REPLACE_ALL ||
                                    s->mode == Q88H_XI_REPLACE_FIRST) ? s->value
                                                                     : (uint8_t)(value ^ s->value);
+                s->applied_events++;
+                if (changed != value) s->changed_events++;
+                value = changed;
+            }
+        }
+    } else if (direction == DIR_MAIN_TO_SUB) {
+        for (i = 0; i < Q88H_REQUEST_INTERVENTION_SLOTS; i++) {
+            q88h_request_intervention_slot_t *s = &g_rxi.slot[i];
+            if (s->run_index != g_xi.current_run) continue;
+            s->matched_run = 1;
+            s->matched_events++;
+            if (g_xi.position_in_run == s->position) {
+                uint8_t changed = (s->mode == Q88H_RXI_REPLACE)
+                                       ? s->value
+                                       : (uint8_t)(value ^ s->value);
                 s->applied_events++;
                 if (changed != value) s->changed_events++;
                 value = changed;

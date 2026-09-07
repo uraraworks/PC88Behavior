@@ -15,6 +15,33 @@ enum {
     Q88H_XI_REPLACE_FIRST
 };
 
+/* main→subの要求runを位置指定で介入する。既存のexchange_interventionは
+ * sub→main専用（DIR_SUB_TO_MAIN）で、その挙動には一切手を入れない。
+ * こちらはDIR_MAIN_TO_SUBのrunだけを対象にする、完全に別枠のスロット。 */
+#define Q88H_REQUEST_INTERVENTION_SLOTS 64
+
+enum {
+    Q88H_RXI_NONE = 0,
+    Q88H_RXI_XOR,
+    Q88H_RXI_REPLACE
+};
+
+typedef struct {
+    int32_t run_index;
+    uint32_t position;
+    uint32_t matched_events;
+    uint32_t applied_events;
+    uint32_t changed_events;
+    uint8_t mode;
+    uint8_t value;
+    uint8_t matched_run;
+    uint8_t pad;
+} q88h_request_intervention_slot_t;
+
+typedef struct {
+    q88h_request_intervention_slot_t slot[Q88H_REQUEST_INTERVENTION_SLOTS];
+} q88h_request_intervention_t;
+
 enum {
     Q88H_READY_HANDOFF_NONE = 0,
     Q88H_READY_HANDOFF_NOW,
@@ -64,6 +91,13 @@ void retro_q88h_exchange_intervention_reset(void);
 int retro_q88h_exchange_intervention_configure(unsigned slot, int32_t run_index,
                                                 uint8_t mode, uint8_t value);
 int retro_q88h_exchange_ready_handoff_configure(int32_t run_index, int32_t mode);
+
+/* main→sub要求runの位置指定介入。 */
+q88h_request_intervention_t *retro_q88h_request_intervention(void);
+void retro_q88h_request_intervention_reset(void);
+int retro_q88h_request_intervention_configure(unsigned slot, int32_t run_index,
+                                               uint32_t position, uint8_t mode,
+                                               uint8_t value);
 /* 対象応答直前のmain待機に入ったことをPIO層へ伝える。 */
 void q88h_exchange_ready_handoff_before_main_io(uint8_t kind, uint8_t port,
                                                 uint16_t pc);
