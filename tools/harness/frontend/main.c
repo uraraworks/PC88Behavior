@@ -96,6 +96,13 @@ static void (*p_request_intervention_reset)(void);
 static int (*p_request_intervention_configure)(unsigned, int32_t, uint32_t, uint8_t, uint8_t);
 static bool g_request_intervention_available = false;
 
+/* sub→main応答runの位置指定介入。既存の交換run介入・要求run介入とは
+ * 別枠のシンボル群。 */
+static q88h_response_intervention_t *(*p_response_intervention)(void);
+static void (*p_response_intervention_reset)(void);
+static int (*p_response_intervention_configure)(unsigned, int32_t, uint32_t, uint8_t, uint8_t);
+static bool g_response_intervention_available = false;
+
 static q88h_sub_interrupt_intervention_t *(*p_sub_interrupt_intervention)(void);
 static void (*p_sub_interrupt_intervention_reset)(void);
 static int (*p_sub_interrupt_intervention_configure)(int32_t, int32_t, uint8_t);
@@ -444,6 +451,15 @@ static bool load_core(const char *path)
     g_request_intervention_available = p_request_intervention
                                      && p_request_intervention_reset
                                      && p_request_intervention_configure;
+
+    *(void **)(&p_response_intervention) = dlsym(h, "retro_q88h_response_intervention");
+    *(void **)(&p_response_intervention_reset) =
+        dlsym(h, "retro_q88h_response_intervention_reset");
+    *(void **)(&p_response_intervention_configure) =
+        dlsym(h, "retro_q88h_response_intervention_configure");
+    g_response_intervention_available = p_response_intervention
+                                      && p_response_intervention_reset
+                                      && p_response_intervention_configure;
 
     *(void **)(&p_sub_interrupt_intervention) =
         dlsym(h, "retro_q88h_sub_interrupt_intervention");
@@ -855,6 +871,7 @@ static void usage(void)
         "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
         "                   [--exchange-intervention RUN:MODE:VALUE] (最大64個)\n"
         "                   [--request-intervention RUN:POS:MODE:VALUE] (最大64個)\n"
+        "                   [--response-intervention RUN:POS:MODE:VALUE] (最大64個)\n"
         "                   [--response-ready-handoff RUN:MODE] (now|defer-once)\n"
         "                   [--sub-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
@@ -892,6 +909,9 @@ int main(int argc, char **argv)
     struct { int32_t run; uint32_t position; uint8_t mode, value; }
         rxi[Q88H_REQUEST_INTERVENTION_SLOTS];
     int n_rxi = 0;
+    struct { int32_t run; uint32_t position; uint8_t mode, value; }
+        rsi[Q88H_RESPONSE_INTERVENTION_SLOTS];
+    int n_rsi = 0;
     int32_t ready_handoff_run = -1, ready_handoff_mode = Q88H_READY_HANDOFF_NONE;
     int32_t sii_first = -1, sii_last = -1;
     uint8_t sii_mode = Q88H_SII_NONE;
@@ -1024,6 +1044,43 @@ int main(int argc, char **argv)
             rxi[n_rxi].position = (uint32_t)pos;
             n_rxi++;
         }
+        else if (!strcmp(argv[i], "--response-intervention") && i + 1 < argc) {
+            char *end;
+            const char *spec = argv[++i], *pos_s, *mode, *value;
+            long run, pos;
+            size_t mode_len;
+            if (n_rsi >= Q88H_RESPONSE_INTERVENTION_SLOTS) {
+                fprintf(stderr, "[q88measure] --response-intervention は最大%d個\n",
+                        Q88H_RESPONSE_INTERVENTION_SLOTS);
+                return 2;
+            }
+            run = strtol(spec, &end, 0);
+            if (end == spec || *end != ':' || run < 0 || run > INT32_MAX) {
+                fprintf(stderr, "[q88measure] 介入書式は RUN:POS:MODE:VALUE\n"); return 2;
+            }
+            pos_s = end + 1;
+            pos = strtol(pos_s, &end, 0);
+            if (end == pos_s || *end != ':' || pos < 0) {
+                fprintf(stderr, "[q88measure] 介入書式は RUN:POS:MODE:VALUE\n"); return 2;
+            }
+            mode = end + 1; value = strchr(mode, ':');
+            if (!value) { fprintf(stderr, "[q88measure] 介入書式は RUN:POS:MODE:VALUE\n"); return 2; }
+            mode_len = (size_t)(value - mode); value++;
+#define RSI_MODE(name, code) (mode_len == strlen(name) && !strncmp(mode, name, mode_len)) ? code
+            rsi[n_rsi].mode = RSI_MODE("xor", Q88H_RSI_XOR) :
+                              RSI_MODE("replace", Q88H_RSI_REPLACE) : Q88H_RSI_NONE;
+#undef RSI_MODE
+            if (rsi[n_rsi].mode == Q88H_RSI_NONE) {
+                fprintf(stderr, "[q88measure] 未知の介入MODE\n"); return 2;
+            }
+            rsi[n_rsi].value = (uint8_t)strtoul(value, &end, 0);
+            if (*value == '\0' || *end != '\0' || strtoul(value, NULL, 0) > 255) {
+                fprintf(stderr, "[q88measure] 介入VALUEは0〜255\n"); return 2;
+            }
+            rsi[n_rsi].run = (int32_t)run;
+            rsi[n_rsi].position = (uint32_t)pos;
+            n_rsi++;
+        }
         else if (!strcmp(argv[i], "--response-ready-handoff") && i + 1 < argc) {
             char *end;
             const char *spec = argv[++i], *mode_text;
@@ -1127,6 +1184,9 @@ int main(int argc, char **argv)
     if (n_rxi && !g_request_intervention_available) {
         fprintf(stderr, "[q88measure] 要求run介入を持たないコア\n"); return 2;
     }
+    if (n_rsi && !g_response_intervention_available) {
+        fprintf(stderr, "[q88measure] 応答run介入を持たないコア\n"); return 2;
+    }
     if (sii_mode != Q88H_SII_NONE &&
         (!g_exchange_intervention_available || !g_sub_interrupt_intervention_available)) {
         fprintf(stderr, "[q88measure] sub割り込み介入を持たないコア\n"); return 2;
@@ -1211,6 +1271,17 @@ int main(int argc, char **argv)
                                                   rxi[i].position, rxi[i].mode,
                                                   rxi[i].value)) {
                 fprintf(stderr, "[q88measure] 要求run介入の設定に失敗\n");
+                p_deinit(); return 2;
+            }
+        }
+    }
+    if (g_response_intervention_available) {
+        p_response_intervention_reset();
+        for (i = 0; i < n_rsi; i++) {
+            if (!p_response_intervention_configure((unsigned)i, rsi[i].run,
+                                                   rsi[i].position, rsi[i].mode,
+                                                   rsi[i].value)) {
+                fprintf(stderr, "[q88measure] 応答run介入の設定に失敗\n");
                 p_deinit(); return 2;
             }
         }
@@ -1492,6 +1563,17 @@ int main(int argc, char **argv)
             for (i = 0; i < n_rxi; i++) {
                 q88h_request_intervention_slot_t *slot = &state->slot[i];
                 fprintf(stderr, "[q88measure] 要求介入slot%d run=%d pos=%u"
+                                " matched=%u applied=%u changed=%u\n",
+                        i, (int)slot->run_index, slot->position,
+                        slot->matched_events, slot->applied_events,
+                        slot->changed_events);
+            }
+        }
+        if (n_rsi) {
+            q88h_response_intervention_t *state = p_response_intervention();
+            for (i = 0; i < n_rsi; i++) {
+                q88h_response_intervention_slot_t *slot = &state->slot[i];
+                fprintf(stderr, "[q88measure] 応答介入slot%d run=%d pos=%u"
                                 " matched=%u applied=%u changed=%u\n",
                         i, (int)slot->run_index, slot->position,
                         slot->matched_events, slot->applied_events,

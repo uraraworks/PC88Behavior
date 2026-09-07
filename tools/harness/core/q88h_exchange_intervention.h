@@ -42,6 +42,36 @@ typedef struct {
     q88h_request_intervention_slot_t slot[Q88H_REQUEST_INTERVENTION_SLOTS];
 } q88h_request_intervention_t;
 
+/* sub→subの応答runを位置指定で介入する。既存のexchange_interventionは
+ * sub→main専用だが位置を選べない（run全体にしか当てられない）。
+ * こちらは--request-interventionのスロット実装をそのまま鏡写しにし、
+ * DIR_SUB_TO_MAINのrunだけを対象に位置指定を足す、完全に別枠のスロット。
+ * 既存のexchange_intervention・request_interventionの挙動には一切手を
+ * 入れない。 */
+#define Q88H_RESPONSE_INTERVENTION_SLOTS 64
+
+enum {
+    Q88H_RSI_NONE = 0,
+    Q88H_RSI_XOR,
+    Q88H_RSI_REPLACE
+};
+
+typedef struct {
+    int32_t run_index;
+    uint32_t position;
+    uint32_t matched_events;
+    uint32_t applied_events;
+    uint32_t changed_events;
+    uint8_t mode;
+    uint8_t value;
+    uint8_t matched_run;
+    uint8_t pad;
+} q88h_response_intervention_slot_t;
+
+typedef struct {
+    q88h_response_intervention_slot_t slot[Q88H_RESPONSE_INTERVENTION_SLOTS];
+} q88h_response_intervention_t;
+
 enum {
     Q88H_READY_HANDOFF_NONE = 0,
     Q88H_READY_HANDOFF_NOW,
@@ -98,6 +128,13 @@ void retro_q88h_request_intervention_reset(void);
 int retro_q88h_request_intervention_configure(unsigned slot, int32_t run_index,
                                                uint32_t position, uint8_t mode,
                                                uint8_t value);
+
+/* sub→main応答runの位置指定介入。 */
+q88h_response_intervention_t *retro_q88h_response_intervention(void);
+void retro_q88h_response_intervention_reset(void);
+int retro_q88h_response_intervention_configure(unsigned slot, int32_t run_index,
+                                                uint32_t position, uint8_t mode,
+                                                uint8_t value);
 /* 対象応答直前のmain待機に入ったことをPIO層へ伝える。 */
 void q88h_exchange_ready_handoff_before_main_io(uint8_t kind, uint8_t port,
                                                 uint16_t pc);
