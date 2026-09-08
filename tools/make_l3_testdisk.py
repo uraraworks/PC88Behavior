@@ -24,6 +24,7 @@ import sys
 SECTOR_SIZE = 256
 DEFAULT_SECTORS_PER_TRACK = 8
 DEFAULT_CYLINDERS = 8    # テストに要る範囲だけ（本物の2Dは84トラック）
+DEFAULT_HEADS = 1        # 既定は片面(head0のみ)。拡張前とのバイト一致を守る
 N_CODE = 0x01             # FDC の N パラメータ = 1 → 256バイト/セクタ
 
 # D88 の1トラック分のヘッダ領域は16バイト固定なので、1トラックの容量
@@ -34,8 +35,14 @@ MAX_SECTORS_PER_TRACK = 26
 
 # track_table は164エントリ固定（D88フォーマットの仕様）。片面(head=0)
 # だけを使うので phys = cyl*2 が164を超えないシリンダ数だけ許可する。
+# 両面(head=0,1)でも phys の最大値は (n_cylinders-1)*2+1 で片面時の
+# (n_cylinders-1)*2 より1大きいだけなので、同じ上限で両方とも
+# 164エントリ(0-163)に収まる。
 MIN_CYLINDERS = 1
 MAX_CYLINDERS = 82
+
+MIN_HEADS = 1
+MAX_HEADS = 2
 
 DISK_PROTECT_FALSE = 0x00
 DISK_TYPE_2D = 0x00
@@ -48,12 +55,12 @@ def sector_pattern(cyl: int, sec: int) -> bytes:
     return bytes(((cyl * 97 + sec * 57 + i * 7 + 13) & 0xFF) for i in range(SECTOR_SIZE))
 
 
-def build_track(cyl: int, sectors_per_track: int) -> bytes:
+def build_track(cyl: int, sectors_per_track: int, head: int = 0) -> bytes:
     body = bytearray()
     for sec in range(1, sectors_per_track + 1):
         hdr = bytearray(16)
         hdr[0] = cyl & 0xFF          # C
-        hdr[1] = 0x00                # H
+        hdr[1] = head & 0xFF          # H
         hdr[2] = sec & 0xFF          # R
         hdr[3] = N_CODE               # N
         hdr[4] = sectors_per_track & 0xFF   # セクタ数(下位)
@@ -73,14 +80,16 @@ def build_track(cyl: int, sectors_per_track: int) -> bytes:
 def build_d88(
     sectors_per_track: int = DEFAULT_SECTORS_PER_TRACK,
     n_cylinders: int = DEFAULT_CYLINDERS,
+    heads: int = DEFAULT_HEADS,
 ) -> bytes:
     """トラック表は「物理トラック番号 = シリンダ*2+ヘッド」で引かれる
     （vendor src/fdc.c `disk_now_track(i, ncn[i]*2+hd)`）。実測で確かめた
     ——最初は cyl をそのままトラック表の添字にしていたら、SEEK 先の
     シリンダとズレたトラックを読みに行っていた（No Data エラー）。
-    片面ディスクなのでヘッド1側のスロットは未使用（オフセット0）のまま
-    にする。"""
-    tracks = {c: build_track(c, sectors_per_track) for c in range(n_cylinders)}
+    既定(heads=1)は片面ディスクなのでヘッド1側のスロットは未使用
+    （オフセット0）のままにする——このときの生成物は拡張前とバイト
+    一致する。heads=2 を指定すると head0・head1 の両方にトラックを
+    置く（両面化）。"""
     header = bytearray(32)
     # header[0:17] name = 0 埋め、[17:26] reserved = 0
     header[26] = DISK_PROTECT_FALSE
@@ -91,11 +100,12 @@ def build_d88(
     body = bytearray()
     offset = 32 + 164 * 4
     for c in range(n_cylinders):
-        trk = tracks[c]
-        phys = c * 2 + 0   # head=0
-        struct.pack_into("<I", track_table, phys * 4, offset)
-        body += trk
-        offset += len(trk)
+        for h in range(heads):
+            trk = build_track(c, sectors_per_track, head=h)
+            phys = c * 2 + h
+            struct.pack_into("<I", track_table, phys * 4, offset)
+            body += trk
+            offset += len(trk)
     total_size = offset
     struct.pack_into("<I", header, 28, total_size)
 
@@ -125,7 +135,33 @@ def main():
             f"{MIN_CYLINDERS}〜{MAX_CYLINDERS} の範囲で指定可)"
         ),
     )
+    ap.add_argument(
+        "--heads",
+        type=int,
+        default=DEFAULT_HEADS,
+        help=(
+            "ヘッド数 "
+            f"(既定 {DEFAULT_HEADS}=片面/head0のみ。"
+            f"{MIN_HEADS}〜{MAX_HEADS} の範囲で指定可。"
+            "2を指定すると head0・head1 の両方にトラックを生成する"
+            "(両面化)。既定は拡張前とバイト一致する)"
+        ),
+    )
+    ap.add_argument(
+        "--double-sided",
+        action="store_true",
+        help="--heads 2 の別名(両面化)。--heads と併用不可",
+    )
     args = ap.parse_args()
+
+    if args.double_sided:
+        if args.heads != DEFAULT_HEADS:
+            print(
+                "エラー: --double-sided と --heads は併用できない",
+                file=sys.stderr,
+            )
+            return 1
+        args.heads = 2
 
     n = args.sectors_per_track
     if not (MIN_SECTORS_PER_TRACK <= n <= MAX_SECTORS_PER_TRACK):
@@ -145,11 +181,34 @@ def main():
         )
         return 1
 
-    data = build_d88(n, n_cyl)
+    heads = args.heads
+    if not (MIN_HEADS <= heads <= MAX_HEADS):
+        print(
+            f"エラー: --heads は {MIN_HEADS}〜"
+            f"{MAX_HEADS} の範囲で指定すること (指定値: {heads})",
+            file=sys.stderr,
+        )
+        return 1
+
+    # track_table は164エントリ固定。両面時は phys の最大値が
+    # (n_cyl-1)*2+(heads-1) になるので、範囲外になるならここで落とす。
+    max_phys = (n_cyl - 1) * 2 + (heads - 1)
+    if max_phys > 163:
+        print(
+            "エラー: この --cylinders と --heads の組み合わせは "
+            f"track_table(164エントリ)を超える (最大添字 {max_phys})",
+            file=sys.stderr,
+        )
+        return 1
+
+    data = build_d88(n, n_cyl, heads)
     p = pathlib.Path(args.outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
-    print(f"生成した: {p} ({len(data)} bytes, {n_cyl} シリンダ x {n} セクタ)")
+    print(
+        f"生成した: {p} ({len(data)} bytes, {n_cyl} シリンダ x {n} セクタ x "
+        f"{heads} ヘッド)"
+    )
     return 0
 
 
