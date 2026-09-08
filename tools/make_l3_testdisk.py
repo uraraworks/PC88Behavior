@@ -23,6 +23,7 @@ import sys
 
 SECTOR_SIZE = 256
 DEFAULT_SECTORS_PER_TRACK = 8
+DEFAULT_SECTOR_BASE = 1  # 既定は拡張前とのバイト一致を守る
 DEFAULT_CYLINDERS = 8    # テストに要る範囲だけ（本物の2Dは84トラック）
 DEFAULT_HEADS = 1        # 既定は片面(head0のみ)。拡張前とのバイト一致を守る
 N_CODE = 0x01             # FDC の N パラメータ = 1 → 256バイト/セクタ
@@ -55,9 +56,12 @@ def sector_pattern(cyl: int, sec: int) -> bytes:
     return bytes(((cyl * 97 + sec * 57 + i * 7 + 13) & 0xFF) for i in range(SECTOR_SIZE))
 
 
-def build_track(cyl: int, sectors_per_track: int, head: int = 0) -> bytes:
+def build_track(
+    cyl: int, sectors_per_track: int, head: int = 0,
+    sector_base: int = DEFAULT_SECTOR_BASE,
+) -> bytes:
     body = bytearray()
-    for sec in range(1, sectors_per_track + 1):
+    for sec in range(sector_base, sector_base + sectors_per_track):
         hdr = bytearray(16)
         hdr[0] = cyl & 0xFF          # C
         hdr[1] = head & 0xFF          # H
@@ -81,6 +85,7 @@ def build_d88(
     sectors_per_track: int = DEFAULT_SECTORS_PER_TRACK,
     n_cylinders: int = DEFAULT_CYLINDERS,
     heads: int = DEFAULT_HEADS,
+    sector_base: int = DEFAULT_SECTOR_BASE,
 ) -> bytes:
     """トラック表は「物理トラック番号 = シリンダ*2+ヘッド」で引かれる
     （vendor src/fdc.c `disk_now_track(i, ncn[i]*2+hd)`）。実測で確かめた
@@ -101,7 +106,7 @@ def build_d88(
     offset = 32 + 164 * 4
     for c in range(n_cylinders):
         for h in range(heads):
-            trk = build_track(c, sectors_per_track, head=h)
+            trk = build_track(c, sectors_per_track, head=h, sector_base=sector_base)
             phys = c * 2 + h
             struct.pack_into("<I", track_table, phys * 4, offset)
             body += trk
@@ -123,6 +128,16 @@ def main():
             "1トラックあたりのセクタ数 "
             f"(既定 {DEFAULT_SECTORS_PER_TRACK}。"
             f"{MIN_SECTORS_PER_TRACK}〜{MAX_SECTORS_PER_TRACK} の範囲で指定可)"
+        ),
+    )
+    ap.add_argument(
+        "--sector-base",
+        type=int,
+        default=DEFAULT_SECTOR_BASE,
+        help=(
+            "セクタ番号の起点 "
+            f"(既定 {DEFAULT_SECTOR_BASE}。1以上で、"
+            "起点 + セクタ数 - 1 が255以下になるよう指定すること)"
         ),
     )
     ap.add_argument(
@@ -172,6 +187,15 @@ def main():
         )
         return 1
 
+    base = args.sector_base
+    if base < 1 or base + n - 1 > 255:
+        print(
+            "エラー: --sector-base は1以上で、起点 + セクタ数 - 1 が"
+            f"255以下になるよう指定すること (指定値: {base}, セクタ数: {n})",
+            file=sys.stderr,
+        )
+        return 1
+
     n_cyl = args.cylinders
     if not (MIN_CYLINDERS <= n_cyl <= MAX_CYLINDERS):
         print(
@@ -201,7 +225,7 @@ def main():
         )
         return 1
 
-    data = build_d88(n, n_cyl, heads)
+    data = build_d88(n, n_cyl, heads, sector_base=base)
     p = pathlib.Path(args.outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
