@@ -62,13 +62,17 @@ candidate0_rom, candidate0_used = subrom.build(error_response_candidate=0)
 candidate64_rom, candidate64_used = subrom.build(error_response_candidate=0x40)
 diffs = [pos for pos, pair in enumerate(zip(default_rom, broken_rom))
          if pair[0] != pair[1]]
-if not (default_used == broken_used == candidate0_used == candidate64_used == 2042
+# 2026-09-10: 絶対値2042の直書きをやめた。この検査が見たいのは
+# 「4版とも同じサイズ」＝故障注入が即値1セルしか変えないことなので、
+# 相等関係だけを見る（窓内であることは別途）。
+if not (default_used == broken_used == candidate0_used == candidate64_used
+        and default_used <= subrom.SUB_ROM_FETCH_WINDOW
         and default_rom == candidate0_rom and broken_rom == candidate64_rom
         and len(diffs) == 1
         and default_rom[diffs[0]] ^ broken_rom[diffs[0]] == 0x40):
     print("NG: 既定値・bit6故障注入・候補再現または生成サイズが不正")
     raise SystemExit(1)
-print("OK: 既定0x00と故障注入0x40はbit6即値1セルだけが異なり、コード2042バイト")
+print(f"OK: 既定0x00と故障注入0x40はbit6即値1セルだけが異なり、4版とも同サイズ（{default_used}バイト・窓内）")
 
 if os.environ.get("PC88_ERROR_RESPONSE_OPT_IN") != "1":
     print("SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定（本体未実行、selftestのみrc=0）")

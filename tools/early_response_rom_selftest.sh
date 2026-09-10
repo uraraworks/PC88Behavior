@@ -54,8 +54,17 @@ print("OK: 3/5/6/12の可変長表と0x02限定・既存1バイト応答経路�
 
 default_rom, default_used = subrom.build()
 candidate_rom, candidate_used = subrom.build(early_response_after=5)
-if (default_used, candidate_used) != (2042, 2044):
-    raise SystemExit(f"NG: code size is not 2042/2044: {default_used}/{candidate_used}")
+# 2026-09-10: 絶対値(2042/2044)を直に書いていたが、2026-09-03の意図的な圧縮
+# (abf6d02が18バイト空けた)と、その後の実装追加で既定が2039へ動き、以後
+# 赤のまま放置されていた。この検査が本来見たいのは「介入版が既定版より
+# ちょうど2バイト大きい」ことと「どちらもフェッチ窓に収まる」ことなので、
+# そちらを直接書く。既定サイズが動いても腐らない。
+if candidate_used - default_used != 2:
+    raise SystemExit(
+        f"NG: 介入版と既定版の差が2バイトでない: {default_used}/{candidate_used}")
+if max(default_used, candidate_used) > subrom.SUB_ROM_FETCH_WINDOW:
+    raise SystemExit(
+        f"NG: フェッチ窓を超えた: {default_used}/{candidate_used}")
 search.validate_rom_intervention_bytes(
     bytes(default_rom), bytes(candidate_rom), name="early_response_after_5")
 marker = assembled(5).labels["EARLY_RESPONSE_INTERVENTION_REACHED"]

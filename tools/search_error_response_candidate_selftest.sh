@@ -83,9 +83,11 @@ candidate_rom0, candidate_used0 = subrom.build(error_response_candidate=0)
 candidate_rom1, candidate_used1 = subrom.build(error_response_candidate=1)
 diffs = [pos for pos, (left, right) in enumerate(zip(candidate_rom0, candidate_rom1))
          if left != right]
-if default_used == candidate_used0 == candidate_used1 == 2042 \
+# 2026-09-10: 絶対値2042の直書きをやめた。見たいのは「既定版と候補版が
+# 同サイズ」＝候補の切り替えが即値1セルしか動かさないことと、窓内であること。
+if default_used == candidate_used0 == candidate_used1 \
         and candidate_used0 <= subrom.SUB_ROM_FETCH_WINDOW:
-    ok("既定版・候補版とも2042バイトでフェッチ窓内")
+    ok(f"既定版・候補版とも同サイズ（{default_used}バイト）でフェッチ窓内")
 else:
     ng("生成コードサイズまたはフェッチ窓制約が不正")
 if default_rom == candidate_rom0:

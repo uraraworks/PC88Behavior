@@ -30,15 +30,21 @@ def assembled(fast=False):
 
 control_rom, control_used = subrom.build()
 fast_rom, fast_used = subrom.build(fast_no_disk_response_ready=True)
-if (control_used, fast_used) != (2042, 2045):
-    raise SystemExit(f"NG: generated code size is not 2042/2045: {control_used}/{fast_used}")
+# 2026-09-10: 絶対値(2042/2045)の直書きをやめた。理由はearly_response_rom_selftest.sh
+# と同じ。見たいのは「fast版がcontrol版よりちょうど3バイト大きい」ことと窓内であること。
+if fast_used - control_used != 3:
+    raise SystemExit(
+        f"NG: fast版とcontrol版の差が3バイトでない: {control_used}/{fast_used}")
+if max(control_used, fast_used) > subrom.SUB_ROM_FETCH_WINDOW:
+    raise SystemExit(f"NG: フェッチ窓を超えた: {control_used}/{fast_used}")
 changed = tuple(i for i, pair in enumerate(zip(control_rom, fast_rom))
                 if pair[0] != pair[1])
 validated = search.validate_rom_intervention_bytes(
     bytes(control_rom), bytes(fast_rom), name="selftest")
 if changed != validated:
     raise SystemExit("NG: ROM preflight did not return the actual offsets")
-print(f"OK: control/fast ROM size=2042/2045 and {len(changed)}-byte diff")
+print(f"OK: control/fast ROM size={control_used}/{fast_used}"
+      f"（差3バイト・窓内）and {len(changed)}-byte diff")
 
 inflated_default = (bytes(control_rom[:0x0100]) + b"\x00\x00\x00" +
                     bytes(control_rom[0x0100:-3]))
