@@ -654,6 +654,12 @@ w_out="$(python3 "$REPO/tools/hash_write_stream.py" "$WORK/save_mixed.iolog.txt"
 w_cmds="$(printf '%s\n' "$w_out" | awk -F'\t' '$1=="commands"{print $2}')"
 if [ "${w_cmds:-0}" = "0" ]; then
   na "条件5は未到達: SAVE候補runで停止（WRITE DATA 0件）"
+  # m7la: 無改変の自作サブROMはここへ届く（WRITE DATA 8件）ので、今の「未到達」は
+  # 回帰を意味する。事実の報告(na)は残したうえで、総合判定の失敗に数える。
+  # 数えないと、壊れ方が早すぎて比較の手前で止まった版ほど「適合」になる
+  # （m7kzのR3: WRITE DATA 0件・OK 101件減で「適合」と判定された）。
+  ng "条件5: 公式ROM一式はWRITE DATAを出すのに、混成は0件で止まった（未到達を回帰として数える）"
+  overall_rc=1
   echo "       公式ROM一式なら同じ打鍵でWRITE DATAが8件出る。m7bzのI/O比較で混成も"
   echo "       BASIC起動・打鍵受理・SAVE候補runまでは到達すると確定しており、旧説明の"
   echo "       『BASIC起動途中』は誤り。根拠: docs/notes/m7bz-save-reachability.md"
@@ -1079,6 +1085,10 @@ judge_entry() {
   if ! run_entry_measurement "${scenario}.mixed" mixed "$scenario" "$mixed" "$prepared"; then
     na "${label}: 混成の測定が完了せず未到達（停止位置は測定ログ末尾）"
     na "${label}: 画面比較も未測定（追加測定の事実。失格にはしない）"
+    # m7la: ここへ来るのは公式一式が入口へ到達した後（直前の分岐）。対照が届く
+    # 入口で混成が届かないのは回帰なので、総合判定の失敗に数える。
+    ng "${label}: 公式一式は入口へ到達したのに、混成は未到達（未到達を回帰として数える）"
+    overall_rc=1
     return
   fi
 
@@ -1133,6 +1143,11 @@ judge_entry() {
   elif entry_stream_is_short "$mixed" "$expected"; then
     na "${label}: 入口固有の受信列が公式件数へ届かず未到達"
     sed 's/NG/--/' "$WORK/${scenario}.mixed-check.txt"
+    # m7la: 上のsedは「件数不一致」のNGを--へ書き換えて表示する（届かなかったのか
+    # 中身が違ったのかを見分けるための表示で、それ自体は残す）。ただし届かない
+    # こと自体は回帰なので、総合判定の失敗に数える。
+    ng "${label}: 公式件数へ届かないまま混成が止まった（未到達を回帰として数える）"
+    overall_rc=1
   else
     cat "$WORK/${scenario}.mixed-check.txt"
     ng "${label}: 公式件数へ到達したが受信列の内容または長さが一致しない"
