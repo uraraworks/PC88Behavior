@@ -233,6 +233,105 @@ else
   overall_rc=1
 fi
 
+say "陽性対照5: 開始は窓の内側で、末尾の命令だけが丸ごと窓の外にある到達可能ブロックをbuild()が止めること（m7lb/m7lc）"
+# 陽性対照4は命令の跨ぎを避けるため、境界を「ラベルの位置＝区間の開始」に置く。
+# そのため作れるのは「区間が丸ごと窓の外」という形だけで、「開始は内側・末尾だけ
+# 外」という形は1度も作っていなかった。関門(find_out_of_window_blocks)は長らく
+# 区間の開始位置しか見ておらず、この形を見逃していた（m7lbで、既定ビルドの余白
+# 9バイトを超えた版が黙って通り、適合を壊していたことを確定した）。
+# ここでは境界を「最後の区間の内側で、本当の命令の先頭にあたる位置」に置く。
+# call/jp等はオペコード(1バイト)とオペランド(2バイト)が別々のinstr_spansとして
+# 記録されるので、フィックスアップのオペランド位置は候補から外す（そこは命令の
+# 途中である。その形は陽性対照6で別に扱う）。最後の区間なので「開始が窓の外の
+# 区間」は1つも無く、開始位置だけを見る関門では検出されない形を狙って作れる。
+out="$(python3 - <<'EOF'
+import sys, os
+sys.path.insert(0, "src/l3_service")
+os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
+if "make_subrom" in sys.modules:
+    del sys.modules["make_subrom"]
+import make_subrom as m
+a = m.build_subrom()
+a.resolve()
+last_start = max(a.labels.values())
+end = len(a.code)
+operands = {pos for pos, _, _ in a.fixups}
+cands = sorted(pos for pos, _ in a.instr_spans
+               if last_start < pos < end and pos not in operands)
+if not cands:
+    print("NG: 最後の区間の内側に本当の命令の先頭が無く、この形を作れない")
+    sys.exit(0)
+boundary = cands[0]
+starts_outside = [v for v in a.labels.values() if v >= boundary]
+straddles = m.find_fetch_window_straddles(a, boundary)
+print(f"境界=最後の区間の開始+{boundary - last_start}バイト（命令の先頭） 開始が外の区間={len(starts_outside)} 跨ぎ={len(straddles)}")
+if starts_outside or straddles:
+    print("NG: 狙った形（開始は内側・末尾の命令だけ外・跨ぎ0）になっていない")
+    sys.exit(0)
+blocks = m.find_out_of_window_blocks(a, boundary=boundary)
+print("DIRECT_OK" if blocks else "DIRECT_NG: find_out_of_window_blocksが末尾の窓越えを検出しない")
+m.SUB_ROM_FETCH_WINDOW = boundary
+try:
+    m.build()
+    print("BUILD_NG: SystemExitが上がらなかった")
+except SystemExit as e:
+    print("BUILD_OK" if "窓" in str(e) else f"BUILD_NG: 別の理由で失敗: {e}")
+EOF
+)"
+echo "$out"
+if echo "$out" | grep -q "^DIRECT_OK" && echo "$out" | grep -q "^BUILD_OK"; then
+  ok "陽性対照5: 末尾の命令だけ窓の外にある到達可能ブロックを、検出関数もbuild()の関門も止めた"
+else
+  ng "陽性対照5: 末尾の命令だけ窓の外にある到達可能ブロックを見逃した"
+  overall_rc=1
+fi
+
+say "陽性対照6: オペコードは窓の内側・オペランドが窓の外というcall/jpをbuild()が止めること（m7lc）"
+# call/jpはオペコードとオペランドが別々のinstr_spansとして記録されるので、
+# 境界がちょうどその間に来ると、find_fetch_window_straddlesは「跨ぎ0」と
+# 判定する（オペコード区間は境界で終わり、オペランド区間は境界から始まるため）。
+# 整列パディングはこの形を直さない。m7lcの修正後は、区間の終了位置を窓と
+# 突き合わせるので、この形はbuild()の関門で止まる（パディングで直るのではなく、
+# ビルドが失敗する側に倒れる）。その振る舞いをここで固定する。
+out="$(python3 - <<'EOF'
+import sys, os
+sys.path.insert(0, "src/l3_service")
+os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
+if "make_subrom" in sys.modules:
+    del sys.modules["make_subrom"]
+import make_subrom as m
+a = m.build_subrom()
+a.resolve()
+last_start = max(a.labels.values())
+end = len(a.code)
+cands = sorted(pos for pos, _, kind in a.fixups
+               if last_start < pos < end and kind == "abs")
+if not cands:
+    print("NG: 最後の区間の内側に絶対番地オペランドが無く、この形を作れない")
+    sys.exit(0)
+boundary = cands[0]
+starts_outside = [v for v in a.labels.values() if v >= boundary]
+straddles = m.find_fetch_window_straddles(a, boundary)
+print(f"境界=最後の区間の開始+{boundary - last_start}バイト（オペコードとオペランドの間） 開始が外の区間={len(starts_outside)} 跨ぎ={len(straddles)}")
+if starts_outside:
+    print("NG: 狙った形になっていない（開始が外の区間がある）")
+    sys.exit(0)
+m.SUB_ROM_FETCH_WINDOW = boundary
+try:
+    m.build()
+    print("BUILD_NG: SystemExitが上がらなかった")
+except SystemExit as e:
+    print("BUILD_OK" if "窓" in str(e) else f"BUILD_NG: 別の理由で失敗: {e}")
+EOF
+)"
+echo "$out"
+if echo "$out" | grep -q "^BUILD_OK"; then
+  ok "陽性対照6: オペランドだけ窓の外に出たcall/jpをbuild()の関門が止めた"
+else
+  ng "陽性対照6: オペランドだけ窓の外に出たcall/jpを見逃した"
+  overall_rc=1
+fi
+
 echo
 if [ "$overall_rc" -eq 0 ]; then
   echo "subrom_fetch_window_selftest: OK（全項目）"
