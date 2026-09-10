@@ -423,6 +423,14 @@ P_STROBE   = 0xF7   # 起動時ハンドシェイクで書く（仕様書1.5節�
 P_FDC_TIMEOUT_MARK = 0xF9
 FDC_TIMEOUT_MARK_VALUE = 0xA5   # 事実上何でもよい。ポートへの到達自体が信号
 
+# ---- FDC_ABORTが立った箇所を区別する診断用マーカー（docs/notes/
+#      m7kt-abort-scene-attribution-preregistration.md の器具）。同じ
+#      P_FDC_TIMEOUT_MARK（$F9）を使う——新しいポートは増やさない。
+#      値そのものに意味は無く、ポートへの到達自体が信号（IN側/OUT側で
+#      別の値にして、どちらで立ったかを区別するためだけに使う）----
+FDC_ABORT_MARK_IN_VALUE = 0x5A   # 事実上何でもよい。ポートへの到達自体が信号
+FDC_ABORT_MARK_OUT_VALUE = 0x5B  # 同上。IN側と区別するためだけに違う値にする
+
 # ---- 起動順序で使う固定値（仕様書1.16節。4条件で1バイトも違わず一致） ----
 BOOT_F7_VALUE = 0x08
 BOOT_FF_VALUE = 0x91   # 1.12節の8種のフェーズコード語彙のいずれにも属さない
@@ -836,6 +844,7 @@ def build_subrom(break_write_ack=False,
                   break_sense_int_result_count=False,
                   break_fdc_timeout_reads_anyway=False,
                   disable_fdc_timeout_mark=False,
+                  emit_fdc_abort_mark=False,
                   break_fixed_byte_cutoff=False,
                   restore_request_kind_length6=False,
                   force_post_bulk_active=False,
@@ -897,6 +906,13 @@ def build_subrom(break_write_ack=False,
     無効化する。このポートは公式subには存在しない診断専用のイベントで
     あり、適合テストに提出するROMでは立てるべきではない。既定（False）
     では有効（$F9への記録を残す）のまま。
+
+    emit_fdc_abort_mark: FDC_ABORTが立つ直前（_fdc_in_abort/
+    _fdc_out_abort）に、$F9（P_FDC_TIMEOUT_MARK）へ診断用の1バイトを
+    書く（IN側/OUT側で別の値）。これは自作コードへの計装であり、
+    docs/notes/m7kt-abort-scene-attribution-preregistration.md の
+    器具である。公式ROM・公式ディスクには触れない。既定（False）では
+    無効（$F9への追加の書き込みは発生しない）。
 
     break_fixed_byte_cutoff: 第13版で修正したバグ（run境界〔bit1の
     観測〕ではなく、通算8バイト受け取ったことだけでrunを打ち切っていた
@@ -1475,6 +1491,12 @@ def build_subrom(break_write_ack=False,
         # 再現する: タイムアウトしても中断せず、そのまま$FBを読みに行く。
         a.jr("_fdc_in_ready")
     a.label("_fdc_in_abort")
+    if emit_fdc_abort_mark:
+        # 自作コードへの計装（docs/notes/m7kt-...preregistration.md の
+        # 器具）。既定オフ。値そのものに意味は無く、$F9への到達自体が
+        # 信号。直後にld_a(0x01)でAを上書きするため、out_immがAを
+        # 破壊しても影響しない。DE/BC/HLには触れない。
+        a.out_imm(P_FDC_TIMEOUT_MARK, FDC_ABORT_MARK_IN_VALUE)
     a.ld_a(0x01)
     a.ld_mem_a(FDC_ABORT)
     a.label("_fdc_in_aborted")
@@ -1539,6 +1561,14 @@ def build_subrom(break_write_ack=False,
     if break_fdc_timeout_reads_anyway:
         a.jr("_fdc_out_ready")
     a.label("_fdc_out_abort")
+    if emit_fdc_abort_mark:
+        # 自作コードへの計装（docs/notes/m7kt-...preregistration.md の
+        # 器具）。既定オフ。値そのものに意味は無く、$F9への到達自体が
+        # 信号。直後にld_a(0x01)でAを上書きするため、out_immがAを
+        # 破壊しても影響しない（この関数は入口でpush_af済みで、
+        # _fdc_out_abortedでpop_afして元のAFへ戻すので、ここでの
+        # A破壊はさらに無害）。DE/BC/HLには触れない。
+        a.out_imm(P_FDC_TIMEOUT_MARK, FDC_ABORT_MARK_OUT_VALUE)
     a.ld_a(0x01)
     a.ld_mem_a(FDC_ABORT)
     a.label("_fdc_out_aborted")
@@ -3144,6 +3174,7 @@ def build(break_write_ack=False,
           break_sense_int_result_count=False,
           break_fdc_timeout_reads_anyway=False,
           disable_fdc_timeout_mark=False,
+          emit_fdc_abort_mark=False,
           break_fixed_byte_cutoff=False,
           restore_request_kind_length6=False,
           force_post_bulk_active=False,
@@ -3177,6 +3208,7 @@ def build(break_write_ack=False,
                           break_sense_int_result_count=break_sense_int_result_count,
                           break_fdc_timeout_reads_anyway=break_fdc_timeout_reads_anyway,
                           disable_fdc_timeout_mark=disable_fdc_timeout_mark,
+                          emit_fdc_abort_mark=emit_fdc_abort_mark,
                           break_fixed_byte_cutoff=break_fixed_byte_cutoff,
                           restore_request_kind_length6=restore_request_kind_length6,
                           force_post_bulk_active=force_post_bulk_active,
@@ -3276,6 +3308,14 @@ def main():
                           "公式subには存在しない）への書き込みを無効化する。"
                           "適合テストへ提出するROMではこのイベント自体を"
                           "出したくない場合に使う。")
+    ap.add_argument("--mark-fdc-abort", action="store_true",
+                     dest="emit_fdc_abort_mark",
+                     help="FDC_ABORTが立つ直前（_fdc_in_abort/_fdc_out_abort）に"
+                          "$F9（P_FDC_TIMEOUT_MARK、診断専用の未デコードポート。"
+                          "公式subには存在しない）へ診断用の1バイトを書く"
+                          "（IN側/OUT側で別の値）。docs/notes/"
+                          "m7kt-abort-scene-attribution-preregistration.md の"
+                          "器具。既定は無効。")
     ap.add_argument("--fixed-byte-cutoff-test", action="store_true",
                      dest="break_fixed_byte_cutoff",
                      help="第13版で修正したバグ（run境界(bit1の観測)ではなく"
@@ -3371,6 +3411,7 @@ def main():
                        break_sense_int_result_count=args.break_sense_int_result_count,
                        break_fdc_timeout_reads_anyway=args.break_fdc_timeout_reads_anyway,
                        disable_fdc_timeout_mark=args.disable_fdc_timeout_mark,
+                       emit_fdc_abort_mark=args.emit_fdc_abort_mark,
                        break_fixed_byte_cutoff=args.break_fixed_byte_cutoff,
                        restore_request_kind_length6=args.restore_request_kind_length6,
                        force_post_bulk_active=args.force_post_bulk_active,
