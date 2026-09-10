@@ -118,7 +118,7 @@ else
   overall_rc=1
 fi
 
-say "3b. 陽性対照: \$FBが伏せ字化されたログではコマンド種別を復号できずエラー終了すること"
+say "3b. 陽性対照: データポート(\$FB)が伏せ字化されたログではコマンド種別を復号できずエラー終了すること"
 out_masked="$(python3 "$TOOL" "$FIX_MASKED" 2>&1)"
 rc_masked=$?
 echo "$out_masked" | sed 's/^/  /'
