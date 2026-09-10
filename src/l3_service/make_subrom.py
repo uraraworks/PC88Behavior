@@ -3134,11 +3134,18 @@ KNOWN_UNREACHABLE_LABELS = frozenset()
 
 def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
                                known_unreachable=KNOWN_UNREACHABLE_LABELS):
-    """m7ao: ラベル区間（そのラベルから次のラベルの直前まで）の開始位置が
-    `boundary`以上にある区間を列挙する（境界を跨ぐだけでなく、丸ごと
-    境界の外に置かれてしまった区間も含む）。`known_unreachable`に含まれる
-    ラベル名の区間は除外する（明示的に到達不能と確認済みのものだけ）。
-    戻り値は(name, addr, size)のリストで、値（ROM内容）は一切含まない。
+    """m7ao・m7lc: ラベル区間（そのラベルから次のラベルの直前まで）のうち、
+    `boundary`を越えるバイトを1つでも持つ区間を列挙する。
+    - 開始位置が`boundary`以上（区間が丸ごと境界の外）
+    - 開始位置は`boundary`未満だが、終了位置が`boundary`を越える
+      （区間の末尾だけが境界の外へ伸びている）
+    m7ao〜m7lbの版は前者しか見ておらず、後者を見逃していた。既定ビルドの
+    余白9バイトを超えた実装は、末尾の到達可能区間を窓の外へ押し出し、
+    それが黙って通って適合を壊していた（docs/notes/m7lb-*.md で確定）。
+    `known_unreachable`に含まれるラベル名の区間は除外する（明示的に
+    到達不能と確認済みのものだけ）。戻り値は(name, addr, size)のリストで、
+    sizeは**境界の外にあるバイト数**（丸ごと外なら区間の大きさ、末尾だけ
+    外なら境界を越えた部分）。値（ROM内容）は一切含まない。
     `resolve()`実行後の`a`に対して呼ぶこと。
     """
     # 同一アドレスの複数ラベル(例: X と X_LOOP)はグループ化して1区間として扱う
@@ -3154,6 +3161,12 @@ def find_out_of_window_blocks(a, boundary=SUB_ROM_FETCH_WINDOW,
         nxt = addrs[i + 1] if i + 1 < len(addrs) else len(a.code)
         if addr >= boundary:
             out.append(("/".join(sorted(names)), addr, nxt - addr))
+        elif nxt > boundary:
+            # m7lc: 開始は内側でも、末尾が境界の外へ伸びていれば同じく危ない。
+            # call/jpのオペランドだけが外に出た形（オペコードとオペランドが
+            # 別々のinstr_spansなので、find_fetch_window_straddlesは跨ぎ0と
+            # 判定する）もここで捕まる。
+            out.append(("/".join(sorted(names)), addr, nxt - boundary))
     return out
 
 
