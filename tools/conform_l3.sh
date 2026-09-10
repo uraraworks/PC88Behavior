@@ -108,8 +108,18 @@ if [ ! -f "$SELFTEST_EXPECTED" ]; then
   exit 2
 fi
 
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# PC88_CONFORM_WORK_DIR が設定されていれば、そこを作業ディレクトリにして
+# 終了時に消さない。測定の生ログを後から集計したい場合に使う
+# （docs/notes/m7kt-abort-scene-attribution-preregistration.md の器具）。
+# 未設定なら従来どおり mktemp -d して終了時に消す。判定の中身は変わらない。
+if [ -n "${PC88_CONFORM_WORK_DIR:-}" ]; then
+  WORK="$PC88_CONFORM_WORK_DIR"
+  mkdir -p "$WORK"
+  echo "  [注記] 作業ディレクトリを保持する: PC88_CONFORM_WORK_DIR が設定されている"
+else
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+fi
 
 overall_rc=0
 

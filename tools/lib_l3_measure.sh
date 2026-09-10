@@ -40,7 +40,15 @@ build_mixed_rom() {
     copied=1
   done
   [ "$copied" -eq 1 ] || return 1
-  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" "$@" >/dev/null 2>&1 || return 1
+  # PC88_MARK_FDC_ABORT=1 のとき、自作サブROMをFDC_ABORTの診断印つきで
+  # 生成する（docs/notes/m7kt-abort-scene-attribution-preregistration.md の
+  # 器具）。混成ROMを作る経路はここ1箇所に集約されているので、呼び出し元
+  # ごとに足さない。既定（未設定）では従来どおり印を出さないROMになる。
+  local mark=()
+  if [ "${PC88_MARK_FDC_ABORT:-}" = "1" ]; then
+    mark=(--mark-fdc-abort)
+  fi
+  python3 "$REPO/src/l3_service/make_subrom.py" "$dst" "${mark[@]+"${mark[@]}"}" "$@" >/dev/null 2>&1 || return 1
 }
 
 # -----------------------------------------------------------------------
