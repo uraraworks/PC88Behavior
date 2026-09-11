@@ -1527,7 +1527,19 @@ def build_subrom(break_write_ack=False,
     # FDC_INが読まずに戻るので、ここに残る値に意味は無い（判定側でFDC_ABORTを見る）。
     a.call("FDC_IN")
     a.ld_mem_a(LAST_ST0)
-    a.ld_b(6)
+    # m7lq: 結果3件目(ST2)のCONTROL MARK(bit6)が立っていれば、ICが正常でも
+    # LAST_ST0へ0x40を入れて失敗として扱う（再試行と9件のあとの応答は、どちらも
+    # LAST_ST0のbit7-6だけを見るので、この1箇所で両方に効く）。根拠は1.58節
+    # （m7lo: 公式は削除マークでも9件読み直し、ほかの失敗と同じ応答を返す）と、
+    # 公開データシートのST2 bit6の意味だけである。公式がCMを見て判断している
+    # とは言わない——測った失敗と成功に同時に合う最小の形として選んだ。
+    a.call("FDC_IN")
+    a.call("FDC_IN")
+    a.and_a(0x40)
+    a.jr_z("_fdc_in_7_no_cm")
+    a.ld_mem_a(LAST_ST0)
+    a.label("_fdc_in_7_no_cm")
+    a.ld_b(4)
     a.label("_fdc_in_7_loop")
     a.call("FDC_IN")
     a.djnz("_fdc_in_7_loop")
