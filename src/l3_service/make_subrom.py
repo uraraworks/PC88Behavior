@@ -1253,10 +1253,7 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
     a.cp_n(3)
     a.jr_nz("_boot_single_track_done")
-    a.ld_hl_imm(REQ_HDR)
-    a.ld_mem_hl(HDR_PTR)
-    a.xor_a()
-    a.ld_mem_a(RUN_LEN)
+    a.call("RESET_HDR_RUN")   # m7lj: HDR_PTR←REQ_HDR・RUN_LEN←0（共有列）
     a.inc_a()
     a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
     if fast_no_disk_response_ready:
@@ -2091,6 +2088,16 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_OUT")                   # EOT
     a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
     a.ld_a(0xFF); a.jp("FDC_OUT")       # DTL（末尾呼び出し）
+    a.label("RESET_HDR_RUN")
+    # m7lj: ヘッダ受信の書き込み位置をREQ_HDRへ戻し、RUN_LENを0にする列。
+    # SEND_BOOT_SINGLE_TRACKED・RECV_DISPATCH・_bulk_tail_itemの3箇所に
+    # 一字一句同一で置かれていたものを集約した。命令列は変えていない。
+    # 戻った時点のA=0・HL=REQ_HDR・フラグ(xor aの結果)は元の列と同じ。
+    a.ld_hl_imm(REQ_HDR)
+    a.ld_mem_hl(HDR_PTR)
+    a.xor_a()
+    a.ld_mem_a(RUN_LEN)
+    a.ret()
     a.label("FDC_READ_BULK")
     a.ld_a(0x46); a.call("FDC_BEGIN")
     a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
@@ -2294,10 +2301,7 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
         a.or_a()
         a.jr_nz("_recv_dispatch_state_ready")
-        a.ld_hl_imm(REQ_HDR)
-        a.ld_mem_hl(HDR_PTR)
-        a.xor_a()
-        a.ld_mem_a(RUN_LEN)
+        a.call("RESET_HDR_RUN")   # m7lj: HDR_PTR←REQ_HDR・RUN_LEN←0（共有列）
         a.ld_mem_a(RESP_ACTIVE)
         a.label("_recv_dispatch_state_ready")
     a.call("RECV_BYTE")               # A = 受け取ったバイト
@@ -2776,10 +2780,7 @@ def build_subrom(break_write_ack=False,
     # 受信で進んだRUN_LEN/HDR_PTRとEXCHANGE3_REQUEST_ACTIVEが残ったままで、
     # RECV_DISPATCHの初期化条件（EXCHANGE3_REQUEST_ACTIVE==0）に掛からず、
     # 新しいrunのRUN_LENが6にならなかったため。
-    a.ld_hl_imm(REQ_HDR)
-    a.ld_mem_hl(HDR_PTR)
-    a.xor_a()
-    a.ld_mem_a(RUN_LEN)
+    a.call("RESET_HDR_RUN")   # m7lj: HDR_PTR←REQ_HDR・RUN_LEN←0（共有列）
     # 第70版・m7by: 高速バルクを起動した長さ1のK00列Bの完了遷移。
     # OUT $FC/$FDを使うBULK_SENDはSEND_BYTEと違ってwindow位置を畳まないため、
     # ここで明示的に0へ戻す。これが無いとK00位置1が次のrunへ残り、確定長を
