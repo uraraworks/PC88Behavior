@@ -34,5 +34,31 @@ PY
 }
 check 0xB0 && ok "CRC版は全セクタの状態バイトだけが0xB0で、他は通常版と一致" || ng "CRC版の違いが状態バイトだけではない"
 check 0xB1 && ng "陰性対照: 期待をずらしても一致してしまった（検査に検出力が無い）" || ok "陰性対照: 期待をずらすと不一致として落ちる"
+# m7lo: --deleted-data・--single-density・--sector-status も、全セクタ見出しの狙った1バイトだけを
+# 狙った値に変え、他は通常版と一致すること。--sector-status 0xB0 は --data-crc-error と一致すること。
+python3 "$REPO/tools/make_l3_testdisk.py" "$W/del.d88" "${G[@]}" --deleted-data >/dev/null
+python3 "$REPO/tools/make_l3_testdisk.py" "$W/sd.d88" "${G[@]}" --single-density >/dev/null
+python3 "$REPO/tools/make_l3_testdisk.py" "$W/a0.d88" "${G[@]}" --sector-status 0xA0 >/dev/null
+python3 "$REPO/tools/make_l3_testdisk.py" "$W/b0.d88" "${G[@]}" --sector-status 0xB0 >/dev/null
+one_byte() {  # $1=ファイル $2=見出し内のオフセット $3=期待値
+python3 - "$W/a.d88" "$W/$1" "$2" "$3" <<'PY2'
+import sys, struct
+a = open(sys.argv[1], "rb").read(); b = open(sys.argv[2], "rb").read()
+off = int(sys.argv[3]); want = int(sys.argv[4], 0)
+pos = set()
+for t in struct.unpack_from("<164I", a, 32):
+    if not t: continue
+    p = t; n = struct.unpack_from("<H", a, p + 4)[0]
+    for _ in range(n):
+        pos.add(p + off); p += 16 + struct.unpack_from("<H", a, p + 14)[0]
+diff = {i for i in range(len(a)) if a[i] != b[i]}
+sys.exit(0 if (len(a) == len(b) and diff == pos and all(b[i] == want for i in pos)) else 1)
+PY2
+}
+one_byte del.d88 7 0x10 && ok "--deleted-data は全セクタの削除フラグだけを0x10にする" || ng "--deleted-data の違いが削除フラグだけではない"
+one_byte sd.d88 6 0x40 && ok "--single-density は全セクタの密度だけを0x40にする" || ng "--single-density の違いが密度だけではない"
+one_byte a0.d88 8 0xA0 && ok "--sector-status 0xA0 は全セクタの状態だけを0xA0にする" || ng "--sector-status の違いが状態だけではない"
+cmp -s "$W/b0.d88" "$W/c.d88" && ok "--sector-status 0xB0 は --data-crc-error とバイト一致" || ng "--sector-status 0xB0 が --data-crc-error と一致しない"
+one_byte del.d88 7 0x11 && ng "陰性対照: 削除フラグの期待をずらしても一致してしまった" || ok "陰性対照: 削除フラグの期待をずらすと落ちる"
 [ "$rc" -eq 0 ] && echo "make_l3_testdisk_selftest: OK（全項目）" || echo "make_l3_testdisk_selftest: 失敗あり"
 exit "$rc"

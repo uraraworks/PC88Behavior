@@ -53,6 +53,13 @@ STATUS_NORMAL = 0x00
 # m7lh: 「9」が依存しない失敗原因の3つ目を測るために足した。
 STATUS_DATA_CRC_ERROR = 0xB0
 DISK_DELETED_FALSE = 0x00
+# m7lo: 削除マーク（DDAM）付きのセクタ。公開D88形式の削除フラグで、計測に使うエミュレータ
+# (vendor src/drive.h の DISK_DELETED_TRUE) も同じ値。
+DISK_DELETED_TRUE = 0x10
+# m7lo: 単密度のセクタ。倍密度(MF=1)のREAD DATAからは見えない（vendor src/drive.h の
+# DISK_DENSITY_SINGLE・fdc.c の sector_density_mismatch）。
+DISK_DENSITY_DOUBLE = 0x00
+DISK_DENSITY_SINGLE = 0x40
 
 
 def sector_pattern(cyl: int, sec: int) -> bytes:
@@ -64,6 +71,8 @@ def build_track(
     cyl: int, sectors_per_track: int, head: int = 0,
     sector_base: int = DEFAULT_SECTOR_BASE,
     status: int = STATUS_NORMAL,
+    deleted: int = DISK_DELETED_FALSE,
+    density: int = DISK_DENSITY_DOUBLE,
 ) -> bytes:
     body = bytearray()
     for sec in range(sector_base, sector_base + sectors_per_track):
@@ -74,8 +83,8 @@ def build_track(
         hdr[3] = N_CODE               # N
         hdr[4] = sectors_per_track & 0xFF   # セクタ数(下位)
         hdr[5] = (sectors_per_track >> 8) & 0xFF  # セクタ数(上位)
-        hdr[6] = 0x00                # density (0=倍密度相当)
-        hdr[7] = DISK_DELETED_FALSE
+        hdr[6] = density             # density (0=倍密度相当、0x40=単密度)
+        hdr[7] = deleted
         hdr[8] = status
         # 9-13 reserved = 0
         size = SECTOR_SIZE
@@ -92,6 +101,8 @@ def build_d88(
     heads: int = DEFAULT_HEADS,
     sector_base: int = DEFAULT_SECTOR_BASE,
     status: int = STATUS_NORMAL,
+    deleted: int = DISK_DELETED_FALSE,
+    density: int = DISK_DENSITY_DOUBLE,
 ) -> bytes:
     """トラック表は「物理トラック番号 = シリンダ*2+ヘッド」で引かれる
     （vendor src/fdc.c `disk_now_track(i, ncn[i]*2+hd)`）。実測で確かめた
@@ -113,7 +124,7 @@ def build_d88(
     for c in range(n_cylinders):
         for h in range(heads):
             trk = build_track(c, sectors_per_track, head=h, sector_base=sector_base,
-                              status=status)
+                              status=status, deleted=deleted, density=density)
             phys = c * 2 + h
             struct.pack_into("<I", track_table, phys * 4, offset)
             body += trk
@@ -183,6 +194,25 @@ def main():
             "既定(指定なし)は拡張前とバイト一致する"
         ),
     )
+    ap.add_argument(
+        "--sector-status",
+        type=lambda v: int(v, 0),
+        default=None,
+        help=(
+            "全セクタのD88状態バイトを指定する（0〜255。例 0xA0=ID CRCエラー、0xE0=IDが無効、"
+            "0xF0=データの目印なし）。--data-crc-error は 0xB0 の別名。既定は0（正常）"
+        ),
+    )
+    ap.add_argument(
+        "--deleted-data",
+        action="store_true",
+        help="全セクタに削除マーク(DDAM。D88の削除フラグ0x10)を付ける。既定は付けない",
+    )
+    ap.add_argument(
+        "--single-density",
+        action="store_true",
+        help="全セクタを単密度(D88の密度0x40)にする。倍密度のREAD DATAからは見えなくなる。既定は倍密度",
+    )
     args = ap.parse_args()
 
     if args.double_sided:
@@ -241,8 +271,18 @@ def main():
         )
         return 1
 
-    status = STATUS_DATA_CRC_ERROR if args.data_crc_error else STATUS_NORMAL
-    data = build_d88(n, n_cyl, heads, sector_base=base, status=status)
+    if args.data_crc_error and args.sector_status is not None:
+        print("エラー: --data-crc-error と --sector-status は併用できない", file=sys.stderr)
+        return 1
+    if args.sector_status is not None and not (0 <= args.sector_status <= 0xFF):
+        print("エラー: --sector-status は0〜255で指定すること", file=sys.stderr)
+        return 1
+    status = (STATUS_DATA_CRC_ERROR if args.data_crc_error
+              else (args.sector_status if args.sector_status is not None else STATUS_NORMAL))
+    deleted = DISK_DELETED_TRUE if args.deleted_data else DISK_DELETED_FALSE
+    density = DISK_DENSITY_SINGLE if args.single_density else DISK_DENSITY_DOUBLE
+    data = build_d88(n, n_cyl, heads, sector_base=base, status=status,
+                     deleted=deleted, density=density)
     p = pathlib.Path(args.outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
