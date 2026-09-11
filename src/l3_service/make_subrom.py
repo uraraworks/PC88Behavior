@@ -1764,8 +1764,8 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(WRITE_PREV2)
         a.and_a(0x01)                                           # H = track & 1
         a.call("FDC_OUT")
-    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT")                   # R = データ部の直前1バイト
-    a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
+    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT_THEN_N1")   # R = データ部の直前1バイト（続くN=1の送出も共有列）
+    # m7lp: N = 1 (256バイト/セクタ) の送出は FDC_OUT_THEN_N1 の中で行う
     # 第68版・m7bz追加測定: 公式WRITE 8/8でEOTは媒体形状（16セクタ）、
     # GPLは公開uPD765形式のN=1短GAP分類。READ側のEOT/GPL流用は6/8一致
     # にしかならなかったため、WRITE専用値に分ける。
@@ -2049,8 +2049,8 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_UNIT_HEAD); a.call("FDC_OUT")  # unit/head（第42版）
     a.ld_hl_imm(REQ_HDR + 4); a.ld_a_hl(); a.call("FDC_OUT")   # C = 直前SEEK対象(byte4)
     a.ld_a_mem(REQ_H); a.call("FDC_OUT")  # H（交換#11以外は0）
-    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # R = 要求末尾位置(byte6)
-    a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
+    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT_THEN_N1")   # R = 要求末尾位置(byte6)（続くN=1の送出も共有列）
+    # m7lp: N = 1 (256バイト/セクタ) の送出は FDC_OUT_THEN_N1 の中で行う
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = R（このセクタで終わり）（GPL・DTLは共有列）
     # 第118版・m7fc: WRITE経路で確立済みの公開μPD765形式N=1短GAP分類を、
     # READ経路にも同じ生成規則として適用する。条件Oとの一致は事後の裏づけ。
@@ -2113,13 +2113,32 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(RUN_LEN)
     a.ret()
+    a.label("ACTIVATE_SECTOR_RESPONSE")
+    # m7lp: HL(=応答の先頭。呼び出し元でSECTOR_BUFを入れる)を応答ポインタにし、RESP_ACTIVEを
+    # 立て、SECTOR_READYを下ろす列。SEND_DISPATCHと_post_read_activate_responseに一字一句同一で
+    # 置かれていたものを集約した。ld hl,SECTOR_BUF は含めない——_post_read_activate_responseでは
+    # その直後に故障注入（break_response）の分岐が入るため。命令列は変えていない。
+    # 戻った時点のA=0・HL・フラグ(xor a)は元の列と同じ。
+    a.ld_mem_hl(RESP_PTR)
+    a.ld_a(0x01)
+    a.ld_mem_a(RESP_ACTIVE)
+    a.xor_a()
+    a.ld_mem_a(SECTOR_READY)
+    a.ret()
+    a.label("FDC_OUT_THEN_N1")
+    # m7lp: A(=直前のパラメータ)を送り、続けてN=1を送る列。WRITE・単発READ・バルクREADの
+    # 3箇所に一字一句同一で置かれていたものを集約した。末尾はjpで抜ける。FDC_OUTはAFを
+    # 保存して戻るので、戻った時点のA=1・フラグは元の列と同じ。
+    a.call("FDC_OUT")
+    a.ld_a(0x01)
+    a.jp("FDC_OUT")
     a.label("FDC_READ_BULK")
     a.ld_a(0x46); a.call("FDC_BEGIN")
     a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
     a.ld_a_mem(BULK_C); a.call("FDC_OUT")
     a.ld_a_mem(BULK_H); a.call("FDC_OUT")
-    a.ld_a_mem(BULK_R); a.call("FDC_OUT")
-    a.ld_a(0x01); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_R); a.call("FDC_OUT_THEN_N1")   # 続くN=1の送出も共有列
+    # m7lp: N = 1 (256バイト/セクタ) の送出は FDC_OUT_THEN_N1 の中で行う
     a.ld_a_mem(BULK_EOT); a.call("FDC_OUT_EOT_GPL_DTL")   # GPL・DTLは共有列
     # 第118版・m7fc: 単発READと同じN=1短GAP分類をバルクREADにも適用する。
     a.ld_hl_mem(BULK_DEST)
@@ -2697,11 +2716,7 @@ def build_subrom(break_write_ack=False,
             a.ld_a_hl()
             a.db(0xEE, 0x01)
             a.ld_hl_a()
-        a.ld_mem_hl(RESP_PTR)
-        a.ld_a(0x01)
-        a.ld_mem_a(RESP_ACTIVE)
-        a.xor_a()
-        a.ld_mem_a(SECTOR_READY)
+        a.call("ACTIVATE_SECTOR_RESPONSE")   # m7lp: RESP_PTR←HL・RESP_ACTIVE←1・SECTOR_READY←0（共有列）
         a.jp("IDLE_DISPATCH")
 
         # 0x06受信後はack 0xC0を既存の単発応答経路へ1件だけ保留する。
@@ -2912,11 +2927,7 @@ def build_subrom(break_write_ack=False,
     a.or_a()
     a.jr_nz("SEND_DISPATCH_ONE_BYTE")
     a.ld_hl_imm(SECTOR_BUF)
-    a.ld_mem_hl(RESP_PTR)
-    a.ld_a(0x01)
-    a.ld_mem_a(RESP_ACTIVE)
-    a.xor_a()
-    a.ld_mem_a(SECTOR_READY)
+    a.call("ACTIVATE_SECTOR_RESPONSE")   # m7lp: RESP_PTR←HL・RESP_ACTIVE←1・SECTOR_READY←0（共有列）
 
     a.label("_send_dispatch_buffer")
     # 第38版1.31節: 多バイト応答はSENDフェーズ1回につき連続2位置。
