@@ -3184,10 +3184,17 @@ def find_fetch_window_straddles(a, boundary=SUB_ROM_FETCH_WINDOW):
     """
     straddles = []
     fixup_positions = set()
+    # m7ln: call/jp/jr等はオペコードとオペランドが別々のinstr_spansとして記録される。
+    # オペランドだけを見ると、境界がちょうどオペコードとオペランドの間に来たとき
+    # 「跨ぎ0」と判定してしまい、整列パディングがその形を直さなかった（m7lcで発見）。
+    # フィックスアップの位置でちょうど終わる区間（＝オペコード）の先頭を命令の先頭として、
+    # オペコードからオペランドの末尾までを1つの命令として境界と突き合わせる。
+    span_end_to_start = {p + w: p for p, w in a.instr_spans}
     for pos, name, kind in a.fixups:
         width = 2 if kind == "abs" else 1
         fixup_positions.add(pos)
-        if pos < boundary < pos + width:
+        start = span_end_to_start.get(pos, pos)
+        if start < boundary < pos + width:
             straddles.append((pos, name, kind))
     for pos, width in a.instr_spans:
         if pos in fixup_positions:
