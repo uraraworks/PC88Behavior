@@ -113,6 +113,10 @@ case "$SYMS" in
   *) echo "  NG: sub割り込み介入のシンボルが無い" >&2; exit 1 ;;
 esac
 case "$SYMS" in
+  *retro_q88h_main_interrupt_intervention*) echo "  OK: main割り込み介入のシンボルあり" ;;
+  *) echo "  NG: main割り込み介入のシンボルが無い" >&2; exit 1 ;;
+esac
+case "$SYMS" in
   *retro_q88h_intlog*) echo "  OK: 割り込み受理ログのシンボルあり" ;;
   *) echo "  NG: 割り込み受理ログのシンボルが無い" >&2; exit 1 ;;
 esac

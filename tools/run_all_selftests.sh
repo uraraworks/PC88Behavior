@@ -83,6 +83,7 @@ SCRIPTS_EXPECTED=(
   "tools/response_ready_rom_selftest.sh:0"
   "tools/early_response_rom_selftest.sh:0"
   "tools/sub_interrupt_intervention_selftest.sh:0"
+  "tools/main_interrupt_intervention_selftest.sh:0"
   "tools/analyze_no_disk_timing_selftest.sh:0"
   "tools/verify_error_response_bit6_attribution.sh:0"
   "tools/compare_drive_request_runs_selftest.sh:0"

@@ -399,6 +399,10 @@ SUB_INTERRUPT_LINE_RE = re.compile(
     r"sub割り込み介入 first=(\d+) last=(\d+) mode=(\d+) "
     r"matched=(\d+) suppressed=(\d+) accepted=(\d+)"
 )
+MAIN_INTERRUPT_LINE_RE = re.compile(
+    r"main割り込み介入 first=(\d+) last=(\d+) mode=(\d+) "
+    r"matched=(\d+) suppressed=(\d+) accepted=(\d+)"
+)
 READY_HANDOFF_LINE_RE = re.compile(
     r"応答準備handoff介入 run=(\d+) mode=(\d+) action=(\d+) "
     r"matched=(\d+) count=(\d+)"
@@ -417,6 +421,22 @@ def sub_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
     with path.open("r", encoding="utf-8", errors="strict") as fp:
         for line in fp:
             match = SUB_INTERRUPT_LINE_RE.search(line)
+            if match:
+                keys = ("first_run", "last_run", "mode", "matched_checks",
+                        "suppressed_checks", "accepted_in_window")
+                found = dict(zip(keys, map(int, match.groups())))
+    return found
+
+
+def main_interrupt_receipt(iolog: Path) -> dict[str, int] | None:
+    """m7lr: main側割り込み介入の証跡（件数だけ）。形はsub側と同じ。"""
+    path = iolog.with_suffix(".stderr.txt")
+    if not path.is_file():
+        return None
+    found = None
+    with path.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = MAIN_INTERRUPT_LINE_RE.search(line)
             if match:
                 keys = ("first_run", "last_run", "mode", "matched_checks",
                         "suppressed_checks", "accepted_in_window")
@@ -656,6 +676,7 @@ def calibration_gate(official_log: Path, mixed_log: Path,
 def calibration_measure(args: argparse.Namespace, official: bool,
                         tag: str, *, with_intlog: bool = False,
                         sub_interrupt_intervention: str | None = None,
+                        main_interrupt_intervention: str | None = None,
                         response_ready_handoff: tuple[int, str] | None = None,
                         fast_no_disk_response_ready: bool = False,
                         early_response_after: int | None = None,
@@ -700,6 +721,8 @@ def calibration_measure(args: argparse.Namespace, official: bool,
         command += ["--int-log", str(intlog)]
     if sub_interrupt_intervention is not None:
         command += ["--sub-interrupt-intervention", sub_interrupt_intervention]
+    if main_interrupt_intervention is not None:
+        command += ["--main-interrupt-intervention", main_interrupt_intervention]
     if response_ready_handoff is not None:
         run, mode = response_ready_handoff
         command += ["--response-ready-handoff", f"{run}:{mode}"]
@@ -1915,10 +1938,138 @@ def probe_no_disk_256(args: argparse.Namespace) -> int:
     return 0
 
 
+def main_interrupt_attribute_no_disk(args: argparse.Namespace) -> int:
+    """m7lr: 窓内main側割り込み受理の差（公式683／混成679）を+0要求長の分岐へ帰属させる。
+
+    公式側・混成側の両方で、main CPUの割り込み受理を交換run窓の間だけ保留する。
+    公式の要求長5が6へ、混成の6が5へ動けば「main側の受理のタイミングが分岐に効く」。
+    有効な介入（証跡が立ち、成果物が対照から変わった）が全部あって、どれも動かなければ
+    「main側の受理差は分岐の原因ではない」。値・画面本文は保存しない。"""
+    calibration, reference = load_no_disk_calibration(args)
+    output = args.state_dir / "main-interrupt-attribution.json"
+    if output.exists():
+        raise SearchError("main割り込み帰属出力が既にあるため上書きしない")
+    sides = (("official", True, int(calibration["axis_official"]), 5),
+             ("mixed", False, int(calibration["axis_mixed"]), 6))
+    clock_shift = 257
+    paths: list[Path] = []
+    rows = []
+    try:
+        for side, official, axis, expected_control in sides:
+            arms = (("control", None, 0),
+                    ("control_repeat", None, 0),
+                    ("suppress_near", f"{axis - 1}:{axis}:suppress", 0),
+                    ("delay_one_near", f"{axis - 1}:{axis}:delay-one", 0),
+                    ("suppress_wide", f"{axis - 4}:{axis}:suppress", 0))
+            if not official:
+                arms += (("clock_shift_257", None, clock_shift),)
+            base_io = base_int = None
+            for name, intervention, injected_shift in arms:
+                actual, run_dir, iolog, report, intlog = calibration_measure(
+                    args, official, f"main-int-{side}-{name}", with_intlog=True,
+                    main_interrupt_intervention=intervention)
+                paths.append(run_dir)
+                if intlog is None:
+                    raise SearchError(f"{side}/{name} armの割り込み受理ログが無い")
+                runs = shape.exchange_runs(iolog)
+                if axis >= len(runs) or runs[axis].direction != "main→sub":
+                    raise SearchError(f"{side}/{name} armが保存済み+0交換軸へ届かなかった")
+                if injected_shift:
+                    inject_clock_shift((iolog, intlog),
+                                       after_clock=runs[axis - 4].start_clock,
+                                       delta=injected_shift)
+                    actual = abstract_result(iolog, report)
+                if base_io is None:
+                    base_io, base_int = iolog, intlog
+                # 各armを同じ側の対照と比べる（第2引数側がarm）。
+                timing = no_disk_timing.compare(base_io, base_int, iolog, intlog, axis, axis)
+                receipt = main_interrupt_receipt(iolog)
+                if intervention is not None and (receipt is None or
+                        receipt["matched_checks"] == 0 or receipt["suppressed_checks"] == 0):
+                    raise SearchError(f"{side}/{name} armの介入証跡が不成立")
+                metric = compare_result(reference, actual, len(rows), request_axis=axis)
+                rows.append({
+                    "side": side, "arm": name, "intervention": intervention,
+                    "expected_control_request_length": expected_control,
+                    "metrics": asdict(metric),
+                    "main_interrupt_counts": timing["mixed"]["interrupt_counts"]["main"],
+                    "sub_interrupt_counts": timing["mixed"]["interrupt_counts"]["sub"],
+                    "arrival_delta_vs_side_control":
+                        timing["differences"]["logical_arrival_mixed_minus_official"],
+                    "receipt": receipt,
+                    "artifact_fingerprint": interrupt_artifact(actual, timing),
+                    "metric_source_sha256": metric_source_sha256(iolog, intlog, report),
+                    "diagnostic_clock_shift": injected_shift or None,
+                })
+            # 対照の生ログは同じ側のarmの比較が終わるまで要る。側ごとに消す。
+            for path in paths:
+                shutil.rmtree(path, ignore_errors=True)
+            paths.clear()
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    verdicts = {}
+    for side, _official, _axis, expected_control in sides:
+        side_rows = [r for r in rows if r["side"] == side]
+        control, repeat = side_rows[0], side_rows[1]
+        if control["metrics"]["request_length"] != expected_control:
+            raise SearchError(f"{side}の対照の要求長が既知の値でない（校正と食い違う）")
+        deterministic = (control["artifact_fingerprint"] == repeat["artifact_fingerprint"]
+                         and control["metrics"] == {**repeat["metrics"],
+                                                    "ordinal": control["metrics"]["ordinal"],
+                                                    "elapsed_seconds": control["metrics"]["elapsed_seconds"]})
+        flipped, ineffective = [], []
+        for r in side_rows[2:]:
+            if r["arm"] == "clock_shift_257":
+                expected = {k: v + clock_shift for k, v in control["arrival_delta_vs_side_control"].items()}
+                if r["arrival_delta_vs_side_control"] != expected:
+                    raise SearchError("clock故障注入armでarrival_deltaが既知量どおり動かない")
+                continue
+            r["artifact_changed"] = r["artifact_fingerprint"] != control["artifact_fingerprint"]
+            if not r["artifact_changed"]:
+                ineffective.append(r["arm"])
+            if r["metrics"]["request_length"] != expected_control:
+                flipped.append(r["arm"])
+        verdicts[side] = {"deterministic": deterministic, "flipped_arms": flipped,
+                          "ineffective_arms": ineffective}
+    if not all(v["deterministic"] for v in verdicts.values()):
+        result = "nondeterministic"
+    elif any(v["flipped_arms"] for v in verdicts.values()):
+        result = "main_interrupt_affects_branch"
+    elif any(v["ineffective_arms"] for v in verdicts.values()):
+        result = "inconclusive_ineffective_arms"
+    else:
+        result = "main_interrupt_excluded"
+    output.write_text(json.dumps({
+        "version": 1, "scenario": "no_disk", "result": result, "verdicts": verdicts,
+        "windows_relative_to_axis": {"near": [-1, 0], "wide": [-4, 0]},
+        "arms": rows,
+        "interpretation_limit": (
+            "動いても『main側の受理を保留すると分岐が動く』まで。公式mainが割り込みで"
+            "要求長を決めているとはいえない。動かなければ保留した窓と方式の範囲で除外する。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for r in rows:
+        m = r["metrics"]
+        print(f"side={r['side']} arm={r['arm']} request_length_at_plus0={m['request_length']} "
+              f"exchange_prefix={m['exchange_prefix']} fdc_prefix={m['fdc_prefix']} "
+              f"screen={int(m['screen_lines_match'])}/{int(m['screen_chars_match'])}/"
+              f"{int(m['screen_sha256_match'])} "
+              f"main_interrupts={r['main_interrupt_counts']['calibration_window']}/"
+              f"{r['main_interrupt_counts']['axis_near']} "
+              f"receipt={'-' if r['receipt'] is None else str(r['receipt']['matched_checks']) + '/' + str(r['receipt']['suppressed_checks'])} "
+              f"artifact_changed={r.get('artifact_changed', 'control')}")
+    for side, v in verdicts.items():
+        print(f"verdict {side}: deterministic={v['deterministic']} flipped={v['flipped_arms']} "
+              f"ineffective={v['ineffective_arms']}")
+    print(f"result={result}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
                                          "interrupt-attribute",
+                                         "main-interrupt-attribute",
                                          "ready-sweep", "ready-handoff-probe",
                                          "ready-rom-probe",
                                          "early-response-sweep",
@@ -1956,6 +2107,10 @@ def main() -> int:
             if args.scenario != "no_disk":
                 raise SearchError("interrupt-attributeは--scenario no_disk専用")
             return interrupt_attribute_no_disk(args)
+        if args.mode == "main-interrupt-attribute":
+            if args.scenario != "no_disk":
+                raise SearchError("main-interrupt-attributeは--scenario no_disk専用")
+            return main_interrupt_attribute_no_disk(args)
         if args.mode == "ready-sweep":
             if args.scenario != "no_disk":
                 raise SearchError("ready-sweepは--scenario no_disk専用")
