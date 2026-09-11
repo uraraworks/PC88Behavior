@@ -715,6 +715,7 @@ BR_HXOR = 0x4321
 # READ完走後・累積8件目として一意に到達するため、追加RAMなしで結線する。 ----
 WINDOW_RUN_POS = 0x4323
 WINDOW_RUN_HEAD = 0x4324
+LAST_ST0 = 0x4325        # 1バイト: 直前の結果フェーズの1件目(ST0)。m7lm
 # 第55版・m7aw: 交換#14のREAD準備表。**ここが唯一の定義**である。
 # 呼び出し側と表本体の両方がこれを見る（第55版の最初の実装では両方に
 # タプルを書いてしまい、呼び出し側の値は使われない死んだ複製になっていた
@@ -1521,7 +1522,12 @@ def build_subrom(break_write_ack=False,
     # 単独TC入力はここへ移したので削除した（直後のコメント参照。重複を避ける
     # ため）。正味のバイト増減は0（追加+2・削除-2）。根拠はdocs/notes/m7fh。
     a.in_port(P_F8)
-    a.ld_b(7)
+    # m7lm: 結果1件目(ST0)だけをLAST_ST0に残す（再試行の判定と、9件のあとの応答の
+    # 判定に使う）。残り6件は従来どおり読み捨てる。FDC_ABORTが立っているときは
+    # FDC_INが読まずに戻るので、ここに残る値に意味は無い（判定側でFDC_ABORTを見る）。
+    a.call("FDC_IN")
+    a.ld_mem_a(LAST_ST0)
+    a.ld_b(6)
     a.label("_fdc_in_7_loop")
     a.call("FDC_IN")
     a.djnz("_fdc_in_7_loop")
@@ -2072,9 +2078,18 @@ def build_subrom(break_write_ack=False,
     # FDC_ABORTが再び立つ。これが0（＝データフェーズを最後まで読み切れた
     # ＝成功）ならそこで打ち切り、非0（＝失敗）ならCを1減らして9件に
     # 達するまで（Cが0になるまで）READ DATAだけを再発行する。
+    # m7lm: 失敗の判定に、結果1件目ST0のIC（上位2ビット。公開μPD765データシートの
+    # 意味で00=正常終了）を加える。FDC_ABORTだけでは、データを最後まで渡してから
+    # 結果でエラーを返す失敗（データのCRCエラー。m7lh）を見逃していた。
+    # 「ICが00でなければ読み直す」は、測った3種類の失敗と成功に同時に合う最小の形で
+    # あって、公式の規則を測って書いたものではない（仕様書1.58節）。
+    a.ld_a_mem(LAST_ST0)
+    a.and_a(0xC0)                       # IC=00（正常終了）以外は失敗
+    a.jr_nz("_read_fail")
     a.ld_a_mem(FDC_ABORT)
     a.or_a()
-    a.jr_z("_read_done")                # FDC_ABORT=0: 成功。ここで止める
+    a.jr_z("_read_done")                # FDC_ABORT=0かつIC=00: 成功。ここで止める
+    a.label("_read_fail")
     a.db(0x0D)                          # DEC C（再試行カウンタ）
     a.jr_nz("_read_retry")              # 9件に達するまで再試行
     a.label("_read_done")
@@ -2209,6 +2224,8 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_imm(REQ_HDR)
     a.ld_mem_hl(HDR_PTR)
     a.xor_a()
+    a.ld_mem_a(LAST_ST0)            # m7lm: 最初のREAD DATAより前に9件後の応答の判定を通っても、
+                                    # 初期化されていない値で判定しない（0=正常終了として扱う）
     # 第69版容量圧縮: RESP_ACTIVE..REQ_UNIT_HEADはRAM上で連続11バイト。
     # 旧コードが個別に0を書いていた10状態にFDC_ABORTも加え、同じ0を
     # ループで初期化する。B/HLはこの直後に参照せず、A=0も維持される。
@@ -2958,15 +2975,21 @@ def build_subrom(break_write_ack=False,
     # のST0 IC(bit7-6)=01（異常終了）かつST1 bit0=MISSING ADDRESS MARKを
     # 判定する。FDC_ABORTが無ければSECTOR_BUF先頭は通常データなので
     # ステータスとは解釈しない。
+    # m7lm: エラーの応答を返すかどうかを、失敗の原因（ST1のどのビットか）に依らず
+    # 「直前のREAD DATAの結果のICが00（正常終了）でないか」で決める。m7cmの版は
+    # ST1=MISSING ADDRESS MARK（トラック不在）だけに絞っていたため、セクタ不在では
+    # 通常の応答を返し、mainがセクタのデータを取りに行って単位の数が公式とずれていた
+    # （m7lk）。公式はトラック不在とセクタ不在で応答を変えない（m7lk・仕様書1.58節第201版）。
+    # ST0の出所: FDC_ABORTが立っていればデータフェーズへ進まず結果がSECTOR_BUF先頭に
+    # 入っている（m7cm）。立っていなければ結果フェーズはFDC_IN_7が読み、1件目を
+    # LAST_ST0に残している（データのCRCエラーはこちら。m7lh）。
     a.ld_a_mem(FDC_ABORT)
     a.or_a()
-    a.jr_z("_exchange3_normal_response")
-    a.ld_a_mem(SECTOR_BUF)          # 結果フェーズr0 = ST0
-    a.and_a(0xC0)                   # Interrupt Code
-    a.cp_n(0x40)                    # 01 = abnormal termination
-    a.jr_nz("_exchange3_normal_response")
-    a.ld_a_mem(SECTOR_BUF + 1)      # 結果フェーズr1 = ST1
-    a.and_a(0x01)                   # MISSING ADDRESS MARK
+    a.ld_a_mem(SECTOR_BUF)          # FDC_ABORT≠0: 結果フェーズr0 = ST0（ld はフラグを変えない）
+    a.jr_nz("_exchange3_st0_ready")
+    a.ld_a_mem(LAST_ST0)            # FDC_ABORT=0: FDC_IN_7が残したST0
+    a.label("_exchange3_st0_ready")
+    a.and_a(0xC0)                   # Interrupt Code。00=正常終了
     a.jr_z("_exchange3_normal_response")
     # 全256候補の探索で末端一致群はbit6=0とだけ確定した。既定0x00は、
     # 未確定の残る7ビットを自作側の選択として0にした値であり、公式の
