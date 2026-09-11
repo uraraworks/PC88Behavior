@@ -1766,9 +1766,7 @@ def build_subrom(break_write_ack=False,
     # 第68版・m7bz追加測定: 公式WRITE 8/8でEOTは媒体形状（16セクタ）、
     # GPLは公開uPD765形式のN=1短GAP分類。READ側のEOT/GPL流用は6/8一致
     # にしかならなかったため、WRITE専用値に分ける。
-    a.ld_a(0x10); a.call("FDC_OUT")     # EOT = 1トラックのセクタ数
-    a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
-    a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
+    a.ld_a(0x10); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = 1トラックのセクタ数（GPL・DTLは共有列）
 
     # データフェーズ: WRITE_BUFのWRITE_IDX（＝最も古い＝末尾256の先頭）から
     # 256バイト。Lだけを進めれば256境界で自然に巻き戻る。
@@ -2014,11 +2012,9 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_H); a.call("FDC_OUT")  # H（交換#11以外は0）
     a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # R = 要求末尾位置(byte6)
     a.ld_a(0x01); a.call("FDC_OUT")     # N = 1 (256バイト/セクタ)
-    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT")   # EOT = R（このセクタで終わり）
+    a.ld_hl_imm(REQ_HDR + 6); a.ld_a_hl(); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = R（このセクタで終わり）（GPL・DTLは共有列）
     # 第118版・m7fc: WRITE経路で確立済みの公開μPD765形式N=1短GAP分類を、
     # READ経路にも同じ生成規則として適用する。条件Oとの一致は事後の裏づけ。
-    a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
-    a.ld_a(0xFF); a.call("FDC_OUT")     # DTL（N!=0なので無視される）
 
     # データ転送: 256バイト（B=0 を DJNZ で 256 回まわす定石）。
     # FDC_IN は A を破壊するので、ループカウンタ(B)・書き込み先(HL)は
@@ -2039,6 +2035,12 @@ def build_subrom(break_write_ack=False,
 
     # 交換#14専用の複数セクタREAD。公開FDCパラメータは上のBULK_*から取り、
     # データ部だけをBULK_DESTから連続格納する。
+    a.label("FDC_OUT_EOT_GPL_DTL")
+    # m7ld: EOT(=A)・GPL・DTLの送出列。WRITE・単発READ・バルクREADの3箇所に
+    # 一字一句同一で置かれていたものを集約した。命令列は変えていない。
+    a.call("FDC_OUT")                   # EOT
+    a.ld_a(0x0E); a.call("FDC_OUT")     # GPL = N=1短GAP
+    a.ld_a(0xFF); a.jp("FDC_OUT")       # DTL（末尾呼び出し）
     a.label("FDC_READ_BULK")
     a.ld_a(0x46); a.call("FDC_BEGIN")
     a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
@@ -2046,10 +2048,8 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(BULK_H); a.call("FDC_OUT")
     a.ld_a_mem(BULK_R); a.call("FDC_OUT")
     a.ld_a(0x01); a.call("FDC_OUT")
-    a.ld_a_mem(BULK_EOT); a.call("FDC_OUT")
+    a.ld_a_mem(BULK_EOT); a.call("FDC_OUT_EOT_GPL_DTL")   # GPL・DTLは共有列
     # 第118版・m7fc: 単発READと同じN=1短GAP分類をバルクREADにも適用する。
-    a.ld_a(0x0E); a.call("FDC_OUT")
-    a.ld_a(0xFF); a.call("FDC_OUT")
     a.ld_hl_mem(BULK_DEST)
     a.label("_bulk_read_sector")
     a.ld_b(0x00)
