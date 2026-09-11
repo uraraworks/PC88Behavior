@@ -83,8 +83,15 @@ if "make_subrom" in sys.modules:
 import make_subrom as m
 a = m.build_subrom()
 a.resolve()
-# 幅2以上の命令を1つ選ぶ（どれでもよい。ここでは先頭から最初のもの）
-pos, width = next((p, w) for p, w in a.instr_spans if w >= 2)
+# 幅2以上の命令を1つ選ぶ（どれでもよい。ここでは先頭から最初のもの）。
+# m7ln: フィックスアップのオペランド位置は候補から外す。call/jp等のオペランドは
+# 独立したinstr_spansとして記録されるが命令の先頭ではない（直前にオペコードがある）。
+# m7lnで跨ぎ検査がオペコードとオペランドを1つの命令として扱うようになったので、
+# オペランドの先頭に境界を置くと「跨ぎあり」になり、ここで言う「命令の先頭」の
+# 陰性対照にならない。これまで通っていたのは、最初の幅2以上の区間がたまたま
+# フィックスアップではない命令だったからである。
+operands = {p for p, _, _ in a.fixups}
+pos, width = next((p, w) for p, w in a.instr_spans if w >= 2 and p not in operands)
 inside = m.find_fetch_window_straddles(a, boundary=pos + 1)   # 命令の途中
 at_start = m.find_fetch_window_straddles(a, boundary=pos)     # 命令の先頭
 print(f"命令の途中に境界: straddles={len(inside)}")
@@ -286,13 +293,14 @@ else
   overall_rc=1
 fi
 
-say "陽性対照6: オペコードは窓の内側・オペランドが窓の外というcall/jpをbuild()が止めること（m7lc）"
+say "陽性対照6: オペコードは窓の内側・オペランドが窓の外というcall/jpを、跨ぎ検査が拾い、build()も止めること（m7lc・m7ln）"
 # call/jpはオペコードとオペランドが別々のinstr_spansとして記録されるので、
 # 境界がちょうどその間に来ると、find_fetch_window_straddlesは「跨ぎ0」と
 # 判定する（オペコード区間は境界で終わり、オペランド区間は境界から始まるため）。
-# 整列パディングはこの形を直さない。m7lcの修正後は、区間の終了位置を窓と
-# 突き合わせるので、この形はbuild()の関門で止まる（パディングで直るのではなく、
-# ビルドが失敗する側に倒れる）。その振る舞いをここで固定する。
+# m7lcの時点では整列パディングがこの形を直さず、区間の終了位置を見る関門が
+# build()を止めるだけだった。m7lnで跨ぎ検査を直し、オペコードとオペランドを
+# 1つの命令として扱うようにした。ここでは(1)跨ぎ検査がこの形を拾うこと、
+# (2)それでもbuild()が黙って通さないこと、の両方を固定する。
 out="$(python3 - <<'EOF'
 import sys, os
 sys.path.insert(0, "src/l3_service")
@@ -316,6 +324,7 @@ print(f"境界=最後の区間の開始+{boundary - last_start}バイト（オ�
 if starts_outside:
     print("NG: 狙った形になっていない（開始が外の区間がある）")
     sys.exit(0)
+print("DIRECT_OK" if straddles else "DIRECT_NG: 跨ぎ検査がオペコードとオペランドの間の境界を拾わない")
 m.SUB_ROM_FETCH_WINDOW = boundary
 try:
     m.build()
@@ -325,10 +334,10 @@ except SystemExit as e:
 EOF
 )"
 echo "$out"
-if echo "$out" | grep -q "^BUILD_OK"; then
-  ok "陽性対照6: オペランドだけ窓の外に出たcall/jpをbuild()の関門が止めた"
+if echo "$out" | grep -q "^DIRECT_OK" && echo "$out" | grep -q "^BUILD_OK"; then
+  ok "陽性対照6: オペランドだけ窓の外に出るcall/jpを、跨ぎ検査が拾い、build()も止めた"
 else
-  ng "陽性対照6: オペランドだけ窓の外に出たcall/jpを見逃した"
+  ng "陽性対照6: オペランドだけ窓の外に出るcall/jpを、跨ぎ検査かbuild()が見逃した"
   overall_rc=1
 fi
 
