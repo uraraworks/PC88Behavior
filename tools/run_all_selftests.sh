@@ -110,6 +110,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/trap_selftest.sh:0"
   "tools/run_all_selftests_selftest.sh:0"
   "tools/count_fdc_abort_marks_selftest.sh:0"
+  "tools/make_l3_testdisk_selftest.sh:0"
 )
 
 overall=0

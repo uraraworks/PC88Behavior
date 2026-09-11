@@ -48,6 +48,10 @@ MAX_HEADS = 2
 DISK_PROTECT_FALSE = 0x00
 DISK_TYPE_2D = 0x00
 STATUS_NORMAL = 0x00
+# D88のセクタ状態「データCRCエラー」。公開のD88形式の値で、計測に使うエミュレータ
+# (vendor src/fdc.c の STATUS_DE_DD) も同じ値を「DATA CRC err」として扱う。
+# m7lh: 「9」が依存しない失敗原因の3つ目を測るために足した。
+STATUS_DATA_CRC_ERROR = 0xB0
 DISK_DELETED_FALSE = 0x00
 
 
@@ -59,6 +63,7 @@ def sector_pattern(cyl: int, sec: int) -> bytes:
 def build_track(
     cyl: int, sectors_per_track: int, head: int = 0,
     sector_base: int = DEFAULT_SECTOR_BASE,
+    status: int = STATUS_NORMAL,
 ) -> bytes:
     body = bytearray()
     for sec in range(sector_base, sector_base + sectors_per_track):
@@ -71,7 +76,7 @@ def build_track(
         hdr[5] = (sectors_per_track >> 8) & 0xFF  # セクタ数(上位)
         hdr[6] = 0x00                # density (0=倍密度相当)
         hdr[7] = DISK_DELETED_FALSE
-        hdr[8] = STATUS_NORMAL
+        hdr[8] = status
         # 9-13 reserved = 0
         size = SECTOR_SIZE
         hdr[14] = size & 0xFF
@@ -86,6 +91,7 @@ def build_d88(
     n_cylinders: int = DEFAULT_CYLINDERS,
     heads: int = DEFAULT_HEADS,
     sector_base: int = DEFAULT_SECTOR_BASE,
+    status: int = STATUS_NORMAL,
 ) -> bytes:
     """トラック表は「物理トラック番号 = シリンダ*2+ヘッド」で引かれる
     （vendor src/fdc.c `disk_now_track(i, ncn[i]*2+hd)`）。実測で確かめた
@@ -106,7 +112,8 @@ def build_d88(
     offset = 32 + 164 * 4
     for c in range(n_cylinders):
         for h in range(heads):
-            trk = build_track(c, sectors_per_track, head=h, sector_base=sector_base)
+            trk = build_track(c, sectors_per_track, head=h, sector_base=sector_base,
+                              status=status)
             phys = c * 2 + h
             struct.pack_into("<I", track_table, phys * 4, offset)
             body += trk
@@ -167,6 +174,15 @@ def main():
         action="store_true",
         help="--heads 2 の別名(両面化)。--heads と併用不可",
     )
+    ap.add_argument(
+        "--data-crc-error",
+        action="store_true",
+        help=(
+            "全セクタのD88状態を「データCRCエラー」(0xB0)にする。"
+            "セクタのIDは見つかるがデータ部が読めない媒体を作る。"
+            "既定(指定なし)は拡張前とバイト一致する"
+        ),
+    )
     args = ap.parse_args()
 
     if args.double_sided:
@@ -225,7 +241,8 @@ def main():
         )
         return 1
 
-    data = build_d88(n, n_cyl, heads, sector_base=base)
+    status = STATUS_DATA_CRC_ERROR if args.data_crc_error else STATUS_NORMAL
+    data = build_d88(n, n_cyl, heads, sector_base=base, status=status)
     p = pathlib.Path(args.outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
