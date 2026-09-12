@@ -5,7 +5,9 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$REPO" <<'PY'
 import importlib.util
+import re
 import sys
+import tempfile
 from pathlib import Path
 
 repo = Path(sys.argv[1])
@@ -318,6 +320,92 @@ if real_g2 is False and faulty_g2 is True:
 else:
     ng("陽性対照2: 指紋比較の寄与を確認できない"
        f"（real_g2={real_g2}, faulty_g2={faulty_g2}）")
+
+# m7lt 器具修正: io_log_full_sha256はrom-dir/disk等の走ごとのパス行を
+# 除いてハッシュを取るべき（m7ltでgate_failedを起こした欠陥の修正）。
+# 陰性対照・陽性対照・そして「直す前に実際に赤くなる」ことを2種の故障で確認する。
+
+def make_synthetic_iolog(path, romdir, disk, out_value):
+    with open(path, "w") as f:
+        f.write("# PC88Behavior 順序付き I/O 記録\n")
+        f.write("#\n")
+        f.write(f"core      : mycore.so\n")
+        f.write(f"rom-dir   : {romdir}\n")
+        f.write(f"disk      : {disk}\n")
+        f.write("frames    : 900\n\n")
+        f.write("io-log-from-frame: 0\n\n")
+        f.write(f"OUT 0x10 {out_value} pc=0x0100 frame=1\n")
+        f.write("# 取りこぼし: 0件 / 総イベント数: 1件\n\n")
+
+tmpdir = Path(tempfile.mkdtemp(prefix="m7lt_iolog_selftest_"))
+path_a = tmpdir / "run_tagA.iolog.txt"
+path_b = tmpdir / "run_tagB.iolog.txt"
+path_c = tmpdir / "run_tagA_diffvalue.iolog.txt"
+make_synthetic_iolog(path_a, "/tmp/run_tagA/rom", "/tmp/run_tagA/disk.d88", "0x01")
+make_synthetic_iolog(path_b, "/tmp/run_tagB/rom", "/tmp/run_tagB/disk.d88", "0x01")
+make_synthetic_iolog(path_c, "/tmp/run_tagA/rom", "/tmp/run_tagA/disk.d88", "0x02")
+
+fp_a, excluded_a = search.io_log_full_sha256(path_a)
+fp_b, excluded_b = search.io_log_full_sha256(path_b)
+fp_c, excluded_c = search.io_log_full_sha256(path_c)
+
+# 陰性対照: パス行だけが違う2ログは同じ指紋になるべき（m7ltの欠陥はこれが崩れていた）
+if fp_a == fp_b and excluded_a == 3 and excluded_b == 3:
+    ok("陰性対照: 走ごとの作業パス（core/rom-dir/disk）だけが違うログは同じ指紋（除外3行）")
+else:
+    ng(f"陰性対照: パス行だけの違いで指紋が割れる（fp_a==fp_b: {fp_a == fp_b}, "
+       f"excluded_a={excluded_a}, excluded_b={excluded_b}）")
+
+# 陽性対照: データ行（OUT値）が1文字違うログは違う指紋になるべき
+if fp_a != fp_c:
+    ok("陽性対照: データ行（OUT値）が1文字違うログは違う指紋")
+else:
+    ng("陽性対照: データ行が違うのに指紋が一致する（検出力が無い）")
+
+# 故障1: 除外対象を「全見出し行」（#で始まる行やframes/io-log-from-frame行も含む）に
+# 広げると、陽性対照（データ行の違いの検出）が壊れないことは確認しつつ、
+# 除外し過ぎで陰性対照側の「除外行数」検査が3から動くことを見る
+# （このリポジトリでは除外対象をcore/rom-dir/disk/disk2の4キーに限定しており、
+#  frames等の値が変わらない行まで巻き込まないことが仕様）。
+def io_log_full_sha256_over_excluding(path):
+    import hashlib
+    digest = hashlib.sha256()
+    excluded = 0
+    header_re = re.compile(rb'^(?:core|rom-dir|disk2?|frames|io-log-from-frame)\s*:')
+    with open(path, "rb") as fp:
+        for line in fp:
+            if header_re.match(line) or line.startswith(b"#"):
+                excluded += 1
+                continue
+            digest.update(line)
+    return digest.hexdigest(), excluded
+
+_, over_excluded_a = io_log_full_sha256_over_excluding(path_a)
+if over_excluded_a != excluded_a:
+    ok("故障1（除外を全見出し行へ広げる）: 除外行数が本来の3から動くことを直す前に確認")
+else:
+    ng("故障1: 除外を広げても除外行数が変わらない（この故障注入自体が効いていない）")
+
+# 故障2: 除外を一切やめる（元の欠陥そのもの）と、パス行だけが違う陰性対照が
+# 割れることを直す前に確認する。
+def io_log_full_sha256_no_exclusion(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+faulty_fp_a = io_log_full_sha256_no_exclusion(path_a)
+faulty_fp_b = io_log_full_sha256_no_exclusion(path_b)
+if faulty_fp_a != faulty_fp_b:
+    ok("故障2（除外をやめる＝元の欠陥）: 陰性対照が割れることを直す前に確認"
+       "（m7ltのgate_failedを再現）")
+else:
+    ng("故障2: 除外をやめても陰性対照が割れない（この故障注入自体が効いていない）")
+
+import shutil as _shutil
+_shutil.rmtree(tmpdir, ignore_errors=True)
 
 raise SystemExit(1 if fail else 0)
 PY

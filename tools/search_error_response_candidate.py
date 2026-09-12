@@ -240,13 +240,29 @@ def locate_plus0_no_disk(runs: list) -> dict:
             "boot_end_frame": boot_end_frame}
 
 
-def io_log_full_sha256(path: Path) -> str:
-    """I/Oログ全体の指紋。値を含む生ログのハッシュだが、外へ出すのはハッシュだけ。"""
+# write_iolog_report（tools/harness/frontend/main.c）が見出しに書く、
+# 走ごとの作業ディレクトリ名（タグ入りパス）を含み得る4キー。
+# 「キー + 空白 + ':'」で行頭から始まる行だけを対象にする（m7lt診断）。
+_IOLOG_HEADER_PATH_KEYS_RE = re.compile(rb'^(?:core|rom-dir|disk2?)\s*:')
+
+
+def io_log_full_sha256(path: Path) -> tuple[str, int]:
+    """I/Oログの指紋（値を含むが、外へ出すのはハッシュだけ）と、除外した行数。
+
+    見出しの core・rom-dir・disk・disk2 行は走ごとの作業ディレクトリ名を含むため、
+    同一条件の2走でも指紋が必ず異なる原因になっていた（m7lt診断、器具の欠陥）。
+    この4キーの見出し行だけを除いた残り全行（イベント行・#行・取りこぼし件数行を
+    含む）でハッシュを取る。disk2が無い走では除外3行、あれば4行になる。
+    """
     digest = hashlib.sha256()
+    excluded = 0
     with path.open("rb") as fp:
-        for chunk in iter(lambda: fp.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        for line in fp:
+            if _IOLOG_HEADER_PATH_KEYS_RE.match(line):
+                excluded += 1
+                continue
+            digest.update(line)
+    return digest.hexdigest(), excluded
 
 
 def prefix_agreement_count(off_exchange: tuple, off_index: int | None,
@@ -2432,6 +2448,7 @@ def cpu_mode_screen_no_disk(args: argparse.Namespace) -> int:
                 plus0 = locate_plus0_no_disk(runs)
                 prefix_fp = (run_context_sha256(actual.exchange, plus0["index"])[:12]
                             if plus0["exists"] else None)
+                io_fingerprint, io_fingerprint_excluded = io_log_full_sha256(iolog)
                 rows[(side, cond)] = {
                     "side": side, "condition": cond,
                     "sub_cpu_mode_arg": CPU_MODE_SCREEN_ARG[cond],
@@ -2441,7 +2458,8 @@ def cpu_mode_screen_no_disk(args: argparse.Namespace) -> int:
                     "runs_before_plus0": plus0["runs_before"],
                     "boot_end_frame": plus0["boot_end_frame"],
                     "prefix_fingerprint": prefix_fp,
-                    "io_fingerprint": io_log_full_sha256(iolog),
+                    "io_fingerprint": io_fingerprint,
+                    "io_fingerprint_header_lines_excluded": io_fingerprint_excluded,
                     "core_option": sub_cpu_mode_receipt(iolog),
                     "metric_source_sha256": metric_source_sha256(iolog, report),
                     "_exchange": actual.exchange,
