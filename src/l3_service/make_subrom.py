@@ -1888,7 +1888,15 @@ def build_subrom(break_write_ack=False,
     # のまま。cylはこのAを直接動かす陽性対照。
     _emit_probe("general_read_request")
     a.call("FDC_SEEK")                # A = C のまま
-    a.call("FDC_SENSE_DRIVE_STATUS")
+    # 仕様書1.63節（第211版、第212版で手順2を訂正）: SEEK（SENSE INTERRUPT
+    # STATUS込み）は1回だけ発行し、以降はSENSE DRIVE STATUSのST3 bit3
+    # （媒体の有無。m7lv測定）が1になるまでSENSE DRIVE STATUSだけを
+    # 繰り返す。SEEK・SENSE INTERRUPT STATUSは繰り返さない。bit3=0の間は
+    # 再アームしない（6バイト目を受け取らない）。
+    a.label("_general_read_wait_media")
+    a.call("FDC_SENSE_DRIVE_STATUS")  # ST3はAに残る
+    a.and_a(0x08)                     # bit3 = 媒体あり
+    a.jr_z("_general_read_wait_media")
     a.call("FDC_READ_SECTOR")
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
