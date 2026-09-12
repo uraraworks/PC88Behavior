@@ -546,6 +546,15 @@ def inject_clock_shift(paths: tuple[Path, ...], *, after_clock: int,
         path.write_text("".join(rewritten), encoding="utf-8")
 
 
+def keystroke_command_suffix(files_type_at: int = 700) -> list[str]:
+    """frame 300の改行とfiles_type_atでの`FILES 2`打鍵をargvへ足す共通部分。
+
+    既定値700のときの戻り値は、m7ls以前の固定argv断片とバイト単位で同一。
+    """
+    return ["--type-at", "300", "--type", r"\n",
+            "--type-at", str(files_type_at), "--type", r"FILES 2\n"]
+
+
 def run_frontend(command: list[str], iolog: Path, timeout: int) -> dict[int, tuple[int, int, int, int]]:
     stderr = iolog.with_suffix(".stderr.txt")
     stderr.unlink(missing_ok=True)
@@ -581,7 +590,8 @@ def measure_once(*, official: bool, candidate: int | None, frames: int,
                  disk_source: Path, core: Path, frontend: Path,
                  break_error_response_bit6: bool = False,
                  scenario: str = "unreadable_disk",
-                 interventions: tuple[str, ...] = ()) -> tuple[AbstractResult, dict[int, tuple[int, int, int, int]]]:
+                 interventions: tuple[str, ...] = (),
+                 files_type_at: int = 700) -> tuple[AbstractResult, dict[int, tuple[int, int, int, int]]]:
     """独立ROM・媒体・作業ディレクトリで1走し、値なし結果だけ返す。"""
     run_dir = state_dir / "runs" / tag
     if run_dir.exists():
@@ -618,9 +628,7 @@ def measure_once(*, official: bool, candidate: int | None, frames: int,
         str(frontend), "--core", str(core), "--rom-dir", str(rom_dir),
         "--disk", str(media), "--frames", str(frames),
         "--io-log", str(iolog), "--out", str(report),
-        "--type-at", "300", "--type", r"\n",
-        "--type-at", "700", "--type", r"FILES 2\n",
-    ]
+    ] + keystroke_command_suffix(files_type_at)
     for intervention in interventions:
         command += ["--exchange-intervention", intervention]
     try:
@@ -680,6 +688,7 @@ def calibration_measure(args: argparse.Namespace, official: bool,
                         response_ready_handoff: tuple[int, str] | None = None,
                         fast_no_disk_response_ready: bool = False,
                         early_response_after: int | None = None,
+                        files_type_at: int = 700,
                         ) -> tuple[AbstractResult, Path, Path, Path, Path | None]:
     """関門用に生ログを一時保持するmeasure_once相当。"""
     run_dir = args.state_dir / "runs" / tag
@@ -715,8 +724,7 @@ def calibration_measure(args: argparse.Namespace, official: bool,
     command = [str(args.frontend), "--core", str(args.core), "--rom-dir", str(rom_dir),
                "--disk", str(media), "--frames", str(args.frames),
                "--io-log", str(iolog), "--out", str(report),
-               "--type-at", "300", "--type", r"\n",
-               "--type-at", "700", "--type", r"FILES 2\n"]
+               ] + keystroke_command_suffix(files_type_at)
     if intlog is not None:
         command += ["--int-log", str(intlog)]
     if sub_interrupt_intervention is not None:
@@ -2065,11 +2073,195 @@ def main_interrupt_attribute_no_disk(args: argparse.Namespace) -> int:
     return 0
 
 
+KEYSTROKE_SHIFT_ARMS = (
+    ("control", 700), ("control_repeat", 700),
+    ("files_at_500", 500), ("files_at_600", 600), ("files_at_780", 780),
+)
+KEYSTROKE_SHIFT_TOLERANCE = 2
+
+
+def keystroke_shift_arm_valid(*, reached: bool, exchange_prefix_matches_control: bool,
+                              start_frame_delta: int | None, expected_delta: int,
+                              window_count_differs_from_control: bool,
+                              tolerance: int = KEYSTROKE_SHIFT_TOLERANCE) -> bool:
+    """m7ls: 打鍵フレームをずらした腕が『有効な腕』か（条件a〜d、純関数）。
+
+    到達しない・手前の交換列が対照と食い違う・窓内main受理件数が対照と
+    同じ（=介入が効いていない）のいずれかでも無効。到達指標（+0開始フレーム
+    のずれ）は介入と同じ次元（打鍵フレームの移動量）でtolerance以内かを見る。
+    """
+    if not reached or not exchange_prefix_matches_control:
+        return False
+    if not window_count_differs_from_control:
+        return False
+    if start_frame_delta is None:
+        return False
+    return abs(start_frame_delta - expected_delta) <= tolerance
+
+
+def classify_keystroke_shift(sides: dict[str, dict]) -> str:
+    """m7ls: 4判定を側ごとの決定論性・有効腕の要求長・全腕有効性から出す（純関数）。
+
+    sides = {side: {"deterministic": bool, "expected_control": int,
+                    "shift_arms": [{"valid": bool, "request_length": int|None}, ...]}}
+    shift_armsはcontrol/control_repeatを含まない介入腕（files_at_*）だけを渡す。
+    """
+    if not all(info["deterministic"] for info in sides.values()):
+        return "nondeterministic"
+    flipped = False
+    for info in sides.values():
+        expected = info["expected_control"]
+        for arm in info["shift_arms"]:
+            if arm["valid"] and arm["request_length"] != expected:
+                flipped = True
+    if flipped:
+        return "keystroke_timing_affects_branch"
+    all_valid = all(arm["valid"] for info in sides.values() for arm in info["shift_arms"])
+    if all_valid:
+        return "wait_length_excluded"
+    return "inconclusive_ineffective_arms"
+
+
+def keystroke_shift_no_disk(args: argparse.Namespace) -> int:
+    """m7ls: no_diskの打鍵フレーム（既定700）を500/600/780へ動かし、空き時間
+    （窓内main受理件数）を変えても+0のmain→sub要求長（公式5・混成6）が
+    動かないかを測る。窓・判定規則はm7ls事前登録で固定済み、本関数では動かさない。
+    値・画面本文は保存しない（件数・長さ・一致・指紋・フレーム番号だけ）。"""
+    calibration, reference = load_no_disk_calibration(args)
+    output = args.state_dir / "keystroke-shift.json"
+    if output.exists():
+        raise SearchError("keystroke-shift出力が既にあるため上書きしない")
+    sides = (("official", True, int(calibration["axis_official"]), 5),
+             ("mixed", False, int(calibration["axis_mixed"]), 6))
+    paths: list[Path] = []
+    rows = []
+    try:
+        for side, official, axis, expected_control in sides:
+            control_exchange = None
+            control_start_frame = None
+            control_window_count = None
+            for name, files_at in KEYSTROKE_SHIFT_ARMS:
+                actual, run_dir, iolog, report, intlog = calibration_measure(
+                    args, official, f"keystroke-{side}-{name}", with_intlog=True,
+                    files_type_at=files_at)
+                paths.append(run_dir)
+                if intlog is None:
+                    raise SearchError(f"{side}/{name} armの割り込み受理ログが無い")
+                runs = shape.exchange_runs(iolog)
+                reached = axis < len(runs) and runs[axis].direction == "main→sub"
+                summary = None
+                if reached:
+                    try:
+                        summary = no_disk_timing.summarize_run(iolog, intlog, axis)
+                    except no_disk_timing.TimingError:
+                        reached = False
+                metric = compare_result(reference, actual, len(rows),
+                                        request_axis=axis if reached else None)
+                axis_start_frame = runs[axis].start_frame if reached else None
+                prev_run_end_frame = runs[axis - 1].end_frame if reached else None
+                window_count = (summary["interrupt_counts"]["main"]["axis_near"]
+                                if summary is not None else None)
+                fingerprint = (interrupt_artifact(actual, {"mixed": summary})
+                              if summary is not None else None)
+                exchange_prefix_matches_control = (
+                    reached and control_exchange is not None
+                    and actual.exchange[:axis] == control_exchange[:axis])
+                start_frame_delta = (axis_start_frame - control_start_frame
+                                     if reached and control_start_frame is not None else None)
+                window_count_differs = (
+                    reached and control_window_count is not None
+                    and window_count != control_window_count)
+                is_shift_arm = name not in ("control", "control_repeat")
+                valid = (keystroke_shift_arm_valid(
+                            reached=reached,
+                            exchange_prefix_matches_control=exchange_prefix_matches_control,
+                            start_frame_delta=start_frame_delta,
+                            expected_delta=files_at - 700,
+                            window_count_differs_from_control=window_count_differs)
+                        if is_shift_arm else None)
+                rows.append({
+                    "side": side, "arm": name, "files_type_at": files_at,
+                    "reached": reached,
+                    "metrics": asdict(metric),
+                    "axis_start_frame": axis_start_frame,
+                    "prev_run_end_frame": prev_run_end_frame,
+                    "main_window_count": window_count,
+                    "expected_start_frame_delta": files_at - 700,
+                    "start_frame_delta_from_control": start_frame_delta,
+                    "exchange_prefix_matches_control": exchange_prefix_matches_control,
+                    "window_count_differs_from_control": window_count_differs,
+                    "valid": valid,
+                    "artifact_fingerprint": fingerprint,
+                    "metric_source_sha256": metric_source_sha256(iolog, intlog, report),
+                })
+                if name == "control":
+                    if not reached:
+                        raise SearchError(f"{side}/controlが保存済み+0交換軸へ届かない")
+                    control_exchange = actual.exchange
+                    control_start_frame = axis_start_frame
+                    control_window_count = window_count
+            # 側ごとのarmの比較が終わったら、値・画面本文を含み得る生ログを消す。
+            for path in paths:
+                shutil.rmtree(path, ignore_errors=True)
+            paths.clear()
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+    verdict_input: dict[str, dict] = {}
+    for side, _official, _axis, expected_control in sides:
+        side_rows = [r for r in rows if r["side"] == side]
+        control = next(r for r in side_rows if r["arm"] == "control")
+        repeat = next(r for r in side_rows if r["arm"] == "control_repeat")
+        if control["metrics"]["request_length"] != expected_control:
+            raise SearchError(f"{side}の対照の要求長が既知の値でない（校正と食い違う）")
+        deterministic = (
+            control["artifact_fingerprint"] == repeat["artifact_fingerprint"]
+            and control["metrics"] == {**repeat["metrics"],
+                                       "ordinal": control["metrics"]["ordinal"],
+                                       "elapsed_seconds": control["metrics"]["elapsed_seconds"]})
+        shift_rows = [r for r in side_rows if r["arm"] not in ("control", "control_repeat")]
+        verdict_input[side] = {
+            "deterministic": deterministic, "expected_control": expected_control,
+            "shift_arms": [{"valid": r["valid"], "request_length": r["metrics"]["request_length"]}
+                          for r in shift_rows],
+        }
+    result = classify_keystroke_shift(verdict_input)
+    output.write_text(json.dumps({
+        "version": 1, "scenario": "no_disk", "result": result,
+        "keystroke_frames": {name: frame for name, frame in KEYSTROKE_SHIFT_ARMS},
+        "tolerance_frames": KEYSTROKE_SHIFT_TOLERANCE,
+        "verdict_input": verdict_input,
+        "arms": rows,
+        "interpretation_limit": (
+            "動いても『打鍵タイミングが分岐に効く』まで。動かなくても、打鍵フレーム"
+            "500〜780の範囲での除外である。起動時交換の遅れ自体はこの介入では動かしていない。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for r in rows:
+        m = r["metrics"]
+        print(f"side={r['side']} arm={r['arm']} files_type_at={r['files_type_at']} "
+              f"reached={int(r['reached'])} request_length_at_plus0={m['request_length']} "
+              f"exchange_prefix={m['exchange_prefix']} fdc_prefix={m['fdc_prefix']} "
+              f"screen={int(m['screen_lines_match'])}/{int(m['screen_chars_match'])}/"
+              f"{int(m['screen_sha256_match'])} "
+              f"main_window_count={r['main_window_count']} "
+              f"start_frame_delta={r['start_frame_delta_from_control']}"
+              f"(expected={r['expected_start_frame_delta']}) "
+              f"valid={r['valid']} "
+              f"metric_source={r['metric_source_sha256'][:12]}")
+    for side, info in verdict_input.items():
+        print(f"verdict {side}: deterministic={info['deterministic']} "
+              f"valid_arms={[a['valid'] for a in info['shift_arms']]}")
+    print(f"result={result}")
+    print("注: 除外は打鍵フレーム500〜780・許容±2フレームの範囲に限る")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
                                          "interrupt-attribute",
                                          "main-interrupt-attribute",
+                                         "keystroke-shift",
                                          "ready-sweep", "ready-handoff-probe",
                                          "ready-rom-probe",
                                          "early-response-sweep",
@@ -2111,6 +2303,10 @@ def main() -> int:
             if args.scenario != "no_disk":
                 raise SearchError("main-interrupt-attributeは--scenario no_disk専用")
             return main_interrupt_attribute_no_disk(args)
+        if args.mode == "keystroke-shift":
+            if args.scenario != "no_disk":
+                raise SearchError("keystroke-shiftは--scenario no_disk専用")
+            return keystroke_shift_no_disk(args)
         if args.mode == "ready-sweep":
             if args.scenario != "no_disk":
                 raise SearchError("ready-sweepは--scenario no_disk専用")

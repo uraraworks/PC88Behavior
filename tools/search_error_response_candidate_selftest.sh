@@ -100,5 +100,94 @@ if len(diffs) == 1 and candidate_rom0[diffs[0]] == 0 \
 else:
     ng("候補差が即値セル1バイト以外へ波及した")
 
+# m7ls: 打鍵フレームを引数化しても、既定値700のargvは変更前と完全一致する。
+OLD_FIXED_SUFFIX = ["--type-at", "300", "--type", r"\n",
+                    "--type-at", "700", "--type", r"FILES 2\n"]
+if search.keystroke_command_suffix() == OLD_FIXED_SUFFIX:
+    ok("keystroke_command_suffixの既定値argvは変更前の固定argvと完全一致")
+else:
+    ng("keystroke_command_suffixの既定値argvが変更前と食い違う")
+if search.keystroke_command_suffix(780) == \
+        ["--type-at", "300", "--type", r"\n",
+         "--type-at", "780", "--type", r"FILES 2\n"]:
+    ok("keystroke_command_suffixは打鍵フレームを差し替えられる")
+else:
+    ng("keystroke_command_suffixが打鍵フレームを反映しない")
+
+# m7ls: classify_keystroke_shiftの4判定。
+def shift_arm(valid, request_length):
+    return {"valid": valid, "request_length": request_length}
+
+nondet_sides = {
+    "official": {"deterministic": False, "expected_control": 5,
+                "shift_arms": [shift_arm(True, 5)] * 3},
+    "mixed": {"deterministic": True, "expected_control": 6,
+             "shift_arms": [shift_arm(True, 6)] * 3},
+}
+if search.classify_keystroke_shift(nondet_sides) == "nondeterministic":
+    ok("対照の繰り返し不一致をnondeterministicと判定")
+else:
+    ng("対照の繰り返し不一致をnondeterministicと判定できない")
+
+flipped_sides = {
+    "official": {"deterministic": True, "expected_control": 5,
+                "shift_arms": [shift_arm(True, 5), shift_arm(True, 6), shift_arm(True, 5)]},
+    "mixed": {"deterministic": True, "expected_control": 6,
+             "shift_arms": [shift_arm(True, 6)] * 3},
+}
+if search.classify_keystroke_shift(flipped_sides) == "keystroke_timing_affects_branch":
+    ok("有効な腕で要求長が動くとkeystroke_timing_affects_branchと判定")
+else:
+    ng("要求長が動いたのにkeystroke_timing_affects_branchにならない")
+
+excluded_sides = {
+    "official": {"deterministic": True, "expected_control": 5,
+                "shift_arms": [shift_arm(True, 5)] * 3},
+    "mixed": {"deterministic": True, "expected_control": 6,
+             "shift_arms": [shift_arm(True, 6)] * 3},
+}
+if search.classify_keystroke_shift(excluded_sides) == "wait_length_excluded":
+    ok("6腕すべて有効で要求長不変ならwait_length_excludedと判定")
+else:
+    ng("6腕すべて有効・不変なのにwait_length_excludedにならない")
+
+unreached_sides = {
+    "official": {"deterministic": True, "expected_control": 5,
+                "shift_arms": [shift_arm(False, None), shift_arm(True, 5), shift_arm(True, 5)]},
+    "mixed": {"deterministic": True, "expected_control": 6,
+             "shift_arms": [shift_arm(True, 6)] * 3},
+}
+if search.classify_keystroke_shift(unreached_sides) == "inconclusive_ineffective_arms":
+    ok("unreachedな腕が1つでもあるとwait_length_excludedにならない")
+else:
+    ng("unreachedな腕があるのにwait_length_excludedへ落ちる、または誤判定")
+
+# m7ls 陽性対照①: 打鍵フレームをargvへ渡し忘れる故障（腕が常に700で走る）を、
+# 有効性条件(c)（+0開始フレームのずれが打鍵フレーム移動量と対応するか）が
+# 捕まえることを確かめる。files_at=780（期待ずれ+80）なのに実際のずれが
+# 0（=700のまま走った）合成データを与える。
+forgot_shift = search.keystroke_shift_arm_valid(
+    reached=True, exchange_prefix_matches_control=True,
+    start_frame_delta=0, expected_delta=780 - 700,
+    window_count_differs_from_control=True)
+if forgot_shift is False:
+    ok("陽性対照1: 打鍵フレーム渡し忘れ（ずれ0）を条件(c)が無効と判定")
+else:
+    ng("陽性対照1: 打鍵フレーム渡し忘れが無効と判定されない（直す前に赤くならない）")
+
+# m7ls 陽性対照②: 条件(c)の許容幅を無限にする故障で、陽性対照①のケースが
+# 検出されなくなる（=有効と誤判定される）ことを確認し、(c)が検出を担って
+# いることを裏付ける。
+forgot_shift_unbounded_tolerance = search.keystroke_shift_arm_valid(
+    reached=True, exchange_prefix_matches_control=True,
+    start_frame_delta=0, expected_delta=780 - 700,
+    window_count_differs_from_control=True,
+    tolerance=10 ** 9)
+if forgot_shift_unbounded_tolerance is True:
+    ok("陽性対照2: 許容幅を無限にすると陽性対照1の故障が検出されなくなる"
+       "（条件(c)が検出を担っている確認）")
+else:
+    ng("陽性対照2: 許容幅を無限にしても検出されてしまい、(c)の寄与を確認できない")
+
 raise SystemExit(1 if fail else 0)
 PY
