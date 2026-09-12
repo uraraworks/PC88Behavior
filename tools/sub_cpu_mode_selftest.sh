@@ -104,7 +104,7 @@ RET2="$(echo "$LINE_MODE2" | sed -E -n 's/.*returned=([^ ]+).*/\1/p')"
 if [ -n "$REQ2" ] && [ "$REQ2" -ge 1 ] 2>/dev/null && [ "$RET2" = "2" ]; then
   ok "--sub-cpu-mode 2でrequested>=1・returned=2の証跡が出る"
 else
-  ng "--sub-cpu-mode 2の証跡が想定と異なる（requested=$REQ2 returned=$RET2）"
+  ng "--sub-cpu-mode 2の証跡が想定と異なる（requested=$REQ2 returned=${RET2}）"
   overall_rc=1
 fi
 
@@ -119,7 +119,7 @@ RET_NONE="$(echo "$LINE_NONE" | sed -E -n 's/.*returned=([^ ]+).*/\1/p')"
 if [ "$RET_NONE" = "none" ]; then
   ok "--sub-cpu-mode 無指定でreturned=noneの証跡が出る"
 else
-  ng "--sub-cpu-mode 無指定なのにreturned=noneでない（returned=$RET_NONE）"
+  ng "--sub-cpu-mode 無指定なのにreturned=noneでない（returned=${RET_NONE}）"
   overall_rc=1
 fi
 
