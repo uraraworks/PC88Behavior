@@ -212,6 +212,52 @@ def run_context_sha256(exchange: tuple[tuple[str, int], ...], run: int) -> str:
     return digest.hexdigest()
 
 
+def locate_plus0_no_disk(runs: list) -> dict:
+    """m7lt: no_diskの+0を校正ファイルに依存せず構造だけで同定する。
+
+    定義: start_frameが700以上の最初のmain→sub run。駆動方式（モード0/1/2）で
+    run分割が変わりうるため、保存済みcalibrationのaxis番号を使わない。
+    `runs`は`.start_frame`/`.end_frame`/`.direction`/`.length`を持つ要素の列
+    （shape.exchange_runsのShapeRun、または同じ形の合成データ）。
+    """
+    plus0_index = None
+    for i, run in enumerate(runs):
+        if run.start_frame >= 700 and run.direction == "main→sub":
+            plus0_index = i
+            break
+    boot_end_frame = None
+    for run in runs:
+        if run.start_frame < 700:
+            boot_end_frame = run.end_frame
+    if plus0_index is None:
+        return {"exists": False, "index": None, "length": None,
+                "start_frame": None, "runs_before": None,
+                "boot_end_frame": boot_end_frame}
+    return {"exists": True, "index": plus0_index,
+            "length": runs[plus0_index].length,
+            "start_frame": runs[plus0_index].start_frame,
+            "runs_before": plus0_index,
+            "boot_end_frame": boot_end_frame}
+
+
+def io_log_full_sha256(path: Path) -> str:
+    """I/Oログ全体の指紋。値を含む生ログのハッシュだが、外へ出すのはハッシュだけ。"""
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def prefix_agreement_count(off_exchange: tuple, off_index: int | None,
+                           mix_exchange: tuple, mix_index: int | None) -> int | None:
+    """記述用: +0より前の(方向,長さ)列が公式・混成で先頭から何本一致するか。"""
+    if off_index is None or mix_index is None:
+        return None
+    limit = min(off_index, mix_index)
+    return common_prefix(off_exchange[:limit], mix_exchange[:limit])
+
+
 def no_disk_target_specs(calibration: dict) -> dict[str, dict]:
     """校正軸の-3/-1だけを、方向・長さ・文脈指紋付きで同定する。"""
     exchange = result_from_json(calibration["legacy_mixed"]).exchange
@@ -407,6 +453,9 @@ READY_HANDOFF_LINE_RE = re.compile(
     r"応答準備handoff介入 run=(\d+) mode=(\d+) action=(\d+) "
     r"matched=(\d+) count=(\d+)"
 )
+SUB_CPU_MODE_LINE_RE = re.compile(
+    r"q88h: core_option q88_sub_cpu_mode requested=(\d+) returned=(\S+)"
+)
 EARLY_RESPONSE_TRAP_MAP_RE = re.compile(
     r"^sub +([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})$"
 )
@@ -455,6 +504,26 @@ def response_ready_handoff_receipt(iolog: Path) -> dict[str, int] | None:
             if match:
                 keys = ("run", "mode", "action", "matched", "count")
                 found = dict(zip(keys, map(int, match.groups())))
+    return found
+
+
+def sub_cpu_mode_receipt(iolog: Path) -> dict[str, int | str | None] | None:
+    """m7lt: フロントエンドが出すcore_option証跡（requested回数／returned値）。
+
+    stderrに複数回出ても（リトライ等）最後の1行を採る。フロントエンドが
+    行を出さなければNone（=証跡が無い）を返す。
+    """
+    path = iolog.with_suffix(".stderr.txt")
+    if not path.is_file():
+        return None
+    found = None
+    with path.open("r", encoding="utf-8", errors="strict") as fp:
+        for line in fp:
+            match = SUB_CPU_MODE_LINE_RE.search(line)
+            if match:
+                requested_s, returned_s = match.groups()
+                found = {"requested": int(requested_s),
+                        "returned": None if returned_s == "none" else returned_s}
     return found
 
 
@@ -553,6 +622,11 @@ def keystroke_command_suffix(files_type_at: int = 700) -> list[str]:
     """
     return ["--type-at", "300", "--type", r"\n",
             "--type-at", str(files_type_at), "--type", r"FILES 2\n"]
+
+
+def sub_cpu_mode_command_suffix(sub_cpu_mode: str | None) -> list[str]:
+    """m7lt: --sub-cpu-modeのargv断片。Noneのときは空（=既定argvを変えない）。"""
+    return [] if sub_cpu_mode is None else ["--sub-cpu-mode", sub_cpu_mode]
 
 
 def run_frontend(command: list[str], iolog: Path, timeout: int) -> dict[int, tuple[int, int, int, int]]:
@@ -689,6 +763,7 @@ def calibration_measure(args: argparse.Namespace, official: bool,
                         fast_no_disk_response_ready: bool = False,
                         early_response_after: int | None = None,
                         files_type_at: int = 700,
+                        sub_cpu_mode: str | None = None,
                         ) -> tuple[AbstractResult, Path, Path, Path, Path | None]:
     """関門用に生ログを一時保持するmeasure_once相当。"""
     run_dir = args.state_dir / "runs" / tag
@@ -737,6 +812,7 @@ def calibration_measure(args: argparse.Namespace, official: bool,
     if early_response_trap_map is not None:
         command += ["--trap-map", str(early_response_trap_map),
                     "--trap-mode", "ret"]
+    command += sub_cpu_mode_command_suffix(sub_cpu_mode)
     try:
         run_frontend(command, iolog, args.timeout)
         if intlog is not None and not intlog.is_file():
@@ -2256,6 +2332,206 @@ def keystroke_shift_no_disk(args: argparse.Namespace) -> int:
     return 0
 
 
+CPU_MODE_SCREEN_CONDITIONS = ("none", "m0", "m0_repeat", "m1", "m1_repeat", "m2", "m2_repeat")
+CPU_MODE_SCREEN_ARG = {
+    "none": None, "m0": "0", "m0_repeat": "0",
+    "m1": "1", "m1_repeat": "1", "m2": "2", "m2_repeat": "2",
+}
+# 決定論性(G1)・有効性(G2)をこの3モードについてだけ確かめる（noneはm0との
+# 同一性(G0)にだけ使う。repeatを持たないためG1の対象にもならない）。
+CPU_MODE_SCREEN_MODES = ("m0", "m1", "m2")
+
+
+def cpu_mode_screen_reached_ok(plus0_exists: bool, boot_end_frame: int | None) -> bool:
+    """G3: +0が存在し、起動終わりフレームがframe 700未満（打鍵より前に起動完了）。"""
+    return bool(plus0_exists) and boot_end_frame is not None and boot_end_frame < 700
+
+
+def cpu_mode_screen_deterministic(base: dict, repeat: dict) -> bool:
+    """G1: 同じ(側,モード)の本体とrepeatで、I/Oログ指紋・+0の有無・要求長が一致。"""
+    return (base["io_fingerprint"] == repeat["io_fingerprint"]
+            and base["plus0_exists"] == repeat["plus0_exists"]
+            and base["plus0_length"] == repeat["plus0_length"])
+
+
+def cpu_mode_screen_effective(row: dict, expected_mode: str, baseline_fingerprint: str) -> bool:
+    """G2: m1/m2の各走で、core_option証跡が指定値どおりに立ち、I/Oログ指紋が
+    同じ側のm0と異なる（＝駆動方式の変更が実際にコアへ届いている）。"""
+    receipt = row["core_option"]
+    if receipt is None or receipt["requested"] < 1 or receipt["returned"] != expected_mode:
+        return False
+    return row["io_fingerprint"] != baseline_fingerprint
+
+
+def classify_cpu_mode_screen(sides: dict[str, dict]) -> str:
+    """m7lt: no_diskの5対6が駆動方式（モード0/1/2）を変えても残るかの4→5判定（純関数）。
+
+    sides = {side: {
+        "g0_identity_ok": bool,             # G0: 同じ側でnoneとm0のI/Oログ指紋が一致
+        "none_reached_ok": bool,            # G3（noneの走）
+        "groups": {
+            "m0": {"reached_ok": bool, "deterministic": bool},
+            "m1": {"reached_ok": bool, "deterministic": bool,
+                  "effective": bool, "plus0_length": int | None},
+            "m2": {"reached_ok": bool, "deterministic": bool,
+                  "effective": bool, "plus0_length": int | None},
+        },
+    }}
+    判定はこの順: gate_failed → nondeterministic → inconclusive_ineffective_arms
+    → split_persists → split_changes。
+    """
+    if not all(info["g0_identity_ok"] for info in sides.values()):
+        return "gate_failed"
+    if any(not info["groups"]["m0"]["deterministic"]
+          or not info["groups"]["m1"]["deterministic"]
+          or not info["groups"]["m2"]["deterministic"]
+          for info in sides.values()):
+        return "nondeterministic"
+    all_reached = all(
+        info["none_reached_ok"]
+        and all(g["reached_ok"] for g in info["groups"].values())
+        for info in sides.values())
+    all_effective = all(
+        info["groups"]["m1"]["effective"] and info["groups"]["m2"]["effective"]
+        for info in sides.values())
+    if not (all_reached and all_effective):
+        return "inconclusive_ineffective_arms"
+    off = sides["official"]["groups"]
+    mix = sides["mixed"]["groups"]
+    if (off["m1"]["plus0_length"] == 5 and off["m2"]["plus0_length"] == 5
+            and mix["m1"]["plus0_length"] == 6 and mix["m2"]["plus0_length"] == 6):
+        return "split_persists"
+    return "split_changes"
+
+
+def cpu_mode_screen_no_disk(args: argparse.Namespace) -> int:
+    """m7lt: no_diskの起動時交換の駆動方式（サブCPU方式モード0/1/2）を変えても
+    +0のmain→sub要求長（公式5・混成6）が残るかを見る。
+
+    +0は校正ファイルのaxisを使わず、構造だけで同定する
+    （`locate_plus0_no_disk`: start_frameが700以上の最初のmain→sub run）。
+    駆動方式でrun分割が変わりうるため。値・画面本文・FDC生値・交換値は
+    保存しない（件数・長さ・一致・指紋・フレーム番号だけ）。
+    """
+    prepare_args(args)
+    if args.scenario != "no_disk":
+        raise SearchError("cpu-mode-screenは--scenario no_disk専用")
+    output = args.state_dir / "cpu-mode-screen.json"
+    if output.exists():
+        raise SearchError("cpu-mode-screen出力が既にあるため上書きしない")
+    rows: dict[tuple[str, str], dict] = {}
+    paths: list[Path] = []
+    try:
+        for side, official in (("official", True), ("mixed", False)):
+            for cond in CPU_MODE_SCREEN_CONDITIONS:
+                actual, run_dir, iolog, report, _intlog = calibration_measure(
+                    args, official, f"cpu-mode-{side}-{cond}",
+                    sub_cpu_mode=CPU_MODE_SCREEN_ARG[cond])
+                paths.append(run_dir)
+                runs = shape.exchange_runs(iolog)
+                plus0 = locate_plus0_no_disk(runs)
+                prefix_fp = (run_context_sha256(actual.exchange, plus0["index"])[:12]
+                            if plus0["exists"] else None)
+                rows[(side, cond)] = {
+                    "side": side, "condition": cond,
+                    "sub_cpu_mode_arg": CPU_MODE_SCREEN_ARG[cond],
+                    "plus0_exists": plus0["exists"],
+                    "plus0_length": plus0["length"],
+                    "plus0_start_frame": plus0["start_frame"],
+                    "runs_before_plus0": plus0["runs_before"],
+                    "boot_end_frame": plus0["boot_end_frame"],
+                    "prefix_fingerprint": prefix_fp,
+                    "io_fingerprint": io_log_full_sha256(iolog),
+                    "core_option": sub_cpu_mode_receipt(iolog),
+                    "metric_source_sha256": metric_source_sha256(iolog, report),
+                    "_exchange": actual.exchange,
+                }
+                # 一走ごとに生ログを消す。値・画面本文を含み得る作業ディレクトリを
+                # 14走ぶん溜めない。
+                shutil.rmtree(run_dir, ignore_errors=True)
+                paths.pop()
+    finally:
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+    sides: dict[str, dict] = {}
+    for side in ("official", "mixed"):
+        none_row = rows[(side, "none")]
+        groups = {}
+        for mode in CPU_MODE_SCREEN_MODES:
+            base = rows[(side, mode)]
+            repeat = rows[(side, f"{mode}_repeat")]
+            group = {
+                "reached_ok": (cpu_mode_screen_reached_ok(base["plus0_exists"], base["boot_end_frame"])
+                              and cpu_mode_screen_reached_ok(repeat["plus0_exists"], repeat["boot_end_frame"])),
+                "deterministic": cpu_mode_screen_deterministic(base, repeat),
+                "plus0_length": base["plus0_length"],
+            }
+            groups[mode] = group
+        m0_fingerprint = rows[(side, "m0")]["io_fingerprint"]
+        for mode in ("m1", "m2"):
+            base = rows[(side, mode)]
+            repeat = rows[(side, f"{mode}_repeat")]
+            groups[mode]["effective"] = (
+                cpu_mode_screen_effective(base, CPU_MODE_SCREEN_ARG[mode], m0_fingerprint)
+                and cpu_mode_screen_effective(repeat, CPU_MODE_SCREEN_ARG[mode], m0_fingerprint))
+        sides[side] = {
+            "g0_identity_ok": none_row["io_fingerprint"] == rows[(side, "m0")]["io_fingerprint"],
+            "none_reached_ok": cpu_mode_screen_reached_ok(
+                none_row["plus0_exists"], none_row["boot_end_frame"]),
+            "groups": groups,
+        }
+    result = classify_cpu_mode_screen(sides)
+
+    descriptive = {}
+    for mode in ("none",) + CPU_MODE_SCREEN_MODES:
+        off = rows[("official", mode)]
+        mix = rows[("mixed", mode)]
+        descriptive[mode] = {
+            "prefix_agreement_count": prefix_agreement_count(
+                off["_exchange"], off["runs_before_plus0"],
+                mix["_exchange"], mix["runs_before_plus0"]),
+            "plus0_start_frame_delta_mixed_minus_official": (
+                mix["plus0_start_frame"] - off["plus0_start_frame"]
+                if off["plus0_start_frame"] is not None and mix["plus0_start_frame"] is not None
+                else None),
+        }
+
+    def public_row(row: dict) -> dict:
+        return {k: v for k, v in row.items() if k != "_exchange"}
+
+    output.write_text(json.dumps({
+        "version": 1, "scenario": "no_disk", "result": result,
+        "conditions": CPU_MODE_SCREEN_CONDITIONS,
+        "sides": sides,
+        "descriptive": descriptive,
+        "rows": {f"{side}/{cond}": public_row(row) for (side, cond), row in rows.items()},
+        "interpretation_limit": (
+            "エミュレータ上の振る舞いである。モード1/2も実機の並行動作の近似に"
+            "すぎない（どれが実機に近いかは本稿では決めない）。公式mainが要求長を"
+            "何で決めているかは言わない。"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    for (side, cond), row in rows.items():
+        print(f"side={side} cond={cond} sub_cpu_mode_arg={row['sub_cpu_mode_arg']} "
+              f"plus0_exists={int(row['plus0_exists'])} "
+              f"plus0_length={row['plus0_length']} "
+              f"plus0_start_frame={row['plus0_start_frame']} "
+              f"runs_before_plus0={row['runs_before_plus0']} "
+              f"boot_end_frame={row['boot_end_frame']} "
+              f"prefix_fingerprint={row['prefix_fingerprint']} "
+              f"io_fingerprint={row['io_fingerprint'][:12]} "
+              f"core_option={row['core_option']} "
+              f"metric_source={row['metric_source_sha256'][:12]}")
+    for side, info in sides.items():
+        print(f"verdict {side}: g0_identity_ok={info['g0_identity_ok']} "
+              f"none_reached_ok={info['none_reached_ok']} groups={info['groups']}")
+    print(f"result={result}")
+    print("注: モード1/2も実機の並行動作の近似にすぎない。"
+          "公式mainが要求長を何で決めているかは言わない。")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("calibrate", "attribute", "timing",
@@ -2265,7 +2541,7 @@ def main() -> int:
                                          "ready-sweep", "ready-handoff-probe",
                                          "ready-rom-probe",
                                          "early-response-sweep",
-                                         "branch-order",
+                                         "branch-order", "cpu-mode-screen",
                                          "probe256", "search"))
     parser.add_argument("--scenario", choices=("unreadable_disk", "no_disk"),
                         default="unreadable_disk")
@@ -2327,6 +2603,10 @@ def main() -> int:
             if args.scenario != "no_disk":
                 raise SearchError("branch-orderは--scenario no_disk専用")
             return branch_order_no_disk(args)
+        if args.mode == "cpu-mode-screen":
+            if args.scenario != "no_disk":
+                raise SearchError("cpu-mode-screenは--scenario no_disk専用")
+            return cpu_mode_screen_no_disk(args)
         if args.mode == "probe256":
             if args.scenario != "no_disk":
                 raise SearchError("probe256は--scenario no_disk専用")

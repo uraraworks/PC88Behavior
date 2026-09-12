@@ -160,6 +160,12 @@ static keyev_t  g_keyev[MAX_KEYSTROKES];
 static int      g_n_keyev = 0;
 static unsigned g_frame   = 0;
 static const char *g_basic_mode = NULL;
+/* q88_sub_cpu_mode: 未指定時は変更前と完全に同じ挙動（NULLを返す）にするため、
+ * 明示指定があったときだけ g_sub_cpu_mode_set を立てる。requested はコアが
+ * このキーを問い合わせた回数を無条件に数える（無指定でも数える）。 */
+static char g_sub_cpu_mode[4]     = { 0 };
+static bool g_sub_cpu_mode_set    = false;
+static unsigned g_sub_cpu_mode_requested = 0;
 
 /* PC-88 のキーボードで SHIFT が要る文字と、その土台になるキー。
  *
@@ -268,6 +274,15 @@ static bool environment_cb(unsigned cmd, void *data)
                     "q88_save_to_disk_image")) {
             ((struct retro_variable *)data)->value = "enabled";
             return true;
+        }
+        if (!strcmp(((struct retro_variable *)data)->key, "q88_sub_cpu_mode")) {
+            g_sub_cpu_mode_requested++;
+            if (g_sub_cpu_mode_set) {
+                ((struct retro_variable *)data)->value = g_sub_cpu_mode;
+                return true;
+            }
+            ((struct retro_variable *)data)->value = NULL;  /* 既定値を使わせる */
+            return false;
         }
         ((struct retro_variable *)data)->value = NULL;  /* 既定値を使わせる */
         return false;
@@ -892,6 +907,7 @@ static void usage(void)
         "                   [--response-ready-handoff RUN:MODE] (now|defer-once)\n"
         "                   [--sub-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--main-interrupt-intervention FIRST:LAST:MODE]\n"
+        "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n");
 }
@@ -951,6 +967,16 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--basic-mode") && i + 1 < argc) g_basic_mode = argv[++i];
         else if (!strcmp(argv[i], "--save-to-disk-image")) g_save_to_disk_image = true;
+        else if (!strcmp(argv[i], "--sub-cpu-mode") && i + 1 < argc) {
+            const char *v = argv[++i];
+            if (strlen(v) != 1 || v[0] < '0' || v[0] > '2') {
+                fprintf(stderr, "[q88measure] --sub-cpu-mode は 0/1/2\n");
+                return 2;
+            }
+            g_sub_cpu_mode[0] = v[0];
+            g_sub_cpu_mode[1] = '\0';
+            g_sub_cpu_mode_set = true;
+        }
         else if (!strcmp(argv[i], "--rom-dir") && i + 1 < argc)
             snprintf(g_rom_dir, sizeof(g_rom_dir), "%s", argv[++i]);
         /* --type-at で打ち始めるフレームを決め、--type で打つ。
@@ -1672,6 +1698,10 @@ int main(int argc, char **argv)
                 failed = 1;
             }
         }
+
+        fprintf(stderr, "q88h: core_option q88_sub_cpu_mode requested=%u returned=%s\n",
+                g_sub_cpu_mode_requested,
+                g_sub_cpu_mode_set ? g_sub_cpu_mode : "none");
 
         p_unload_game();
         p_deinit();

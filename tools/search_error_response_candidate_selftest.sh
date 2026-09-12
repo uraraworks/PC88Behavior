@@ -189,5 +189,135 @@ if forgot_shift_unbounded_tolerance is True:
 else:
     ng("陽性対照2: 許容幅を無限にしても検出されてしまい、(c)の寄与を確認できない")
 
+# m7lt: --sub-cpu-mode未指定時のargvは変更前と完全に同じ（空断片）。
+if search.sub_cpu_mode_command_suffix(None) == []:
+    ok("sub_cpu_mode_command_suffix(None)は空でargvを変えない")
+else:
+    ng("sub_cpu_mode_command_suffix(None)が空でない")
+if search.sub_cpu_mode_command_suffix("2") == ["--sub-cpu-mode", "2"]:
+    ok("sub_cpu_mode_command_suffixが指定値をargvへ反映する")
+else:
+    ng("sub_cpu_mode_command_suffixが指定値を反映しない")
+
+# m7lt: no_diskの+0を校正ファイルのaxisに依らず構造だけで同定する
+# （locate_plus0_no_disk: start_frameが700以上の最初のmain→sub run）。
+class FakeRun:
+    def __init__(self, direction, length, start_frame, end_frame):
+        self.direction, self.length = direction, length
+        self.start_frame, self.end_frame = start_frame, end_frame
+
+plus0_runs = [
+    FakeRun("main→sub", 8, 10, 20),
+    FakeRun("sub→main", 256, 650, 690),
+    FakeRun("main→sub", 5, 759, 770),
+]
+found = search.locate_plus0_no_disk(plus0_runs)
+if found == {"exists": True, "index": 2, "length": 5, "start_frame": 759,
+            "runs_before": 2, "boot_end_frame": 690}:
+    ok("locate_plus0_no_diskがstart_frame>=700の最初のmain→sub runを+0として同定")
+else:
+    ng(f"locate_plus0_no_diskの+0同定が不正: {found}")
+
+unreached_runs = [FakeRun("main→sub", 8, 10, 20)]
+found_unreached = search.locate_plus0_no_disk(unreached_runs)
+if found_unreached["exists"] is False and found_unreached["boot_end_frame"] == 20:
+    ok("locate_plus0_no_diskは+0未到達をexists=Falseで表す")
+else:
+    ng(f"locate_plus0_no_diskの未到達表現が不正: {found_unreached}")
+
+# m7lt: classify_cpu_mode_screenの5判定。
+def cpu_mode_side(g0=True, none_ok=True,
+                  m0_ok=True, m0_det=True,
+                  m1_ok=True, m1_det=True, m1_eff=True, m1_len=5,
+                  m2_ok=True, m2_det=True, m2_eff=True, m2_len=5):
+    return {
+        "g0_identity_ok": g0,
+        "none_reached_ok": none_ok,
+        "groups": {
+            "m0": {"reached_ok": m0_ok, "deterministic": m0_det},
+            "m1": {"reached_ok": m1_ok, "deterministic": m1_det,
+                  "effective": m1_eff, "plus0_length": m1_len},
+            "m2": {"reached_ok": m2_ok, "deterministic": m2_det,
+                  "effective": m2_eff, "plus0_length": m2_len},
+        },
+    }
+
+gate_failed_sides = {"official": cpu_mode_side(g0=False), "mixed": cpu_mode_side()}
+if search.classify_cpu_mode_screen(gate_failed_sides) == "gate_failed":
+    ok("G0不成立（noneとm0の指紋不一致）をgate_failedと判定")
+else:
+    ng("G0不成立をgate_failedと判定できない")
+
+nondet_cpu_sides = {"official": cpu_mode_side(m1_det=False), "mixed": cpu_mode_side()}
+if search.classify_cpu_mode_screen(nondet_cpu_sides) == "nondeterministic":
+    ok("G1不成立（本体とrepeatの不一致）をnondeterministicと判定")
+else:
+    ng("G1不成立をnondeterministicと判定できない")
+
+ineffective_sides = {"official": cpu_mode_side(m2_eff=False), "mixed": cpu_mode_side()}
+if search.classify_cpu_mode_screen(ineffective_sides) == "inconclusive_ineffective_arms":
+    ok("G2不成立（m2が効いていない）をinconclusive_ineffective_armsと判定")
+else:
+    ng("G2不成立をinconclusive_ineffective_armsと判定できない")
+
+unreached_cpu_sides = {"official": cpu_mode_side(none_ok=False), "mixed": cpu_mode_side()}
+if search.classify_cpu_mode_screen(unreached_cpu_sides) == "inconclusive_ineffective_arms":
+    ok("G3不成立（noneが起動終わり700未満に届かない）をinconclusive_ineffective_armsと判定")
+else:
+    ng("G3不成立をinconclusive_ineffective_armsと判定できない")
+
+split_persists_sides = {
+    "official": cpu_mode_side(m1_len=5, m2_len=5),
+    "mixed": cpu_mode_side(m1_len=6, m2_len=6),
+}
+if search.classify_cpu_mode_screen(split_persists_sides) == "split_persists":
+    ok("全関門通過・公式5/混成6の維持をsplit_persistsと判定")
+else:
+    ng("全関門通過・公式5/混成6の維持がsplit_persistsにならない")
+
+split_changes_sides = {
+    "official": cpu_mode_side(m1_len=5, m2_len=6),
+    "mixed": cpu_mode_side(m1_len=6, m2_len=6),
+}
+if search.classify_cpu_mode_screen(split_changes_sides) == "split_changes":
+    ok("モードで要求長が動く／5対6以外になるケースをsplit_changesと判定")
+else:
+    ng("要求長が動くケースがsplit_changesにならない")
+
+# m7lt 陽性対照①: フロントエンドが値を返し忘れる故障
+# （requestedは数えるがreturned=none）を、G2（cpu_mode_screen_effective）が
+# ineffectiveと判定することを確認する。
+forgot_return_row = {"core_option": {"requested": 3, "returned": None},
+                     "io_fingerprint": "differs-from-m0"}
+forgot_return_effective = search.cpu_mode_screen_effective(
+    forgot_return_row, "2", "m0-fingerprint")
+if forgot_return_effective is False:
+    ok("陽性対照1: 値を返し忘れる故障（returned=None）をG2がineffectiveと判定")
+else:
+    ng("陽性対照1: 値を返し忘れる故障がineffectiveと判定されない（直す前に赤くならない）")
+
+# m7lt 陽性対照②: G2の「m0と指紋が異なる」条件を外す故障
+# （＝値は返したが実際には効いていない場合）を、故障版の判定関数で再現し、
+# 「有効」に化けることを確認する。これにより、その条件が検出を担っていることを
+# 裏付ける（フロントエンド側の故障ではなく判定関数自体の陽性対照）。
+def cpu_mode_screen_effective_without_fingerprint_check(row, expected_mode):
+    receipt = row["core_option"]
+    if receipt is None or receipt["requested"] < 1 or receipt["returned"] != expected_mode:
+        return False
+    return True  # 指紋比較を外した故障版
+
+ineffective_but_returned_row = {"core_option": {"requested": 1, "returned": "2"},
+                                "io_fingerprint": "same-as-m0"}
+real_g2 = search.cpu_mode_screen_effective(
+    ineffective_but_returned_row, "2", "same-as-m0")
+faulty_g2 = cpu_mode_screen_effective_without_fingerprint_check(
+    ineffective_but_returned_row, "2")
+if real_g2 is False and faulty_g2 is True:
+    ok("陽性対照2: 指紋比較を外すと『値は返したが効かなかった』組が有効に化ける"
+       "（その条件が検出を担っている確認）")
+else:
+    ng("陽性対照2: 指紋比較の寄与を確認できない"
+       f"（real_g2={real_g2}, faulty_g2={faulty_g2}）")
+
 raise SystemExit(1 if fail else 0)
 PY
