@@ -32,6 +32,89 @@ Z80TEXT = HERE / "z80text.py"
 
 MAIN_PREFIXES = {0xCB, 0xDD, 0xED, 0xFD}
 
+# --- 網羅の期待集合（Zilog の文書化命令の数え上げ。根拠は docs/notes/
+#     l4-asm-oracle.md の「追記（2026-09-15）」節に対応表を記載） -------
+#
+# 数え方は「外部アセンブラの出力バイト列」の側から求める（自作の表を
+# 使わない＝circular にしない）。ここに書く期待集合は Zilog のニーモニック
+# 表からの手計算で、コーパス生成器（gen_z80_corpus.py）とは独立に作った。
+
+# 主命令ページ: 0x00-0xFF から4種の前置きバイトを除いた 252 種。
+EXPECT_MAIN = set(range(0x100)) - MAIN_PREFIXES
+
+# CB xx: 0x00-0xFF から SLL 相当（0x30-0x37, 未文書化）8種を除いた 248 種。
+EXPECT_CB = set(range(0x100)) - set(range(0x30, 0x38))
+
+# ED xx: 56 種。
+#   IN r,(C)  7種: 40,48,50,58,60,68,78 （(HL)=70 は未文書化 IN F,(C) なので除く）
+#   OUT (C),r 7種: 41,49,51,59,61,69,79
+#   SBC HL,ss 4種: 42,52,62,72
+#   ADC HL,ss 4種: 4A,5A,6A,7A
+#   LD (nn),dd（ED形。BC/DE/SP。HLは主ページの短い形になるため無し）3種: 43,53,73
+#   LD dd,(nn)（同上）                                              3種: 4B,5B,7B
+#   NEG  1種: 44   RETN 1種: 45   RETI 1種: 4D
+#   IM 0/1/2 3種: 46,56,5E
+#   LD I,A/LD R,A/LD A,I/LD A,R 4種: 47,4F,57,5F
+#   RRD/RLD 2種: 67,6F
+#   ブロック転送・探索・入出力 16種: A0,A1,A2,A3,A8,A9,AA,AB,B0,B1,B2,B3,B8,B9,BA,BB
+# 合計 7+7+4+4+3+3+1+1+1+3+4+2+16 = 56
+EXPECT_ED = {
+    0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x78,
+    0x41, 0x49, 0x51, 0x59, 0x61, 0x69, 0x79,
+    0x42, 0x52, 0x62, 0x72,
+    0x4A, 0x5A, 0x6A, 0x7A,
+    0x43, 0x53, 0x73,
+    0x4B, 0x5B, 0x7B,
+    0x44, 0x45, 0x4D,
+    0x46, 0x56, 0x5E,
+    0x47, 0x4F, 0x57, 0x5F,
+    0x67, 0x6F,
+    0xA0, 0xA1, 0xA2, 0xA3, 0xA8, 0xA9, 0xAA, 0xAB,
+    0xB0, 0xB1, 0xB2, 0xB3, 0xB8, 0xB9, 0xBA, 0xBB,
+}
+assert len(EXPECT_ED) == 56, len(EXPECT_ED)
+
+# DD xx（非CB）・FD xx（非CB）: 各39種。IY 側も同じバイト値集合（前置きが
+# DD→FD に変わるだけでオペコード本体は同じ）。
+#   ADD IX,ss      4種: 09,19,29,39
+#   LD IX,nn / LD (nn),IX / LD IX,(nn)  3種: 21,22,2A
+#   INC IX / DEC IX                     2種: 23,2B
+#   INC (IX+d) / DEC (IX+d) / LD (IX+d),n  3種: 34,35,36
+#   LD r,(IX+d)  7種: 46,4E,56,5E,66,6E,7E
+#   LD (IX+d),r  7種: 70,71,72,73,74,75,77
+#   ALU (IX+d)   8種: 86,8E,96,9E,A6,AE,B6,BE
+#   PUSH IX/POP IX/EX (SP),IX/JP (IX)/LD SP,IX  5種: E1,E3,E5,E9,F9
+# 合計 4+3+2+3+7+7+8+5 = 39
+EXPECT_DDFD = {
+    0x09, 0x19, 0x29, 0x39,
+    0x21, 0x22, 0x2A,
+    0x23, 0x2B,
+    0x34, 0x35, 0x36,
+    0x46, 0x4E, 0x56, 0x5E, 0x66, 0x6E, 0x7E,
+    0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x77,
+    0x86, 0x8E, 0x96, 0x9E, 0xA6, 0xAE, 0xB6, 0xBE,
+    0xE1, 0xE3, 0xE5, 0xE9, 0xF9,
+}
+assert len(EXPECT_DDFD) == 39, len(EXPECT_DDFD)
+
+# DD CB d xx / FD CB d xx: 各31種（SLLに当たる0x36は除く。回転7種＋
+# BIT/RES/SET各8種の「(HL)相当」オペコード。前置きに依らずCBページの
+# バイト値そのもの）。
+#   回転（RLC/RRC/RL/RR/SLA/SRA/SRL）7種: 06,0E,16,1E,26,2E,3E
+#   （0x30-0x37 は SLL、(HL)相当は 0x36。未文書化なので除く。
+#    SRL の (HL)相当は 0x38+6=0x3E）
+#   BIT b,(HL)相当 8種: 46,4E,56,5E,66,6E,76,7E
+#   RES b,(HL)相当 8種: 86,8E,96,9E,A6,AE,B6,BE
+#   SET b,(HL)相当 8種: C6,CE,D6,DE,E6,EE,F6,FE
+# 合計 7+8+8+8 = 31
+EXPECT_DDFDCB = {
+    0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E,
+    0x46, 0x4E, 0x56, 0x5E, 0x66, 0x6E, 0x76, 0x7E,
+    0x86, 0x8E, 0x96, 0x9E, 0xA6, 0xAE, 0xB6, 0xBE,
+    0xC6, 0xCE, 0xD6, 0xDE, 0xE6, 0xEE, 0xF6, 0xFE,
+}
+assert len(EXPECT_DDFDCB) == 31, len(EXPECT_DDFDCB)
+
 
 def die_skip(msg):
     print("=" * 70)
@@ -84,6 +167,21 @@ def split_chunks(data, rows):
     return chunks
 
 
+def _check_category(label, actual, expect):
+    """actual/expect はバイト値の集合。一致すれば True、ずれれば欠け／余分を表示して False。"""
+    if actual == expect:
+        print(f"  {label}: {len(actual)} / {len(expect)} 一致 OK")
+        return True
+    missing = sorted(expect - actual)
+    extra = sorted(actual - expect)
+    print(f"  {label}: {len(actual)} / {len(expect)} 不一致 NG")
+    if missing:
+        print(f"    欠けているバイト値: {[hex(x) for x in missing]}")
+    if extra:
+        print(f"    余分なバイト値: {[hex(x) for x in extra]}")
+    return False
+
+
 def coverage_report(chunks, rows, label):
     main_first = set()
     cb_second = set()
@@ -117,14 +215,14 @@ def coverage_report(chunks, rows, label):
             elif len(c) >= 2:
                 fd_second.add(c[1])
     print(f"--- 網羅（{label}）---")
-    print(f"主命令ページ 先頭バイト種類数: {len(main_first)} / 252")
-    print(f"CB xx 種類数: {len(cb_second)} / 248")
-    print(f"ED xx 種類数: {len(ed_second)}")
-    print(f"DD xx（非CB）種類数: {len(dd_second)}")
-    print(f"FD xx（非CB）種類数: {len(fd_second)}")
-    print(f"DD CB d xx 末尾バイト種類数: {len(ddcb_last)}")
-    print(f"FD CB d xx 末尾バイト種類数: {len(fdcb_last)}")
-    ok = len(main_first) == 252 and len(cb_second) == 248
+    ok = True
+    ok &= _check_category("主命令ページ 先頭バイト", main_first, EXPECT_MAIN)
+    ok &= _check_category("CB xx", cb_second, EXPECT_CB)
+    ok &= _check_category("ED xx", ed_second, EXPECT_ED)
+    ok &= _check_category("DD xx（非CB）", dd_second, EXPECT_DDFD)
+    ok &= _check_category("FD xx（非CB）", fd_second, EXPECT_DDFD)
+    ok &= _check_category("DD CB d xx 末尾バイト", ddcb_last, EXPECT_DDFDCB)
+    ok &= _check_category("FD CB d xx 末尾バイト", fdcb_last, EXPECT_DDFDCB)
     return ok
 
 

@@ -17,7 +17,9 @@ IN F,(C)/OUT (C),0 等）は入れない。
 """
 
 import argparse
+import os
 import pathlib
+import sys
 
 R8 = ["B", "C", "D", "E", "H", "L", "(HL)", "A"]
 RP = ["BC", "DE", "HL", "SP"]
@@ -213,6 +215,13 @@ for m in ["LDI", "LDD", "LDIR", "LDDR",
           "INI", "IND", "INIR", "INDR",
           "OUTI", "OUTD", "OTIR", "OTDR"]:
     emit(m, 2, "ed:block")
+# LD I,A / LD R,A / LD A,I / LD A,R
+# 2026-09-15: ED 系が 52 種しか無かった。Zilog の文書化命令は 56 種のはずで、
+# この4命令がまるごと抜けていた（下記コメントの数え上げ参照）。
+emit("LD I,A", 2, "ed:ld_ir_a")
+emit("LD R,A", 2, "ed:ld_ir_a")
+emit("LD A,I", 2, "ed:ld_a_ir")
+emit("LD A,R", 2, "ed:ld_a_ir")
 
 # --- DD/FD ページ（IX/IY、文書化分） ------------------------------------
 
@@ -258,6 +267,20 @@ def main():
     ap.add_argument("-o", "--output", required=True, help="出力 .asm")
     ap.add_argument("-m", "--manifest", required=True, help="出力 manifest (TSV)")
     args = ap.parse_args()
+
+    # 陽性対照専用: コーパスから1命令をまるごと除く故障注入。
+    # 環境変数 Z80_CORPUS_OMIT_TEXT に命令テキスト（完全一致、例 "LD I,A"）を
+    # 渡すと、その行を生成しない。oracle_crosscheck.py の網羅検査が
+    # NG になることを確認する目的専用。既定では何も除かない。
+    omit_text = os.environ.get("Z80_CORPUS_OMIT_TEXT")
+    global rows
+    if omit_text:
+        before = len(rows)
+        rows = [r for r in rows if r[0] != omit_text]
+        removed = before - len(rows)
+        print(f"[故障注入] 除外: {omit_text!r} ({removed}件)", file=sys.stderr)
+        if removed == 0:
+            print(f"[故障注入] 警告: {omit_text!r} に一致する行が無かった", file=sys.stderr)
 
     asm_lines = ["    ORG 0x0000"]
     manifest_lines = ["index\ttext\texpect_len\ttag"]
