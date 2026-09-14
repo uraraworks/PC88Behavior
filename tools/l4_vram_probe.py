@@ -56,6 +56,29 @@
                          明記する。指定しなければ従来どおり(全行を通常の
                          差分として扱う)。
 
+追加A（M7 段階1の器具その5。l4-s1e Q1向け。単独の写しから属性域のみ）:
+  --attr-only-rows ROWS （--vram-dump と併用。ROWSは0始まりカンマ区切り
+      または 'all'）
+                         指定した行(省略なら全行)の属性域40バイトを、
+                         文字域には一切触れずにそのまま行ごとに列挙する。
+                         目印の検出やmarker_row_attrsとは独立した経路
+                         (char_rows()を呼ばない)。
+
+  出してよいもの（これ以外は出さない）:
+    1. 指定行の属性域40バイト(16進、行ごと)
+
+追加B（M7 段階1の器具その6。l4-s1e Q3向け。単独の写しから非空白セルの
+    件数と位置範囲だけ）:
+  --nonblank-summary-rows ROWS （--vram-dump と併用。書式は追加Aと同じ）
+                         指定した行(省略なら全行)について、文字域の
+                         うち空白(0x20)でないセルの件数と、位置の範囲
+                         (最小col0・最大col0)だけを出す。文字コード
+                         そのもの・各セルの個別位置の列挙は出さない。
+
+  出してよいもの（これ以外は出さない）:
+    1. 指定行ごとの非空白セル件数(nonblank_count)
+    2. 指定行ごとの非空白セルの位置範囲(min_col0, max_col0。0件ならnull)
+
 自己検査: tools/screen_content_leak_selftest.sh に合成データでの検査を
 追加してある（本ツール分。差分モードも含む）。単体でも下記で素朴に
 確認できる:
@@ -122,6 +145,104 @@ def char_rows(data: bytes) -> list[bytes]:
 
 def attr_rows(data: bytes) -> list[bytes]:
     return [data[r * STRIDE + COLS : r * STRIDE + COLS + ATTR_BYTES] for r in range(ROWS)]
+
+
+def parse_row_list(spec: "str | None") -> "list[int] | None":
+    """'all' または省略なら全行(0..24)、それ以外はカンマ区切りの0始まり
+    行番号のリストを返す。"""
+    if spec is None or spec.strip().lower() == "all":
+        return list(range(ROWS))
+    return sorted({int(x) for x in spec.split(",") if x.strip() != ""})
+
+
+# ---- 1c. 追加A(l4-s1e Q1向け): 属性域のみを行ごとに列挙 --------------------
+
+
+def dump_attr_rows_only(path: str, rows: "list[int] | None") -> dict:
+    """指定した行(省略時は全行)の属性域40バイトだけをそのまま列挙する。
+    文字域には一切触れない(char_rows()を呼ばない)。属性はハードウェアの
+    設定値であって画面本文ではないため、値をそのまま出してよい
+    (冒頭コメント「出力してよいもの」2.の延長。l4-s1e 追加A)。"""
+    data = load_vram_dump(path)
+    target_rows = rows if rows is not None else list(range(ROWS))
+    attrs = attr_rows(data)
+    entries = [
+        {"row0": r, "attr_hex": attrs[r].hex().upper()}
+        for r in target_rows
+        if 0 <= r < ROWS
+    ]
+
+    result = {
+        "path": path,
+        "origin": 0,
+        "addr_formula": "addr = 0xF3C8 + row0*120 + 80 + pos0 (pos0=0-39)",
+        "rows": target_rows,
+        "attr_rows": entries,
+    }
+
+    # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+    # 無効。設定すると文字域(画面本文)もそのまま混ぜて出す——検査器が
+    # 「追加Aが文字域を漏らしていないか」を実際に検出できるかを確かめる
+    # ための対照。analyze_dump()・diff_vram_dumps() の同名フラグと同じ役割。
+    if os.environ.get("Q88MEASURE_FAULT_LEAK_VRAM_PROBE"):
+        chars = char_rows(data)
+        result["_debug_char_rows"] = [
+            chars[r].decode("latin-1") for r in target_rows if 0 <= r < ROWS
+        ]
+
+    return result
+
+
+# ---- 1d. 追加B(l4-s1e Q3向け): 文字域の非空白セルの件数と位置範囲だけ ------
+
+
+def nonblank_char_summary(path: str, rows: "list[int] | None") -> dict:
+    """指定した行(省略時は全行)について、文字域(0-79バイト目)のうち
+    空白(0x20)でないセルの件数と、位置の範囲(最小col0・最大col0)だけを
+    返す。文字コードそのものは一切出さない(l4-s1e 追加B。
+    --count-only-rows が採る「値を出さず件数だけ」を単独写しに転用)。"""
+    data = load_vram_dump(path)
+    target_rows = rows if rows is not None else list(range(ROWS))
+    chars = char_rows(data)
+
+    entries = []
+    for r in target_rows:
+        if not (0 <= r < ROWS):
+            continue
+        cols = [c for c in range(COLS) if chars[r][c] != 0x20]
+        entries.append(
+            {
+                "row0": r,
+                "nonblank_count": len(cols),
+                "min_col0": min(cols) if cols else None,
+                "max_col0": max(cols) if cols else None,
+            }
+        )
+
+    result = {
+        "path": path,
+        "origin": 0,
+        "addr_formula": "addr = 0xF3C8 + row0*120 + col0 (col0=0-79)",
+        "rows": target_rows,
+        "nonblank_summary": entries,
+    }
+
+    # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+    # 無効。設定すると各非空白セルの位置と文字コードをそのまま列挙する——
+    # 検査器が「追加Bが位置・文字コードを漏らしていないか」を実際に
+    # 検出できるかを確かめるための対照。
+    if os.environ.get("Q88MEASURE_FAULT_LEAK_VRAM_PROBE"):
+        debug = []
+        for r in target_rows:
+            if not (0 <= r < ROWS):
+                continue
+            for c in range(COLS):
+                b = chars[r][c]
+                if b != 0x20:
+                    debug.append({"row0": r, "col0": c, "char": f"{b:02X}"})
+        result["_debug_nonblank_cells"] = debug
+
+    return result
 
 
 def find_marker_occurrences(data: bytes, marker: bytes) -> list[dict]:
@@ -571,6 +692,17 @@ def render_text(result: dict) -> str:
         lines.append(f"  frame_counts={w['frame_counts']}")
         for mw in w["marker_writes"]:
             lines.append(f"  marker_write {mw}")
+    for a in result.get("attr_only", []):
+        lines.append(f"[attr-only] {a['path']} origin=0 addr_formula={a['addr_formula']} rows={a['rows']}")
+        for e in a["attr_rows"]:
+            lines.append(f"  row0={e['row0']} attr={e['attr_hex']}")
+    for n in result.get("nonblank_summary", []):
+        lines.append(f"[nonblank-summary] {n['path']} origin=0 addr_formula={n['addr_formula']} rows={n['rows']}")
+        for e in n["nonblank_summary"]:
+            lines.append(
+                f"  row0={e['row0']} nonblank_count={e['nonblank_count']}"
+                f" min_col0={e['min_col0']} max_col0={e['max_col0']}"
+            )
     for io in result.get("iolog", []):
         lines.append(f"[iolog] {io['path']} dma/crtc OUT count={io['count']}")
         for ev in io["out_events"]:
@@ -595,6 +727,23 @@ def main() -> int:
         help="差分モード: 指定した行(0始まり、カンマ区切り複数可)は"
         "文字コード・位置を出さず件数のみ出す(例: 19)",
     )
+    ap.add_argument(
+        "--attr-only-rows",
+        default=None,
+        metavar="ROWS",
+        help="追加A(l4-s1e Q1向け): --vram-dump の指定行(0始まり、"
+        "カンマ区切り、または 'all' で全行)の属性域40バイトだけを"
+        "行ごとに列挙する。文字域には一切触れない。",
+    )
+    ap.add_argument(
+        "--nonblank-summary-rows",
+        default=None,
+        metavar="ROWS",
+        help="追加B(l4-s1e Q3向け): --vram-dump の指定行(0始まり、"
+        "カンマ区切り、または 'all' で全行)について、文字域のうち"
+        "空白(0x20)でないセルの件数と位置範囲(最小・最大col0)だけを"
+        "出す。文字コードそのものは出さない。",
+    )
     ap.add_argument("--json", action="store_true", help="JSONで出力する(既定は人が読む要約)")
     # 陰性対照専用の故障注入。既定では無効。screen_content_leak_selftest.sh
     # が「検査に検出力があるか」を確かめるためだけに使う。
@@ -614,6 +763,9 @@ def main() -> int:
             "--diff-before+--diff-after のいずれかが必要"
         )
 
+    if (args.attr_only_rows or args.nonblank_summary_rows) and not args.vram_dump:
+        ap.error("--attr-only-rows / --nonblank-summary-rows は --vram-dump と併用する")
+
     marker = args.marker.encode("ascii")
 
     result = {
@@ -622,6 +774,14 @@ def main() -> int:
         "mem_write_logs": [summarize_mem_write_log(p, marker) for p in args.mem_write_log],
         "iolog": [summarize_iolog_ports(p) for p in args.iolog],
     }
+    if args.attr_only_rows is not None:
+        rows = parse_row_list(args.attr_only_rows)
+        result["attr_only"] = [dump_attr_rows_only(p, rows) for p in args.vram_dump]
+    if args.nonblank_summary_rows is not None:
+        rows = parse_row_list(args.nonblank_summary_rows)
+        result["nonblank_summary"] = [
+            nonblank_char_summary(p, rows) for p in args.vram_dump
+        ]
     if args.diff_before and args.diff_after:
         count_only_rows = set()
         if args.count_only_rows:

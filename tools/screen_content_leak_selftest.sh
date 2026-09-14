@@ -571,4 +571,199 @@ else
   fail "k. 差分モード: 同じ写しどうしの比較が変化件数0にならない"
 fi
 
+# --- n. --attr-only-rows (M7器具5、l4-s1e Q1向け追加A) が本文を漏らさないこと
+# フィクスチャ: row0=8の文字域に秘密文字列を置き、属性域は既知パターン
+# (0x1E)にする。--attr-only-rows 8 が属性域だけを返し、文字域(秘密)が
+# どこにも現れないことを確認する。
+SECRET_N="SECRETLEAKN"
+SECRET_N_HEX_LOWER="$(printf '%s' "$SECRET_N" | xxd -p | tr -d '\n')"
+SECRET_N_HEX_UPPER="$(printf '%s' "$SECRET_N_HEX_LOWER" | tr 'a-f' 'A-F')"
+KNOWN_ATTR_HEX="1E"
+
+L4_ATTR_DUMP="$WORK/l4_attr_dump.bin"
+python3 - "$L4_ATTR_DUMP" "$SECRET_N" "$KNOWN_ATTR_HEX" <<'PYEOF'
+import sys
+out_path, secret, attr_hex = sys.argv[1], sys.argv[2].encode("ascii"), sys.argv[3]
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+buf = bytearray(b" " * (ROWS * STRIDE))
+row = 8
+for i, b in enumerate(secret):
+    buf[row * STRIDE + i] = b
+attr_byte = int(attr_hex, 16)
+for i in range(ATTR):
+    buf[row * STRIDE + COLS + i] = attr_byte
+# 対象外の行(row0=9)にも別の秘密を置き、範囲指定が効いていることを確認する
+for i, b in enumerate(secret):
+    buf[9 * STRIDE + i] = b
+with open(out_path, "wb") as f:
+    f.write(bytes(buf))
+PYEOF
+
+python3 "$L4_PROBE" --vram-dump "$L4_ATTR_DUMP" --attr-only-rows 8 --json \
+  > "$WORK/n_attr.out" 2> "$WORK/n_attr.err"
+N_RC=$?
+
+if [[ $N_RC -ne 0 ]]; then
+  fail "n0. --attr-only-rows の実行が失敗した (rc=$N_RC)"
+else
+  pass "n0. --attr-only-rows は合成入力に対して正常終了する"
+fi
+
+N_LEAK_FOUND=0
+for needle in "$SECRET_N" "$SECRET_N_HEX_LOWER" "$SECRET_N_HEX_UPPER"; do
+  if grep -qF "$needle" "$WORK/n_attr.out" "$WORK/n_attr.err"; then
+    N_LEAK_FOUND=1
+  fi
+done
+if [[ $N_LEAK_FOUND -eq 0 ]]; then
+  pass "n1. --attr-only-rows はどの表現でも秘密の文字列(=画面本文)を出さない"
+else
+  fail "n1. --attr-only-rows の出力へ秘密の文字列が漏れた"
+fi
+
+# 陽性対照: 指定行(8)の属性域が既知パターンで正しく返る
+EXPECT_ATTR_ALL="$(python3 -c "print('$KNOWN_ATTR_HEX'*40)")"
+if grep -q '"row0": 8' "$WORK/n_attr.out" && grep -qF "\"attr_hex\": \"$EXPECT_ATTR_ALL\"" "$WORK/n_attr.out"; then
+  pass "n2. --attr-only-rows(陽性対照): 指定行(8)の属性域(全40バイト$KNOWN_ATTR_HEX)を正しく返す"
+else
+  fail "n2. --attr-only-rows: 指定行の属性域が期待と異なる"
+fi
+
+# 対象外の行(9)が attr_only セクションに現れないこと(範囲指定が効いている。
+# 全体のJSONには従来モード〔analyze_dumpのnon_marker_rows〕が全行を
+# 列挙するため、attr_only セクションだけを取り出して確認する)。
+N_ATTR_ROWS9="$(python3 -c "
+import json
+d = json.load(open('$WORK/n_attr.out'))
+rows = [e['row0'] for e in d['attr_only'][0]['attr_rows']]
+print(9 in rows)
+")"
+if [[ "$N_ATTR_ROWS9" == "False" ]]; then
+  pass "n3. --attr-only-rows: 指定していない行(9)はattr_onlyセクションに現れない"
+else
+  fail "n3. --attr-only-rows: 指定していない行(9)がattr_onlyセクションに現れた"
+fi
+
+# --- o. 陰性対照: --attr-only-rows の故障注入(文字域を混ぜる)で
+# 実際に秘密文字列が検出されること(検出力の確認)
+if Q88MEASURE_FAULT_LEAK_VRAM_PROBE=1 python3 "$L4_PROBE" \
+     --vram-dump "$L4_ATTR_DUMP" --attr-only-rows 8 --json \
+     > "$WORK/o_attr_leak.out" 2> "$WORK/o_attr_leak.err"; then
+  :
+fi
+O_LEAK_FOUND=0
+for needle in "$SECRET_N" "$SECRET_N_HEX_LOWER" "$SECRET_N_HEX_UPPER"; do
+  if grep -qF "$needle" "$WORK/o_attr_leak.out" "$WORK/o_attr_leak.err"; then
+    O_LEAK_FOUND=1
+  fi
+done
+if [[ $O_LEAK_FOUND -eq 1 ]]; then
+  pass "o. 陰性対照: --attr-only-rows の故障注入版では実際に秘密文字列が検出される(検出力あり)"
+else
+  fail "o. 陰性対照: --attr-only-rows の故障注入版でも秘密文字列が検出されなかった(検査に検出力が無い)"
+fi
+
+# --- p. --nonblank-summary-rows (M7器具6、l4-s1e Q3向け追加B) が
+# 本文を漏らさないこと。
+# フィクスチャ: row0=11の文字域に、col0=15,30,45の3か所だけ非空白セルを
+# 秘密の文字コードで置く(値は 'q'=0x71 相当。実データと混同しない値)。
+# --nonblank-summary-rows 11 が件数3・位置範囲(15,45)だけを返し、文字
+# コードも各セルの個別位置も出ないことを確認する。
+SECRET_P_CHAR_HEX="71"  # 'q' 相当。個別セルの値としては出てはいけない
+
+L4_NB_DUMP="$WORK/l4_nb_dump.bin"
+python3 - "$L4_NB_DUMP" "$SECRET_P_CHAR_HEX" <<'PYEOF'
+import sys
+out_path, char_hex = sys.argv[1], sys.argv[2]
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+buf = bytearray(b" " * (ROWS * STRIDE))
+row = 11
+b = int(char_hex, 16)
+for col in (15, 30, 45):
+    buf[row * STRIDE + col] = b
+# 対象外の行(row0=12)にも非空白セルを置き、範囲指定が効いていることを確認する
+buf[12 * STRIDE + 0] = b
+with open(out_path, "wb") as f:
+    f.write(bytes(buf))
+PYEOF
+
+python3 "$L4_PROBE" --vram-dump "$L4_NB_DUMP" --nonblank-summary-rows 11 --json \
+  > "$WORK/p_nb.out" 2> "$WORK/p_nb.err"
+P_RC=$?
+
+if [[ $P_RC -ne 0 ]]; then
+  fail "p0. --nonblank-summary-rows の実行が失敗した (rc=$P_RC)"
+else
+  pass "p0. --nonblank-summary-rows は合成入力に対して正常終了する"
+fi
+
+# 本文漏れ検査: 文字コードそのもの・個別セルのcol0(15,30,45)が出ない。
+P_LEAK_FOUND=0
+for needle in "\"char\": \"$SECRET_P_CHAR_HEX\"" '"col0": 15' '"col0": 30' '"col0": 45'; do
+  if grep -qF "$needle" "$WORK/p_nb.out" "$WORK/p_nb.err"; then
+    P_LEAK_FOUND=1
+  fi
+done
+if [[ $P_LEAK_FOUND -eq 0 ]]; then
+  pass "p1. --nonblank-summary-rows は文字コード・個別セル位置を出さない"
+else
+  fail "p1. --nonblank-summary-rows の出力へ文字コードまたは個別セル位置が漏れた"
+fi
+
+# 陽性対照: 指定行(11)の件数3・位置範囲(min=15,max=45)を正しく返す
+if grep -q '"row0": 11' "$WORK/p_nb.out" && grep -q '"nonblank_count": 3' "$WORK/p_nb.out" \
+   && grep -q '"min_col0": 15' "$WORK/p_nb.out" && grep -q '"max_col0": 45' "$WORK/p_nb.out"; then
+  pass "p2. --nonblank-summary-rows(陽性対照): 指定行(11)の件数3・位置範囲(15,45)を正しく返す"
+else
+  fail "p2. --nonblank-summary-rows: 指定行の件数・位置範囲が期待と異なる"
+fi
+
+# 対象外の行(12)が nonblank_summary セクションに現れないこと
+# (attr_onlyと同じ理由でセクションを絞って確認する)。
+P_NB_ROWS12="$(python3 -c "
+import json
+d = json.load(open('$WORK/p_nb.out'))
+rows = [e['row0'] for e in d['nonblank_summary'][0]['nonblank_summary']]
+print(12 in rows)
+")"
+if [[ "$P_NB_ROWS12" == "False" ]]; then
+  pass "p3. --nonblank-summary-rows: 指定していない行(12)はnonblank_summaryセクションに現れない"
+else
+  fail "p3. --nonblank-summary-rows: 指定していない行(12)がnonblank_summaryセクションに現れた"
+fi
+
+# --- q. 陰性対照: --nonblank-summary-rows の故障注入(個別セル位置・文字
+# コードを混ぜる)で実際に検出されること(検出力の確認)
+if Q88MEASURE_FAULT_LEAK_VRAM_PROBE=1 python3 "$L4_PROBE" \
+     --vram-dump "$L4_NB_DUMP" --nonblank-summary-rows 11 --json \
+     > "$WORK/q_nb_leak.out" 2> "$WORK/q_nb_leak.err"; then
+  :
+fi
+Q_LEAK_FOUND=0
+for needle in "\"char\": \"$SECRET_P_CHAR_HEX\"" '"col0": 15'; do
+  if grep -qF "$needle" "$WORK/q_nb_leak.out" "$WORK/q_nb_leak.err"; then
+    Q_LEAK_FOUND=1
+  fi
+done
+if [[ $Q_LEAK_FOUND -eq 1 ]]; then
+  pass "q. 陰性対照: --nonblank-summary-rows の故障注入版では実際に個別位置・文字コードが検出される(検出力あり)"
+else
+  fail "q. 陰性対照: --nonblank-summary-rows の故障注入版でも検出されなかった(検査に検出力が無い)"
+fi
+
+# --- r. 0件の扱い: 非空白セルが無い行は nonblank_count=0, min/max=null
+L4_NB_EMPTY="$WORK/l4_nb_empty.bin"
+python3 -c "
+open('$L4_NB_EMPTY','wb').write(bytes([0x20]*3000))
+"
+python3 "$L4_PROBE" --vram-dump "$L4_NB_EMPTY" --nonblank-summary-rows 0 --json \
+  > "$WORK/r_nb_empty.out" 2> "$WORK/r_nb_empty.err"
+if grep -q '"nonblank_count": 0' "$WORK/r_nb_empty.out" \
+   && grep -q '"min_col0": null' "$WORK/r_nb_empty.out" \
+   && grep -q '"max_col0": null' "$WORK/r_nb_empty.out"; then
+  pass "r. --nonblank-summary-rows: 非空白セルが無い行は件数0・位置範囲nullを返す"
+else
+  fail "r. --nonblank-summary-rows: 非空白セルが無い行の扱いが期待と異なる"
+fi
+
 exit "$FAIL"
