@@ -1,0 +1,4 @@
+# m7lw B:媒体未挿入待ちの途中(frame800)に別複製を挿入してFILES 2。公式ROM一式。
+# name cpu port kind count sha256
+m7lw-insert-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+m7lw-insert-main-fc	main	00FC	IN	7964	7b9cfe61b8ef21cea7765549cffc4133135403df3b559d13f60159f9fcdd31c1
