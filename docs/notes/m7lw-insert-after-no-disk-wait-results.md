@@ -69,6 +69,39 @@ READ DATAはI=1200以降に0件）。判定器はR偽・R真を区別できて�
   frame I−1では両側ともI−1までの通常の問い合わせ密度（official約1295件・
   mixed約655件）のままで、frame境界に何件が乗るかだけの数え方の差であり、
   main $FD/$FC列のSHA-256一致にも画面署名の一致にも現れていない。**
+
+### 追記（2026-09-14、ST3 bit3による確認）
+
+上の段落は「frame境界に何件乗るかだけの数え方の差」と結論したが、これは
+SENSE DRIVE STATUS件数の数え合わせから導いたもので、ST3 bit3（媒体の有無、
+`m7lv-st3-two-side-media-signal.md`）そのものを見ていなかった。そこで
+「bit3が最初に1になったSENSE DRIVE STATUS」を基点に、その前2件と、直後の
+最初のREAD DATAまでを4腕×2側（同一の測定ログ、新規測定なし）で並べ直した。
+
+8組（4腕×official/mixed）すべてで形は同一だった:
+
+> SENSE DRIVE STATUS(bit3=0) → SENSE DRIVE STATUS(bit3=0) →
+> SENSE DRIVE STATUS(bit3=1) → READ DATA
+
+officialとmixedの違いは、このbit3=1のSENSE DRIVE STATUSが乗るframe番号だけ
+だった（4腕とも同じ関係）: officialは挿入フレームIと同じframeにbit3=1が
+乗り、READ DATAも同じframe I。mixedはbit3=1がframe I−1に乗り、READ DATAは
+その次のframe I。**bit3=1を見た直後はofficial・mixedともREAD DATAへ進んで
+おり、どちらの側にもbit3=1を見たあとの追加のSENSE DRIVE STATUSは無かった**
+（本文中の判定基準（A）が該当）。
+
+フロントエンド`tools/harness/frontend/main.c`の挿入ループでは、各frameで
+`p_iolog_set_frame(g_frame)`（1517行）→ 挿入判定・`quasi88_disk_insert()`
+呼び出し（1530〜1550行）→ `p_run()`（1552行）の順に実行しており、
+`--insert-disk2-at`の挿入はI/Oログのframe番号でいう「frame Iのp_run()呼び出し
+より前・frame Iのフレーム番号がすでにセットされたあと」に当たる
+（frame I−1のp_run()はすでに完了済み）。
+
+以上から、結論は **(A)**（両側ともbit3=1を見た直後にREAD DATAへ進む＝差は
+bit3=0の問い合わせが何件あったかの数え方の差）であり、元の太字の結論は
+誤りではなかったと確認した。main $FD/$FC列の一致・画面署名の一致（判定
+resumes_identically）は変わらない。
+
 - +0の run の長さと交換 run: G3の陰性対照でのみ定義（本測定の4腕には+0の定義を
   適用していない。事前登録は+0をNOINSの関門にのみ使う書き方だったため、そのとおりに
   従った）。
