@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第214版 / 2026-09-14
+仕様書 第215版 / 2026-09-14
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第215版 | 2026-09-14 | **5.2節3項の受理件数を`m7lx`で測り直した**（`src/`変更なし。注記のみ） | 3項の注記の直後に第215版の追記として、現行（HEAD `b13f837`）の再測定結果（自作13618件・公式13593件・差+25、受理直前ポート・FDCコマンド種別列51段の一致・25段全てd=+1）を足した。あわせて`clock`が時間でなくイベント通し番号であることを確認し、`docs/notes/m7lx-interrupt-shape-rebaseline.md`のC/F節を訂正した経緯を反映した。根拠は`docs/notes/m7lx-interrupt-shape-rebaseline.md`。 |
 | 第214版 | 2026-09-14 | **1.63節の待ちの途中で媒体を差したあとの続きを測定し、1.64節を新設**（`src/`変更なし。実装は変えていない） | `m7lw`の事前登録・結果ノートに基づき、`--insert-disk2`/`--insert-disk2-at`（q88measureのコミット`db293af`）でB:未挿入待ちの途中に実際に媒体を差し込み、4腕（差す媒体2種×差すフレーム2つ）とも公式・混成の待ちからの抜け方・main `IN $FD`/`$FC`列・終了時画面署名が一致することを確認した（判定`resumes_identically`）。1.63節・3章の「未測定として残る」旨の記述には1.64節へのリンクを注記した（消していない）。根拠は`docs/notes/m7lw-insert-after-no-disk-wait-preregistration.md`・`docs/notes/m7lw-insert-after-no-disk-wait-results.md`。 |
 | 第213版 | 2026-09-12 | **1.63節の規則を自作subに実装した**（`src/`変更あり） | `m7lv`の結果ノート（合格条件1〜9・4bがすべて真、no_diskの画面署名も公式と一致）に基づき、`src/l3_service/make_subrom.py`の一般READ要求へ折り返しを追加した。3章の「no_diskの待ち手前にある5対6の分岐」の項を更新し、解決を明記した。根拠は`docs/notes/m7lv-no-disk-drive-wait-implementation-results.md`。 |
 | 第212版 | 2026-09-12 | **1.63節手順2の曖昧さを訂正**（`src/`変更なし。実装前・測定前の訂正） | 1.63節手順2の「1へ戻って繰り返す」が、字義どおりには`SEEK`（`SENSE INTERRUPT STATUS`込み）ごとの反復とも読める曖昧さがあり、1.62節で確認した公式の形（`m7lu`の観測。+0以降のFDCは`SEEK`・`SENSE INTERRUPT STATUS`が1回ずつ、以後は`SENSE DRIVE STATUS`だけの反復）と食い違っていた。手順2を「`SENSE DRIVE STATUS`だけを繰り返す（`SEEK`・`SENSE INTERRUPT STATUS`は繰り返さない）」に訂正した。測定・`src/`の変更は行っていない。 |
@@ -6011,6 +6012,22 @@ QUASI88のPIO実装（共有変数の直結配線）に固有の産物であり�
    根拠は[m7ce](../notes/m7ce-official-conformance-after-interrupt.md)・
    [m7et](../notes/m7et-interrupt-shape-gap-preregistration.md)・
    [m7eu](../notes/m7eu-interrupt-shape-gap-results.md)。
+
+   **第215版（2026-09-14、`m7lx`）で現行（HEAD `b13f837`）を測り直した。**
+   上の13362件は第132版（軸D）より前の値で、以後測り直していなかった。
+   現行は自作13618件・公式13593件（差+25）。受理直前は公式が
+   sub IN $FB 13559・OUT $FB 25・IN $F8 9、自作が sub IN $FA 13593・
+   OUT $FB 25。受理直後は両者とも全件 sub IN $FA。FDCコマンド種別列51段
+   は一致し、非0の25段すべてで`d=+1`（SEEK/RECALIBRATE系16段・READ DATA
+   系9段）。条件3（直前1件がmain側でないこと）は引き続き満たす。
+
+   自作の「直前 IN $FA」は6章要件34（1.41節）で選んだ有限ポーリング併用の
+   待ち方（RQM確認後にEI→NOP→`$FB`アクセス→DI、HALT不使用）から来る外形
+   であり、公式の内部構造の再現を目指したものではない。公式がバイト間を
+   どう待っているかは、現在の器具（`clock`はイベント通し番号であり時間で
+   はない）では区別できない。
+
+   根拠は[m7lx](../notes/m7lx-interrupt-shape-rebaseline.md)。
 4. **ディスク無しでは、サブCPU相当の実装コードが1命令も実行されず、
    I/O・割り込みともに0件であること**（1.1節、ネガティブコントロール
    としてそのまま条件化できる）。
