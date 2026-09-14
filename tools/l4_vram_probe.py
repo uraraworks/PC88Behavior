@@ -31,10 +31,27 @@
 文字域(0-79バイト目)の生バイト値そのものは、目印一致判定にしか使わず、
 一致しなかった範囲もマーカー以外の値も一切出力しない。
 
+差分モード（M7 段階1の器具その4。キー割り当て測定用）:
+  --diff-before PATH --diff-after PATH
+                         押す前・押した後の写し(2枚1組)を比較する。
+
+  出してよいもの（これ以外は出さない）:
+    1. 文字域で値が変わったセルの一覧: (row0, col0, addr)
+    2. そのうち押す前が空白(0x20)だったセルについてだけ、押した後の
+       文字コード(16進)
+    3. 押す前が空白でなかったセルが変わった場合は、そのセルの
+       (row0, col0, addr) と「前が空白でない」印だけ。前後の値そのもの
+       (画面本文)は出さない
+    4. 属性域で変わったバイトの (row0, 属性域内位置0-39, addr) と前後の値
+       (属性はハードウェアの設定値であって画面本文ではないので出してよい)
+    5. 変化件数の合計(文字域・属性域それぞれ)
+
 自己検査: tools/screen_content_leak_selftest.sh に合成データでの検査を
-追加してある（本ツール分）。単体でも下記で素朴に確認できる:
+追加してある（本ツール分。差分モードも含む）。単体でも下記で素朴に
+確認できる:
     python3 tools/l4_vram_probe.py --vram-dump <dump> [--marker Q7Z] \\
         [--mem-write-log <log>] [--iolog <iolog>] [--json]
+    python3 tools/l4_vram_probe.py --diff-before <before> --diff-after <after> [--json]
 """
 from __future__ import annotations
 
@@ -197,6 +214,100 @@ def analyze_dump(path: str, marker: bytes) -> dict:
     return result
 
 
+# ---- 1b. 差分モード(押す前/押した後の写しの比較) ---------------------------
+
+
+def diff_vram_dumps(before_path: str, after_path: str) -> dict:
+    """押す前・押した後の写しを比較し、変化したセルの位置だけを返す。
+
+    文字域: 変化した (row0, col0, addr) は必ず返すが、値そのものは
+    「押す前が空白(0x20)だった」場合に限り after 側の文字コードだけを返す。
+    それ以外(押す前が空白でなかった)は位置と印だけで、前後の値は出さない
+    (起動画面などの本文を出さないため)。
+    属性域: 変化した (row0, 属性域内位置0-39, addr) と前後の値を返す
+    (属性はハードウェアの設定値であって画面本文ではない)。
+    """
+    before = load_vram_dump(before_path)
+    after = load_vram_dump(after_path)
+
+    char_changes = []
+    for row in range(ROWS):
+        base_row = row * STRIDE
+        for col in range(COLS):
+            idx = base_row + col
+            b_before = before[idx]
+            b_after = after[idx]
+            if b_before == b_after:
+                continue
+            addr = BASE + row * STRIDE + col
+            entry = {"row0": row, "col0": col, "addr": f"{addr:04X}"}
+            if b_before == 0x20:
+                entry["was_blank"] = True
+                entry["char_after"] = f"{b_after:02X}"
+            else:
+                entry["was_blank"] = False
+            char_changes.append(entry)
+
+    attr_changes = []
+    for row in range(ROWS):
+        base_row = row * STRIDE + COLS
+        for pos in range(ATTR_BYTES):
+            idx = base_row + pos
+            a_before = before[idx]
+            a_after = after[idx]
+            if a_before == a_after:
+                continue
+            addr = BASE + row * STRIDE + COLS + pos
+            attr_changes.append(
+                {
+                    "row0": row,
+                    "pos0": pos,
+                    "addr": f"{addr:04X}",
+                    "before": f"{a_before:02X}",
+                    "after": f"{a_after:02X}",
+                }
+            )
+
+    result = {
+        "before_path": before_path,
+        "after_path": after_path,
+        "origin": 0,
+        "addr_formula": "addr = 0xF3C8 + row0*120 + col0 (文字域は col0=0-79、"
+        "属性域は addr = 0xF3C8 + row0*120 + 80 + pos0、pos0=0-39)",
+        "char_change_note": "char_after は押す前が空白(0x20)だったセルのみ。"
+        "それ以外は was_blank=false のみで前後の値は出さない。",
+        "char_changes": char_changes,
+        "attr_changes": attr_changes,
+        "char_change_count": len(char_changes),
+        "attr_change_count": len(attr_changes),
+    }
+
+    # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+    # 無効。設定すると「前が空白でなかったセル」の前後の値もそのまま
+    # 出す——検査器(この自己検査そのもの)が実際に本文漏れを検出できるかを
+    # 確かめるための対照。analyze_dump() の同名フラグと役割を揃えてある。
+    if os.environ.get("Q88MEASURE_FAULT_LEAK_VRAM_PROBE"):
+        debug = []
+        for row in range(ROWS):
+            base_row = row * STRIDE
+            for col in range(COLS):
+                idx = base_row + col
+                b_before = before[idx]
+                b_after = after[idx]
+                if b_before != b_after and b_before != 0x20:
+                    debug.append(
+                        {
+                            "row0": row,
+                            "col0": col,
+                            "before": f"{b_before:02X}",
+                            "after": f"{b_after:02X}",
+                        }
+                    )
+        result["_debug_non_blank_before_values"] = debug
+
+    return result
+
+
 # ---- 2. mem-write-log の要約 -----------------------------------------------
 
 
@@ -355,6 +466,33 @@ def summarize_iolog_ports(path: str) -> dict:
 
 def render_text(result: dict) -> str:
     lines = []
+    diff = result.get("vram_diff")
+    if diff:
+        lines.append(
+            f"[vram-diff] before={diff['before_path']} after={diff['after_path']}"
+            f" origin=0 addr_formula={diff['addr_formula']}"
+        )
+        lines.append(f"  note: {diff['char_change_note']}")
+        lines.append(
+            f"  char_change_count={diff['char_change_count']}"
+            f" attr_change_count={diff['attr_change_count']}"
+        )
+        for c in diff["char_changes"]:
+            if c["was_blank"]:
+                lines.append(
+                    f"    char row0={c['row0']} col0={c['col0']} addr={c['addr']}"
+                    f" was_blank=true char_after={c['char_after']}"
+                )
+            else:
+                lines.append(
+                    f"    char row0={c['row0']} col0={c['col0']} addr={c['addr']}"
+                    f" was_blank=false"
+                )
+        for a in diff["attr_changes"]:
+            lines.append(
+                f"    attr row0={a['row0']} pos0={a['pos0']} addr={a['addr']}"
+                f" before={a['before']} after={a['after']}"
+            )
     for d in result.get("vram_dumps", []):
         lines.append(f"[vram-dump] {d['path']} origin=0 addr_formula={d['addr_formula']}")
         lines.append(f"  marker={d['marker']!r} occurrences={d['occurrence_count']}")
@@ -395,13 +533,26 @@ def main() -> int:
     ap.add_argument("--marker", default="Q7Z", help="目印文字列(ASCII, 既定 Q7Z)")
     ap.add_argument("--mem-write-log", action="append", default=[], help="書き込み記録ファイル(複数可)")
     ap.add_argument("--iolog", action="append", default=[], help="I/Oログファイル(複数可、.gz可)")
+    ap.add_argument("--diff-before", default=None, help="差分モード: 押す前の写し")
+    ap.add_argument("--diff-after", default=None, help="差分モード: 押した後の写し")
     ap.add_argument("--json", action="store_true", help="JSONで出力する(既定は人が読む要約)")
     # 陰性対照専用の故障注入。既定では無効。screen_content_leak_selftest.sh
     # が「検査に検出力があるか」を確かめるためだけに使う。
     args = ap.parse_args()
 
-    if not (args.vram_dump or args.mem_write_log or args.iolog):
-        ap.error("--vram-dump / --mem-write-log / --iolog のいずれかが必要")
+    if bool(args.diff_before) != bool(args.diff_after):
+        ap.error("--diff-before と --diff-after は両方指定すること")
+
+    if not (
+        args.vram_dump
+        or args.mem_write_log
+        or args.iolog
+        or (args.diff_before and args.diff_after)
+    ):
+        ap.error(
+            "--vram-dump / --mem-write-log / --iolog / "
+            "--diff-before+--diff-after のいずれかが必要"
+        )
 
     marker = args.marker.encode("ascii")
 
@@ -411,6 +562,8 @@ def main() -> int:
         "mem_write_logs": [summarize_mem_write_log(p, marker) for p in args.mem_write_log],
         "iolog": [summarize_iolog_ports(p) for p in args.iolog],
     }
+    if args.diff_before and args.diff_after:
+        result["vram_diff"] = diff_vram_dumps(args.diff_before, args.diff_after)
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

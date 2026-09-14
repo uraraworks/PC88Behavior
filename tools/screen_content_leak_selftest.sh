@@ -351,4 +351,125 @@ else
   fail "h. 目印0件のときの扱いが期待と異なる"
 fi
 
+# --- i. tools/l4_vram_probe.py 差分モード(M7器具4)が本文を漏らさないこと ---
+# フィクスチャ: 押す前の写しの文字域に秘密の文字列(SECRETLEAKB)を置き、
+# 押した後にその一部の文字を変える(=前が空白でないセルの変化)。さらに
+# 別の既知の空白セルへ既知の1文字を置く(=前が空白のセルの変化、陽性対照)。
+SECRET_B="SECRETLEAKB"
+KNOWN_CHAR_HEX="41"  # 'A'
+
+L4_DIFF_BEFORE="$WORK/l4_diff_before.bin"
+L4_DIFF_AFTER="$WORK/l4_diff_after.bin"
+python3 - "$L4_DIFF_BEFORE" "$L4_DIFF_AFTER" "$SECRET_B" "$KNOWN_CHAR_HEX" <<'PYEOF'
+import sys
+before_path, after_path, secret, known_hex = sys.argv[1:5]
+secret = secret.encode("ascii")
+known_byte = int(known_hex, 16)
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+
+before = bytearray(b" " * (ROWS * STRIDE))  # 文字域も属性域も既定は空白(0x20)
+after = bytearray(before)
+
+# 秘密文字列(前が空白でない)を row=7 col=0 に置き、押した後は末尾1文字だけ変える
+row_secret, col_secret = 7, 0
+for i, b in enumerate(secret):
+    before[row_secret * STRIDE + col_secret + i] = b
+    after[row_secret * STRIDE + col_secret + i] = b
+after[row_secret * STRIDE + col_secret + len(secret) - 1] = 0x99
+
+# 既知の空白セル(row=12, col=33)に既知の1文字を置く(前が空白, 陽性対照)
+row_known, col_known = 12, 33
+after[row_known * STRIDE + col_known] = known_byte
+
+# 属性域の既知セル(row=2, 属性内位置5)を変える(ハードウェア設定値として出してよい)
+row_attr, pos_attr = 2, 5
+before[row_attr * STRIDE + COLS + pos_attr] = 0x00
+after[row_attr * STRIDE + COLS + pos_attr] = 0x07
+
+with open(before_path, "wb") as f:
+    f.write(bytes(before))
+with open(after_path, "wb") as f:
+    f.write(bytes(after))
+PYEOF
+
+python3 "$L4_PROBE" --diff-before "$L4_DIFF_BEFORE" --diff-after "$L4_DIFF_AFTER" --json \
+  > "$WORK/i_diff.out" 2> "$WORK/i_diff.err"
+DIFF_RC=$?
+
+if [[ $DIFF_RC -ne 0 ]]; then
+  fail "i0. tools/l4_vram_probe.py --diff-* の実行が失敗した (rc=$DIFF_RC)"
+else
+  pass "i0. tools/l4_vram_probe.py --diff-* は合成入力に対して正常終了する"
+fi
+
+# 陽性対照: 既知の空白セル(row0=12,col0=33)の既知文字コードが正しく出る
+EXPECT_ADDR_KNOWN=$(python3 -c "print('%04X' % (0xF3C8 + 12*120 + 33))")
+if grep -q '"row0": 12' "$WORK/i_diff.out" && grep -q '"col0": 33' "$WORK/i_diff.out" \
+   && grep -q "\"addr\": \"$EXPECT_ADDR_KNOWN\"" "$WORK/i_diff.out" \
+   && grep -q "\"char_after\": \"$KNOWN_CHAR_HEX\"" "$WORK/i_diff.out"; then
+  pass "i1. 差分モード(陽性対照): 空白だった既知セル(12,33,$EXPECT_ADDR_KNOWN)の文字コードを正しく返す"
+else
+  fail "i1. 差分モード: 空白だった既知セルの検出が期待と異なる"
+fi
+
+# 本文漏れ検査: 秘密文字列がどの表現でもどの出力にも出ない。
+# 前が空白でなかったセルの前後の値(生バイト・16進)も出ない。
+SECRET_B_HEX_LOWER="$(printf '%s' "$SECRET_B" | xxd -p | tr -d '\n')"
+SECRET_B_HEX_UPPER="$(printf '%s' "$SECRET_B_HEX_LOWER" | tr 'a-f' 'A-F')"
+DIFF_LEAK_FOUND=0
+for needle in "$SECRET_B" "$SECRET_B_HEX_LOWER" "$SECRET_B_HEX_UPPER" '"before": "42"' '"after": "99"'; do
+  if grep -qF "$needle" "$WORK/i_diff.out" "$WORK/i_diff.err"; then
+    DIFF_LEAK_FOUND=1
+  fi
+done
+if [[ $DIFF_LEAK_FOUND -eq 0 ]]; then
+  pass "i2. 差分モードはどの表現でも秘密文字列・前が空白でないセルの前後値を出さない"
+else
+  fail "i2. 差分モードの出力へ秘密文字列または前後値が漏れた"
+fi
+
+# 前が空白でなかったセルは was_blank=false のみで検出されること
+if grep -q '"row0": 7' "$WORK/i_diff.out" && grep -q '"was_blank": false' "$WORK/i_diff.out"; then
+  pass "i3. 前が空白でなかったセル(row0=7)は was_blank=false のみで報告される"
+else
+  fail "i3. 前が空白でなかったセルの報告形式が期待と異なる"
+fi
+
+# 属性域の変化は前後の値ごと出てよい(ハードウェア設定値)
+if grep -q '"row0": 2' "$WORK/i_diff.out" && grep -q '"pos0": 5' "$WORK/i_diff.out" \
+   && grep -q '"before": "00"' "$WORK/i_diff.out" && grep -q '"after": "07"' "$WORK/i_diff.out"; then
+  pass "i4. 属性域の変化(row0=2,pos0=5)は前後の値ごと正しく報告される"
+else
+  fail "i4. 属性域の変化の報告が期待と異なる"
+fi
+
+# --- j. 陰性対照: 差分モードの故障注入(同じ環境変数)で本文が漏れる版に
+# すると i2 相当の検査が実際に落ちること(検出力の確認)
+if Q88MEASURE_FAULT_LEAK_VRAM_PROBE=1 python3 "$L4_PROBE" \
+     --diff-before "$L4_DIFF_BEFORE" --diff-after "$L4_DIFF_AFTER" --json \
+     > "$WORK/j_diff_leak.out" 2> "$WORK/j_diff_leak.err"; then
+  :
+fi
+JDIFF_LEAK_FOUND=0
+for needle in '"before": "42"' '"after": "99"'; do
+  if grep -qF "$needle" "$WORK/j_diff_leak.out" "$WORK/j_diff_leak.err"; then
+    JDIFF_LEAK_FOUND=1
+  fi
+done
+if [[ $JDIFF_LEAK_FOUND -eq 1 ]]; then
+  pass "j. 陰性対照: 差分モードの故障注入版では前が空白でないセルの前後値が実際に検出される(検出力あり)"
+else
+  fail "j. 陰性対照: 差分モードの故障注入版でも前後値が検出されなかった(検査に検出力が無い)"
+fi
+
+# --- k. 変化なし: 同じ写しどうしを比較すると変化件数0を返す
+if python3 "$L4_PROBE" --diff-before "$L4_DIFF_BEFORE" --diff-after "$L4_DIFF_BEFORE" --json \
+     > "$WORK/k_diff_same.out" 2> "$WORK/k_diff_same.err" \
+   && grep -q '"char_change_count": 0' "$WORK/k_diff_same.out" \
+   && grep -q '"attr_change_count": 0' "$WORK/k_diff_same.out"; then
+  pass "k. 差分モード: 同じ写しどうしの比較は変化件数0を返す"
+else
+  fail "k. 差分モード: 同じ写しどうしの比較が変化件数0にならない"
+fi
+
 exit "$FAIL"
