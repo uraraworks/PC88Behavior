@@ -105,6 +105,26 @@ EOF
 sed 's/  2| R7A/  2| R7N/' "$WORK/random-positive.txt" > "$WORK/random-bad-record1.txt"
 sed 's/  4| R7B/  4| R7N/' "$WORK/random-positive.txt" > "$WORK/random-bad-record2.txt"
 
+cat > "$WORK/insert-after-wait-positive.txt" <<'EOF'
+  0| files 2
+  1| Synthetic listing row
+  2| Synthetic listing row
+  3| Synthetic listing row
+  4| Synthetic listing row
+  5| Synthetic listing row
+  6| Synthetic listing row
+  7| Synthetic listing row
+  8| Synthetic listing row
+  9| Synthetic listing row
+  10| Synthetic listing row
+  11| Ok
+EOF
+cat > "$WORK/insert-after-wait-negative.txt" <<'EOF'
+  0| files 2
+  1| Synthetic classified response
+  2| Ok
+EOF
+
 if python3 "$CHECK" --report "$WORK/run-positive.txt" --scenario run_file >/dev/null 2>&1 \
    && ! python3 "$CHECK" --report "$WORK/run-negative.txt" --scenario run_file >/dev/null 2>&1; then
   ok 'RUN"file": 実行マーカーを持つ陽性と、欠く陰性を区別'
@@ -140,6 +160,13 @@ if python3 "$CHECK" --report "$WORK/random-positive.txt" --scenario random_file 
   ok 'ランダムファイル: 2レコード読戻し陽性と、各片方だけ失敗する陰性を区別'
 else
   ng 'ランダムファイル: 陽性・陰性対照を区別できない'
+fi
+
+if python3 "$CHECK" --report "$WORK/insert-after-wait-positive.txt" --scenario insert_after_wait >/dev/null 2>&1 \
+   && ! python3 "$CHECK" --report "$WORK/insert-after-wait-negative.txt" --scenario insert_after_wait >/dev/null 2>&1; then
+  ok 'insert_after_wait: 一覧後Okの陽性と、短い応答だけの陰性を区別'
+else
+  ng 'insert_after_wait: 陽性・陰性対照を区別できない'
 fi
 
 exit "$rc"

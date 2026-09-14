@@ -42,10 +42,11 @@ COMMANDS = {
     "unreadable_disk": ["files 2"],
     "drive1": ["files 1"],
     "drive2": ["files 2"],
+    "insert_after_wait": ["files 2"],
 }
 
 ERROR_SCENARIOS = {"write_protect", "no_disk", "unreadable_disk"}
-OUTPUT_SUCCESS_SCENARIOS = {"drive1", "drive2"}
+OUTPUT_SUCCESS_SCENARIOS = {"drive1", "drive2", "insert_after_wait"}
 
 
 def screen_rows(path: Path) -> list[str]:

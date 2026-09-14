@@ -42,6 +42,7 @@ NO_DISK_EXPECTED="$REPO/tests/conformance/expected_no_disk.tsv"
 UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
 DRIVE1_EXPECTED="$REPO/tests/conformance/expected_drive1.tsv"
 DRIVE2_EXPECTED="$REPO/tests/conformance/expected_drive2.tsv"
+INSERT_AFTER_WAIT_EXPECTED="$REPO/tests/conformance/expected_insert_after_wait.tsv"
 SCREEN_EXPECTED="$REPO/tests/conformance/expected_screen.tsv"
 SCREEN_CHECK="$REPO/tools/check_l3_screen_output.py"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
@@ -93,7 +94,7 @@ if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
 fi
 for path_expected in "$WRITE_PROTECT_EXPECTED" "$NO_DISK_EXPECTED" \
                      "$UNREADABLE_DISK_EXPECTED" "$DRIVE1_EXPECTED" \
-                     "$DRIVE2_EXPECTED"; do
+                     "$DRIVE2_EXPECTED" "$INSERT_AFTER_WAIT_EXPECTED"; do
   if [ ! -f "$path_expected" ]; then
     echo "エラー: エラー／ドライブ2経路の期待値が無い: $path_expected" >&2
     exit 2
@@ -1347,7 +1348,10 @@ run_path_measurement() {
   local base="$WORK/path.${label}.${mode}.run${run}"
   local rom="${base}.rom" disk_a="${base}.a.d88" disk_b="${base}.b.d88"
   local media="${base}.media" report="${base}.report.txt" iolog="${base}.iolog.txt"
+  local disk_insert="${base}.insert.d88"
   local frames type_text rc
+  local -a extra_args
+  extra_args=()
 
   copy_entry_roms "$mode" "$rom" || return 1
   cp "$DISK" "$disk_a" || return 1
@@ -1364,6 +1368,15 @@ run_path_measurement() {
       media="$disk_a"
       frames=800
       type_text='FILES 2\n'
+      ;;
+    insert_after_wait)
+      # m7lw: A:だけを挿入してB:を空に保ち（no_diskと同じ）、B:未挿入待ちの
+      # 途中（frame 800）に別の使い捨て複製を挿入する（--insert-disk2）。
+      cp "$DISK" "$disk_insert" || return 1
+      media="$disk_a"
+      frames=4000
+      type_text='FILES 2\n'
+      extra_args=(--insert-disk2 "$disk_insert" --insert-disk2-at 800)
       ;;
     unreadable_disk)
       python3 "$REPO/tools/make_l3_testdisk.py" "$disk_b" >/dev/null || return 1
@@ -1393,6 +1406,7 @@ run_path_measurement() {
       "$FRONTEND" --core "$CORE" --rom-dir "$rom" --disk "$media" \
       --frames "$frames" --io-log "$iolog" --out "$report" \
       --type-at 300 --type '\n' --type-at 700 --type "$type_text" \
+      ${extra_args[@]+"${extra_args[@]}"} \
       >"${base}.stdout.txt" 2>"${base}.stderr.txt"
   rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -1547,8 +1561,11 @@ for scenario in write_protect no_disk unreadable_disk; do
     overall_rc=1
   fi
 done
-for scenario in drive1 drive2; do
-  command="files ${scenario#drive}"
+for scenario in drive1 drive2 insert_after_wait; do
+  case "$scenario" in
+    insert_after_wait) command="files 2" ;;
+    *) command="files ${scenario#drive}" ;;
+  esac
   {
     printf '  0| %s\n' "$command"
     for synthetic_row in 1 2 3 4 5 6 7 8 9 10; do
@@ -1577,6 +1594,7 @@ judge_path no_disk "$NO_DISK_EXPECTED" "B:媒体未挿入"
 judge_path unreadable_disk "$UNREADABLE_DISK_EXPECTED" "B:規則生成媒体"
 judge_path drive1 "$DRIVE1_EXPECTED" "A:正常操作（A/B同内容複製）"
 judge_path drive2 "$DRIVE2_EXPECTED" "B:正常操作"
+judge_path insert_after_wait "$INSERT_AFTER_WAIT_EXPECTED" "B:待機中に媒体挿入"
 
 say "A:/B: main→sub要求runの全位置比較"
 for mode in official mixed; do
