@@ -114,6 +114,8 @@ SCRIPTS_EXPECTED=(
   "tools/run_all_selftests_selftest.sh:0"
   "tools/count_fdc_abort_marks_selftest.sh:0"
   "tools/make_l3_testdisk_selftest.sh:0"
+  "tools/asm/z80text_selftest.sh:0"
+  "tools/asm/asm_selftest.sh:0"
 )
 
 overall=0

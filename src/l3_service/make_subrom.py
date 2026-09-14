@@ -399,6 +399,15 @@ import os
 import pathlib
 import sys
 
+# M7段階0: .asm書き出し(--emit-asm)用の共通ヘルパ。tools/asm/ はこのリポジトリ
+# 内のツールでpython3だけで完結する（外部依存を増やさない）。
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
+from asm_emit import hex8, hex16, install_note_templates, note_raw_db, render_asm  # noqa: E402
+
+# build_subrom() が作った Asm インスタンスを main() から参照するための側路
+# （--emit-asm 用。既存の呼び出し元の関数シグネチャ・戻り値は変えない）。
+_LAST_ASM = None
+
 # --------------------------------------------------------------------------
 # ポート（仕様書 1.4節・1.7〜1.9節・1.12〜1.13節、および上記docstring）
 # --------------------------------------------------------------------------
@@ -493,6 +502,10 @@ class Asm:
         # `_abs`/`_rel`を使う分岐系だけで、そちらはfixups側で1バイト単位
         # まで正確に追える。両方をfind_fetch_window_straddlesで併用する）。
         self.instr_spans = []
+        # M7段階0・--emit-asm用（既定は空リストのまま集めるだけで、
+        # 書き出さなければ既存のバイト生成には一切影響しない）。
+        self._emit_asm = []
+        self._note_suppress = 0
 
     @property
     def pc(self):
@@ -506,6 +519,7 @@ class Asm:
     def db(self, *bs):
         if bs:
             self.instr_spans.append((len(self.code), len(bs)))
+        note_raw_db(self, bs)
         for b in bs:
             if not 0 <= b <= 0xFF:
                 raise ValueError(f"バイト範囲外: {b:#x}")
@@ -626,6 +640,92 @@ class Asm:
     def out_imm(self, port, value):
         self.ld_a(value)
         self.out_a(port)
+
+
+# --------------------------------------------------------------------------
+# M7段階0・--emit-asm: 命令メソッド名 → z80text.py が読めるテキストへの
+# 変換テーブル。tools/asm/asm_emit.py 参照（make_ipl_rom.py と同じ方式）。
+# ここに無いメソッド、および db() を直接呼んでいる箇所は素の db 疑似命令
+# として書き出される（out_imm など、既にテンプレート化した2命令の組み
+# 合わせで済むものはここに入れていない——二重に記録されるのを避けるため）。
+# --------------------------------------------------------------------------
+_ASM_TEMPLATES = {
+    "di": lambda: "DI",
+    "ei": lambda: "EI",
+    "im1": lambda: "IM 1",
+    "reti": lambda: "RETI",
+    "ret": lambda: "RET",
+    "nop": lambda: "NOP",
+    "inc_hl": lambda: "INC HL",
+    "dec_b": lambda: "DEC B",
+    "inc_c": lambda: "INC C",
+    "ld_a_hl": lambda: "LD A,(HL)",
+    "ld_hl_a": lambda: "LD (HL),A",
+    "ld_a_b": lambda: "LD A,B",
+    "ld_a_c": lambda: "LD A,C",
+    "ld_b_a": lambda: "LD B,A",
+    "ld_c_a": lambda: "LD C,A",
+    "cp_b": lambda: "CP B",
+    "ld_a_de": lambda: "LD A,(DE)",
+    "cp_hl": lambda: "CP (HL)",
+    "cp_c": lambda: "CP C",
+    "ld_l_a": lambda: "LD L,A",
+    "inc_l": lambda: "INC L",
+    "ld_de_a": lambda: "LD (DE),A",
+    "inc_de2": lambda: "INC DE",
+    "xor_b": lambda: "XOR B",
+    "xor_a": lambda: "XOR A",
+    "add_a_b": lambda: "ADD A,B",
+    "rlca": lambda: "RLCA",
+    "rra": lambda: "RRA",
+    "ld_b_n": lambda n: f"LD B,{hex8(n)}",
+    "inc_de": lambda: "INC DE",
+    "push_af": lambda: "PUSH AF",
+    "pop_af": lambda: "POP AF",
+    "push_bc": lambda: "PUSH BC",
+    "pop_bc": lambda: "POP BC",
+    "push_hl": lambda: "PUSH HL",
+    "pop_hl": lambda: "POP HL",
+    "push_de": lambda: "PUSH DE",
+    "pop_de": lambda: "POP DE",
+    "dec_de": lambda: "DEC DE",
+    "ld_a_d": lambda: "LD A,D",
+    "ld_a_e": lambda: "LD A,E",
+    "ld_e_a": lambda: "LD E,A",
+    "or_e": lambda: "OR E",
+    "or_a": lambda: "OR A",
+    "sbc_hl_de": lambda: "SBC HL,DE",
+    "ld_a": lambda n: f"LD A,{hex8(n)}",
+    "ld_b": lambda n: f"LD B,{hex8(n)}",
+    "ld_c": lambda n: f"LD C,{hex8(n)}",
+    "ld_e": lambda n: f"LD E,{hex8(n)}",
+    "and_a": lambda n: f"AND {hex8(n)}",
+    "or_n": lambda n: f"OR {hex8(n)}",
+    "cp_n": lambda n: f"CP {hex8(n)}",
+    "ld_sp": lambda nn: f"LD SP,{hex16(nn)}",
+    "ld_de_imm": lambda nn: f"LD DE,{hex16(nn)}",
+    "ld_hl_imm": lambda nn: f"LD HL,{hex16(nn)}",
+    "ld_hl_mem": lambda addr: f"LD HL,({hex16(addr)})",
+    "ld_mem_hl": lambda addr: f"LD ({hex16(addr)}),HL",
+    "ld_a_mem": lambda addr: f"LD A,({hex16(addr)})",
+    "ld_mem_a": lambda addr: f"LD ({hex16(addr)}),A",
+    "ld_hl": lambda name: f"LD HL,{name}",
+    "call": lambda name: f"CALL {name}",
+    "jp": lambda name: f"JP {name}",
+    "jp_nz": lambda name: f"JP NZ,{name}",
+    "jp_z": lambda name: f"JP Z,{name}",
+    "jr": lambda name: f"JR {name}",
+    "jr_nz": lambda name: f"JR NZ,{name}",
+    "jr_z": lambda name: f"JR Z,{name}",
+    "jr_nc": lambda name: f"JR NC,{name}",
+    "jr_c": lambda name: f"JR C,{name}",
+    "inc_a": lambda: "INC A",
+    "dec_a": lambda: "DEC A",
+    "djnz": lambda name: f"DJNZ {name}",
+    "in_port": lambda port: f"IN A,({hex8(port)})",
+    "out_a": lambda port: f"OUT ({hex8(port)}),A",
+}
+install_note_templates(Asm, _ASM_TEMPLATES)
 
 
 # --------------------------------------------------------------------------
@@ -1014,6 +1114,8 @@ def build_subrom(break_write_ack=False,
     # Nへ短縮するものではない。実行到達は専用マーカーCALLをトラップして
     # 別途確認する。未指定時はHEADと同じROMを生成する。
     a = Asm(0x0000)
+    global _LAST_ASM
+    _LAST_ASM = a   # M7段階0・--emit-asm用（main()から参照する側路）
 
     # m7gc（docs/notes/m7gc-remaining-callers-probe-preregistration.md）:
     # probe_site/probe_modeが選んだ1箇所にだけ探針を出す共通ヘルパ。
@@ -3511,6 +3613,10 @@ def main():
                          "種類（clear/set: REQ_HDR+2のbit0を倒す、"
                          "cyl: 陽性対照でシリンダ相当値を1増やす）。"
                          "--probe-siteと併用する。")
+    ap.add_argument("--emit-asm", type=pathlib.Path, default=None,
+                    help="M7段階0: 発行した命令を .asm として書き出す"
+                         "（tools/asm/z80text.py で組み直せる）。既定の"
+                         "ROM出力バイトには影響しない。")
     args = ap.parse_args()
     if (args.probe_site is None) != (args.probe_mode is None):
         ap.error("--probe-site と --probe-mode は両方指定するか、両方省略する")
@@ -3555,6 +3661,12 @@ def main():
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
+    if args.emit_asm is not None:
+        args.emit_asm.parent.mkdir(parents=True, exist_ok=True)
+        args.emit_asm.write_text(
+            render_asm(_LAST_ASM, "make_subrom.py が発行した命令の書き出し（DISK.ROM）"),
+            encoding="utf-8")
+        print(f"書き出した: {args.emit_asm}")
     if args.early_response_trap_map is not None:
         address = metadata["labels"]["EARLY_RESPONSE_INTERVENTION_REACHED"]
         args.early_response_trap_map.write_text(

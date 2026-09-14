@@ -45,6 +45,15 @@ import argparse
 import pathlib
 import sys
 
+# M7段階0: .asm書き出し(--emit-asm)用の共通ヘルパ。tools/asm/ はこのリポジトリ
+# 内のツールでpython3だけで完結する（外部依存を増やさない）。
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
+from asm_emit import hex8, hex16, install_note_templates, note_raw_db, render_asm  # noqa: E402
+
+# build_n88() が作った Asm インスタンスを main() から参照するための側路
+# （--emit-asm 用。既存の呼び出し元の関数シグネチャ・戻り値は変えない）。
+_LAST_ASM = None
+
 # --------------------------------------------------------------------------
 # 仕様書からの転記（docs/spec/l1-ipl.md 付録A）
 # --------------------------------------------------------------------------
@@ -173,6 +182,10 @@ class Asm:
         self.fixups = []
         self.expect = []
         self._sinks = [self.expect]
+        # M7段階0・--emit-asm用（既定は空リストのまま集めるだけで、
+        # 書き出さなければ既存のバイト生成には一切影響しない）。
+        self._emit_asm = []
+        self._note_suppress = 0
 
     # ---- 位置とラベル ----
     @property
@@ -185,6 +198,7 @@ class Asm:
         self.labels[name] = self.pc
 
     def db(self, *bs):
+        note_raw_db(self, bs)
         for b in bs:
             if not 0 <= b <= 0xFF:
                 raise ValueError(f"バイト範囲外: {b:#x}")
@@ -319,6 +333,51 @@ class Asm:
         どこを理解せずに置いたのかが後から分かる。
         """
         self.out_seq(SPEC_INIT[lo - 1:hi])
+
+
+# --------------------------------------------------------------------------
+# M7段階0・--emit-asm: 命令メソッド名 → z80text.py が読めるテキストへの
+# 変換テーブル。db()/_abs()/_rel() の中身には一切触れず、「呼び出し前後の
+# self.pc の差分＝そのメソッドが書いたバイト数」だけを利用する
+# （tools/asm/asm_emit.py 参照）。ここに無いメソッド、および db() を直接
+# 呼んでいる箇所（テーブルデータ等）は素の db 疑似命令として書き出される。
+# --------------------------------------------------------------------------
+_ASM_TEMPLATES = {
+    "di": lambda: "DI",
+    "ei": lambda: "EI",
+    "ret": lambda: "RET",
+    "reti": lambda: "RETI",
+    "retn": lambda: "RETN",
+    "inc_hl": lambda: "INC HL",
+    "inc_c": lambda: "INC C",
+    "dec_c": lambda: "DEC C",
+    "ld_a_hl": lambda: "LD A,(HL)",
+    "out_c_a": lambda: "OUT (C),A",
+    "in_a_c": lambda: "IN A,(C)",
+    "ld_a": lambda n: f"LD A,{hex8(n)}",
+    "ld_b": lambda n: f"LD B,{hex8(n)}",
+    "ld_c": lambda n: f"LD C,{hex8(n)}",
+    "and_a": lambda n: f"AND {hex8(n)}",
+    "ld_sp": lambda nn: f"LD SP,{hex16(nn)}",
+    "ld_hl": lambda name: f"LD HL,{name}",
+    "call": lambda name: f"CALL {name}",
+    "jp": lambda name: f"JP {name}",
+    "jr": lambda name: f"JR {name}",
+    "jr_nz": lambda name: f"JR NZ,{name}",
+    "jr_z": lambda name: f"JR Z,{name}",
+    "djnz": lambda name: f"DJNZ {name}",
+    "halt": lambda: "HALT",
+    "im2": lambda: "IM 2",
+    "ld_i_a": lambda: "LD I,A",
+    "dw": lambda name: f"DW {name}",
+    # LD A,(label>>8) — IM2ベクタテーブルのページをIへ積む用（hi8フィックスアップ）。
+    # label は16bitなので label>>8 は常に0-255に収まり、追加のマスクは不要。
+    "ld_a_hi": lambda name: f"LD A,{name}>>8",
+    "in_port": lambda port: f"IN A,({hex8(port)})",
+    "xor_a": lambda: "XOR A",
+    "st_a": lambda addr: f"LD ({hex16(addr)}),A",
+}
+install_note_templates(Asm, _ASM_TEMPLATES)
 
 
 # --------------------------------------------------------------------------
@@ -583,6 +642,8 @@ def build_n88(stop_after=None, font_sample=False):
                 指定した段階まで出したら、そこで止まって無限ループに入る。
     """
     a = Asm(0x0000)
+    global _LAST_ASM
+    _LAST_ASM = a   # M7段階0・--emit-asm用（main()から参照する側路）
 
     # ---- リセットベクタ ----
     a.di()
@@ -805,6 +866,10 @@ def main():
     ap.add_argument("--font-sample", action="store_true",
                     help="テキストVRAMへ文字コード0x20-0xFFを並べて書き込む"
                          "（L2 のフォント検証用。L1 の適合条件には影響しない）")
+    ap.add_argument("--emit-asm-dir", type=pathlib.Path, default=None,
+                    help="M7段階0: 発行した命令を N88.asm/DISK.asm として"
+                         "書き出す（tools/asm/z80text.py で組み直せる）。"
+                         "既定のROM出力バイトには影響しない。")
     args = ap.parse_args()
 
     rom, used, n_out = build_n88(args.stop_after, font_sample=args.font_sample)
@@ -812,6 +877,25 @@ def main():
     d.mkdir(parents=True, exist_ok=True)
     (d / "N88.ROM").write_bytes(rom)
     (d / "DISK.ROM").write_bytes(build_disk())
+
+    if args.emit_asm_dir is not None:
+        args.emit_asm_dir.mkdir(parents=True, exist_ok=True)
+        (args.emit_asm_dir / "N88.asm").write_text(
+            render_asm(_LAST_ASM, "make_ipl_rom.py が発行した命令の書き出し（N88.ROM）"),
+            encoding="utf-8")
+        # build_disk() は Asm を使わない生バイト列（JR $ + 残りFILL）なので、
+        # 手書きではなくその場で構成要素から機械的に組み立てる。
+        disk_asm = (
+            "; make_ipl_rom.py が発行した命令の書き出し（DISK.ROM）\n"
+            "; build_disk() は Asm を使わない直書きバイト列のため、その構成\n"
+            "; （JR $ 2バイト + 残りを0で埋める）をそのままテキスト化した。\n"
+            f"    org {hex16(0)}\n"
+            "DISK_START:\n"
+            "    jr DISK_START\n"
+            f"    ds {DISK_SIZE - 2},{hex8(FILL)}\n"
+        )
+        (args.emit_asm_dir / "DISK.asm").write_text(disk_asm, encoding="utf-8")
+        print(f"書き出した: {args.emit_asm_dir/'N88.asm'} / {args.emit_asm_dir/'DISK.asm'}")
 
     stage = args.stop_after or "全段階"
     print(f"生成した: {d/'N88.ROM'} ({N88_SIZE} bytes, コード {used} bytes)")
