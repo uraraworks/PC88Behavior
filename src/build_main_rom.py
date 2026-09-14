@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""
+build_main_rom.py — M7段階2a: ディスク無しで自作バナー→Ok→カーソルまで
+出す自作ROM一式（N88.ROM / DISK.ROM / FONT.ROM）を組み立てる。
+
+## 出所
+
+- **N88.ROM の起動処理(L1)部分**: `src/l1_ipl/make_ipl_rom.py` の
+  `build_n88()` が発行する命令列（docs/spec/l1-ipl.md 付録Aと組み立て時に
+  一致検査済み）を、`tools/asm/asm_emit.py` の `render_asm()` で
+  Z80アセンブリのテキストへ書き出したもの。M7段階0の「既存生成器は
+  正解役（オラクル）」の方針どおり、既存生成器（make_ipl_rom.py）自体は
+  変更しない。
+- **画面出力(main側L3)部分**: `src/l3_main/screen.asm`（docs/spec/l3-main.md
+  だけを見て書いた新規コード）。
+- 両者を `tools/asm/z80text.py`（自作Z80テキストアセンブラ）で1本に
+  組み上げる。挿入点は「画面ハードウェア初期化が終わり、IM2/EIで定常状態へ
+  入る直前」（`src/l1_ipl/make_ipl_rom.py` の `emit_font_sample()` と同じ
+  挿入点）。ここへの CALL 追加は OUT を1つも増やさないので、
+  L1 の適合条件（docs/spec/l1-ipl.md 第6節、OUT列だけの比較）には無関係。
+
+- **DISK.ROM**: `src/l3_service/make_subrom.py`（既存・無変更）。
+- **FONT.ROM**: `src/l2_font/make_font_rom.py`（既存・無変更。
+  vendor/unscii・vendor/misaki の字形データを使う。私物の公式ROMではないので
+  CLAUDE.md「パスの扱い」の環境変数縛りの対象外——tools/verify_l2.sh と
+  同じ扱い）。
+
+## 使い方
+
+    python3 src/build_main_rom.py <出力先ディレクトリ>
+    python3 src/build_main_rom.py <出力先> --extra-lines 25   # スクロール試験
+    python3 src/build_main_rom.py <出力先> --inject-address-fault   # 故障注入（自己検査用）
+"""
+
+import argparse
+import pathlib
+import shutil
+import subprocess
+import sys
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools" / "asm"))
+sys.path.insert(0, str(REPO / "src" / "l1_ipl"))
+
+import asm_emit  # noqa: E402
+import make_ipl_rom  # noqa: E402
+import z80text  # noqa: E402
+
+N88_SIZE = make_ipl_rom.N88_SIZE
+FILL = make_ipl_rom.FILL
+
+SCREEN_ASM = REPO / "src" / "l3_main" / "screen.asm"
+
+# 挿入点の目印。render_asm() の出力に必ず1回だけ現れる
+# （make_ipl_rom.build_n88() の「IM2ベクタページをIへ積む」直前）。
+INSERT_MARK = "    LD A,VEC_TABLE>>8"
+
+# 故障注入（tools/l3_main_selftest.sh の陰性対照用）。
+# 番地の式（addr = TEXT_BASE + row*STRIDE + col、l3-main.md 第2節）を
+# 1バイトずらす。screen.asm 側の該当行はこの文字列で一意に現れる。
+FAULT_OLD = "    LD HL,TEXT_BASE\n    LD (VAR_ROWBASE),HL"
+FAULT_NEW = "    LD HL,TEXT_BASE+1\n    LD (VAR_ROWBASE),HL"
+
+
+def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool) -> str:
+    """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
+    rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
+    del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
+    asm_obj = make_ipl_rom._LAST_ASM
+    ipl_text = asm_emit.render_asm(
+        asm_obj, "M7段階2a: make_ipl_rom.build_n88() の発行命令(L1) + l3_main/screen.asm(画面出力)")
+
+    if INSERT_MARK not in ipl_text:
+        raise SystemExit(f"挿入点が見つからない: {INSERT_MARK!r}")
+    if ipl_text.count(INSERT_MARK) != 1:
+        raise SystemExit(f"挿入点が一意でない: {INSERT_MARK!r}")
+    ipl_text = ipl_text.replace(INSERT_MARK, "    CALL SCREEN_MAIN\n" + INSERT_MARK)
+
+    screen_text = SCREEN_ASM.read_text(encoding="utf-8")
+    if inject_fault:
+        if screen_text.count(FAULT_OLD) != 1:
+            raise SystemExit("故障注入の対象行が一意に見つからない（screen.asm が変わった？）")
+        screen_text = screen_text.replace(FAULT_OLD, FAULT_NEW)
+
+    screen_path = work / "screen_gen.asm"
+    screen_path.write_text(screen_text, encoding="utf-8")
+
+    combined = (
+        f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
+        f"EXTRA_LINES EQU {extra_lines}\n"
+        + ipl_text
+        + f'\nINCLUDE "{screen_path}"\n'
+    )
+    return combined
+
+
+def assemble(text: str, work: pathlib.Path) -> bytes:
+    src_path = work / "n88_main_gen.asm"
+    src_path.write_text(text, encoding="utf-8")
+    asm = z80text.Assembler()
+    try:
+        code = asm.assemble(src_path)
+    except z80text.AsmError as e:
+        raise SystemExit(f"z80text アセンブルエラー: {e}")
+    if len(code) > N88_SIZE:
+        raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
+    rom = bytearray([FILL] * N88_SIZE)
+    rom[:len(code)] = code
+    return bytes(rom)
+
+
+def build_disk_rom(outdir: pathlib.Path):
+    subprocess.run(
+        [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def build_font_rom(outdir: pathlib.Path, unscii_hex: pathlib.Path, misaki_bdf: pathlib.Path):
+    subprocess.run(
+        [sys.executable, str(REPO / "src" / "l2_font" / "make_font_rom.py"), str(outdir),
+         "--unscii-hex", str(unscii_hex), "--misaki-bdf", str(misaki_bdf)],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("outdir", type=pathlib.Path)
+    ap.add_argument("--extra-lines", type=int, default=0,
+                     help="バナーとOkの間に挟む埋め草行の数（スクロール試験用）")
+    ap.add_argument("--inject-address-fault", action="store_true",
+                     help="故障注入: 番地の式を1バイトずらす（自己検査の陰性対照専用）")
+    ap.add_argument("--work-dir", type=pathlib.Path, default=None,
+                     help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
+    ap.add_argument("--unscii-hex", type=pathlib.Path,
+                     default=REPO.parent / "vendor" / "unscii" / "unscii-8.hex")
+    ap.add_argument("--misaki-bdf", type=pathlib.Path,
+                     default=REPO.parent / "vendor" / "misaki" / "misaki_gothic.bdf")
+    ap.add_argument("--keep-work", action="store_true",
+                     help="--work-dir を指定しない場合でも中間ファイルを残す")
+    args = ap.parse_args()
+
+    if args.extra_lines < 0 or args.extra_lines > 255:
+        raise SystemExit("--extra-lines は 0-255")
+
+    import tempfile
+    work = args.work_dir
+    cleanup = False
+    if work is None:
+        work = pathlib.Path(tempfile.mkdtemp(prefix="pc88_l3main_"))
+        cleanup = not args.keep_work
+    work.mkdir(parents=True, exist_ok=True)
+
+    try:
+        combined = build_combined_asm(work, args.extra_lines, args.inject_address_fault)
+        rom = assemble(combined, work)
+
+        args.outdir.mkdir(parents=True, exist_ok=True)
+        (args.outdir / "N88.ROM").write_bytes(rom)
+        build_disk_rom(args.outdir)
+        build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
+
+        used = len(combined.splitlines())
+        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM)")
+        print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
+              f"inject_address_fault={args.inject_address_fault}")
+    finally:
+        if cleanup:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()
