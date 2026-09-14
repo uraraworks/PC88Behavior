@@ -112,6 +112,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/mem_write_log_selftest.sh:0"
   "tools/harness/key_matrix_selftest.sh:0"
   "tools/harness/type_untypable_selftest.sh:0"
+  "tools/harness/type_bracesymbol_selftest.sh:0"
   "tools/harness/romram_selftest.sh:0"
   "tools/harness/selftest.sh:0"
   "tools/harness/trap_selftest.sh:0"

@@ -268,12 +268,44 @@ static unsigned g_sub_cpu_mode_requested = 0;
  *   ! " # $ % & ' ( )  →  1 2 3 4 5 6 7 8 9
  *   =  →  -      +  →  ;      *  →  :
  *   <  →  ,      >  →  .      ?  →  /
+ *
+ * { | } ~ も同じ理由で追加した（M7）。コア(libretro.c 250〜255行付近)は
+ *   for (i=0;i<64;i++) handle_key(i,i);                                 (a)
+ *   for (i=0;i<6;i++)  handle_key(KEY88_BRACKETLEFT+i, RETROK_LEFTBRACKET+i);  (b)
+ *   for (i=0;i<4;i++)  handle_key(KEY88_BRACELEFT+i,   RETROK_LEFTBRACE+i);    (c)
+ * という3本のループでキーを受け取る。(b)は '[' '\' ']' '^' '_' '`' の6個
+ * (KEY88コード91〜96)、(c)は '{' '|' '}' '~' の4個(123〜126)で、いずれも
+ * RETROKの数値がASCIIと同じ(libretro.hで確認: LEFTBRACKET=91…BACKQUOTE=96,
+ * LEFTBRACE=123…TILDE=126)。(a)の0-63(ASCII 0x20-0x3F)と同じ形で、コア
+ * 自身はここでSHIFTを合成していない。
+ *
+ * それでもSHIFTが要るキーとがある。keyboard.c の keyport[] 表(KEY88コード
+ * →実際のポート・ビット)を見ると:
+ *   KEY88_BRACKETLEFT(91)= Port5 Bit3   KEY88_BRACELEFT (123)= Port5 Bit3
+ *   KEY88_YEN(92)        = Port5 Bit4   KEY88_BAR       (124)= Port5 Bit4
+ *   KEY88_BRACKETRIGHT(93)=Port5 Bit5   KEY88_BRACERIGHT(125)= Port5 Bit5
+ *   KEY88_CARET(94)      = Port5 Bit6   KEY88_TILDE     (126)= Port5 Bit6
+ * と、(b)と(c)の対応する4個は同じポート・ビットを指す(既存のSHIFTED[]の
+ * '!'/'1'等が同じ Port6 Bit1 を共有するのとまったく同じ形)。同じビットを
+ * 押すだけでは '[' と '{' はハードウェア的に区別が付かない。区別を作る
+ * 手段は、その場にしか無い別のビット――SHIFTキー自身のビット
+ * (KEY88_SHIFT/SHIFTL/SHIFTR はいずれも Port8 Bit6 を共有)――を同時に
+ * 押すことだけなので、(c)の4個は「(b)側の土台+SHIFT」として送る。
+ *
+ * 一方 KEY88_UNDERSCORE(95, Port7 Bit7)にはビットを共有する対の相手が
+ * keyport[]に無い(単独の物理キー)。KEY88_BACKQUOTE(96)は KEY88_AT(64,
+ * Port2 Bit0)とビットを共有するが、AT はコアの libretro 経由では
+ * handle_key が登録されておらず(main.c 上部のコメント/PLAN参照)、この
+ * 経路からは触れない。(b)のループ自体がこの6個を「SHIFT無しでそのまま
+ * 送る」対象として一括で扱っている(コアのソース上の事実。ROM/逆アセンブル
+ * 由来ではない)ので、その分類にそのまま従い、_ と ` もSHIFT無しにする。
  */
 static const struct { char ch; char base; } SHIFTED[] = {
     { '!', '1' }, { '"', '2' }, { '#', '3' }, { '$', '4' }, { '%', '5' },
     { '&', '6' }, { '\'', '7' }, { '(', '8' }, { ')', '9' },
     { '=', '-' }, { '+', ';' }, { '*', ':' },
     { '<', ',' }, { '>', '.' }, { '?', '/' },
+    { '{', '[' }, { '|', '\\' }, { '}', ']' }, { '~', '^' },
 };
 
 /* ASCII 1 文字を (RETROK コード, SHIFT の要否) に直す。打てない文字は 0 */
@@ -285,9 +317,22 @@ static uint16_t ascii_to_retrok(char c, int *need_shift)
     if (c >= 'a' && c <= 'z') return (uint16_t)(RETROK_a + (c - 'a'));
     if (c == '\n' || c == '\r') return RETROK_RETURN;
     for (i = 0; i < sizeof(SHIFTED)/sizeof(SHIFTED[0]); i++) {
-        if (SHIFTED[i].ch == c) { *need_shift = 1; return (uint16_t)SHIFTED[i].base; }
+        if (SHIFTED[i].ch == c) {
+            char base = SHIFTED[i].base;
+            /* 故障注入: '{' の土台キーをわざと誤らせる(本来は '[' 、
+             * Port5 Bit3。'\' は Port5 Bit4)。key_matrix_bracesymbol_
+             * selftest.sh がこの環境変数で検出力を確かめる。 */
+            if (c == '{' && getenv("Q88MEASURE_FAULT_SWAP_BRACE_KEY"))
+                base = '\\';
+            *need_shift = 1;
+            return (uint16_t)base;
+        }
     }
     if ((unsigned char)c >= 32 && (unsigned char)c < 64) return (uint16_t)c;
+    /* '[' '\' ']' '^' '_' '`' (0x5B-0x60)。コアの2本目のループ(b)が対象。
+     * RETROKの数値はASCIIと同じなのでそのまま渡せばよい(--key-matrixの
+     * key_matrix_selftest.shで既に確認済みの基礎機構の延長)。 */
+    if ((unsigned char)c >= 0x5B && (unsigned char)c <= 0x60) return (uint16_t)c;
     return 0;
 }
 
