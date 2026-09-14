@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第214版 | 2026-09-14 | **1.63節の待ちの途中で媒体を差したあとの続きを測定し、1.64節を新設**（`src/`変更なし。実装は変えていない） | `m7lw`の事前登録・結果ノートに基づき、`--insert-disk2`/`--insert-disk2-at`（q88measureのコミット`db293af`）でB:未挿入待ちの途中に実際に媒体を差し込み、4腕（差す媒体2種×差すフレーム2つ）とも公式・混成の待ちからの抜け方・main `IN $FD`/`$FC`列・終了時画面署名が一致することを確認した（判定`resumes_identically`）。1.63節・3章の「未測定として残る」旨の記述には1.64節へのリンクを注記した（消していない）。根拠は`docs/notes/m7lw-insert-after-no-disk-wait-preregistration.md`・`docs/notes/m7lw-insert-after-no-disk-wait-results.md`。 |
 | 第213版 | 2026-09-12 | **1.63節の規則を自作subに実装した**（`src/`変更あり） | `m7lv`の結果ノート（合格条件1〜9・4bがすべて真、no_diskの画面署名も公式と一致）に基づき、`src/l3_service/make_subrom.py`の一般READ要求へ折り返しを追加した。3章の「no_diskの待ち手前にある5対6の分岐」の項を更新し、解決を明記した。根拠は`docs/notes/m7lv-no-disk-drive-wait-implementation-results.md`。 |
 | 第212版 | 2026-09-12 | **1.63節手順2の曖昧さを訂正**（`src/`変更なし。実装前・測定前の訂正） | 1.63節手順2の「1へ戻って繰り返す」が、字義どおりには`SEEK`（`SENSE INTERRUPT STATUS`込み）ごとの反復とも読める曖昧さがあり、1.62節で確認した公式の形（`m7lu`の観測。+0以降のFDCは`SEEK`・`SENSE INTERRUPT STATUS`が1回ずつ、以後は`SENSE DRIVE STATUS`だけの反復）と食い違っていた。手順2を「`SENSE DRIVE STATUS`だけを繰り返す（`SEEK`・`SENSE INTERRUPT STATUS`は繰り返さない）」に訂正した。測定・`src/`の変更は行っていない。 |
 | 第211版 | 2026-09-12 | **媒体の有無をST3 bit3で見分け、無ければ5バイト目の後で待つ規則を1.63節に置いた**（`src/`変更なし。実装はm7lvで別途測る） | `m7lv`が事前登録のない測定として、混成でSENSE DRIVE STATUSのST3を媒体なし・媒体ありの2場面で比較した。**bit7 FAULT・bit6 WP・bit4 T0・bit2 HEAD・bit1/0 USは両場面で同じ集合、bit5 READYは媒体が無くても1のまま、違うのはbit3（TWO SIDE）だけ**（媒体なし{0}／媒体あり{1}、自作の試験用ディスクは片面）。`vendor/quasi88-libretro`の`src/fdc.c`のSENSE DEVICE STATUS生成（2184〜2201行付近）を読むと、**媒体が無いか入れ替え直後の印が立っているときだけTS・WPを立てない**分岐があり、READYはどちらの分岐でも同じ内部状態から取っていて媒体の有無を区別しない。**このエミュレータ上ではST3 bit3=1⇔媒体が入っている（入れ替え直後の1回を除く）**と分かったので、1.62節で決めた「自作subにも公式と同じ準備待ちを持たせる」方針の終わり検出をbit3に定め、1.63節へ**規則**として書いた。**公式の判定規則がbit3だとは言わない**——言えるのはこのエミュレータ上でbit3と媒体の有無が一致することまで。実装（`src/`変更）は本版では行わず、`m7lv`の事前登録で別途測る。根拠は`docs/notes/m7lv-st3-two-side-media-signal.md`・`docs/notes/m7lv-no-disk-drive-wait-implementation-preregistration.md`。 |
@@ -3603,14 +3604,47 @@ SENSE DRIVE STATUSを毎フレーム一定数繰り返す形とも整合する�
 3. bit3=1になったら、従来どおりREAD DATA以降へ進む。
 
 **未測定として残ること**: 待ちの途中で媒体を差した後の続き（再アーム・6バイト目
-以降の受理）は測っていない（途中で媒体を差す器具が無い）。実機での振る舞い・
-QUASI88以外のエミュレータでの振る舞いにも一般化しない。
+以降の受理）は測っていない（途中で媒体を差す器具が無い）。**→1.64節で測定した
+（`m7lw`）。** 実機での振る舞い・QUASI88以外のエミュレータでの振る舞いにも
+一般化しない。
 
 根拠: [docs/notes/m7lv-st3-two-side-media-signal.md](../notes/m7lv-st3-two-side-media-signal.md)・
 [事前登録](../notes/m7lv-no-disk-drive-wait-implementation-preregistration.md)。
 
 **（第213版）自作subに実装し、`m7lv`の合格条件1〜9・4bがすべて真で採用した。no_diskの
 画面署名もframe 900で公式と一致した。**
+
+### 1.64 待ちの途中で媒体を差したあとの続きは、公式と混成が一致（第214版）
+
+1.63節の待ち（自作sub実装。実装は変えていない）に対し、待ちの途中で
+`--insert-disk2`/`--insert-disk2-at`（q88measureのコミット`db293af`）により
+B:へ媒体を実際に差し込み、続き（再アーム・6バイト目以降の受理）を公式・混成で
+比べた。
+
+**観測（`m7lw`測定）**: 差す媒体2種（参照用ディスクの複製／`make_l3_testdisk.py`の
+規則生成媒体）×差すフレーム2つ（待ちに入ってから短い場合・長い場合）の4腕すべてで、
+
+- 待ちに入り、差したら抜けること（差す直前まで毎フレーム高頻度の
+  `SENSE DRIVE STATUS`が続き、差した直後のフレームで止まり、その後に
+  `READ DATA`が出る）が、official・mixedとも成り立った。
+- main `IN $FD`列は4腕とも件数・SHA-256が公式・混成で一致した。
+  main `IN $FC`列は、参照用ディスクを差す腕では件数・SHA-256とも一致、
+  規則生成媒体を差す腕では件数のみ一致（SHA-256は1.58節の既知の分岐と同じ扱いで
+  判定に使わない）。
+- 終了時の画面署名（行数・文字数・SHA-256）も4腕とも公式・混成で一致した。
+
+**未測定・一般化しないこと**:
+
+- **エミュレータ（QUASI88 libretro版）上の振る舞いである。** 挿入は
+  `quasi88_disk_insert()`をフレーム境界で直接呼ぶ差し方であり、libretro版では
+  `config_init()`を通らないため入れ替え印（`disk_exchange`）を有効にする経路が無く、
+  差した直後に1回だけST3 bit3=0を返す動作は起きない。実機で媒体を差す瞬間の
+  信号（挿抜検出等）は再現していない。
+- 差す媒体は2種、差すフレームは2つだけである。媒体を抜く操作は測っていない。
+- 実機での振る舞いには一般化しない。
+
+根拠: [docs/notes/m7lw-insert-after-no-disk-wait-preregistration.md](../notes/m7lw-insert-after-no-disk-wait-preregistration.md)・
+[docs/notes/m7lw-insert-after-no-disk-wait-results.md](../notes/m7lw-insert-after-no-disk-wait-results.md)。
 
 ## 2. 明示的に「採用できない」こと
 
@@ -4369,7 +4403,7 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   規則は1.63節に置いた（自作subはSENSE DRIVE STATUSのST3 bit3=1になるまで
   SEEK→SENSE DRIVE STATUSを繰り返す）。実装は`m7lv`の事前登録で別途測る。
   待ちの途中で媒体を差した後の続き（再アーム・6バイト目以降）は依然として未測定。
-  公式が長さ5、混成が長さ6を出す原因は未確定である。相対-3の256バイト応答内容、
+  **→1.64節で測定した（`m7lw`）。** 公式が長さ5、混成が長さ6を出す原因は未確定である。相対-3の256バイト応答内容、
   相対-1の1バイト応答内容、軸近傍の自作sub割り込み受理2件は、有効な介入でも指標が
   動かなかったため原因から除外した。応答準備を遅い方向へ2clock動かしても不変で、
   自作subを短縮して公式と同じ2clockへ到達しても不変だった。早期応答N=3〜6も全armで
@@ -4393,8 +4427,8 @@ main側4種・sub側6種の**合計6種類**で4本構成に一致しない。`$
   1〜9・4bがすべて真になった。no_diskの+0要求長・+0後の交換run数・FDCの形（先頭SEEK・
   SENSE INTERRUPT STATUS・SENSE DRIVE STATUS）・frame 900の画面署名が、いずれも公式と
   一致するようになった。残る未測定は、待ちの途中で媒体を差した後の続き（再アーム・
-  6バイト目以降の受理）と、SENSE DRIVE STATUSの問い合わせ密度が公式と違うこと
-  （公式1289.2件/F、自作653.8件/F）の2点である。
+  6バイト目以降の受理）**（→1.64節で測定した。`m7lw`）**と、SENSE DRIVE STATUSの
+  問い合わせ密度が公式と違うこと（公式1289.2件/F、自作653.8件/F）の2点である。
 
 - **（第83版で追加）ST3 bit6/bit3によるno_disk区別の実機一般性。**
   差の存在は観測したが、WRITE PROTECTED / TWO SIDEが媒体無しを表すことは公開μPD765
