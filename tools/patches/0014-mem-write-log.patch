@@ -11,7 +11,7 @@ index 5d5f2ca..7aee69c 100644
     $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
     $(CORE_DIR)/q88h_main_interrupt_intervention.c \
 diff --git a/src/pc88main.c b/src/pc88main.c
-index e463480..0a31d6c 100644
+index e463480..2f8efda 100644
 --- a/src/pc88main.c
 +++ b/src/pc88main.c
 @@ -2960,6 +2960,7 @@ void	main_io_out_with_BP( byte port, byte data )
@@ -22,7 +22,7 @@ index e463480..0a31d6c 100644
  
  /* ----------------------------------------------------------------------
   * トラップROM足場（M2）
-@@ -2987,6 +2988,42 @@ void	main_io_out_with_BP( byte port, byte data )
+@@ -2987,6 +2988,55 @@ void	main_io_out_with_BP( byte port, byte data )
  static byte (*q88h_inner_fetch)( word );
  static word  q88h_prev_fetch;   /* 直前に fetch() で要求された番地 */
  
@@ -62,10 +62,23 @@ index e463480..0a31d6c 100644
 +static word q88h_instr_pc;       /* 現在実行中の命令の先頭番地 */
 +static int  q88h_instr_pending;  /* 上の状態機械の状態 (0/1/2) */
 +
++/* 自己検査専用の故障注入（M7器具2の検査、mem_write_pc_selftest.sh）。
++ * DD/FD 前置きの継続フェッチを数える処理をわざと無効化し、この状態機械が
++ * 本当に働いているかどうかを外側の検査から見えるようにする。
++ * Q88MEASURE_FAULT_* は他のフロントエンド側故障注入と同じ命名だが、こちらは
++ * コア内部の状態機械そのものが対象のためここに置く（frontend からは
++ * static な q88h_instr_pending へ触れないため）。既定では無効。 */
++static int q88h_fault_ignore_prefix( void )
++{
++  static int cached = -1;
++  if( cached < 0 ) cached = getenv( "Q88MEASURE_FAULT_IGNORE_PREFIX" ) ? 1 : 0;
++  return cached;
++}
++
  /* ----------------------------------------------------------------------
   * fetch した番地の実体が ROM 像か RAM かを判定する。
   *
-@@ -3036,8 +3073,14 @@ static byte q88h_fetch( word addr )
+@@ -3036,8 +3086,14 @@ static byte q88h_fetch( word addr )
    q88h_trace_t *t  = retro_q88h_trace();
    q88h_trap_t  *tp = retro_q88h_trap();
    word          prev_fetch = q88h_prev_fetch;   /* トラップ判定より前に控える */
@@ -80,7 +93,7 @@ index e463480..0a31d6c 100644
    t->mem_exec[addr] = 1;
    if( q88h_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
    else                            t->mem_exec_ram[addr] = 1;
-@@ -3065,6 +3108,11 @@ static byte q88h_fetch( word addr )
+@@ -3065,6 +3121,11 @@ static byte q88h_fetch( word addr )
      }
  
      q88h_prev_fetch = addr;
@@ -92,7 +105,7 @@ index e463480..0a31d6c 100644
      if( tp->mode == Q88H_TRAP_RET ){
        return 0xC9;                     /* RET  — 呼び元へ即座に返す */
      }else{                             /* Q88H_TRAP_STOP */
-@@ -3076,6 +3124,22 @@ static byte q88h_fetch( word addr )
+@@ -3076,6 +3137,24 @@ static byte q88h_fetch( word addr )
  
    ret = q88h_inner_fetch( addr );
    q88h_prev_fetch = addr;
@@ -101,7 +114,9 @@ index e463480..0a31d6c 100644
 +  if( is_instr_start ){
 +    switch( ret ){
 +    case 0xCB: case 0xED: q88h_instr_pending = 1; break;
-+    case 0xDD: case 0xFD: q88h_instr_pending = 2; break;
++    case 0xDD: case 0xFD:
++      q88h_instr_pending = q88h_fault_ignore_prefix() ? 0 : 2;
++      break;
 +    default:              q88h_instr_pending = 0; break;
 +    }
 +  }else if( q88h_instr_pending == 2 ){
@@ -115,7 +130,7 @@ index e463480..0a31d6c 100644
    return ret;
  }
  
-@@ -3106,9 +3170,23 @@ static byte q88h_mem_read( word addr )
+@@ -3106,9 +3185,23 @@ static byte q88h_mem_read( word addr )
  
  static void q88h_mem_write( word addr, byte data )
  {
