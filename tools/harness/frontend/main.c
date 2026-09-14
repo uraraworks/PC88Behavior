@@ -11,6 +11,7 @@
  * 使い方:
  *   q88measure --core <core.so|dylib> --rom-dir <dir> [--disk <a.d88>]
  *              [--disk2 <b.d88>]
+ *              [--insert-disk2 <b.d88> --insert-disk2-at FRAME]
  *              [--frames N] [--out <file>] [--expect-exec ADDR]...
  *
  *   --rom-dir      公式 ROM の置き場。PC88_REF_ROM_DIR でも指定できる
@@ -18,6 +19,15 @@
  *   --out          採取結果の書き出し先（省略時は書かない）
  *   --expect-exec  この番地が実行されていなければ異常終了する。
  *                  フックが末端まで生きていることを検査するために使う
+ *
+ *   --insert-disk2 / --insert-disk2-at
+ *       起動時は DRIVE_2（B:）を空のまま走らせ、指定フレームになった
+ *       retro_run() 呼び出しの直前に QUASI88 本体の quasi88_disk_insert()
+ *       を dlsym 経由で呼んで媒体を差し込む（m7lw: B:媒体待ち中の途中
+ *       差し込みを測るための器具）。両方必須の組で、片方だけの指定や
+ *       --disk2 との同時指定、--frames 以上のFRAME指定はエラーにする。
+ *       挿入直前まで filename_get_disk(1) が空であること、挿入直後に
+ *       指定パスを返すことをそれぞれ末端で確認する。
  */
 
 #include <stdio.h>
@@ -65,6 +75,15 @@ static void          (*p_text)(uint8_t *, uint32_t, uint32_t, uint32_t);
  * filename_get_disk() の返す状態へ実パスを保存する。単にspecialへ渡した引数を
  * 見直すのではなく、DRIVE_1/2への挿入が完了した後の状態を検査する。 */
 static const char *(*p_filename_get_disk)(int);
+
+/* m7lw: 実行中のDRIVE_2（B:）差し込み器具。QUASI88本体の
+ * quasi88_disk_insert(drv, filename, image, ro) をdlsymで取る。既存の
+ * filename_get_disk と同じ作法（無ければ機能を落とすのではなく、
+ * --insert-disk2 使用時にだけ必須にする）。DRIVE_2 の値は vendor の
+ * src/initval.h の enum { DRIVE_1, DRIVE_2, ... } により 1 固定
+ * （GPLの第三者実装のソースで、公式ROMとは無関係）。 */
+static int (*p_quasi88_disk_insert)(int, const char *, int, int);
+enum { Q88_DRIVE_2 = 1 };
 
 /* トラップROM足場（M2）。無いコアもあり得るので dlsym は load_core とは
  * 別枠にして、失敗しても致命的にしない。「見つからなければ従来どおり
@@ -424,6 +443,7 @@ static bool load_core(const char *path)
      * 二本時にだけ呼出側で存在を必須にする。 */
     *(void **)(&p_load_game_special) = dlsym(h, "retro_load_game_special");
     *(void **)(&p_filename_get_disk) = dlsym(h, "filename_get_disk");
+    *(void **)(&p_quasi88_disk_insert) = dlsym(h, "quasi88_disk_insert");
 
     /* 計測フックが入っていないコアを黙って使うと、
      * 「アクセスが無かった」と「観測していない」の区別がつかなくなる。 */
@@ -859,7 +879,9 @@ static int write_screenshot_ppm(const char *path, const q88h_screenshot_t *s)
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
-                         const char *disk, const char *disk2, unsigned frames)
+                         const char *disk, const char *disk2, unsigned frames,
+                         bool insert2_done, unsigned insert2_frame,
+                         int insert2_rc, const char *insert2_actual)
 {
     fprintf(fp, "# PC88Behavior バスアクセス採取結果\n");
     fprintf(fp, "# 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。\n\n");
@@ -867,6 +889,9 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
     fprintf(fp, "rom-dir   : %s\n", romdir);
     fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
     if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
+    if (insert2_done)
+        fprintf(fp, "insert2   : frame=%u rc=%d actual=%s\n",
+                insert2_frame, insert2_rc, insert2_actual ? insert2_actual : "(なし)");
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
     write_screen(fp);
@@ -888,6 +913,7 @@ static void usage(void)
     fprintf(stderr,
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
         "                   [--disk2 <path>] [--expect-disk2-empty]\n"
+        "                   [--insert-disk2 <path> --insert-disk2-at FRAME]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
@@ -921,6 +947,12 @@ int main(int argc, char **argv)
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
     bool expect_disk2_empty = false;
+    const char *insert_disk2 = NULL;
+    unsigned insert_disk2_at = 0;
+    bool insert_disk2_at_set = false;
+    bool insert2_done = false;
+    int insert2_rc = 0;
+    const char *insert2_actual = NULL;
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
      * まとめて 1 つ確認しただけでは、どれが死んでいるか分からない。 */
     struct { const char *name; const uint8_t *map; size_t size; unsigned a[16]; int n; } chk[] = {
@@ -962,6 +994,11 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--disk")    && i + 1 < argc) disk = argv[++i];
         else if (!strcmp(argv[i], "--disk2")   && i + 1 < argc) disk2 = argv[++i];
         else if (!strcmp(argv[i], "--expect-disk2-empty")) expect_disk2_empty = true;
+        else if (!strcmp(argv[i], "--insert-disk2") && i + 1 < argc) insert_disk2 = argv[++i];
+        else if (!strcmp(argv[i], "--insert-disk2-at") && i + 1 < argc) {
+            insert_disk2_at = (unsigned)strtoul(argv[++i], NULL, 0);
+            insert_disk2_at_set = true;
+        }
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
@@ -1223,6 +1260,26 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if ((insert_disk2 != NULL) != insert_disk2_at_set) {
+        fprintf(stderr, "[q88measure] --insert-disk2 と --insert-disk2-at は両方必須\n");
+        return 2;
+    }
+    if (insert_disk2 && disk2) {
+        fprintf(stderr, "[q88measure] --insert-disk2 と --disk2 は同時指定できない\n");
+        return 2;
+    }
+    if (insert_disk2 && insert_disk2_at >= frames) {
+        fprintf(stderr, "[q88measure] --insert-disk2-at は --frames 未満で指定すること\n");
+        return 2;
+    }
+    if (insert_disk2) {
+        struct stat st;
+        if (stat(insert_disk2, &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "[q88measure] --insert-disk2 の通常ファイルを読めない: %s\n",
+                    insert_disk2);
+            return 2;
+        }
+    }
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
         return 2;
@@ -1234,14 +1291,21 @@ int main(int argc, char **argv)
     fprintf(stderr, "[q88measure] rom-dir = %s\n", g_rom_dir);
     fprintf(stderr, "[q88measure] disk    = %s\n", disk ? disk : "(なし)");
     if (disk2) fprintf(stderr, "[q88measure] disk2   = %s\n", disk2);
+    if (insert_disk2)
+        fprintf(stderr, "[q88measure] insert-disk2 = %s (at frame %u)\n",
+                insert_disk2, insert_disk2_at);
 
     if (!load_core(core)) return 1;
-    if ((disk2 || expect_disk2_empty) && !p_filename_get_disk) {
+    if ((disk2 || expect_disk2_empty || insert_disk2) && !p_filename_get_disk) {
         fprintf(stderr, "[q88measure] DRIVE_2末端状態を検査できないコア\n");
         return 2;
     }
     if (disk2 && !p_load_game_special) {
         fprintf(stderr, "[q88measure] retro_load_game_specialを持たないコア\n");
+        return 2;
+    }
+    if (insert_disk2 && !p_quasi88_disk_insert) {
+        fprintf(stderr, "[q88measure] quasi88_disk_insertを持たないコア\n");
         return 2;
     }
     if ((n_xi || ready_handoff_mode) && !g_exchange_intervention_available) {
@@ -1317,6 +1381,20 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr, "[q88measure] OK: --disk2未指定時のDRIVE_2空状態をコア末端で確認\n");
+    }
+    if (insert_disk2) {
+        /* 差し込み(--insert-disk2-at)より前は、--expect-disk2-emptyと同じ
+         * 考え方でDRIVE_2が空であることを末端で確認する。ここで確認して
+         * おけば、差し込み直後の「actualが指定パスに変わった」との対比が
+         * 意味を持つ。 */
+        if (p_filename_get_disk(1)) {
+            fprintf(stderr, "[q88measure] NG: --insert-disk2指定なのに起動直後から"
+                            "DRIVE_2へ媒体が入っている\n");
+            p_unload_game();
+            p_deinit();
+            return 1;
+        }
+        fprintf(stderr, "[q88measure] OK: 差し込み前のDRIVE_2空状態をコア末端で確認\n");
     }
 
     if (g_exchange_intervention_available) {
@@ -1446,6 +1524,31 @@ int main(int argc, char **argv)
             fprintf(stderr, "[q88measure] ハードウェアリセット: frame %u\n", g_frame);
         }
 
+        /* m7lw: 「g_frame==FRAME になったフレームのretro_run()呼び出しの
+         * 直前」と定義する。挿入は1回きり（この分岐にg_frame==FRAMEで
+         * 一度だけ到達する）。 */
+        if (insert_disk2 && !insert2_done && g_frame == insert_disk2_at) {
+#ifdef Q88MEASURE_FAULT_SKIP_INSERT_DISK2
+            /* insert_disk2_selftest.sh だけが別成果物へ有効化する故障注入。
+             * quasi88_disk_insert を実際には呼ばず「呼んだふり」だけする。
+             * 通常ビルドには入らない。 */
+            insert2_rc = 1;
+#else
+            insert2_rc = p_quasi88_disk_insert(Q88_DRIVE_2, insert_disk2, 0, 0);
+#endif
+            insert2_actual = p_filename_get_disk(1);
+            insert2_done = true;
+            if (!insert2_rc || !insert2_actual || strcmp(insert2_actual, insert_disk2)) {
+                fprintf(stderr, "[q88measure] NG: DRIVE_2への実行中差し込みが末端で"
+                                "確認できない (frame=%u rc=%d)\n", g_frame, insert2_rc);
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            fprintf(stderr, "[q88measure] OK: DRIVE_2への実行中差し込みをコア末端状態で確認"
+                            " (frame=%u)\n", g_frame);
+        }
+
         p_run();
 
         if (g_trap_available && g_trap_map_path[0]) {
@@ -1489,12 +1592,14 @@ int main(int argc, char **argv)
             q88h_trap_t *tps = (g_trap_available && g_trap_map_path[0]) ? p_trap_sub() : NULL;
 
             write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
-                         disk, disk2, frames);
+                         disk, disk2, frames,
+                         insert2_done, insert_disk2_at, insert2_rc, insert2_actual);
             if (out) {
                 FILE *fp = fopen(out, "w");
                 if (!fp) { perror(out); return 1; }
                 write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
-                             disk, disk2, frames);
+                             disk, disk2, frames,
+                             insert2_done, insert_disk2_at, insert2_rc, insert2_actual);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
             }
