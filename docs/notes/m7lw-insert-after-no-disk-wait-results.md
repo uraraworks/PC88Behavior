@@ -102,6 +102,36 @@ bit3=0の問い合わせが何件あったかの数え方の差）であり、�
 誤りではなかったと確認した。main $FD/$FC列の一致・画面署名の一致（判定
 resumes_identically）は変わらない。
 
+### 追記2（frameの帰属）
+
+上の「追記」は、mixedのbit3=1がframe I−1に乗るという記述と、挿入がframe
+I−1のp_run()完了後に当たるという記述を並べると、挿入前にbit3=1が観測された
+ことになり両立しない点に触れていなかった。この矛盾を、判定に使っていた
+`awp.parse_commands`（`tools/analyze_write_path.py`）の`Command.frame`の
+定義を確かめることと、コマンド語を書いたframeと結果バイトをsubが読んだ
+frameを別々に取り直すことで確かめた。
+
+`Command.frame`は先頭の$FB書き込み（コマンド語そのもの、発行時）の
+frameであり、結果バイトを読んだframeではない（`analyze_write_path.py`の
+`parse_commands`、`first.frame`を渡す箇所）。つまり追記で「bit3=1のSENSE
+DRIVE STATUSが乗るframe」として使っていたのは**コマンド発行時のframe**
+だった。
+
+同一の測定ログから、bit3=1になったSENSE DRIVE STATUSについて(a)コマンド語
+書き込みのframeと(b)ST3結果バイトをsubが読んだframeを別々に取ると、8組
+（4腕×official/mixed）すべてで以下の関係だった:
+
+- official（4腕とも同じ関係）: (a)コマンド語のframeと(b)結果を読んだframe
+  はどちらも挿入フレームIで一致（frame境界をまたがない）。
+- mixed（4腕とも同じ関係）: (a)コマンド語のframeはI−1、(b)結果を読んだ
+  frameはI（frame境界をまたぐ）。
+
+事前の予想どおり、**mixedはコマンドをframe I−1の末尾で発行し、結果は
+挿入後のframe Iで読んでいた**。矛盾の正体は「発行frameと結果読み取りframe
+の混同」であり、bit3=1という観測自体（挿入前に返ったことにはならない）と、
+結論(A)（bit3=1の直後にREAD DATAへ進み、追加のSENSE DRIVE STATUSは無い）
+はどちらも変わらない。
+
 - +0の run の長さと交換 run: G3の陰性対照でのみ定義（本測定の4腕には+0の定義を
   適用していない。事前登録は+0をNOINSの関門にのみ使う書き方だったため、そのとおりに
   従った）。
