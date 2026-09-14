@@ -27,6 +27,33 @@ TSV = REPO / "tools" / "basic_surface.tsv"
 MEASURE = REPO / "tools" / "measure.sh"
 DISK = "N88_FE.D88"
 
+# q88measure --type が打てる文字（main.c の ascii_to_retrok と同じ規則）。
+# 英字・SHIFT対応表・ASCII 0x20-0x3F 以外は打てない。basic_surface.tsv の
+# COLOR@ / GET@ / PUT@ のように、実在するN88-BASIC構文が意図して '@' を
+# 含む場合がある（q88measureの鍵盤には無い記号なので、以前は無警告のまま
+# '@' が読み飛ばされ、打ち込まれるコードが違う文になっていた）。そうした
+# 既知の行だけ --allow-untypable を渡し、それ以外の打てない文字は
+# q88measure 側の既定どおり rc!=0 で止めて気づけるようにする。
+_SHIFTED_TYPABLE = set("!\"#$%&'()=+*<>?")
+
+
+def untypable_chars(code: str) -> list[str]:
+    """code中の打てない文字を出現順に返す。\\n はq88measure側で改行1個
+    として扱われるので対象にしない。"""
+    bad = []
+    i, n = 0, len(code)
+    while i < n:
+        if code[i] == "\\" and i + 1 < n and code[i + 1] == "n":
+            i += 2
+            continue
+        c = code[i]
+        if not (c.isascii() and (c.isalpha() or c in _SHIFTED_TYPABLE
+                                  or 0x20 <= ord(c) < 0x40)):
+            bad.append(c)
+        i += 1
+    return bad
+
+
 FRAMES_PER_KEY = 8
 # 起動プロンプトを抜けてから打ち始めるまで
 START_NODISK = 400
@@ -71,6 +98,10 @@ def plan(row):
     frames = start + nkeys * FRAMES_PER_KEY + TAIL
 
     args = [str(MEASURE), "s-" + row["name"].lower(), "--frames", str(frames)]
+    if untypable_chars(code):
+        # 既知の意図した例（COLOR@/GET@/PUT@の'@'）。q88measureの既定の
+        # 走行前エラーを、ここだけ従来どおりの警告読み飛ばしに戻す。
+        args += ["--allow-untypable"]
     if disk:
         args += ["--disk-name", DISK]
         if needs == "diskw":

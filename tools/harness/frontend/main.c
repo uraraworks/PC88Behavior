@@ -203,6 +203,12 @@ static bool                g_screenshot_available = false;
 /* ---- 設定 -------------------------------------------------------------- */
 static char g_rom_dir[1024] = { 0 };
 static bool g_verbose       = false;
+/* --type に打てない文字があったとき、既定では走行前に rc!=0 で止める
+ * （m7hk後日: 以前は警告して黙って飛ばし、欠けた打鍵列のまま走行が正常
+ * 終了していた）。意図して打てない文字を含む検査だけ --allow-untypable
+ * で従来どおり警告のみに落とす。--type より前に指定すること
+ * （--key-hold等と同じく、その時点の値をそれ以降の--typeが使う規則）。 */
+static bool g_allow_untypable = false;
 /* 既定では libretro コアが書込み差分を save directory の .srm に置く。
  * 二つの独立実行の間で「1回目がSAVEした使い捨てD88複製そのもの」を渡す
  * 測定だけは、コアの公開オプション q88_save_to_disk_image を明示的に有効に
@@ -285,21 +291,41 @@ static uint16_t ascii_to_retrok(char c, int *need_shift)
     return 0;
 }
 
-/* 打鍵列を組み立てる。hold フレーム押して gap フレーム離す */
+/* 打鍵列を組み立てる。hold フレーム押して gap フレーム離す。
+ *
+ * 打てない文字（ascii_to_retrok が0を返す文字）は、既定では走行を
+ * 始める前に検出してエラー終了する（rc!=0）。以前は stderr に警告を
+ * 出すだけで走行を続けており、警告を読み落とすと欠けた打鍵列のまま
+ * 「正常終了」して測定が黙って壊れた。--allow-untypable 指定時、または
+ * 検出力を確かめる故障注入（環境変数 Q88MEASURE_FAULT_SKIP_UNTYPABLE_CHECK）
+ * のときだけ、従来どおり警告して読み飛ばす。 */
 static int schedule_typing(const char *text, unsigned at,
                            unsigned hold, unsigned gap)
 {
     unsigned t = at;
+    unsigned idx = 0;
     for (; *text; text++) {
         uint16_t k;
         int shift = 0;
+        idx++;
         if (text[0] == '\\' && text[1] == 'n') { k = RETROK_RETURN; text++; }
         else k = ascii_to_retrok(*text, &shift);
 
         if (!k) {
-            fprintf(stderr, "[q88measure] 打てない文字を無視: 0x%02X\n",
-                    (unsigned char)*text);
-            continue;
+            if (g_allow_untypable ||
+                getenv("Q88MEASURE_FAULT_SKIP_UNTYPABLE_CHECK")) {
+                fprintf(stderr,
+                        "[q88measure] 打てない文字を無視(%u文字目): 0x%02X\n",
+                        idx, (unsigned char)*text);
+                continue;
+            }
+            fprintf(stderr,
+                    "[q88measure] --type に打てない文字がある(%u文字目): "
+                    "0x%02X。打てるのは英字・ASCII 0x20-0x3F・SHIFT対応表"
+                    "だけ。意図した文字なら --type より前に "
+                    "--allow-untypable を指定すること\n",
+                    idx, (unsigned char)*text);
+            return 0;
         }
         if (g_n_keyev >= MAX_KEYSTROKES) {
             fprintf(stderr, "[q88measure] 打鍵列が長すぎる\n");
@@ -1205,6 +1231,8 @@ static void usage(void)
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
         "                   [--save-to-disk-image]\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
+        "                   [--allow-untypable] (--typeより前に指定。既定は\n"
+        "                    打てない文字があれば走行前にrc!=0で止まる)\n"
         "                   [--key-hold N] [--key-gap N]\n"
         "                   [--expect-exec ADDR] [--expect-read ADDR]\n"
         "                   [--expect-write ADDR] [--expect-io-in PORT]\n"
@@ -1338,6 +1366,7 @@ int main(int argc, char **argv)
          * 何度でも繰り返せる。起動時の "How many files" のような
          * 途中のプロンプトを挟む場合に要る（実際に必要だった）。 */
         else if (!strcmp(argv[i], "--type-at")   && i + 1 < argc) next_at = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--allow-untypable")) g_allow_untypable = true;
         else if (!strcmp(argv[i], "--type")      && i + 1 < argc) {
             const char *txt = argv[++i];
             if (!schedule_typing(txt, next_at, key_hold, key_gap)) return 1;
