@@ -121,6 +121,7 @@ SCRIPTS_EXPECTED=(
   "tools/make_l3_testdisk_selftest.sh:0"
   "tools/asm/z80text_selftest.sh:0"
   "tools/asm/asm_selftest.sh:0"
+  "tools/l3_main_selftest.sh:0"
 )
 
 overall=0
