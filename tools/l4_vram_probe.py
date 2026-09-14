@@ -46,6 +46,16 @@
        (属性はハードウェアの設定値であって画面本文ではないので出してよい)
     5. 変化件数の合計(文字域・属性域それぞれ)
 
+  --count-only-rows ROW0[,ROW0...]（M7 段階1の器具その4追補。
+      l4-s1b Q2 の SHIFT 修飾でファンクションキー表示行が動く問題への対応）
+                         指定した行(0始まり、カンマ区切り複数可)で変わった
+                         セルは、文字コードも位置も一切出さず、その行ごとの
+                         変化件数(文字域・属性域それぞれ)だけを出す。
+                         ファンクションキー表示の文字はROMのデータ表であり
+                         この測定では扱わないため。見出しに指定した行番号を
+                         明記する。指定しなければ従来どおり(全行を通常の
+                         差分として扱う)。
+
 自己検査: tools/screen_content_leak_selftest.sh に合成データでの検査を
 追加してある（本ツール分。差分モードも含む）。単体でも下記で素朴に
 確認できる:
@@ -217,7 +227,9 @@ def analyze_dump(path: str, marker: bytes) -> dict:
 # ---- 1b. 差分モード(押す前/押した後の写しの比較) ---------------------------
 
 
-def diff_vram_dumps(before_path: str, after_path: str) -> dict:
+def diff_vram_dumps(
+    before_path: str, after_path: str, count_only_rows: "set[int] | None" = None
+) -> dict:
     """押す前・押した後の写しを比較し、変化したセルの位置だけを返す。
 
     文字域: 変化した (row0, col0, addr) は必ず返すが、値そのものは
@@ -226,11 +238,25 @@ def diff_vram_dumps(before_path: str, after_path: str) -> dict:
     (起動画面などの本文を出さないため)。
     属性域: 変化した (row0, 属性域内位置0-39, addr) と前後の値を返す
     (属性はハードウェアの設定値であって画面本文ではない)。
+
+    count_only_rows: 指定した行(0始まり)は、文字コードも位置も一切出さず、
+    その行の変化件数(文字域・属性域それぞれ)だけを別枠(count_only_summary)
+    に集計する。ファンクションキー表示行など、ROMのデータ表にあたる文字を
+    扱わないための出口(l4-s1b Q2 SHIFT追補)。
     """
     before = load_vram_dump(before_path)
     after = load_vram_dump(after_path)
+    count_only_rows = count_only_rows or set()
+    # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+    # 無効。設定すると --count-only-rows の指定を無視して通常の差分として
+    # 扱う——検査器(この自己検査そのもの)が「指定行が本当に伏せられて
+    # いるか」を実際に検出できるかを確かめるための対照。
+    if os.environ.get("Q88MEASURE_FAULT_IGNORE_COUNT_ONLY_ROWS"):
+        count_only_rows = set()
 
     char_changes = []
+    char_change_total = 0
+    count_only_char = {r: 0 for r in count_only_rows}
     for row in range(ROWS):
         base_row = row * STRIDE
         for col in range(COLS):
@@ -238,6 +264,10 @@ def diff_vram_dumps(before_path: str, after_path: str) -> dict:
             b_before = before[idx]
             b_after = after[idx]
             if b_before == b_after:
+                continue
+            char_change_total += 1
+            if row in count_only_rows:
+                count_only_char[row] += 1
                 continue
             addr = BASE + row * STRIDE + col
             entry = {"row0": row, "col0": col, "addr": f"{addr:04X}"}
@@ -249,6 +279,8 @@ def diff_vram_dumps(before_path: str, after_path: str) -> dict:
             char_changes.append(entry)
 
     attr_changes = []
+    attr_change_total = 0
+    count_only_attr = {r: 0 for r in count_only_rows}
     for row in range(ROWS):
         base_row = row * STRIDE + COLS
         for pos in range(ATTR_BYTES):
@@ -256,6 +288,10 @@ def diff_vram_dumps(before_path: str, after_path: str) -> dict:
             a_before = before[idx]
             a_after = after[idx]
             if a_before == a_after:
+                continue
+            attr_change_total += 1
+            if row in count_only_rows:
+                count_only_attr[row] += 1
                 continue
             addr = BASE + row * STRIDE + COLS + pos
             attr_changes.append(
@@ -275,11 +311,21 @@ def diff_vram_dumps(before_path: str, after_path: str) -> dict:
         "addr_formula": "addr = 0xF3C8 + row0*120 + col0 (文字域は col0=0-79、"
         "属性域は addr = 0xF3C8 + row0*120 + 80 + pos0、pos0=0-39)",
         "char_change_note": "char_after は押す前が空白(0x20)だったセルのみ。"
-        "それ以外は was_blank=false のみで前後の値は出さない。",
+        "それ以外は was_blank=false のみで前後の値は出さない。"
+        "count_only_rows に指定した行は文字コードも位置も出さず件数のみ。",
+        "count_only_rows": sorted(count_only_rows),
         "char_changes": char_changes,
         "attr_changes": attr_changes,
-        "char_change_count": len(char_changes),
-        "attr_change_count": len(attr_changes),
+        "char_change_count": char_change_total,
+        "attr_change_count": attr_change_total,
+        "count_only_summary": [
+            {
+                "row0": r,
+                "char_change_count": count_only_char[r],
+                "attr_change_count": count_only_attr[r],
+            }
+            for r in sorted(count_only_rows)
+        ],
     }
 
     # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
@@ -477,6 +523,14 @@ def render_text(result: dict) -> str:
             f"  char_change_count={diff['char_change_count']}"
             f" attr_change_count={diff['attr_change_count']}"
         )
+        if diff.get("count_only_rows"):
+            lines.append(f"  count_only_rows={diff['count_only_rows']}")
+            for s in diff["count_only_summary"]:
+                lines.append(
+                    f"    count_only row0={s['row0']}"
+                    f" char_change_count={s['char_change_count']}"
+                    f" attr_change_count={s['attr_change_count']}"
+                )
         for c in diff["char_changes"]:
             if c["was_blank"]:
                 lines.append(
@@ -535,6 +589,12 @@ def main() -> int:
     ap.add_argument("--iolog", action="append", default=[], help="I/Oログファイル(複数可、.gz可)")
     ap.add_argument("--diff-before", default=None, help="差分モード: 押す前の写し")
     ap.add_argument("--diff-after", default=None, help="差分モード: 押した後の写し")
+    ap.add_argument(
+        "--count-only-rows",
+        default=None,
+        help="差分モード: 指定した行(0始まり、カンマ区切り複数可)は"
+        "文字コード・位置を出さず件数のみ出す(例: 19)",
+    )
     ap.add_argument("--json", action="store_true", help="JSONで出力する(既定は人が読む要約)")
     # 陰性対照専用の故障注入。既定では無効。screen_content_leak_selftest.sh
     # が「検査に検出力があるか」を確かめるためだけに使う。
@@ -563,7 +623,12 @@ def main() -> int:
         "iolog": [summarize_iolog_ports(p) for p in args.iolog],
     }
     if args.diff_before and args.diff_after:
-        result["vram_diff"] = diff_vram_dumps(args.diff_before, args.diff_after)
+        count_only_rows = set()
+        if args.count_only_rows:
+            count_only_rows = {int(x) for x in args.count_only_rows.split(",") if x.strip()}
+        result["vram_diff"] = diff_vram_dumps(
+            args.diff_before, args.diff_after, count_only_rows
+        )
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

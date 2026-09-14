@@ -462,6 +462,105 @@ else
   fail "j. 陰性対照: 差分モードの故障注入版でも前後値が検出されなかった(検査に検出力が無い)"
 fi
 
+# --- l. --count-only-rows (M7器具4追補、l4-s1b Q2 SHIFT対応) -------------
+# フィクスチャ: row0=19(想定のファンクションキー表示行)の、押す前が空白
+# だったセルに秘密の文字コードを置き、それ以外の行(row0=3)にも別の既知の
+# 空白セルを置く。--count-only-rows 19 を指定すると、19行目は文字コードも
+# 位置も出ず件数だけになり、他の行(3)は従来どおり出ることを確認する。
+SECRET_ROW_CHAR_HEX="7A"  # 'z' 相当。row0=19に置く「秘密」
+KNOWN_ROW3_CHAR_HEX="42"  # 'B' 相当。row0=3(対象外)に置く既知値
+
+L4_CO_BEFORE="$WORK/l4_co_before.bin"
+L4_CO_AFTER="$WORK/l4_co_after.bin"
+python3 - "$L4_CO_BEFORE" "$L4_CO_AFTER" "$SECRET_ROW_CHAR_HEX" "$KNOWN_ROW3_CHAR_HEX" <<'PYEOF'
+import sys
+before_path, after_path, row19_hex, row3_hex = sys.argv[1:5]
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+before = bytearray(b" " * (ROWS * STRIDE))
+after = bytearray(before)
+
+# row0=19(count-only対象): 押す前が空白だったセルに秘密の文字コードが乗る
+after[19 * STRIDE + 40] = int(row19_hex, 16)
+# もう1セル、row0=19の別位置にも変化を足す(件数>=2にするため)
+after[19 * STRIDE + 41] = int(row19_hex, 16)
+# row0=19の属性域にも1件変化を足す
+before[19 * STRIDE + COLS + 2] = 0x00
+after[19 * STRIDE + COLS + 2] = 0x07
+
+# row0=3(count-only対象外): 従来どおり出てよい
+after[3 * STRIDE + 10] = int(row3_hex, 16)
+
+with open(before_path, "wb") as f:
+    f.write(bytes(before))
+with open(after_path, "wb") as f:
+    f.write(bytes(after))
+PYEOF
+
+python3 "$L4_PROBE" --diff-before "$L4_CO_BEFORE" --diff-after "$L4_CO_AFTER" \
+  --count-only-rows 19 --json \
+  > "$WORK/l_co.out" 2> "$WORK/l_co.err"
+L_CO_RC=$?
+
+if [[ $L_CO_RC -ne 0 ]]; then
+  fail "l0. --count-only-rows 指定時の実行が失敗した (rc=$L_CO_RC)"
+else
+  pass "l0. --count-only-rows 指定時は正常終了する"
+fi
+
+# 秘密(row19の文字コード)がどの表現でも出ないこと
+L_LEAK_FOUND=0
+for needle in "\"char_after\": \"$SECRET_ROW_CHAR_HEX\"" '"row0": 19, "col0"'; do
+  if grep -qF "$needle" "$WORK/l_co.out" "$WORK/l_co.err"; then
+    L_LEAK_FOUND=1
+  fi
+done
+if [[ $L_LEAK_FOUND -eq 0 ]]; then
+  pass "l1. count-only-rows指定行(19)の文字コード・位置がどちらも出ない"
+else
+  fail "l1. count-only-rows指定行(19)の文字コードまたは位置が漏れた"
+fi
+
+# 件数だけは出ること(文字域2件・属性域1件)
+if grep -q '"row0": 19' "$WORK/l_co.out" && grep -q '"char_change_count": 2' "$WORK/l_co.out" \
+   && grep -q '"attr_change_count": 1' "$WORK/l_co.out"; then
+  pass "l2. count-only-rows指定行(19)の件数(文字2・属性1)は正しく出る"
+else
+  fail "l2. count-only-rows指定行(19)の件数が期待と異なる"
+fi
+
+# 指定していない行(3)は従来どおり文字コード・位置が出ること
+if grep -q '"row0": 3' "$WORK/l_co.out" && grep -q '"col0": 10' "$WORK/l_co.out" \
+   && grep -q "\"char_after\": \"$KNOWN_ROW3_CHAR_HEX\"" "$WORK/l_co.out"; then
+  pass "l3. count-only-rows未指定の行(3)は従来どおり文字コード・位置が出る"
+else
+  fail "l3. count-only-rows未指定の行(3)の出力が期待と異なる"
+fi
+
+# --- l4. 指定しない場合(既定)は、row0=19であっても前が空白だったセルの
+# 文字コードがこれまでどおり出ること(既定動作の回帰確認)
+python3 "$L4_PROBE" --diff-before "$L4_CO_BEFORE" --diff-after "$L4_CO_AFTER" --json \
+  > "$WORK/l4_default.out" 2> "$WORK/l4_default.err"
+if grep -q '"row0": 19' "$WORK/l4_default.out" \
+   && grep -q "\"char_after\": \"$SECRET_ROW_CHAR_HEX\"" "$WORK/l4_default.out"; then
+  pass "l4. --count-only-rows未指定なら従来どおりrow19の文字コードも出る(回帰確認)"
+else
+  fail "l4. --count-only-rows未指定時の既定動作が変わってしまった"
+fi
+
+# --- m. 陰性対照: --count-only-rows の指定を無視する故障注入をすると、
+# l1相当の漏れ検査が実際に落ちること(検出力の確認)
+if Q88MEASURE_FAULT_IGNORE_COUNT_ONLY_ROWS=1 python3 "$L4_PROBE" \
+     --diff-before "$L4_CO_BEFORE" --diff-after "$L4_CO_AFTER" \
+     --count-only-rows 19 --json \
+     > "$WORK/m_ignore.out" 2> "$WORK/m_ignore.err"; then
+  :
+fi
+if grep -qF "\"char_after\": \"$SECRET_ROW_CHAR_HEX\"" "$WORK/m_ignore.out" "$WORK/m_ignore.err"; then
+  pass "m. 陰性対照: --count-only-rows を無視する故障注入版では実際に文字コードが漏れる(検出力あり)"
+else
+  fail "m. 陰性対照: --count-only-rows を無視する故障注入版でも漏れが検出されなかった(検査に検出力が無い)"
+fi
+
 # --- k. 変化なし: 同じ写しどうしを比較すると変化件数0を返す
 if python3 "$L4_PROBE" --diff-before "$L4_DIFF_BEFORE" --diff-after "$L4_DIFF_BEFORE" --json \
      > "$WORK/k_diff_same.out" 2> "$WORK/k_diff_same.err" \
