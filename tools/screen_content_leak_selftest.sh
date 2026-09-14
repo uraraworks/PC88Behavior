@@ -257,14 +257,67 @@ else
   fail "f1. tools/l4_vram_probe.py の出力へ秘密の文字列が漏れた"
 fi
 
-# 目印の検出(陽性対照): 既知の位置(行4,桁11,addr F3C8+3*120+10)を正しく返す
-EXPECT_ADDR=$(python3 -c "print('%04X' % (0xF3C8 + 3*120 + 10))")
-if grep -q '"row": 4' "$WORK/f_probe.out" \
-   && grep -q '"col": 11' "$WORK/f_probe.out" \
-   && grep -q "\"addr\": \"$EXPECT_ADDR\"" "$WORK/f_probe.out"; then
-  pass "f2. 目印の検出(陽性対照): 既知位置(行4,桁11,addr $EXPECT_ADDR)を正しく返す"
+# 目印の検出(陽性対照、0始まり): 行頭(row0=0,col0=0)・行末に目印3文字が
+# ちょうど収まる位置(row0=5,col0=77)・行またぎ(row0=10,col0=79)の3条件。
+# addr = 0xF3C8 + row0*120 + col0 (LOCATE x,y と同じ0始まり)。
+L4_DUMP_ORIGIN="$WORK/l4_dump_origin.bin"
+python3 - "$L4_DUMP_ORIGIN" <<'PYEOF'
+import sys
+out_path = sys.argv[1]
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+buf = bytearray(b"." * (ROWS * STRIDE))
+MARKER = b"Q7Z"
+
+def put(row0, col0, data):
+    # 文字域の平坦インデックス(row0*COLS+col0)基準でバイトを置く。
+    # 行をまたぐ場合、物理バッファでは属性域(40バイト)を挟むため、
+    # 1バイトごとに物理オフセットへ変換してから書く。
+    flat_idx = row0 * COLS + col0
+    for i, b in enumerate(data):
+        r, c = divmod(flat_idx + i, COLS)
+        buf[r * STRIDE + c] = b
+
+put(0, 0, MARKER)    # 行頭
+put(5, 77, MARKER)   # 行末(3文字がちょうど収まる最後の位置)
+put(10, 79, MARKER)  # 行またぎ(row0=10の末尾からrow0=11の先頭へ)
+
+with open(out_path, "wb") as f:
+    f.write(bytes(buf))
+PYEOF
+
+python3 "$L4_PROBE" --vram-dump "$L4_DUMP_ORIGIN" --marker Q7Z --json \
+  > "$WORK/f2_origin.out" 2> "$WORK/f2_origin.err"
+
+EXPECT_ADDR_HEAD=$(python3 -c "print('%04X' % (0xF3C8 + 0*120 + 0))")
+EXPECT_ADDR_TAIL=$(python3 -c "print('%04X' % (0xF3C8 + 5*120 + 77))")
+EXPECT_ADDR_SPAN=$(python3 -c "print('%04X' % (0xF3C8 + 10*120 + 79))")
+
+f2_check() {
+  local out="$1"
+  grep -q '"row0": 0' "$out" && grep -q '"col0": 0' "$out" \
+    && grep -q "\"addr\": \"$EXPECT_ADDR_HEAD\"" "$out" \
+    && grep -q '"row0": 5' "$out" && grep -q '"col0": 77' "$out" \
+    && grep -q "\"addr\": \"$EXPECT_ADDR_TAIL\"" "$out" \
+    && grep -q '"row0": 10' "$out" && grep -q '"col0": 79' "$out" \
+    && grep -q "\"addr\": \"$EXPECT_ADDR_SPAN\"" "$out" \
+    && grep -q '"spans_row_boundary": true' "$out"
+}
+
+if f2_check "$WORK/f2_origin.out"; then
+  pass "f2. 目印の検出(陽性対照,0始まり): 行頭(0,0,$EXPECT_ADDR_HEAD)・行末(5,77,$EXPECT_ADDR_TAIL)・行またぎ(10,79,$EXPECT_ADDR_SPAN)を正しく返す"
 else
-  fail "f2. 目印の検出が既知位置と一致しない"
+  fail "f2. 目印の検出(0始まり)が既知位置と一致しない"
+fi
+
+# --- f2n. 陰性対照: 起点を取り違えた故障注入(+1)を入れると f2 の判定がNGになること
+Q88MEASURE_FAULT_OFFSET_ORIGIN_VRAM_PROBE=1 python3 "$L4_PROBE" \
+  --vram-dump "$L4_DUMP_ORIGIN" --marker Q7Z --json \
+  > "$WORK/f2n_origin.out" 2> "$WORK/f2n_origin.err"
+
+if f2_check "$WORK/f2n_origin.out"; then
+  fail "f2n. 陰性対照: 起点+1の故障注入版でもf2の判定が通ってしまう(検出力が無い)"
+else
+  pass "f2n. 陰性対照: 起点+1の故障注入版ではf2の判定が実際にNGになる(検出力あり)"
 fi
 
 # --- g. 陰性対照: 故障注入で本文/値を漏らす版にすると、この検査(f1)が落ちること

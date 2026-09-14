@@ -11,8 +11,12 @@
   --mem-write-log PATH   --mem-write-log が書いたテキスト記録（任意）
   --iolog PATH           tools/*.iolog.txt 形式のI/Oログ（任意、.gz可）
 
+起点: 行(row0)・桁(col0)は 0始まり（N88-BASIC の LOCATE x,y に合わせる。
+リファレンスマニュアル 2-135）。番地は addr = 0xF3C8 + row0*120 + col0。
+出力には常に origin=0 とこの式を明記する。
+
 出力してよいもの（これ以外は出さない。CLAUDE.md 禁止事項7 を厳守）:
-  1. 目印の出現位置 (行, 桁, 番地) の一覧
+  1. 目印の出現位置 (行row0, 桁col0, 番地) の一覧
   2. 目印を含む行の属性域40バイト(16進)
   3. 目印を含まない行について、属性域が「目印の無い行で最も多い並び」と
      同じかどうかの真偽と件数（並び自体はハードウェア設定値なので出してよい）
@@ -108,12 +112,19 @@ def find_marker_occurrences(data: bytes, marker: bytes) -> list[dict]:
             break
         row0 = idx // COLS
         col0 = idx % COLS
+        # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+        # 無効。起点(0始まり)を取り違えた実装を模して +1 した値を返す——
+        # f2(既知位置の陽性対照)がその取り違えを実際に検出できるかを
+        # 確かめるためだけに使う。
+        if os.environ.get("Q88MEASURE_FAULT_OFFSET_ORIGIN_VRAM_PROBE"):
+            row0 += 1
+            col0 += 1
         addr = BASE + row0 * STRIDE + col0
         spans_rows = (col0 + len(marker)) > COLS
         occurrences.append(
             {
-                "row": row0 + 1,  # 1始まり
-                "col": col0 + 1,  # 1始まり
+                "row0": row0,  # 0始まり(LOCATE x,y に合わせる)
+                "col0": col0,  # 0始まり(LOCATE x,y に合わせる)
                 "addr": f"{addr:04X}",
                 "spans_row_boundary": spans_rows,
             }
@@ -128,9 +139,9 @@ def analyze_dump(path: str, marker: bytes) -> dict:
     occs = find_marker_occurrences(data, marker)
     marker_rows = set()
     for o in occs:
-        marker_rows.add(o["row"] - 1)
+        marker_rows.add(o["row0"])
         if o["spans_row_boundary"]:
-            marker_rows.add(o["row"])  # 次の行(0始まり)も目印を含む
+            marker_rows.add(o["row0"] + 1)  # 次の行(0始まり)も目印を含む
 
     attrs = attr_rows(data)
     attr_hex = [a.hex().upper() for a in attrs]
@@ -153,14 +164,16 @@ def analyze_dump(path: str, marker: bytes) -> dict:
             match_count += 1
         else:
             mismatch_count += 1
-        non_marker_detail.append({"row": r + 1, "matches_mode": is_match})
+        non_marker_detail.append({"row0": r, "matches_mode": is_match})
 
     marker_row_attrs = [
-        {"row": r + 1, "attr_hex": attr_hex[r]} for r in sorted(marker_rows)
+        {"row0": r, "attr_hex": attr_hex[r]} for r in sorted(marker_rows)
     ]
 
     result = {
         "path": path,
+        "origin": 0,
+        "addr_formula": "addr = 0xF3C8 + row0*120 + col0",
         "marker": marker.decode("ascii", errors="replace"),
         "occurrences": occs,
         "occurrence_count": len(occs),
@@ -343,15 +356,15 @@ def summarize_iolog_ports(path: str) -> dict:
 def render_text(result: dict) -> str:
     lines = []
     for d in result.get("vram_dumps", []):
-        lines.append(f"[vram-dump] {d['path']}")
+        lines.append(f"[vram-dump] {d['path']} origin=0 addr_formula={d['addr_formula']}")
         lines.append(f"  marker={d['marker']!r} occurrences={d['occurrence_count']}")
         for o in d["occurrences"]:
             lines.append(
-                f"    row={o['row']} col={o['col']} addr={o['addr']}"
+                f"    row0={o['row0']} col0={o['col0']} addr={o['addr']}"
                 f" spans_row_boundary={o['spans_row_boundary']}"
             )
         for mr in d["marker_row_attrs"]:
-            lines.append(f"  marker_row {mr['row']}: attr={mr['attr_hex']}")
+            lines.append(f"  marker_row0 {mr['row0']}: attr={mr['attr_hex']}")
         lines.append(
             f"  non_marker_attr_mode={d['non_marker_attr_mode']}"
             f" mode_count={d['non_marker_attr_mode_count']}"
