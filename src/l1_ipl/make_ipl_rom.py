@@ -42,13 +42,21 @@ make_ipl_rom.py — L1 IPL（起動時のハードウェア初期化）の N88.R
 """
 
 import argparse
+import os
 import pathlib
 import sys
 
 # M7段階0: .asm書き出し(--emit-asm)用の共通ヘルパ。tools/asm/ はこのリポジトリ
 # 内のツールでpython3だけで完結する（外部依存を増やさない）。
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
-from asm_emit import hex8, hex16, install_note_templates, note_raw_db, render_asm  # noqa: E402
+from asm_emit import (  # noqa: E402
+    count_kinds, hex8, hex16, install_note_templates, note_data, note_raw_db, render_asm,
+)
+
+# M7段階0（後半）陽性対照専用: 設定すると out() が命令メソッド経由(out_a)
+# ではなく db() を直接呼ぶようになる（バイト列は変えない）。
+# asm_selftest.sh が「コード中の生db 0件」検査自体の検出力を確かめるために使う。
+_INJECT_RAW_DB = os.environ.get("PC88_ASM_INJECT_RAW_DB") == "1"
 
 # build_n88() が作った Asm インスタンスを main() から参照するための側路
 # （--emit-asm 用。既存の呼び出し元の関数シグネチャ・戻り値は変えない）。
@@ -204,6 +212,12 @@ class Asm:
                 raise ValueError(f"バイト範囲外: {b:#x}")
             self.code.append(b)
 
+    def data(self, *bs):
+        """テーブルデータ・番地合わせの詰め物用。命令ではないことを
+        明示して db() を発行する（M7段階0後半: asm_emit.note_data 参照）。
+        .asm への書き出しは従来どおり `db` 疑似命令のまま。"""
+        note_data(self, bs)
+
     def _abs(self, name):
         self.fixups.append((len(self.code), name, "abs"))
         self.db(0x00, 0x00)
@@ -307,10 +321,24 @@ class Asm:
         ——付録Aの適合条件（OUT列比較。第6節）には一切影響しない。"""
         self.db(0x32, addr & 0xFF, (addr >> 8) & 0xFF)
 
+    def out_a(self, port):
+        """OUT (port),A。"""
+        self.db(0xD3, port)
+
+    def push_bc(self): self.db(0xC5)
+    def pop_bc(self):  self.db(0xC1)
+
     # ---- OUT（記録つき）----
     def out(self, port, value):
         self.ld_a(value)
-        self.db(0xD3, port)
+        if _INJECT_RAW_DB:
+            # M7段階0後半・陽性対照専用: out_a()（命令メソッド）を経由
+            # せず db() を直接呼ぶ。バイト列は同一だが、.asm書き出し上は
+            # "raw"（生db）として記録される（asm_selftest.sh の
+            # 「コード中の生db 0件」検査の検出力確認用）。
+            self.db(0xD3, port)
+        else:
+            self.out_a(port)
         self.record(port, value)
 
     def out_seq(self, pairs):
@@ -324,7 +352,7 @@ class Asm:
         テーブルの先頭アドレスの下位バイトが 0 でなければならない。
         """
         while self.pc & 0xFF:
-            self.db(FILL)
+            self.data(FILL)
 
     def out_range(self, lo, hi):
         """付録A の lo 番から hi 番（1始まり・両端含む）をそのまま並べる。
@@ -376,6 +404,9 @@ _ASM_TEMPLATES = {
     "in_port": lambda port: f"IN A,({hex8(port)})",
     "xor_a": lambda: "XOR A",
     "st_a": lambda addr: f"LD ({hex16(addr)}),A",
+    "out_a": lambda port: f"OUT ({hex8(port)}),A",
+    "push_bc": lambda: "PUSH BC",
+    "pop_bc": lambda: "POP BC",
 }
 install_note_templates(Asm, _ASM_TEMPLATES)
 
@@ -438,8 +469,8 @@ def sub_usart(a):
     a.ld_b(6)
     a.label("_usart_loop")
     a.ld_a_hl()
-    a.db(0xD3, P_USART1)
-    a.db(0xD3, P_USART2)
+    a.out_a(P_USART1)
+    a.out_a(P_USART2)
     a.inc_hl()
     a.djnz("_usart_loop")
     a.ret()
@@ -654,10 +685,10 @@ def build_n88(stop_after=None, font_sample=False):
     # 飛び込んだときに暴走しないよう戻れるようにしておく。
     # （定常状態の駆動には IM 2 を使う。ベクタテーブルは別に置く——下記）
     while a.pc < 0x0038:
-        a.db(FILL)
+        a.data(FILL)
     a.ei(); a.reti()
     while a.pc < 0x0066:
-        a.db(FILL)
+        a.data(FILL)
     a.retn()
 
     # ---- サブルーチン ----
@@ -678,15 +709,15 @@ def build_n88(stop_after=None, font_sample=False):
     vsync_outs = list(cap.taken)
 
     # ---- テーブル ----
-    a.label("T_USART");  a.db(*T_USART)
-    a.label("T_EXTROM"); a.db(*T_EXTROM)
+    a.label("T_USART");  a.data(*T_USART)
+    a.label("T_EXTROM"); a.data(*T_EXTROM)
     # パレット。仕様書 第5c節の表。並びは PR/PB, PG の 2 バイト × 8 スロット。
     T_PAL_P0 = (0x00,0x40, 0x07,0x40, 0x37,0x40, 0x3F,0x40,
                 0x00,0x47, 0x07,0x47, 0x37,0x47, 0x3F,0x47)
     T_PAL_P3 = (0x00,0x40, 0x07,0x40, 0x38,0x40, 0x3F,0x40,
                 0x00,0x47, 0x07,0x47, 0x38,0x47, 0x3F,0x47)
-    a.label("T_PAL_P0"); a.db(*T_PAL_P0)
-    a.label("T_PAL_P3"); a.db(*T_PAL_P3)
+    a.label("T_PAL_P0"); a.data(*T_PAL_P0)
+    a.label("T_PAL_P3"); a.data(*T_PAL_P3)
 
     # ---- IM 2 ベクタテーブル ----
     # `(I<<8) | (level<<1)` で参照される（level: 0=RS232C, 1=VSYNC, 2=RTC。
@@ -772,9 +803,9 @@ def build_n88(stop_after=None, font_sample=False):
     # ---- 189-314. 7 件 × 18 回 ----
     a.ld_b(GROUP_REPEAT)
     a.label("_group_loop")
-    a.db(0xC5)                               # PUSH BC（GROUP は B を壊さないが保険）
+    a.push_bc()                              # GROUP は B を壊さないが保険
     a.call("GROUP")
-    a.db(0xC1)                               # POP BC
+    a.pop_bc()
     a.djnz("_group_loop")
     for _ in range(GROUP_REPEAT):
         a.record_all(group_outs)
@@ -896,6 +927,8 @@ def main():
         )
         (args.emit_asm_dir / "DISK.asm").write_text(disk_asm, encoding="utf-8")
         print(f"書き出した: {args.emit_asm_dir/'N88.asm'} / {args.emit_asm_dir/'DISK.asm'}")
+        c = count_kinds(_LAST_ASM)
+        print(f"STATS N88 instr={c['instr']} data={c['data']} raw={c['raw']}")
 
     stage = args.stop_after or "全段階"
     print(f"生成した: {d/'N88.ROM'} ({N88_SIZE} bytes, コード {used} bytes)")

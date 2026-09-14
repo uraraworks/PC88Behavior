@@ -402,7 +402,14 @@ import sys
 # M7段階0: .asm書き出し(--emit-asm)用の共通ヘルパ。tools/asm/ はこのリポジトリ
 # 内のツールでpython3だけで完結する（外部依存を増やさない）。
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
-from asm_emit import hex8, hex16, install_note_templates, note_raw_db, render_asm  # noqa: E402
+from asm_emit import (  # noqa: E402
+    count_kinds, hex8, hex16, install_note_templates, note_data, note_raw_db, render_asm,
+)
+
+# M7段階0（後半）陽性対照専用: 設定すると生成器本体の一部の呼び出しが
+# 命令メソッド経由ではなく db() を直接呼ぶようになる（バイト列は変えない）。
+# asm_selftest.sh が「コード中の生db 0件」検査自体の検出力を確かめるために使う。
+_INJECT_RAW_DB = os.environ.get("PC88_ASM_INJECT_RAW_DB") == "1"
 
 # build_subrom() が作った Asm インスタンスを main() から参照するための側路
 # （--emit-asm 用。既存の呼び出し元の関数シグネチャ・戻り値は変えない）。
@@ -525,6 +532,12 @@ class Asm:
                 raise ValueError(f"バイト範囲外: {b:#x}")
             self.code.append(b)
 
+    def data(self, *bs):
+        """テーブルデータ・番地合わせの詰め物用。命令ではないことを
+        明示して db() を発行する（M7段階0後半: asm_emit.note_data 参照）。
+        .asm への書き出しは従来どおり `db` 疑似命令のまま。"""
+        note_data(self, bs)
+
     def dw_imm(self, nn):
         self.db(nn & 0xFF, (nn >> 8) & 0xFF)
 
@@ -598,6 +611,19 @@ class Asm:
     def or_e(self):        self.db(0xB3)
     def or_a(self):        self.db(0xB7)   # OR A（キャリーを0にするためだけに使う）
     def sbc_hl_de(self):    self.db(0xED, 0x52)   # SBC HL,DE（ED 42はSBC HL,BC。取り違え注意）
+    # ---- M7段階0後半: 素の db() 直書きだった命令をメソッド化 ----
+    def res0_hl(self):     self.db(0xCB, 0x86)   # RES 0,(HL)
+    def set0_hl(self):     self.db(0xCB, 0xC6)   # SET 0,(HL)
+    def inc_hl_mem(self):  self.db(0x34)         # INC (HL)
+    def ld_a_l(self):      self.db(0x7D)         # LD A,L
+    def ld_h_a(self):      self.db(0x67)         # LD H,A
+    def dec_l(self):       self.db(0x2D)         # DEC L
+    def scf(self):         self.db(0x37)         # SCF
+    def ret_z(self):       self.db(0xC8)         # RET Z
+    def ld_d_n(self, n):   self.db(0x16, n)      # LD D,n
+    def add_hl_de(self):   self.db(0x19)         # ADD HL,DE
+    def dec_c(self):       self.db(0x0D)         # DEC C
+    def xor_n(self, n):    self.db(0xEE, n)      # XOR n
 
     def ld_a(self, n):    self.db(0x3E, n)
     def ld_b(self, n):    self.db(0x06, n)
@@ -724,6 +750,18 @@ _ASM_TEMPLATES = {
     "djnz": lambda name: f"DJNZ {name}",
     "in_port": lambda port: f"IN A,({hex8(port)})",
     "out_a": lambda port: f"OUT ({hex8(port)}),A",
+    "res0_hl": lambda: "RES 0,(HL)",
+    "set0_hl": lambda: "SET 0,(HL)",
+    "inc_hl_mem": lambda: "INC (HL)",
+    "ld_a_l": lambda: "LD A,L",
+    "ld_h_a": lambda: "LD H,A",
+    "dec_l": lambda: "DEC L",
+    "scf": lambda: "SCF",
+    "ret_z": lambda: "RET Z",
+    "ld_d_n": lambda n: f"LD D,{hex8(n)}",
+    "add_hl_de": lambda: "ADD HL,DE",
+    "dec_c": lambda: "DEC C",
+    "xor_n": lambda n: f"XOR {hex8(n)}",
 }
 install_note_templates(Asm, _ASM_TEMPLATES)
 
@@ -1126,14 +1164,19 @@ def build_subrom(break_write_ack=False,
             return
         if probe_mode == "clear":
             # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
-            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
             a.ld_hl_imm(REQ_HDR + 2)
-            a.db(0xCB, 0x86)
+            if _INJECT_RAW_DB:
+                # M7段階0後半・陽性対照専用: res0_hl()（命令メソッド）を
+                # 経由せず db() を直接呼ぶ。バイト列は同一だが、.asm書き出し
+                # 上は"raw"（生db）として記録される（asm_selftest.shの
+                # 「コード中の生db 0件」検査の検出力確認用）。
+                a.db(0xCB, 0x86)
+            else:
+                a.res0_hl()
         elif probe_mode == "set":
             # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
-            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
             a.ld_hl_imm(REQ_HDR + 2)
-            a.db(0xCB, 0xC6)
+            a.set0_hl()
         elif probe_mode == "cyl":
             if site == "exchange11_fallthrough":
                 # exchange11_fallthroughだけは直後の
@@ -1141,11 +1184,9 @@ def build_subrom(break_write_ack=False,
                 # INC Aでは末端に届かない。INC (HL)（0x34）でREQ_HDR+4
                 # 自体を動かす（m7gc「#6-iiiの訂正」節）。
                 a.ld_hl_imm(REQ_HDR + 4)
-                a.db(0x34)
+                a.inc_hl_mem()
             else:
-                # INC A: Z80の定義済み命令（オペコード0x3C）。
-                # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
-                a.db(0x3C)
+                a.inc_a()
 
     # ====================================================================
     # リセットベクタ
@@ -1267,15 +1308,15 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(WRITE_TMP)             # 受信バイトを一時退避（DEを壊さないため）
     a.push_hl()
     a.ld_hl_mem(WINDOW_RUN_POS)       # L=位置、H=先頭（連続2バイト）
-    a.db(0x7D)                        # LD A,L
+    a.ld_a_l()
     a.or_a()
     a.jr_nz("_hdr_window_head_done")
     a.ld_a_mem(WRITE_TMP)
-    a.db(0x67)                        # LD H,A: 位置0でだけ先頭を記録
+    a.ld_h_a()                        # 位置0でだけ先頭を記録
     a.label("_hdr_window_head_done")
     a.inc_l()
     a.jr_nz("_hdr_window_pos_done")
-    a.db(0x2D)                        # DEC L: 0xFFで飽和
+    a.dec_l()                         # 0xFFで飽和
     a.label("_hdr_window_pos_done")
     a.ld_mem_hl(WINDOW_RUN_POS)
     a.ld_hl_imm(WRITE_BUF)
@@ -1362,7 +1403,7 @@ def build_subrom(break_write_ack=False,
     if fast_no_disk_response_ready:
         # count==3も起動経路なので通常SENDへ振る。count 1/2は
         # 直前CP 3のcarry=1、4以上だけcarry=0のままここへ来ない。
-        a.db(0x37)                           # SCF
+        a.scf()
     a.label("_boot_single_track_done")
     if fast_no_disk_response_ready:
         a.ld_a_b()
@@ -1474,7 +1515,7 @@ def build_subrom(break_write_ack=False,
     #      HLだけを消費しAには触れないため、直後のxor_aが作る
     #      シリンダ引数A=0を壊さない。INC (HL)はZ/H/PVフラグを変える
     #      が、直後のcall("FDC_SEEK")はフラグを見ないため無害）。
-    a.ld_hl_imm(REQ_HDR + 2); a.db(0x34)  # INC (HL): REQ_HDR+2 bit0を1へ
+    a.ld_hl_imm(REQ_HDR + 2); a.inc_hl_mem()  # REQ_HDR+2 bit0を1へ
     a.xor_a(); a.call("FDC_SEEK")             # 保持中のドライブ1, シリンダ0
     #      batch6: RECALIBRATE（ドライブ1）。
     a.call("FDC_RECALIBRATE")                 # 保持中のドライブ1
@@ -1731,7 +1772,7 @@ def build_subrom(break_write_ack=False,
         a.and_a(0xC0)         # ST0 bit7-6 = Interrupt Code field
         a.cp_n(0x80)          # 10 = Invalid Command（保留中の割り込み無し）
         # 第69版容量圧縮: 旧JR→CALL→RETと戻り先・A・スタック最終状態は同一。
-        a.db(0xC8)             # RET Z: r1(PCN)は存在しない。読まない
+        a.ret_z()              # r1(PCN)は存在しない。読まない
         a.jp("FDC_IN")         # r1 = PCN（末尾呼び出し）
     if break_sense_int_result_count:
         a.ret()
@@ -1919,9 +1960,10 @@ def build_subrom(break_write_ack=False,
     # それ以外の表の0も未観測種として完了扱いにしない。
     a.label("WINDOW_RUN_COMPLETE")
     a.ld_a_mem(WINDOW_RUN_HEAD)
-    a.db(0x5F, 0x16, 0x00)             # LD E,A / LD D,0
+    a.ld_e_a()
+    a.ld_d_n(0)
     a.ld_hl("_window_run_lengths")
-    a.db(0x19)                         # ADD HL,DE
+    a.add_hl_de()
     a.ld_a_hl()
     a.or_a()
     a.jr_nz("_window_run_known")
@@ -1934,7 +1976,7 @@ def build_subrom(break_write_ack=False,
     a.ret()
     a.label("_window_run_lengths")
     for _head in range(0x18):
-        a.db({0x00: 0, 0x02: (0 if restore_request_kind_length6 else
+        a.data({0x00: 0, 0x02: (0 if restore_request_kind_length6 else
                              (early_response_after or 5)),
               0x06: 1, 0x07: 1, 0x0B: 5,
               0x0D: 4, 0x0E: 7, REQUEST_KIND_WRITE: 5,
@@ -2122,7 +2164,7 @@ def build_subrom(break_write_ack=False,
     for _i, (_c, _r, _sec, _dst, _hx) in enumerate(
             BULK_READ_TABLE[:BULK_READ_INTERVENTION_LIMIT]):
         a.label(f"_bulk_read_entry_{_i}")
-        a.db(_c, _r, _sec, _dst & 0xFF, (_dst >> 8) & 0xFF, _hx)
+        a.data(_c, _r, _sec, _dst & 0xFF, (_dst >> 8) & 0xFF, _hx)
 
     a.label("FDC_READ_SECTOR")
     # コマンド: READ DATA。MF(bit6)=1 必須——このハーネスの FDC は
@@ -2212,7 +2254,7 @@ def build_subrom(break_write_ack=False,
     a.or_a()
     a.jr_z("_read_done")                # FDC_ABORT=0かつIC=00: 成功。ここで止める
     a.label("_read_fail")
-    a.db(0x0D)                          # DEC C（再試行カウンタ）
+    a.dec_c()                           # 再試行カウンタ
     a.jr_nz("_read_retry")              # 9件に達するまで再試行
     a.label("_read_done")
     a.jp("FDC_TC")                    # 末尾呼び出し（第69版容量圧縮）
@@ -2330,7 +2372,7 @@ def build_subrom(break_write_ack=False,
         if break_response:
             a.ld_hl_imm(SECTOR_BUF)
             a.ld_a_hl()
-            a.db(0xEE, 0x01)
+            a.xor_n(0x01)
             a.ld_hl_a()
         a.ld_hl_imm(SECTOR_BUF)
         a.ld_b(0x00)
@@ -2731,20 +2773,18 @@ def build_subrom(break_write_ack=False,
         # 別途読むため、ドライブ指定だけを独立に動かせる。
         if break_exchange6_drive_bit_clear:
             # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
-            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
             a.ld_hl_imm(REQ_HDR + 2)
-            a.db(0xCB, 0x86)
+            a.res0_hl()
         if break_exchange6_drive_bit_set:
             # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
-            # 本リポジトリのAsmクラスに未実装のためdb()で直接発行する。
             a.ld_hl_imm(REQ_HDR + 2)
-            a.db(0xCB, 0xC6)
+            a.set0_hl()
         if break_exchange6_cylinder:
             # 陽性対照: 転記済みのREQ_HDR+4（C、目的シリンダ）を
-            # INC (HL)（0x34）で1増やし、末端に必ず差が出ることを
+            # INC (HL)で1増やし、末端に必ず差が出ることを
             # 確認するための注入。
             a.ld_hl_imm(REQ_HDR + 4)
-            a.db(0x34)
+            a.inc_hl_mem()
         a.jr("_exchange3_prepare_sector")
 
         # 第42版1.33節: 交換#11は要求位置3をSEEK/C/H、位置5をR/EOTへ
@@ -2836,7 +2876,7 @@ def build_subrom(break_write_ack=False,
             # 検出力確認用: 応答へ接続する瞬間に先頭1バイトを1ビット反転する。
             # 1.36/1.37節を含む一般応答経路へ確実に効き、注入点を一重化する。
             a.ld_a_hl()
-            a.db(0xEE, 0x01)
+            a.xor_n(0x01)
             a.ld_hl_a()
         a.call("ACTIVATE_SECTOR_RESPONSE")   # m7lp: RESP_PTR←HL・RESP_ACTIVE←1・SECTOR_READY←0（共有列）
         a.jp("IDLE_DISPATCH")
@@ -3258,8 +3298,8 @@ def build_subrom(break_write_ack=False,
     a.label("_observed_request_table")
     for _i, (_hdr, _resp) in enumerate(OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
         _tracked = 0x80 if _i in OBSERVED_SINGLE_TRACKED_ENTRIES else 0
-        a.db(len(_hdr) | _tracked, *_hdr, _resp)
-    a.db(0x00)   # 表の終端
+        a.data(len(_hdr) | _tracked, *_hdr, _resp)
+    a.data(0x00)   # 表の終端
 
     a.label("_observed_request_next_9")
     # 第22版で再訂正: 第20版→第21版の変遷は以下の通り。
@@ -3667,6 +3707,8 @@ def main():
             render_asm(_LAST_ASM, "make_subrom.py が発行した命令の書き出し（DISK.ROM）"),
             encoding="utf-8")
         print(f"書き出した: {args.emit_asm}")
+        c = count_kinds(_LAST_ASM)
+        print(f"STATS DISK instr={c['instr']} data={c['data']} raw={c['raw']}")
     if args.early_response_trap_map is not None:
         address = metadata["labels"]["EARLY_RESPONSE_INTERVENTION_REACHED"]
         args.early_response_trap_map.write_text(

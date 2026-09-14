@@ -57,6 +57,17 @@ else
     ok "make_ipl_rom.py 実行成功（N88.ROM / DISK.ROM / --emit-asm-dir）"
 fi
 
+# N88.asm の内訳（命令文/data/raw）。生成器が STATS 行を標準出力に出す
+# （tools/asm/asm_emit.py の count_kinds()。M7段階0後半）。
+ipl_stats_line="$(grep '^STATS N88 ' "$WORK/ipl_build.log" || true)"
+echo "  内訳   $ipl_stats_line"
+ipl_raw="$(printf '%s' "$ipl_stats_line" | sed -n 's/.*raw=\([0-9]*\).*/\1/p')"
+if [ "$ipl_raw" = "0" ]; then
+    ok "N88.asm: コード中の生db 0件"
+else
+    ng "N88.asm: コード中に生db が $ipl_raw 件残っている（命令メソッド化されていない直書き）"
+fi
+
 n88_sha="$(sha256_of "$IPL_OUT/N88.ROM")"
 if [ "$n88_sha" = "$EXPECT_N88_SHA" ]; then
     ok "N88.ROM の sha256 が変更前と一致"
@@ -116,6 +127,16 @@ if ! python3 src/l3_service/make_subrom.py "$SUB_OUT" --emit-asm "$SUB_ASM" \
     tail -20 "$WORK/sub_build.log"
 else
     ok "make_subrom.py 実行成功（DISK.ROM / --emit-asm）"
+fi
+
+# sub.asm の内訳（命令文/data/raw）。
+sub_stats_line="$(grep '^STATS DISK ' "$WORK/sub_build.log" || true)"
+echo "  内訳   $sub_stats_line"
+sub_raw="$(printf '%s' "$sub_stats_line" | sed -n 's/.*raw=\([0-9]*\).*/\1/p')"
+if [ "$sub_raw" = "0" ]; then
+    ok "sub.asm: コード中の生db 0件"
+else
+    ng "sub.asm: コード中に生db が $sub_raw 件残っている（命令メソッド化されていない直書き）"
 fi
 
 sub_sha="$(sha256_of "$SUB_OUT/DISK.ROM")"
@@ -200,6 +221,50 @@ if [ $? -eq 0 ]; then
     fi
 else
     ng "陽性対照(JR→JP破壊)の仕込みに失敗（JR行が見つからない）"
+fi
+
+# --------------------------------------------------------------------------
+# 4. 陽性対照（生db検出）: PC88_ASM_INJECT_RAW_DB=1 で生成器の一部の
+#    呼び出しを命令メソッド経由から db() 直呼びへ切り替える
+#    （バイト列は変えない）。「コード中の生db 0件」検査自体が
+#    検出できることを確かめる。
+# --------------------------------------------------------------------------
+IPL_INJECT_OUT="$WORK/ipl_inject_out"
+IPL_INJECT_ASM="$WORK/ipl_inject_asm"
+mkdir -p "$IPL_INJECT_OUT"
+if PC88_ASM_INJECT_RAW_DB=1 python3 src/l1_ipl/make_ipl_rom.py "$IPL_INJECT_OUT" \
+        --emit-asm-dir "$IPL_INJECT_ASM" > "$WORK/ipl_inject.log" 2>&1; then
+    inject_ipl_raw="$(sed -n 's/.*raw=\([0-9]*\).*/\1/p' "$WORK/ipl_inject.log")"
+    if [ -n "$inject_ipl_raw" ] && [ "$inject_ipl_raw" -gt 0 ]; then
+        ok "陽性対照(N88: PC88_ASM_INJECT_RAW_DB=1)を検出できた（raw=${inject_ipl_raw})"
+    else
+        ng "陽性対照(N88: PC88_ASM_INJECT_RAW_DB=1)を検出できなかった（raw=${inject_ipl_raw})"
+    fi
+    if cmp -s "$IPL_OUT/N88.ROM" "$IPL_INJECT_OUT/N88.ROM"; then
+        ok "陽性対照(N88)はROMバイトを変えていない"
+    else
+        ng "陽性対照(N88)がROMバイトまで変えてしまった（注入方法が不適切）"
+    fi
+else
+    ng "陽性対照(N88)用のmake_ipl_rom.py実行に失敗した"
+    tail -20 "$WORK/ipl_inject.log"
+fi
+
+SUB_INJECT_OUT="$WORK/sub_inject_out"
+SUB_INJECT_ASM="$WORK/sub_inject.asm"
+mkdir -p "$SUB_INJECT_OUT"
+if PC88_ASM_INJECT_RAW_DB=1 python3 src/l3_service/make_subrom.py "$SUB_INJECT_OUT" \
+        --probe-site general_read_request --probe-mode clear \
+        --emit-asm "$SUB_INJECT_ASM" > "$WORK/sub_inject.log" 2>&1; then
+    inject_sub_raw="$(sed -n 's/.*raw=\([0-9]*\).*/\1/p' "$WORK/sub_inject.log")"
+    if [ -n "$inject_sub_raw" ] && [ "$inject_sub_raw" -gt 0 ]; then
+        ok "陽性対照(sub: PC88_ASM_INJECT_RAW_DB=1 + probe)を検出できた（raw=${inject_sub_raw})"
+    else
+        ng "陽性対照(sub: PC88_ASM_INJECT_RAW_DB=1 + probe)を検出できなかった（raw=${inject_sub_raw})"
+    fi
+else
+    ng "陽性対照(sub)用のmake_subrom.py実行に失敗した"
+    tail -20 "$WORK/sub_inject.log"
 fi
 
 echo

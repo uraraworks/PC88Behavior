@@ -38,7 +38,12 @@ def hex16(v):
 
 def note_raw_db(self, bs):
     """Asm.db() の先頭から呼ぶ。抑止中（=命令メソッドの内部から来た
-    呼び出し）でなければ、生バイト列として1件記録する。"""
+    呼び出し、または data() 経由の呼び出し）でなければ、生バイト列
+    として1件記録する。
+
+    ここに記録が残るのは「名前の付いた命令メソッドを介さず、かつ
+    data() でもない db() 直呼び」だけ——つまり素通りしている命令の
+    直書きを意味する。asm_selftest.sh はこの件数が0であることを検査する。"""
     if not bs:
         return
     if getattr(self, "_emit_asm", None) is None:
@@ -46,6 +51,35 @@ def note_raw_db(self, bs):
     if getattr(self, "_note_suppress", 0) != 0:
         return
     self._emit_asm.append(("raw", self.pc, len(bs), list(bs)))
+
+
+def note_data(self, bs):
+    """Asm.data() から呼ぶ。self.db(*bs) を「命令メソッドの内部」と
+    同じ扱いで抑止しつつ実行し、"data"（テーブル／番地合わせの詰め物）
+    として1件記録する。note_raw_db の「素の db 直書き」検出からは
+    意図的に除外される——データであることを呼び出し側が明示した経路
+    なので、命令の素通りではない。"""
+    bs = tuple(bs)
+    if getattr(self, "_emit_asm", None) is None:
+        self.db(*bs)
+        return
+    start = self.pc
+    self._note_suppress = getattr(self, "_note_suppress", 0) + 1
+    try:
+        self.db(*bs)
+    finally:
+        self._note_suppress -= 1
+    if bs and self._note_suppress == 0:
+        self._emit_asm.append(("data", start, len(bs), list(bs)))
+
+
+def count_kinds(asm_obj):
+    """asm_obj._emit_asm の内訳を {"instr": n, "data": n, "raw": n} で返す。
+    asm_selftest.sh がROムごとの内訳表示と「生db 0件」検査に使う。"""
+    counts = {"instr": 0, "data": 0, "raw": 0}
+    for kind, _start, _length, _payload in asm_obj._emit_asm:
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
 
 
 def install_note_templates(cls, templates):
