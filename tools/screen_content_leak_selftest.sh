@@ -170,4 +170,132 @@ else
   fail "e. tools/check_l3_screen_output.py 本体が変更されているか、比較に失敗した"
 fi
 
+# --- f. tools/l4_vram_probe.py (M7器具3) が画面本文を漏らさないこと -------
+# フィクスチャは全て自作の合成データ。写しには「秘密の文字列」を複数の
+# 表現（生バイト・16進表記・10進表記・1バイトずつ）で埋め込み、目印以外の
+# 行の内容としてどの表現でも道具の出力へ現れないことを確認する。
+L4_PROBE="$SCRIPT_DIR/l4_vram_probe.py"
+SECRET="SECRETLEAK"
+SECRET_HEX_LOWER="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
+SECRET_HEX_UPPER="$(printf '%s' "$SECRET_HEX_LOWER" | tr 'a-f' 'A-F')"
+
+L4_DUMP="$WORK/l4_dump.bin"
+python3 - "$L4_DUMP" "$SECRET" <<'PYEOF'
+import sys
+out_path, secret = sys.argv[1], sys.argv[2].encode("ascii")
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+buf = bytearray(b"." * (ROWS * STRIDE))
+
+def put(row, col, data):
+    for i, b in enumerate(data):
+        buf[row * STRIDE + col + i] = b
+
+# 目印 Q7Z: 行3桁10、それ以外の全行には秘密文字列を埋め込む
+# (=目印を含まない行のほうが多い状態にする)。
+MARKER = b"Q7Z"
+put(3, 10, MARKER)
+for r in range(ROWS):
+    if r == 3:
+        continue
+    # 生バイトそのまま
+    put(r, 0, secret)
+    # 1バイトずつ離した表現も混ぜる(結合検出を回避しても漏れないか確認)
+    for i, b in enumerate(secret):
+        buf[r * STRIDE + 20 + i * 2] = b
+# 属性域は全行同じ値にしておく(属性の一致判定に無関係な要因を混ぜない)
+for r in range(ROWS):
+    for i in range(ATTR):
+        buf[r * STRIDE + COLS + i] = 0xAA
+
+with open(out_path, "wb") as f:
+    f.write(bytes(buf))
+PYEOF
+
+L4_MWL="$WORK/l4_mwl.txt"
+{
+  printf '# PC88Behavior 範囲指定メモリ書き込み記録\n'
+  printf 'range     : F3C8-FF7F\n\n'
+  printf '# seq    frame    pc   addr  value\n'
+  # 秘密文字列をそのまま連続番地に書く事象を1本混ぜる(値としてログへ入る)。
+  seq=1
+  addr=0xF500
+  for ch in $(printf '%s' "$SECRET" | fold -w1); do
+    hex=$(printf '%02X' "'$ch")
+    printf '%6d %7d  1000  %04X   %s\n' "$seq" 0 "$addr" "$hex"
+    seq=$((seq+1)); addr=$((addr+1))
+  done
+  printf '# 取りこぼし: 0件 / 総イベント数: %d件\n' "$((seq-1))"
+} > "$L4_MWL"
+
+L4_IOLOG="$WORK/l4_io.txt"
+{
+  printf '# main\n'
+  printf '# seq  clock  frame  cpu  kind  port  value  pc\n'
+  printf '1  1  0  main  OUT  0050  01  1000\n'
+} > "$L4_IOLOG"
+
+python3 "$L4_PROBE" --vram-dump "$L4_DUMP" --marker Q7Z \
+  --mem-write-log "$L4_MWL" --iolog "$L4_IOLOG" --json \
+  > "$WORK/f_probe.out" 2> "$WORK/f_probe.err"
+PROBE_RC=$?
+
+if [[ $PROBE_RC -ne 0 ]]; then
+  fail "f0. tools/l4_vram_probe.py の実行が失敗した (rc=$PROBE_RC)"
+else
+  pass "f0. tools/l4_vram_probe.py は合成入力に対して正常終了する"
+fi
+
+LEAK_FOUND=0
+for needle in "$SECRET" "$SECRET_HEX_LOWER" "$SECRET_HEX_UPPER"; do
+  if grep -qF "$needle" "$WORK/f_probe.out" "$WORK/f_probe.err"; then
+    LEAK_FOUND=1
+  fi
+done
+if [[ $LEAK_FOUND -eq 0 ]]; then
+  pass "f1. tools/l4_vram_probe.py はどの表現でも秘密の文字列(=画面本文)を出さない"
+else
+  fail "f1. tools/l4_vram_probe.py の出力へ秘密の文字列が漏れた"
+fi
+
+# 目印の検出(陽性対照): 既知の位置(行4,桁11,addr F3C8+3*120+10)を正しく返す
+EXPECT_ADDR=$(python3 -c "print('%04X' % (0xF3C8 + 3*120 + 10))")
+if grep -q '"row": 4' "$WORK/f_probe.out" \
+   && grep -q '"col": 11' "$WORK/f_probe.out" \
+   && grep -q "\"addr\": \"$EXPECT_ADDR\"" "$WORK/f_probe.out"; then
+  pass "f2. 目印の検出(陽性対照): 既知位置(行4,桁11,addr $EXPECT_ADDR)を正しく返す"
+else
+  fail "f2. 目印の検出が既知位置と一致しない"
+fi
+
+# --- g. 陰性対照: 故障注入で本文/値を漏らす版にすると、この検査(f1)が落ちること
+if Q88MEASURE_FAULT_LEAK_VRAM_PROBE=1 python3 "$L4_PROBE" \
+     --vram-dump "$L4_DUMP" --marker Q7Z --mem-write-log "$L4_MWL" --json \
+     > "$WORK/g_leak.out" 2> "$WORK/g_leak.err"; then
+  :
+fi
+GLEAK_FOUND=0
+for needle in "$SECRET" "$SECRET_HEX_LOWER" "$SECRET_HEX_UPPER"; do
+  if grep -qF "$needle" "$WORK/g_leak.out" "$WORK/g_leak.err"; then
+    GLEAK_FOUND=1
+  fi
+done
+if [[ $GLEAK_FOUND -eq 1 ]]; then
+  pass "g. 陰性対照: 故障注入(環境変数)で漏らす版では実際に秘密文字列が検出される(検出力あり)"
+else
+  fail "g. 陰性対照: 故障注入版でも秘密文字列が検出されなかった(検査に検出力が無い)"
+fi
+
+# --- h. 目印0件の扱い: 目印を含まない写しに対して occurrence_count=0 を返す
+L4_DUMP_NOMARK="$WORK/l4_dump_nomark.bin"
+python3 -c "
+open('$L4_DUMP_NOMARK','wb').write(bytes([0xAA]*3000))
+"
+python3 "$L4_PROBE" --vram-dump "$L4_DUMP_NOMARK" --marker Q7Z --json \
+  > "$WORK/h_nomark.out" 2> "$WORK/h_nomark.err"
+if grep -q '"occurrence_count": 0' "$WORK/h_nomark.out"; then
+  pass "h. 目印0件の写しに対して occurrence_count=0 を返す"
+else
+  fail "h. 目印0件のときの扱いが期待と異なる"
+fi
+
 exit "$FAIL"
