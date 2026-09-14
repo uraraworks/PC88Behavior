@@ -40,15 +40,44 @@
 #include <sys/stat.h>
 
 #include "libretro.h"
+#include <limits.h>
+
 #include "q88h_trace.h"
 #include "q88h_trap.h"
 #include "q88h_iolog.h"
+#include "q88h_memlog.h"
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
 #include "q88h_intlog.h"
 #include "q88h_fontsrc.h"
 #include "q88h_screenshot.h"
+
+/* --vram-dump / --mem-write-log の出力先安全策（禁止事項5/7）が使う、
+ * このリポジトリ自身の実体パス。コンパイル時定数にはしない——
+ * disk2_selftest.sh / insert_disk2_selftest.sh のように main.c を
+ * Makefile を介さず直接 cc するスクリプトが既にあり、そこに新しい
+ * 定義を強制すると既存の選択肢を静かに壊す。代わりに argv[0] から
+ * 実行時に求める（g_repo_root, main() 冒頭で設定）。このバイナリは
+ * 常に "<repo>/tools/harness/frontend/q88measure" に置かれる約束
+ * （setup_harness.sh の疎通試験、各 *_selftest.sh のいずれも
+ * この相対位置を前提にしている）ので、そこから4段上がれば求まる。 */
+static char g_repo_root[PATH_MAX] = { 0 };
+
+static void set_repo_root_from_argv0(const char *argv0)
+{
+    char real[PATH_MAX];
+    int i;
+    if (!realpath(argv0, real)) return;
+    /* .../<repo>/tools/harness/frontend/q88measure から4段（q88measure・
+     * frontend・harness・tools）上がって <repo> にする。 */
+    for (i = 0; i < 4; i++) {
+        char *slash = strrchr(real, '/');
+        if (!slash) return;
+        *slash = 0;
+    }
+    strncpy(g_repo_root, real, sizeof(g_repo_root) - 1);
+}
 
 /* ---- コアの関数ポインタ ------------------------------------------------ */
 static void (*p_set_environment)(retro_environment_t);
@@ -101,6 +130,14 @@ static void          (*p_iolog_reset)(void);
 static void          (*p_iolog_set_enabled)(int);
 static void          (*p_iolog_set_frame)(uint32_t);
 static bool           g_iolog_available = false;
+
+/* 範囲指定の書き込み記録（M7器具2）。iolog と同じ理由で失敗を許す枠で dlsym する。 */
+static q88h_memlog_t *(*p_memlog)(void);
+static void           (*p_memlog_reset)(void);
+static void           (*p_memlog_set_enabled)(int);
+static void           (*p_memlog_set_frame)(uint32_t);
+static void           (*p_memlog_set_range)(uint32_t, uint32_t);
+static bool            g_memlog_available = false;
 
 /* 交換run介入。既存コアでも通常測定は続けられるが、オプション指定時は
  * シンボル・命中・実変更をすべて必須にして「指定したが効かなかった」を落とす。 */
@@ -173,6 +210,10 @@ static bool g_save_to_disk_image = false;
  * 32〜63 の記号・数字は handle_key(i, i) でそのまま通る。
  * ------------------------------------------------------------------------ */
 #define MAX_KEYSTROKES 512
+
+/* テキストVRAMの写し（M7器具1）で --vram-dump/--vram-dump-at を
+ * ペアとして受け付ける最大件数。usage() でも使うのでファイルスコープに置く。 */
+#define VRAM_DUMP_MAX 16
 
 typedef struct { unsigned start, end; uint16_t key; int shift; } keyev_t;
 static keyev_t  g_keyev[MAX_KEYSTROKES];
@@ -475,6 +516,18 @@ static bool load_core(const char *path)
         fprintf(stderr, "[q88measure] 注記: このコアに順序付きI/O記録が無い。"
                         "--io-log は無効化される\n");
 
+    /* 範囲指定の書き込み記録（M7器具2）も同様に、無いコアでは黙って機能を落とす。 */
+    *(void **)(&p_memlog)             = dlsym(h, "retro_q88h_memlog");
+    *(void **)(&p_memlog_reset)       = dlsym(h, "retro_q88h_memlog_reset");
+    *(void **)(&p_memlog_set_enabled) = dlsym(h, "retro_q88h_memlog_set_enabled");
+    *(void **)(&p_memlog_set_frame)   = dlsym(h, "retro_q88h_memlog_set_frame");
+    *(void **)(&p_memlog_set_range)   = dlsym(h, "retro_q88h_memlog_set_range");
+    g_memlog_available = p_memlog && p_memlog_reset && p_memlog_set_enabled
+                       && p_memlog_set_frame && p_memlog_set_range;
+    if (!g_memlog_available)
+        fprintf(stderr, "[q88measure] 注記: このコアに範囲指定の書き込み記録が無い。"
+                        "--mem-write-log は無効化される\n");
+
     *(void **)(&p_exchange_intervention) = dlsym(h, "retro_q88h_exchange_intervention");
     *(void **)(&p_exchange_intervention_reset) = dlsym(h, "retro_q88h_exchange_intervention_reset");
     *(void **)(&p_exchange_intervention_configure) = dlsym(h, "retro_q88h_exchange_intervention_configure");
@@ -551,6 +604,148 @@ static bool load_core(const char *path)
         fprintf(stderr, "[q88measure] 注記: このコアに画面スナップショットが無い。"
                         "--screenshot は無効化される\n");
     return true;
+}
+
+/* ---- 出力先の安全策（禁止事項5/7） --------------------------------------
+ *
+ * --vram-dump が書く生バイナリにはテキストVRAMの文字コード（＝画面本文）が
+ * そのまま入り、--mem-write-log が書く記録も対象範囲をテキストVRAMに
+ * 取ったときは同じく文字コードの値列を含む。どちらも公式ROM上で走らせて
+ * 使う想定の器具なので、CLAUDE.md 禁止事項5「測定ログをコミットする前に
+ * データポートの値列を伏せる」・7「画面本文を書かない」と同じ実害がある。
+ *
+ * このリポジトリ内（ただし tmp/ 配下は git 管理外の作業領域として除く）へ
+ * 直接書かせると、うっかりコミット対象へ紛れ込む経路になるため、
+ * 出力先をここで機械的に拒否する。判定は realpath ベース——シンボリック
+ * リンクや `..` で見かけ上リポジトリ外に見せかけても実体で弾く。 */
+
+/* path の実体が「このリポジトリの内側」かどうかを判定する。
+ * tmp/ 配下（実体で判定）は例外として false を返す。
+ * path がまだ存在しないファイルでもよい（親ディレクトリまでを解決する）。
+ * 判定不能（親ディレクトリも無い等）なら安全側に倒して false
+ * ——実際の書き込みは後続の fopen が同じ理由で失敗して検出される。 */
+static bool path_is_inside_repo_but_not_tmp(const char *path)
+{
+    char repo_real[PATH_MAX];
+    char resolved[PATH_MAX];
+    char tmp_prefix[PATH_MAX];
+    size_t rlen;
+
+    if (!g_repo_root[0]) return false;   /* 実体パスが求まらなければ判定不能→安全側(不拒否) */
+    if (!realpath(g_repo_root, repo_real)) return false;
+
+    if (!realpath(path, resolved)) {
+        /* ファイル自体は無くてよいが、親ディレクトリは実在する必要がある */
+        char dirbuf[PATH_MAX];
+        char parent[PATH_MAX];
+        const char *base;
+        const char *slash = strrchr(path, '/');
+        char parent_real[PATH_MAX];
+
+        if (slash) {
+            size_t dlen = (size_t)(slash - path);
+            if (dlen == 0) dlen = 1; /* "/foo" のときは "/" を親にする */
+            if (dlen >= sizeof(parent)) return false;
+            memcpy(parent, path, dlen);
+            parent[dlen] = 0;
+            base = slash + 1;
+        } else {
+            strcpy(parent, ".");
+            base = path;
+        }
+        if (!realpath(parent, parent_real)) return false;
+        if (snprintf(dirbuf, sizeof(dirbuf), "%s/%s", parent_real, base) >= (int)sizeof(dirbuf))
+            return false;
+        strncpy(resolved, dirbuf, sizeof(resolved) - 1);
+        resolved[sizeof(resolved) - 1] = 0;
+    }
+
+    rlen = strlen(repo_real);
+    if (strncmp(resolved, repo_real, rlen) != 0) return false;          /* リポジトリ外 */
+    if (resolved[rlen] != '/' && resolved[rlen] != '\0') return false;  /* 前方一致の別ディレクトリ */
+
+    if (snprintf(tmp_prefix, sizeof(tmp_prefix), "%s/tmp/", repo_real) >= (int)sizeof(tmp_prefix))
+        return true; /* 作れないなら安全側（拒否）に倒す */
+    if (strncmp(resolved, tmp_prefix, strlen(tmp_prefix)) == 0) return false; /* tmp/配下は許可 */
+
+    return true;
+}
+
+/* 呼び出し側の共通エラー処理。だめなら NULL は返さずここで終了させたいので、
+ * 呼び出し元で「拒否なら return 1」の1行にまとめられるよう bool を返す。 */
+static bool reject_if_unsafe_output_path(const char *opt, const char *path)
+{
+    if (path_is_inside_repo_but_not_tmp(path)) {
+        fprintf(stderr,
+            "[q88measure] NG: %s の出力先がリポジトリ内 (tmp/ 以外) を指している: %s\n"
+            "  画面本文/データポート値列を含みうる出力はリポジトリ内へ直接書かせない"
+            "（CLAUDE.md 禁止事項5/7）。tmp/ 配下かリポジトリ外へ書くこと。\n",
+            opt, path);
+        return true;
+    }
+    return false;
+}
+
+/* ---- テキストVRAMの写し（M7器具1） --------------------------------------
+ *
+ * 複数フレームぶん指定されたときにファイルが衝突しないよう、件数が2以上の
+ * ときだけファイル名へフレーム番号を差し込む規則にする（1件だけの素朴な
+ * 使い方では、指定したパスがそのまま出てほしいため）。挿入位置は最後の
+ * '.' の直前（拡張子が無ければ末尾に付け足す）。 */
+static void vram_dump_path_for(char *out, size_t outsz, const char *path,
+                               unsigned frame, bool need_suffix)
+{
+    const char *dot, *slash;
+    if (!need_suffix) { snprintf(out, outsz, "%s", path); return; }
+
+    slash = strrchr(path, '/');
+    dot   = strrchr(path, '.');
+    if (dot && (!slash || dot > slash)) {
+        snprintf(out, outsz, "%.*s.f%06u%s", (int)(dot - path), path, frame, dot);
+    } else {
+        snprintf(out, outsz, "%s.f%06u", path, frame);
+    }
+}
+
+/* main RAM の F3C8〜FF7F（文字コード+属性、両端含む、3000バイト）を
+ * 生バイナリで1枚書く。既存の retro_q88h_text() は「1行80文字」を
+ * cols==stride より小さく指定して呼ぶことで属性を読み飛ばす使われ方が
+ * 通例だったが、ここでは cols=stride=Q88H_TEXT_STRIDE を渡す——そうすると
+ * dst[r*cols+c] = main_ram[BASE + r*stride + c] が c を stride 全域まで
+ * 埋めるので、結果的に F3C8 からの 3000 バイトを1バイトも飛ばさず
+ * 連続コピーしたのと同じになる。新しいコア側フックを増やさずに済む。 */
+static int write_vram_dump(const char *path, unsigned frame,
+                           void (*text_fn)(uint8_t *, uint32_t, uint32_t, uint32_t))
+{
+    static uint8_t buf[Q88H_TEXT_ROWS * Q88H_TEXT_STRIDE];
+    char infopath[PATH_MAX + 16];
+    FILE *fp, *ip;
+
+    text_fn(buf, Q88H_TEXT_ROWS, Q88H_TEXT_STRIDE, Q88H_TEXT_STRIDE);
+
+    /* vram_dump_selftest.sh 専用の故障注入。既定では環境変数が無いので
+     * 何もしない。1バイトだけ化けさせて、期待値と比較する側の検査が
+     * 実際に NG になることを確かめるための対照。 */
+    if (getenv("Q88MEASURE_FAULT_CORRUPT_VRAM_DUMP")) buf[0] ^= 0xFF;
+
+    fp = fopen(path, "wb");
+    if (!fp) { perror(path); return 0; }
+    fwrite(buf, 1, sizeof(buf), fp);
+    fclose(fp);
+
+    /* 見出し（フレーム・範囲）は生バイナリに混ぜず、隣に小さなテキストで置く。
+     * 中身はバイト列そのものではなく採取条件だけなので、禁止事項7には当たらない。 */
+    snprintf(infopath, sizeof(infopath), "%s.info.txt", path);
+    ip = fopen(infopath, "w");
+    if (ip) {
+        fprintf(ip, "frame: %u\n", frame);
+        fprintf(ip, "timing: retro_run() 呼び出しの直前\n");
+        fprintf(ip, "range: %04X-%04X (両端含む, %zuバイト = 80文字+40属性 x %u行)\n",
+                Q88H_TEXT_BASE, Q88H_TEXT_BASE + (unsigned)sizeof(buf) - 1,
+                sizeof(buf), (unsigned)Q88H_TEXT_ROWS);
+        fclose(ip);
+    }
+    return 1;
 }
 
 /* ---- 採取結果の出力 ---------------------------------------------------- */
@@ -754,6 +949,50 @@ static void write_iolog_report(FILE *fp, const char *core, const char *romdir,
     write_iolog_cpu(fp, "sub",  ls);
 }
 
+/* ---- 範囲指定の書き込み記録（M7器具2）の書き出し ------------------------
+ *
+ * write_iolog_cpu と同じ形。対象は main CPU のみ（M7段階1はテキストVRAMを
+ * 含む main側の測定が目的のため、q88h_memlog.h 参照）。value 列には
+ * 対象範囲の実データがそのまま入るので、このファイル自体の出力先も
+ * reject_if_unsafe_output_path で制限している。 */
+static void write_memlog_report(FILE *fp, const char *core, const char *romdir,
+                                const char *disk, const char *disk2, unsigned frames,
+                                unsigned from_frame, const q88h_memlog_t *m)
+{
+    uint32_t i;
+    fprintf(fp, "# PC88Behavior 範囲指定メモリ書き込み記録\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 記録しているのは指定範囲内への書き込みの発生順・番地・値・\n");
+    fprintf(fp, "# 発行元PC(その書き込みを行った命令の先頭番地)・フレーム番号のみ。\n");
+    fprintf(fp, "# 対象は main CPU のみ。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 発行元PCは q88h_iolog の「PC.W-2」方式ではなく、fetch()の\n");
+    fprintf(fp, "# 呼び出し列からオペコード/プレフィクスバイトだけを辿って求めた\n");
+    fprintf(fp, "# 「命令の先頭番地」——メモリ書き込み命令は1〜4バイトと長さが\n");
+    fprintf(fp, "# まちまちで PC からの引き算では出せないため。詳細は\n");
+    fprintf(fp, "# tools/patches/0014-mem-write-log.patch の pc88main.c 側コメント参照。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# LDIR 等のブロック転送も1バイトずつ q88h_mem_write を通るため、\n");
+    fprintf(fp, "# その分だけ複数件として記録される（同じPCの反復として見える）。\n\n");
+    fprintf(fp, "core      : %s\n", core);
+    fprintf(fp, "rom-dir   : %s\n", romdir);
+    fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
+    fprintf(fp, "frames    : %u\n", frames);
+    fprintf(fp, "range     : %04X-%04X\n", m->range_lo, m->range_hi);
+    fprintf(fp, "from-frame: %u\n", from_frame);
+    fprintf(fp, "capacity  : %u件\n\n", (unsigned)Q88H_MEMLOG_MAX_EVENTS);
+
+    fprintf(fp, "# seq    frame    pc   addr  value\n");
+    if (!m->n_events) fprintf(fp, "# (記録されたイベントなし)\n");
+    for (i = 0; i < m->n_events; i++) {
+        const q88h_memlog_ev_t *e = &m->ev[i];
+        fprintf(fp, "%6u %7u  %04X  %04X   %02X\n",
+                e->seq, e->frame, e->pc, e->addr, e->value);
+    }
+    fprintf(fp, "# 取りこぼし: %u件 / 総イベント数: %u件\n", m->n_dropped, m->n_events);
+}
+
 /* ---- 割り込み受理ログ（M4c）の書き出し ----------------------------------
  * 考え方は write_iolog_* と同じ。main/sub は別々に走る Z80 なので、
  * 混ぜて出すと前後関係を誤解させる。CPUごとに節を分ける。 */
@@ -935,7 +1174,11 @@ static void usage(void)
         "                   [--main-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
-        "                   [--screenshot FILE.ppm]\n");
+        "                   [--screenshot FILE.ppm]\n"
+        "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
+        "                    [--mem-write-from-frame N]]\n"
+        "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n",
+        VRAM_DUMP_MAX);
 }
 
 int main(int argc, char **argv)
@@ -970,6 +1213,19 @@ int main(int argc, char **argv)
     const char *int_log_path = NULL;
     const char *font_log_path = NULL;
     const char *screenshot_path = NULL;
+    /* 範囲指定の書き込み記録（M7器具2）。--mem-write-range は必須
+     * （範囲を指定しないと何も記録しない設計 — q88h_memlog.h 参照）。 */
+    const char *mem_write_log_path = NULL;
+    unsigned    mem_write_range_lo = 0, mem_write_range_hi = 0;
+    bool        mem_write_range_set = false;
+    unsigned    mem_write_from_frame = 0;
+    /* テキストVRAMの写し（M7器具1）。PATH と FRAME をペアとして複数回
+     * 指定できる。件数が2以上のときだけファイル名にフレーム番号を差し込む
+     * （1件だけなら指定パスそのものを使う——この規則は vram_dump_path_for
+     * のコメントに書く）。 */
+    struct { const char *path; unsigned frame; bool done; } vram_dump[VRAM_DUMP_MAX];
+    int         n_vram_dump = 0;
+    const char *vram_dump_pending_path = NULL;
     struct { int32_t run; uint8_t mode, value; } xi[Q88H_EXCHANGE_INTERVENTION_SLOTS];
     int n_xi = 0;
     struct { int32_t run; uint32_t position; uint8_t mode, value; }
@@ -985,6 +1241,8 @@ int main(int argc, char **argv)
     uint8_t mii_mode = Q88H_MII_NONE;
     const char *env;
     int i, k;
+
+    set_repo_root_from_argv0(argv[0]);
 
     if ((env = getenv("PC88_REF_ROM_DIR")))
         snprintf(g_rom_dir, sizeof(g_rom_dir), "%s", env);
@@ -1228,6 +1486,41 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--mem-write-log") && i + 1 < argc)
+            mem_write_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--mem-write-range") && i + 1 < argc) {
+            unsigned lo, hi;
+            if (!parse_hex_range(argv[++i], &lo, &hi)) {
+                fprintf(stderr, "[q88measure] --mem-write-range は LO-HI (16進, LO<=HI)\n");
+                return 2;
+            }
+            mem_write_range_lo = lo; mem_write_range_hi = hi;
+            mem_write_range_set = true;
+        } else if (!strcmp(argv[i], "--mem-write-from-frame") && i + 1 < argc)
+            mem_write_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--vram-dump") && i + 1 < argc) {
+            if (vram_dump_pending_path) {
+                fprintf(stderr, "[q88measure] --vram-dump は直前の --vram-dump に"
+                                "対応する --vram-dump-at が無いまま次を指定された: %s\n",
+                        vram_dump_pending_path);
+                return 2;
+            }
+            vram_dump_pending_path = argv[++i];
+        } else if (!strcmp(argv[i], "--vram-dump-at") && i + 1 < argc) {
+            if (!vram_dump_pending_path) {
+                fprintf(stderr, "[q88measure] --vram-dump-at の前に --vram-dump PATH が要る\n");
+                return 2;
+            }
+            if (n_vram_dump >= VRAM_DUMP_MAX) {
+                fprintf(stderr, "[q88measure] --vram-dump は最大%d個\n", VRAM_DUMP_MAX);
+                return 2;
+            }
+            vram_dump[n_vram_dump].path  = vram_dump_pending_path;
+            vram_dump[n_vram_dump].frame = (unsigned)strtoul(argv[++i], NULL, 0);
+            vram_dump[n_vram_dump].done  = false;
+            n_vram_dump++;
+            vram_dump_pending_path = NULL;
+        }
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -1283,6 +1576,27 @@ int main(int argc, char **argv)
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
         return 2;
+    }
+    if (vram_dump_pending_path) {
+        fprintf(stderr, "[q88measure] --vram-dump %s に対応する --vram-dump-at が無い\n",
+                vram_dump_pending_path);
+        return 2;
+    }
+    if (mem_write_log_path && !mem_write_range_set) {
+        fprintf(stderr, "[q88measure] --mem-write-log には --mem-write-range が要る\n");
+        return 2;
+    }
+    if (mem_write_log_path && mem_write_from_frame >= frames) {
+        fprintf(stderr, "[q88measure] --mem-write-from-frame は --frames 未満で指定すること\n");
+        return 2;
+    }
+    /* 出力先の安全策（禁止事項5/7）。走らせる前、コアの読み込みより先に
+     * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
+    if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
+        return 1;
+    for (k = 0; k < n_vram_dump; k++) {
+        if (reject_if_unsafe_output_path("--vram-dump", vram_dump[k].path))
+            return 1;
     }
 
     /* 何を測ったのかが後から辿れるように、必ず出す。
@@ -1498,6 +1812,25 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 範囲指定の書き込み記録（M7器具2）も iolog と同じ位置・同じ理由で
+     * 有効化する。出力先の安全策はここ、load_game より前で検査済み
+     * （下の入力検査ブロック参照）——コアを走らせる前に弾いたほうが、
+     * 「走らせたのに書けなかった」より分かりやすい失敗になる。 */
+    if (mem_write_log_path) {
+        if (!g_memlog_available) {
+            fprintf(stderr, "[q88measure] 注記: --mem-write-log が指定されたが、"
+                            "このコアに範囲指定の書き込み記録が無いので無視する\n");
+        } else {
+            p_memlog_reset();
+            p_memlog_set_range(mem_write_range_lo, mem_write_range_hi);
+            p_memlog_set_enabled(mem_write_from_frame == 0);
+            fprintf(stderr, "[q88measure] 書き込み記録: out=%s, range=%04X-%04X,"
+                            " frame %u から有効\n",
+                    mem_write_log_path, mem_write_range_lo, mem_write_range_hi,
+                    mem_write_from_frame);
+        }
+    }
+
     if (g_n_keyev) {
         unsigned last = g_keyev[g_n_keyev - 1].end;
         g_typed = typed;
@@ -1506,6 +1839,13 @@ int main(int argc, char **argv)
         if (frames <= last)
             fprintf(stderr, "[q88measure] 警告: --frames %u は打鍵の終わり %u より短い。"
                             "打ち切られる\n", frames, last);
+    }
+
+    for (k = 0; k < n_vram_dump; k++) {
+        if (vram_dump[k].frame >= frames)
+            fprintf(stderr, "[q88measure] 警告: --vram-dump-at %u は --frames %u"
+                            " 以上なので届かない: %s\n",
+                    vram_dump[k].frame, frames, vram_dump[k].path);
     }
 
     /* 測定区間はここから。ロード中のアクセスは数えない */
@@ -1518,6 +1858,29 @@ int main(int argc, char **argv)
         if (g_intlog_available) p_intlog_set_frame(g_frame);
         if (io_log_path && g_iolog_available && g_frame == io_log_from_frame)
             p_iolog_set_enabled(1);
+        if (g_memlog_available) p_memlog_set_frame(g_frame);
+        if (mem_write_log_path && g_memlog_available && g_frame == mem_write_from_frame)
+            p_memlog_set_enabled(1);
+
+        /* テキストVRAMの写し（M7器具1）。「g_frame==FRAME になったフレームの
+         * retro_run()呼び出しの直前」——m7lw(--insert-disk2-at)と同じ定義に
+         * 揃える。1回きりの寄与にするため done で管理する。 */
+        for (k = 0; k < n_vram_dump; k++) {
+            if (!vram_dump[k].done && g_frame == vram_dump[k].frame) {
+                char outpath[PATH_MAX];
+                vram_dump_path_for(outpath, sizeof(outpath), vram_dump[k].path,
+                                   vram_dump[k].frame, n_vram_dump > 1);
+                if (reject_if_unsafe_output_path("--vram-dump", outpath)) {
+                    p_unload_game();
+                    p_deinit();
+                    return 1;
+                }
+                if (write_vram_dump(outpath, g_frame, p_text))
+                    fprintf(stderr, "[q88measure] VRAM写しを書き出した: %s (frame=%u)\n",
+                            outpath, g_frame);
+                vram_dump[k].done = true;
+            }
+        }
 
         if (g_frame == reset_at) {
             p_reset();
@@ -1618,6 +1981,35 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
+            }
+
+            /* 範囲指定の書き込み記録（M7器具2）も --io-log と同じく別ファイルに書く。
+             * 出力先の安全策は起動直後に検査済みだが、値そのものが対象範囲の
+             * 実データなので、ここでも念のため同じ検査を通す
+             * （検査から書き出しまでの間に symlink 差し替え等が起きても弾ける）。 */
+            if (mem_write_log_path && g_memlog_available) {
+                q88h_memlog_t *m = p_memlog();
+                FILE *fp;
+
+                /* mem_write_log_selftest.sh 専用の故障注入。既定では環境変数が
+                 * 無いので何もしない。「取りこぼし数(n_dropped)を増やさずに
+                 * 1件を黙って落とす」経路を模して、末尾から1件だけ配列上で
+                 * 消す（seqの欠番として現れる——取りこぼし数だけを見ていた
+                 * 検査ではここを見逃す）。実際の記録経路（q88h_memlog_record）
+                 * 自体はいじらず、書き出す直前の値を壊すだけ。 */
+                if (getenv("Q88MEASURE_FAULT_DROP_MEMLOG_EVENT") && m->n_events > 0)
+                    m->n_events--;
+
+                if (reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
+                    return 1;
+                fp = fopen(mem_write_log_path, "w");
+                if (!fp) { perror(mem_write_log_path); return 1; }
+                write_memlog_report(fp, core, g_rom_dir, disk, disk2, frames,
+                                    mem_write_from_frame, m);
+                fclose(fp);
+                fprintf(stderr, "[q88measure] 書き込み記録を書き出した: %s"
+                                " (%u件/取りこぼし%u件)\n",
+                        mem_write_log_path, m->n_events, m->n_dropped);
             }
 
             /* 割り込み受理ログ（M4c）も --io-log と同じく別ファイルに書く。

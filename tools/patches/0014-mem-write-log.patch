@@ -1,0 +1,142 @@
+diff --git a/Makefile.common b/Makefile.common
+index 5d5f2ca..7aee69c 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -58,6 +58,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_trap.c \
+    $(CORE_DIR)/q88h_clock.c \
+    $(CORE_DIR)/q88h_iolog.c \
++   $(CORE_DIR)/q88h_memlog.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+    $(CORE_DIR)/q88h_main_interrupt_intervention.c \
+diff --git a/src/pc88main.c b/src/pc88main.c
+index e463480..0a31d6c 100644
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2960,6 +2960,7 @@ void	main_io_out_with_BP( byte port, byte data )
+ #include "q88h_trap.h"
+ #include "q88h_iolog.h"
+ #include "q88h_exchange_intervention.h"
++#include "q88h_memlog.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -2987,6 +2988,42 @@ void	main_io_out_with_BP( byte port, byte data )
+ static byte (*q88h_inner_fetch)( word );
+ static word  q88h_prev_fetch;   /* 直前に fetch() で要求された番地 */
+ 
++/* ----------------------------------------------------------------------
++ * 命令先頭番地の追跡（M7器具2: 範囲指定の書き込み記録）
++ *
++ * q88h_prev_fetch は「直前に fetch() で要求された番地」であって、
++ * 「現在実行中の命令の先頭番地」ではない（上のコメントにもあるとおり、
++ * プレフィクスやオペランドのフェッチも同じ fetch() を通るため、複数
++ * バイト命令の途中を指すことがある）。q88h_iolog（IN/OUT の発行元PC）は
++ * 命令長が常に2バイトだと分かっているので z80main_cpu.PC.W - 2 で
++ * 済ませられたが、メモリ書き込み命令は 1〜4 バイトと長さがまちまち
++ * （例: LD (nn),A は3バイト、LD (IX+d),n は4バイト）で、この引き算は
++ * 使えない。
++ *
++ * z80.c を実測して確認したところ、Z80 コアの fetch() 呼び出しは
++ * オペコード・プレフィクスバイトの取得だけに使われ（z80_emu の
++ * 命令ディスパッチ先頭、および z80_code_CB/ED/DD/FD のプレフィクス後の
++ * 1バイト）、即値オペランドの取得は fetch() を経由しない mem_read
++ * （M_RDMEM）を使う。したがって「命令の先頭バイトを fetch() した番地」
++ * さえ判定できれば、それが命令実行が終わるまで変わらない「命令の
++ * 先頭番地」として使える。
++ *
++ * 判定は次の状態機械で行う（q88h_fetch 内、実際に読めたオペコード値を
++ * 見て次の状態を決める）:
++ *   pending==0: 次の fetch() は新しい命令の先頭。
++ *               読めた値が CB/ED なら pending=1（続く1回だけ継続）、
++ *               DD/FD なら pending=2（続く1回で終わるか、更に CB が
++ *               来て pending=1 になるかを見る）、それ以外は pending=0
++ *               のまま（1バイトで完結）。
++ *   pending==2: DD/FD の2バイト目。読めた値が CB なら pending=1
++ *               （DD CB dd oo の4バイト目がまだ続く）、それ以外は
++ *               pending=0（DD/FD 付き通常命令はここで完結）。
++ *   pending==1: 継続フェッチの最終バイト。読み終えたら pending=0。
++ * どの状態でも q88h_instr_pc は「pending が 0 から動いた瞬間の addr」
++ * のまま更新しない——それが命令の先頭番地だから。 */
++static word q88h_instr_pc;       /* 現在実行中の命令の先頭番地 */
++static int  q88h_instr_pending;  /* 上の状態機械の状態 (0/1/2) */
++
+ /* ----------------------------------------------------------------------
+  * fetch した番地の実体が ROM 像か RAM かを判定する。
+  *
+@@ -3036,8 +3073,14 @@ static byte q88h_fetch( word addr )
+   q88h_trace_t *t  = retro_q88h_trace();
+   q88h_trap_t  *tp = retro_q88h_trap();
+   word          prev_fetch = q88h_prev_fetch;   /* トラップ判定より前に控える */
++  int           is_instr_start = ( q88h_instr_pending == 0 );
+   byte          ret;
+ 
++  /* この fetch() が新しい命令の先頭かどうかは、実際に読めた値を見るまで
++   * 確定しないが、先頭番地そのものは「fetch() が呼ばれた時点の addr」で
++   * 決まる。先に控えてから、下でオペコード値を見て次の状態を決める。 */
++  if( is_instr_start ) q88h_instr_pc = addr;
++
+   t->mem_exec[addr] = 1;
+   if( q88h_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
+   else                            t->mem_exec_ram[addr] = 1;
+@@ -3065,6 +3108,11 @@ static byte q88h_fetch( word addr )
+     }
+ 
+     q88h_prev_fetch = addr;
++    /* トラップが差し替える RET(0xC9)/HALT(0x76) はどちらも CB/ED/DD/FD
++     * ではない1バイト完結命令として扱う。継続待ちだった場合でも、
++     * ここで命令境界を打ち切る（トラップ発火中は実ROMの続きを読まない
++     * ので、中途半端な pending を持ち越しても意味がない）。 */
++    q88h_instr_pending = 0;
+     if( tp->mode == Q88H_TRAP_RET ){
+       return 0xC9;                     /* RET  — 呼び元へ即座に返す */
+     }else{                             /* Q88H_TRAP_STOP */
+@@ -3076,6 +3124,22 @@ static byte q88h_fetch( word addr )
+ 
+   ret = q88h_inner_fetch( addr );
+   q88h_prev_fetch = addr;
++
++  /* 命令境界の更新（詳細は q88h_instr_pc 宣言部のコメント参照）。 */
++  if( is_instr_start ){
++    switch( ret ){
++    case 0xCB: case 0xED: q88h_instr_pending = 1; break;
++    case 0xDD: case 0xFD: q88h_instr_pending = 2; break;
++    default:              q88h_instr_pending = 0; break;
++    }
++  }else if( q88h_instr_pending == 2 ){
++    /* DD/FD の2バイト目。CBならもう1回継続する（DD/FD CB dd oo）。 */
++    q88h_instr_pending = ( ret == 0xCB ) ? 1 : 0;
++  }else{
++    /* pending==1 だった継続フェッチの最終バイト。 */
++    q88h_instr_pending = 0;
++  }
++
+   return ret;
+ }
+ 
+@@ -3106,9 +3170,23 @@ static byte q88h_mem_read( word addr )
+ 
+ static void q88h_mem_write( word addr, byte data )
+ {
+-  q88h_trace_t *t = retro_q88h_trace();
++  q88h_trace_t  *t = retro_q88h_trace();
++  q88h_memlog_t *m = retro_q88h_memlog();
++
+   t->mem_write[addr] = 1;
+   t->n_write++;
++
++  /* 範囲指定の書き込み記録（M7器具2）。enabled と範囲内かどうかの判定は
++   * ここ（呼び手）の責任にする — q88h_iolog と同じ役割分担。発行元PCは
++   * q88h_instr_pc（このバイトを書いた命令の先頭番地。q88h_fetch 側の
++   * コメント参照）。LDIR 等のブロック転送も1バイトずつこの関数を通るので、
++   * 1バイトずつ記録される（PC は LDIR 命令自身の先頭番地のまま反復回数分
++   * 同じ値になる——ブロック転送1命令が複数バイトを書くという実態どおり）。 */
++  if( m->enabled && m->range_lo <= m->range_hi
++      && addr >= m->range_lo && addr <= m->range_hi ){
++    q88h_memlog_record( m, addr, data, q88h_instr_pc );
++  }
++
+   main_mem_write( addr, data );
+ }
+ 

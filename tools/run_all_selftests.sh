@@ -108,6 +108,8 @@ SCRIPTS_EXPECTED=(
   "tools/harness/intlog_selftest.sh:0"
   "tools/harness/iolog_capacity_selftest.sh:0"
   "tools/harness/iolog_selftest.sh:0"
+  "tools/harness/vram_dump_selftest.sh:0"
+  "tools/harness/mem_write_log_selftest.sh:0"
   "tools/harness/romram_selftest.sh:0"
   "tools/harness/selftest.sh:0"
   "tools/harness/trap_selftest.sh:0"
