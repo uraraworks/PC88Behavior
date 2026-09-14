@@ -185,3 +185,29 @@ iolog/intlog を横断したグローバルな通し番号**であり、Z80 の�
 
 本文の A（決定論性）・B（段ごとの受理件数）・D（直前 IN $F8）・E（frame
 分布）は clock を時間として扱っていないため、この誤りの影響を受けない。
+
+## 追記2（2026-09-14、FDCコマンド結果ステータスの一致）
+
+ログの出どころ: 公式は b13f837 時点の現行ハーネスで測った diskA 起動1800f
+（`tmp/intshape-now/official.iolog.txt`）、混成は b13f837 の conform_l3
+実走の条件3ログ（`tmp/m7lw-conform2/cond3.iolog.txt`）。
+
+```
+python3 tools/compare_l3_entry_fdc.py \
+  --official tmp/intshape-now/official.iolog.txt \
+  --mixed    tmp/m7lw-conform2/cond3.iolog.txt \
+  --after-frame 0
+```
+
+要点:
+
+- FDCコマンド種別列の一致prefixは51件（全長一致）。
+- READ DATA発行件数は公式9件・混成9件。
+- 入口区間のunit/head差は0件。
+- 入口区間の結果ステータス差はなし。
+- 終了コード0。
+
+あわせて、本文B節の段30（O=257・M=258、d=+1）と、両者の `$FB` run長の
+分布（`tools/analyze_sub_interrupt_shape.py` の `fb_run_length_histogram`、
+`--check` も両ログでOK）が全項目一致していることを確認した。両ログとも
+run件数は同じで、run長ごとの件数分布に差は無い。
