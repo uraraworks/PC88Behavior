@@ -46,12 +46,50 @@ import os
 import pathlib
 import sys
 
-# M7段階0: .asm書き出し(--emit-asm)用の共通ヘルパ。tools/asm/ はこのリポジトリ
-# 内のツールでpython3だけで完結する（外部依存を増やさない）。
+# M7段階0: .asm書き出し(--emit-asm-dir)用の共通ヘルパ。tools/asm/ はこの
+# リポジトリ内のツールでpython3だけで完結する（外部依存を増やさない）。
+# ただし本ファイル自身の方針（冒頭docstring）は「外部依存ゼロで、第三者が
+# `python3 make_ipl_rom.py <出力先>` だけで同じROMを再生成できる」こと
+# なので、tools/asm/ を伴わずにこのファイル単体をコピーして実行しても
+# ROM生成そのものは動かなければならない。見つかれば使い、無ければ
+# --emit-asm-dir 未使用時は無害なフォールバックで動作し、使用時だけ
+# 分かりやすいエラーで終了する（下記 _require_asm_emit）。
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
-from asm_emit import (  # noqa: E402
-    count_kinds, hex8, hex16, install_note_templates, note_data, note_raw_db, render_asm,
-)
+try:
+    from asm_emit import (  # noqa: E402
+        count_kinds, hex8, hex16, install_note_templates, note_data, note_raw_db, render_asm,
+    )
+    _ASM_EMIT_AVAILABLE = True
+except ImportError:
+    _ASM_EMIT_AVAILABLE = False
+
+    def hex8(v):  # noqa: E302
+        return f"0x{v & 0xFF:02X}"
+
+    def hex16(v):
+        return f"0x{v & 0xFFFF:04X}"
+
+    def note_raw_db(self, bs):
+        """asm_emit不在時は何も記録しない（バイト生成には無関係）。"""
+        return
+
+    def note_data(self, bs):
+        """asm_emit不在時はフックせずそのまま db() を発行する。"""
+        self.db(*bs)
+
+    def install_note_templates(cls, templates):
+        """asm_emit不在時は命令メソッドをラップしない（バイト列は不変）。"""
+        return
+
+    def render_asm(asm_obj, header_comment=""):
+        raise RuntimeError(
+            "--emit-asm-dir には tools/asm/asm_emit.py が必要です"
+            "（このファイル単体のコピーには含まれていません）")
+
+    def count_kinds(asm_obj):
+        raise RuntimeError(
+            "--emit-asm-dir には tools/asm/asm_emit.py が必要です"
+            "（このファイル単体のコピーには含まれていません）")
 
 # M7段階0（後半）陽性対照専用: 設定すると out() が命令メソッド経由(out_a)
 # ではなく db() を直接呼ぶようになる（バイト列は変えない）。
@@ -902,6 +940,12 @@ def main():
                          "書き出す（tools/asm/z80text.py で組み直せる）。"
                          "既定のROM出力バイトには影響しない。")
     args = ap.parse_args()
+
+    if args.emit_asm_dir is not None and not _ASM_EMIT_AVAILABLE:
+        print("エラー: --emit-asm-dir には tools/asm/asm_emit.py が必要です"
+              "（このファイルを単独でコピーして実行する場合は使えません）",
+              file=sys.stderr)
+        return 1
 
     rom, used, n_out = build_n88(args.stop_after, font_sample=args.font_sample)
     d = pathlib.Path(args.outdir)

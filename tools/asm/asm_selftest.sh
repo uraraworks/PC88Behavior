@@ -267,6 +267,133 @@ else
     tail -20 "$WORK/sub_inject.log"
 fi
 
+# --------------------------------------------------------------------------
+# 5. 単独実行（tools/asm/ を伴わない）: 生成器ファイル自身の方針
+#    （冒頭docstring）は「外部依存ゼロで、第三者が
+#    `python3 make_ipl_rom.py/make_subrom.py <出力先>` だけで同じROMを
+#    再生成できる」こと。生成器ファイルだけを一時ディレクトリへコピー
+#    （tools/asm が無い状態）して実行し、
+#      ①既定実行が rc=0 で通る
+#      ②出力ROMのsha256が上のEXPECT_*と一致（バイト不変）
+#      ③単独コピーで --emit-asm(-dir) を付けると rc≠0
+#    を確かめる。さらに陽性対照として、asm_emit の import を
+#    無条件（try/except無し）に機械的に戻したコピーが①で落ちる
+#    （＝この検査自体に検出力がある）ことを確かめる。
+#    ここで見つかった実例: ccc44e2/1d376af でtools/asm/asm_emit.pyを
+#    無条件importしていたため、生成器を単独コピーして実行すると
+#    ImportErrorで落ちていた（early_response_rom_selftest.shのNGで発覚）。
+# --------------------------------------------------------------------------
+
+# asm_emit の import を try/except から無条件importへ機械的に戻す
+# （M7段階0の元の不具合を再現する陽性対照専用。tools/asm/asm_emit.py
+# 自体は書き換えない——生成器ファイルのコピーだけを書き換える）。
+revert_to_unconditional_import() {
+    python3 - "$1" <<'PYEOF'
+import sys
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+try_idx = next(i for i, l in enumerate(lines) if l.strip() == "try:")
+import_lines = []
+i = try_idx + 1
+while True:
+    l = lines[i]
+    import_lines.append(l[4:] if l.startswith("    ") else l)
+    if "_ASM_EMIT_AVAILABLE = True" in l:
+        i += 1
+        break
+    i += 1
+except_idx = next(j for j in range(i, len(lines))
+                   if lines[j].strip().startswith("except ImportError"))
+j = except_idx + 1
+while j < len(lines):
+    l = lines[j]
+    if l.strip() == "" or l.startswith(" ") or l.startswith("\t"):
+        j += 1
+        continue
+    break
+new_lines = lines[:try_idx] + import_lines[:-1] + lines[j:]
+open(path, "w", encoding="utf-8").write("".join(new_lines))
+PYEOF
+}
+
+STANDALONE_IPL="$WORK/standalone_ipl"
+STANDALONE_SUB="$WORK/standalone_sub"
+mkdir -p "$STANDALONE_IPL" "$STANDALONE_SUB"
+cp src/l1_ipl/make_ipl_rom.py "$STANDALONE_IPL/make_ipl_rom.py"
+cp src/l3_service/make_subrom.py "$STANDALONE_SUB/make_subrom.py"
+
+# 5a. 単独コピー・既定実行（tools/asmは同梱していない）
+if ( cd "$STANDALONE_IPL" && python3 make_ipl_rom.py out ) \
+        > "$WORK/standalone_ipl.log" 2>&1; then
+    ok "make_ipl_rom.py 単独コピーの既定実行が rc=0"
+else
+    ng "make_ipl_rom.py 単独コピーの既定実行が失敗した"
+    tail -20 "$WORK/standalone_ipl.log"
+fi
+standalone_n88_sha="$(sha256_of "$STANDALONE_IPL/out/N88.ROM" 2>/dev/null || true)"
+if [ "$standalone_n88_sha" = "$EXPECT_N88_SHA" ]; then
+    ok "単独コピーのN88.ROMのsha256が変更前と一致"
+else
+    ng "単独コピーのN88.ROMのsha256が不一致: $standalone_n88_sha (期待 $EXPECT_N88_SHA)"
+fi
+standalone_ipl_disk_sha="$(sha256_of "$STANDALONE_IPL/out/DISK.ROM" 2>/dev/null || true)"
+if [ "$standalone_ipl_disk_sha" = "$EXPECT_IPL_DISK_SHA" ]; then
+    ok "単独コピー(make_ipl_rom.py)のDISK.ROMのsha256が変更前と一致"
+else
+    ng "単独コピー(make_ipl_rom.py)のDISK.ROMのsha256が不一致: $standalone_ipl_disk_sha (期待 $EXPECT_IPL_DISK_SHA)"
+fi
+
+if ( cd "$STANDALONE_SUB" && python3 make_subrom.py out ) \
+        > "$WORK/standalone_sub.log" 2>&1; then
+    ok "make_subrom.py 単独コピーの既定実行が rc=0"
+else
+    ng "make_subrom.py 単独コピーの既定実行が失敗した"
+    tail -20 "$WORK/standalone_sub.log"
+fi
+standalone_sub_sha="$(sha256_of "$STANDALONE_SUB/out/DISK.ROM" 2>/dev/null || true)"
+if [ "$standalone_sub_sha" = "$EXPECT_SUBROM_DISK_SHA" ]; then
+    ok "単独コピー(make_subrom.py)のDISK.ROMのsha256が変更前と一致"
+else
+    ng "単独コピー(make_subrom.py)のDISK.ROMのsha256が不一致: $standalone_sub_sha (期待 $EXPECT_SUBROM_DISK_SHA)"
+fi
+
+# 5b. 単独コピーで --emit-asm(-dir) を付けると rc≠0（分かりやすいエラーで終了）
+if ( cd "$STANDALONE_IPL" && python3 make_ipl_rom.py out2 --emit-asm-dir asmout ) \
+        > "$WORK/standalone_ipl_emit.log" 2>&1; then
+    ng "make_ipl_rom.py 単独コピー+--emit-asm-dir が rc=0 になってしまった（本来rc≠0）"
+else
+    ok "make_ipl_rom.py 単独コピー+--emit-asm-dir が rc≠0（想定どおり）"
+fi
+if ( cd "$STANDALONE_SUB" && python3 make_subrom.py out2 --emit-asm x.asm ) \
+        > "$WORK/standalone_sub_emit.log" 2>&1; then
+    ng "make_subrom.py 単独コピー+--emit-asm が rc=0 になってしまった（本来rc≠0）"
+else
+    ok "make_subrom.py 単独コピー+--emit-asm が rc≠0（想定どおり）"
+fi
+
+# 5c. 陽性対照: asm_emit importを無条件に戻したコピーは、単独実行(tools/asm無し)
+# だとImportErrorで落ちる（＝5aの検査自体に検出力がある）ことを確かめる。
+STANDALONE_IPL_BROKEN="$WORK/standalone_ipl_broken"
+STANDALONE_SUB_BROKEN="$WORK/standalone_sub_broken"
+mkdir -p "$STANDALONE_IPL_BROKEN" "$STANDALONE_SUB_BROKEN"
+cp src/l1_ipl/make_ipl_rom.py "$STANDALONE_IPL_BROKEN/make_ipl_rom.py"
+cp src/l3_service/make_subrom.py "$STANDALONE_SUB_BROKEN/make_subrom.py"
+revert_to_unconditional_import "$STANDALONE_IPL_BROKEN/make_ipl_rom.py"
+revert_to_unconditional_import "$STANDALONE_SUB_BROKEN/make_subrom.py"
+
+if ( cd "$STANDALONE_IPL_BROKEN" && python3 make_ipl_rom.py out ) \
+        > "$WORK/standalone_ipl_broken.log" 2>&1; then
+    ng "陽性対照(N88: 無条件import復元)を検出できなかった（単独実行が通ってしまった）"
+else
+    ok "陽性対照(N88: 無条件import復元)を検出できた（単独実行がImportErrorで失敗）"
+fi
+if ( cd "$STANDALONE_SUB_BROKEN" && python3 make_subrom.py out ) \
+        > "$WORK/standalone_sub_broken.log" 2>&1; then
+    ng "陽性対照(sub: 無条件import復元)を検出できなかった（単独実行が通ってしまった）"
+else
+    ok "陽性対照(sub: 無条件import復元)を検出できた（単独実行がImportErrorで失敗）"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "全項目 OK"
