@@ -114,6 +114,15 @@ static const char *(*p_filename_get_disk)(int);
 static int (*p_quasi88_disk_insert)(int, const char *, int, int);
 enum { Q88_DRIVE_2 = 1 };
 
+/* キーマトリクス直接操作（M7段階1の器具その2）。QUASI88本体の
+ * key_scan[0x10]（vendor/quasi88-libretro/src/keyboard.c、IN 00h〜0Eh。
+ * [15]はジョイスティック）をdlsymで直接取る。p_quasi88_disk_insertと
+ * 同じ作法——公開データシンボル（nmで確認済み: S _key_scan）であり、
+ * コアへパッチを当てずに済む。押されているビットは0（KEY88_ON/OFF
+ * マクロが押下でクリア・解放でセットする）。 */
+static uint8_t *p_key_scan = NULL;
+static bool     g_key_scan_available = false;
+
 /* トラップROM足場（M2）。無いコアもあり得るので dlsym は load_core とは
  * 別枠にして、失敗しても致命的にしない。「見つからなければ従来どおり
  * 動く」を守るため、機能全体を g_trap_available で束ねる。 */
@@ -214,6 +223,21 @@ static bool g_save_to_disk_image = false;
 /* テキストVRAMの写し（M7器具1）で --vram-dump/--vram-dump-at を
  * ペアとして受け付ける最大件数。usage() でも使うのでファイルスコープに置く。 */
 #define VRAM_DUMP_MAX 16
+
+/* キーマトリクス直接操作（M7段階1の器具その2）で --key-matrix を
+ * 受け付ける最大件数。usage() でも使うのでファイルスコープに置く。 */
+#define KEY_MATRIX_MAX 64
+
+/* --key-matrix の実際の書き換え記録（press/release 各1件）。末端検査用に
+ * frame・port・bit・書き換え前後の値だけを持つ——この器具自身が書いた値で
+ * あって ROM・公式ディスクの内容ではないので、禁止事項5/7には当たらない。
+ * write_report() の引数として渡すためファイルスコープの型にする。 */
+typedef struct {
+    unsigned frame, port, bit;
+    uint8_t  before, after;
+    const char *action;   /* "press" | "release" */
+} kmrec_t;
+#define KEY_MATRIX_RECORD_MAX (KEY_MATRIX_MAX * 2)
 
 typedef struct { unsigned start, end; uint16_t key; int shift; } keyev_t;
 static keyev_t  g_keyev[MAX_KEYSTROKES];
@@ -485,6 +509,15 @@ static bool load_core(const char *path)
     *(void **)(&p_load_game_special) = dlsym(h, "retro_load_game_special");
     *(void **)(&p_filename_get_disk) = dlsym(h, "filename_get_disk");
     *(void **)(&p_quasi88_disk_insert) = dlsym(h, "quasi88_disk_insert");
+
+    /* キーマトリクス直接操作（M7段階1の器具その2）。無いコアもあり得るので
+     * 他の計測フックと同じ理由で失敗を許す枠で dlsym する。
+     * 「見つからなければ従来どおり動く（--key-matrix は無効化）」。 */
+    *(void **)(&p_key_scan) = dlsym(h, "key_scan");
+    g_key_scan_available = p_key_scan != NULL;
+    if (!g_key_scan_available)
+        fprintf(stderr, "[q88measure] 注記: このコアに key_scan シンボルが無い。"
+                        "--key-matrix は無効化される\n");
 
     /* 計測フックが入っていないコアを黙って使うと、
      * 「アクセスが無かった」と「観測していない」の区別がつかなくなる。 */
@@ -1120,8 +1153,10 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
                          const char *core, const char *romdir,
                          const char *disk, const char *disk2, unsigned frames,
                          bool insert2_done, unsigned insert2_frame,
-                         int insert2_rc, const char *insert2_actual)
+                         int insert2_rc, const char *insert2_actual,
+                         const kmrec_t *kmrec, int n_kmrec)
 {
+    int i;
     fprintf(fp, "# PC88Behavior バスアクセス採取結果\n");
     fprintf(fp, "# 記録しているのはアドレスとアクセス種別のみ。ROM の内容は含まない。\n\n");
     fprintf(fp, "core      : %s\n", core);
@@ -1143,6 +1178,18 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
         write_trap_cpu(fp, "メインCPU", tp);
         write_trap_cpu(fp, "サブCPU",   tps);
     }
+
+    /* キーマトリクス直接操作（M7段階1の器具その2）の実書き換え記録。
+     * この器具自身が書いた値（frame・port・bit・書き換え前後の値）だけで、
+     * ROM・公式ディスクの内容は含まない。 */
+    fprintf(fp, "[キーマトリクス書き換え]\n");
+    if (!n_kmrec) fprintf(fp, "  (なし)\n");
+    for (i = 0; i < n_kmrec; i++) {
+        fprintf(fp, "  frame=%-6u port=%02X bit=%u  %-7s  key_scan[%02X]: %02X -> %02X\n",
+                kmrec[i].frame, kmrec[i].port, kmrec[i].bit, kmrec[i].action,
+                kmrec[i].port, kmrec[i].before, kmrec[i].after);
+    }
+    fprintf(fp, "\n");
 }
 
 /* ---- main -------------------------------------------------------------- */
@@ -1177,8 +1224,10 @@ static void usage(void)
         "                   [--screenshot FILE.ppm]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
-        "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n",
-        VRAM_DUMP_MAX);
+        "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n"
+        "                   [--key-matrix PORT:BIT:FRAME[:HOLD]] (最大%d個,\n"
+        "                    PORTは0x00-0x0E, BITは0-7。--typeとは同時指定不可)\n",
+        VRAM_DUMP_MAX, KEY_MATRIX_MAX);
 }
 
 int main(int argc, char **argv)
@@ -1226,6 +1275,17 @@ int main(int argc, char **argv)
     struct { const char *path; unsigned frame; bool done; } vram_dump[VRAM_DUMP_MAX];
     int         n_vram_dump = 0;
     const char *vram_dump_pending_path = NULL;
+    /* キーマトリクス直接操作（M7段階1の器具その2）。HOLD省略時は
+     * その時点の --key-hold の値を使う（--type の hold と同じ、指定順に
+     * 依存する規則）。apply/release はフレームループ内で1回ずつだけ行う
+     * ので done_press/done_release で管理する。 */
+    struct {
+        unsigned port, bit, frame, hold;
+        bool     done_press, done_release;
+    } keymatrix[KEY_MATRIX_MAX];
+    int n_keymatrix = 0;
+    kmrec_t kmrec[KEY_MATRIX_RECORD_MAX];
+    int n_kmrec = 0;
     struct { int32_t run; uint8_t mode, value; } xi[Q88H_EXCHANGE_INTERVENTION_SLOTS];
     int n_xi = 0;
     struct { int32_t run; uint32_t position; uint8_t mode, value; }
@@ -1521,6 +1581,45 @@ int main(int argc, char **argv)
             n_vram_dump++;
             vram_dump_pending_path = NULL;
         }
+        else if (!strcmp(argv[i], "--key-matrix") && i + 1 < argc) {
+            const char *spec = argv[++i];
+            int port_i, bit_i, frame_i, hold_i = -1;
+            int n = sscanf(spec, "%i:%i:%i:%i", &port_i, &bit_i, &frame_i, &hold_i);
+            if (n != 3 && n != 4) {
+                fprintf(stderr, "[q88measure] --key-matrix書式は"
+                                " PORT:BIT:FRAME[:HOLD] (10進/16進(0x..)): %s\n", spec);
+                return 2;
+            }
+            if (port_i < 0x00 || port_i > 0x0E) {
+                fprintf(stderr, "[q88measure] --key-matrix PORT は0x00-0x0Eの範囲外: %s\n", spec);
+                return 2;
+            }
+            if (bit_i < 0 || bit_i > 7) {
+                fprintf(stderr, "[q88measure] --key-matrix BIT は0-7の範囲外: %s\n", spec);
+                return 2;
+            }
+            if (frame_i < 0) {
+                fprintf(stderr, "[q88measure] --key-matrix FRAME は0以上: %s\n", spec);
+                return 2;
+            }
+            if (hold_i == 0 || (n == 4 && hold_i < 0)) {
+                fprintf(stderr, "[q88measure] --key-matrix HOLD は1以上: %s\n", spec);
+                return 2;
+            }
+            if (n_keymatrix >= KEY_MATRIX_MAX) {
+                fprintf(stderr, "[q88measure] --key-matrix は最大%d個\n", KEY_MATRIX_MAX);
+                return 2;
+            }
+            keymatrix[n_keymatrix].port         = (unsigned)port_i;
+            keymatrix[n_keymatrix].bit           = (unsigned)bit_i;
+            keymatrix[n_keymatrix].frame         = (unsigned)frame_i;
+            /* HOLD省略時は現時点の --key-hold の値を使う。--type の
+             * schedule_typing と同じく指定順に依存する（usageにも明記）。 */
+            keymatrix[n_keymatrix].hold          = (n == 4) ? (unsigned)hold_i : key_hold;
+            keymatrix[n_keymatrix].done_press    = false;
+            keymatrix[n_keymatrix].done_release  = false;
+            n_keymatrix++;
+        }
         else {
             /* --expect-<種別> ADDR */
             int matched = 0;
@@ -1589,6 +1688,24 @@ int main(int argc, char **argv)
     if (mem_write_log_path && mem_write_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --mem-write-from-frame は --frames 未満で指定すること\n");
         return 2;
+    }
+    /* --key-matrix と --type の併用は禁止する。--type はコアの入力処理
+     * （input_state_cb 経由の handle_key）が同じ key_scan を書き換えるので、
+     * 同じフレームで両方使うと「どちらが最後に勝つか」がコア内部の処理順に
+     * 依存してしまい、末端検査が不安定になる。安全側に倒して同時指定を
+     * 引数エラーにする（優先順位を決めて黙って共存させる案は採らない）。 */
+    if (n_keymatrix > 0 && g_n_keyev > 0) {
+        fprintf(stderr, "[q88measure] --key-matrix と --type は同時指定できない"
+                        "（どちらもkey_scanを書き換えるため、コア側の処理順に依存し"
+                        "末端検査が不安定になる）\n");
+        return 2;
+    }
+    for (k = 0; k < n_keymatrix; k++) {
+        if (keymatrix[k].frame + keymatrix[k].hold > frames)
+            fprintf(stderr, "[q88measure] 警告: --key-matrix %u:%u:%u:%u の解放"
+                            "(frame %u)が --frames %u 以上なので届かない\n",
+                    keymatrix[k].port, keymatrix[k].bit, keymatrix[k].frame,
+                    keymatrix[k].hold, keymatrix[k].frame + keymatrix[k].hold, frames);
     }
     /* 出力先の安全策（禁止事項5/7）。走らせる前、コアの読み込みより先に
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
@@ -1882,6 +1999,54 @@ int main(int argc, char **argv)
             }
         }
 
+        /* キーマトリクス直接操作（M7段階1の器具その2）。「g_frame==FRAME
+         * になったフレームのretro_run()呼び出しの直前」——vram-dump/
+         * insert-disk2-atと同じ定義に揃える。押す/離すをそれぞれ1回きり
+         * done_press/done_releaseで管理する。故障注入は書き換えそのものを
+         * 黙って飛ばす（記録も残さない——「効いたことにする」ではなく
+         * 「効かなかったことがそのまま見える」ようにするため）。 */
+        if (n_keymatrix > 0 && g_key_scan_available &&
+            !getenv("Q88MEASURE_FAULT_SKIP_KEY_MATRIX")) {
+            for (k = 0; k < n_keymatrix; k++) {
+                unsigned port = keymatrix[k].port, bit = keymatrix[k].bit;
+                if (!keymatrix[k].done_press && g_frame == keymatrix[k].frame) {
+                    uint8_t before = p_key_scan[port];
+                    p_key_scan[port] = (uint8_t)(before & ~(1u << bit));
+                    if (n_kmrec < KEY_MATRIX_RECORD_MAX) {
+                        kmrec[n_kmrec].frame  = g_frame;
+                        kmrec[n_kmrec].port   = port;
+                        kmrec[n_kmrec].bit    = bit;
+                        kmrec[n_kmrec].before = before;
+                        kmrec[n_kmrec].after  = p_key_scan[port];
+                        kmrec[n_kmrec].action = "press";
+                        n_kmrec++;
+                    }
+                    fprintf(stderr, "[q88measure] キーマトリクス押下: frame=%u port=%02X"
+                                    " bit=%u key_scan[%02X]: %02X -> %02X\n",
+                            g_frame, port, bit, port, before, p_key_scan[port]);
+                    keymatrix[k].done_press = true;
+                }
+                if (keymatrix[k].done_press && !keymatrix[k].done_release &&
+                    g_frame == keymatrix[k].frame + keymatrix[k].hold) {
+                    uint8_t before = p_key_scan[port];
+                    p_key_scan[port] = (uint8_t)(before | (1u << bit));
+                    if (n_kmrec < KEY_MATRIX_RECORD_MAX) {
+                        kmrec[n_kmrec].frame  = g_frame;
+                        kmrec[n_kmrec].port   = port;
+                        kmrec[n_kmrec].bit    = bit;
+                        kmrec[n_kmrec].before = before;
+                        kmrec[n_kmrec].after  = p_key_scan[port];
+                        kmrec[n_kmrec].action = "release";
+                        n_kmrec++;
+                    }
+                    fprintf(stderr, "[q88measure] キーマトリクス解放: frame=%u port=%02X"
+                                    " bit=%u key_scan[%02X]: %02X -> %02X\n",
+                            g_frame, port, bit, port, before, p_key_scan[port]);
+                    keymatrix[k].done_release = true;
+                }
+            }
+        }
+
         if (g_frame == reset_at) {
             p_reset();
             fprintf(stderr, "[q88measure] ハードウェアリセット: frame %u\n", g_frame);
@@ -1956,13 +2121,15 @@ int main(int argc, char **argv)
 
             write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                          disk, disk2, frames,
-                         insert2_done, insert_disk2_at, insert2_rc, insert2_actual);
+                         insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
+                         kmrec, n_kmrec);
             if (out) {
                 FILE *fp = fopen(out, "w");
                 if (!fp) { perror(out); return 1; }
                 write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                              disk, disk2, frames,
-                             insert2_done, insert_disk2_at, insert2_rc, insert2_actual);
+                             insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
+                             kmrec, n_kmrec);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
             }
