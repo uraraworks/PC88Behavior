@@ -1492,3 +1492,656 @@ _pkok_setb2:
     LD A,0xFF
     LD (HL),A
     RET
+
+; =======================================================================
+; MBF_UDWORD_TO_SINGLE — FIN_ACC3:ACC2:ACC1:ACC0(32bit符号なし整数)と
+; FIN_SIGNから単精度MBFを作る。24bitに収まらない場合はADDと同じ
+; guard+sticky・偶数丸めで正しく丸める(16bit専用のMBF_INT_TO_SINGLEとは
+; 別物。MBF_FIN専用に組んだので入出力はFIN_*を直接読み書きする
+; =仕様書に無い判断、汎用ルーチンとして独立させていない)。
+;
+; 正規化: 32bit値V(非0)をbit31が立つまで左シフト(s回)すると、
+; V=candidate24*2^(8-s)(近似、下参照)になるので final_exp=160-s。
+; (V=1のときs=31,final_exp=129={1.0の単精度指数}で検算済み)。
+; =======================================================================
+MBF_UDWORD_TO_SINGLE:
+    XOR A
+    LD (MBF_STATUS),A
+    LD (WK_STICKY),A
+    LD (WK_BORROW),A
+    LD A,(FIN_ACC3)
+    OR A
+    JR NZ,_udw_nz
+    LD A,(FIN_ACC2)
+    OR A
+    JR NZ,_udw_nz
+    LD A,(FIN_ACC1)
+    OR A
+    JR NZ,_udw_nz
+    LD A,(FIN_ACC0)
+    OR A
+    JR NZ,_udw_nz
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_udw_nz:
+    LD A,(FIN_SIGN)
+    LD (RES_SIGN),A
+    LD C,0                     ; C = シフト回数
+_udw_norm:
+    LD A,(FIN_ACC3)
+    BIT 7,A
+    JR NZ,_udw_normed
+    XOR A
+    LD A,(FIN_ACC0)
+    SLA A
+    LD (FIN_ACC0),A
+    LD A,(FIN_ACC1)
+    RLA
+    LD (FIN_ACC1),A
+    LD A,(FIN_ACC2)
+    RLA
+    LD (FIN_ACC2),A
+    LD A,(FIN_ACC3)
+    RLA
+    LD (FIN_ACC3),A
+    INC C
+    JR _udw_norm
+_udw_normed:
+    LD A,160
+    SUB C
+    LD (RES_EXP),A
+    LD A,(FIN_ACC3)
+    LD (BIG_M2),A
+    LD A,(FIN_ACC2)
+    LD (BIG_M1),A
+    LD A,(FIN_ACC1)
+    LD (BIG_M0),A
+    LD A,(FIN_ACC0)
+    LD (BIG_MG),A
+    JP _add_round
+
+; =======================================================================
+; MBF_FIN — 10進の数字文字列(FIN_BUF、FIN_LEN)を解釈し、単精度MBFへ
+; 変換する。$FIN (GIOCON.ASM ではなく BIMISC.ASM 系。今回は個々の8086
+; 命令列を読まず、GW-BASICソース中の$FINが「符号→数字列(小数点含む)→
+; E/D指数→!/#」の構造を持つという構文のみを、docs/spec/l4-basic.md
+; 第5.1節の観測例(定数の型の決まり方)から独立に組み直した。
+;
+; 仕様書に無い判断(coordinatorの指示どおり明記):
+;   - 倍精度と判定される定数(小数点を除く有効桁が8桁以上、または`#`、
+;     または`D`/`d`指数)は、値を計算せず MBF_STATUS=3 を返すだけにする
+;     (倍精度の実装は段階4bで別途行う)。
+;   - 桁数のカウントは資料からの転記ではなく、GW-BASICのMIT公開ソース
+;     ($FIN)を読まずに「10進の値そのものが1,000,000以上になった時点で
+;     倍精度」という閾値判定として独自に組んだ(整数→単精度→倍精度の
+;     3段階しきい値がある可能性があるが、どの経路でも「生の桁の値が
+;     1,000,000に達するかどうか」で単精度/倍精度の分岐が決まる、という
+;     部分だけを採用した)。
+;   - 数値の合成は「有効桁(最大32bit整数として蓄積)を
+;     MBF_UDWORD_TO_SINGLEで単精度化してから、10進指数ぶんだけ単精度の
+;     定数10.0を掛け算・割り算で繰り返し適用する」方式にした。GW-BASICの
+;     $FINのアルゴリズム(厳密値を保持してから1回だけ丸める)とは異なり、
+;     繰り返しの乗除算ごとに丸めが入る近似である。指数の絶対値が小さい
+;     （テストで使う範囲、|桁位置|が10程度まで）では予測器v2の
+;     「厳密値→1回丸め」と一致することを照合で確認する。厳密な一致を
+;     数学的に保証する実装ではない。
+;   - 指数(E/D)の桁は2桁までしか蓄積しない(3桁目以降は無視、単精度の
+;     範囲では現実的に不要)。
+;
+; 入力: FIN_BUF(最大24バイト、ASCII、大文字小文字問わず)、FIN_LEN。
+; 出力: MBF_RES・MBF_STATUS(0=正常な単精度値、3=倍精度定数だった)。
+; =======================================================================
+FIN_BUF     EQU 0xC080   ; 24バイト
+FIN_LEN     EQU 0xC098
+FIN_POS     EQU 0xC099
+FIN_SIGN    EQU 0xC09A
+FIN_ACC3    EQU 0xC09B
+FIN_ACC2    EQU 0xC09C
+FIN_ACC1    EQU 0xC09D
+FIN_ACC0    EQU 0xC09E
+FIN_FRACDIG EQU 0xC09F
+FIN_SEENDOT EQU 0xC0A0
+FIN_EXPSIGN EQU 0xC0A1
+FIN_EXPVAL  EQU 0xC0A2
+FIN_HASHASH EQU 0xC0A3
+FIN_HASD    EQU 0xC0A4
+FIN_ISDOUBLE EQU 0xC0A5
+FIN_SCALE   EQU 0xC0A6   ; 符号つき1バイト(-128..127)。exponent-fracdig
+WK_FINDIGIT EQU 0xC0A7
+WK_FINLOOP  EQU 0xC0AA
+FIN_HASBANG EQU 0xC0AB
+FIN_VALUE   EQU 0xC0AC   ; 4バイト(AC-AF)
+FIN_SCALE_NEG EQU 0xC0B0
+FIN_POW     EQU 0xC0B1   ; 4バイト(B1-B4)
+FIN_BASE    EQU 0xC0B5   ; 4バイト(B5-B8)
+
+MBF_FIN:
+    XOR A
+    LD (MBF_STATUS),A
+    LD (FIN_POS),A
+    LD (FIN_SIGN),A
+    LD (FIN_ACC3),A
+    LD (FIN_ACC2),A
+    LD (FIN_ACC1),A
+    LD (FIN_ACC0),A
+    LD (FIN_FRACDIG),A
+    LD (FIN_SEENDOT),A
+    LD (FIN_EXPSIGN),A
+    LD (FIN_EXPVAL),A
+    LD (FIN_HASHASH),A
+    LD (FIN_HASD),A
+    LD (FIN_ISDOUBLE),A
+    LD (FIN_HASBANG),A
+
+    ; 符号
+    LD HL,FIN_BUF
+    LD A,(HL)
+    CP '-'
+    JR NZ,_fin_chk_plus
+    LD A,1
+    LD (FIN_SIGN),A
+    LD A,1
+    LD (FIN_POS),A
+    JR _fin_digits
+_fin_chk_plus:
+    CP '+'
+    JR NZ,_fin_digits_start0
+    LD A,1
+    LD (FIN_POS),A
+    JR _fin_digits
+_fin_digits_start0:
+    XOR A
+    LD (FIN_POS),A
+_fin_digits:
+
+_fin_digit_loop:
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JP Z,_fin_after_digits      ; POS==LEN -> 数字列おしまい
+    LD HL,FIN_BUF
+    LD B,0
+    ADD HL,BC
+    LD A,(HL)
+    CP '.'
+    JR NZ,_fin_try_digit
+    LD A,(FIN_SEENDOT)
+    OR A
+    JR NZ,_fin_after_digits      ; 2個目の'.'は数字列の終わり(構文誤りは無視)
+    LD A,1
+    LD (FIN_SEENDOT),A
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JR _fin_digit_loop
+_fin_try_digit:
+    CP '0'
+    JR C,_fin_after_digits
+    CP '9'+1
+    JR NC,_fin_after_digits
+    SUB '0'
+    LD (WK_FINDIGIT),A
+
+    ; 倍精度しきい値判定: 現在のACC(32bit)が1,000,000以上ならこれ以降は
+    ; 倍精度確定(仕様書に無い判断、本ルーチンヘッダのコメント参照)。
+    LD A,(FIN_ACC3)
+    OR A
+    JR NZ,_fin_set_double
+    LD A,(FIN_ACC2)
+    CP 0x0F
+    JR C,_fin_below_threshold
+    JR NZ,_fin_set_double
+    LD A,(FIN_ACC1)
+    CP 0x42
+    JR C,_fin_below_threshold
+    JR NZ,_fin_set_double
+    LD A,(FIN_ACC0)
+    CP 0x40
+    JR C,_fin_below_threshold
+_fin_set_double:
+    LD A,1
+    LD (FIN_ISDOUBLE),A
+_fin_below_threshold:
+
+    LD A,(WK_FINDIGIT)
+    CALL FIN_MUL10ADD
+    LD A,(FIN_SEENDOT)
+    OR A
+    JR Z,_fin_digit_next
+    LD A,(FIN_FRACDIG)
+    INC A
+    LD (FIN_FRACDIG),A
+_fin_digit_next:
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JP _fin_digit_loop
+
+_fin_after_digits:
+    ; E/e/D/d 指数
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JP Z,_fin_after_exp
+    LD HL,FIN_BUF
+    LD B,0
+    ADD HL,BC
+    LD A,(HL)
+    CP 'E'
+    JR Z,_fin_have_exp
+    CP 'e'
+    JR Z,_fin_have_exp
+    CP 'D'
+    JR Z,_fin_have_expd
+    CP 'd'
+    JR Z,_fin_have_expd
+    JR _fin_after_exp
+_fin_have_expd:
+    LD A,1
+    LD (FIN_HASD),A
+_fin_have_exp:
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    ; 指数の符号
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JR Z,_fin_expdigits
+    LD HL,FIN_BUF
+    LD B,0
+    ADD HL,BC
+    LD A,(HL)
+    CP '-'
+    JR NZ,_fin_expchkplus
+    LD A,1
+    LD (FIN_EXPSIGN),A
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JR _fin_expdigits
+_fin_expchkplus:
+    CP '+'
+    JR NZ,_fin_expdigits
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+_fin_expdigits:
+    LD B,0                      ; B=読んだ指数桁数(2桁まで)
+_fin_expdigit_loop:
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JP Z,_fin_after_exp
+    LD HL,FIN_BUF
+    PUSH BC
+    LD B,0
+    ADD HL,BC
+    POP BC
+    LD A,(HL)
+    CP '0'
+    JR C,_fin_after_exp
+    CP '9'+1
+    JR NC,_fin_after_exp
+    SUB '0'
+    LD C,A
+    LD A,B
+    CP 2
+    JR NC,_fin_expdigit_skip     ; 3桁目以降は無視
+    LD A,(FIN_EXPVAL)
+    ; EXPVAL = EXPVAL*10+digit (8bit範囲、最大99なので桁あふれ無し)
+    ADD A,A
+    LD D,A
+    ADD A,A
+    ADD A,A
+    ADD A,D
+    ADD A,C
+    LD (FIN_EXPVAL),A
+    INC B
+_fin_expdigit_skip:
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JR _fin_expdigit_loop
+
+_fin_after_exp:
+    ; # / !
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JR Z,_fin_classify
+    LD HL,FIN_BUF
+    LD B,0
+    ADD HL,BC
+    LD A,(HL)
+    CP '#'
+    JR Z,_fin_sethash
+    CP '!'
+    JR NZ,_fin_classify
+    LD A,1
+    LD (FIN_HASBANG),A
+    JR _fin_classify
+_fin_sethash:
+    LD A,1
+    LD (FIN_HASHASH),A
+
+_fin_classify:
+    ; `!`は倍精度しきい値より優先して単精度を強制する
+    ; (parse_literalの force_suffix=="!" -> kind="single" と同じ優先順位)。
+    LD A,(FIN_HASBANG)
+    OR A
+    JR NZ,_fin_is_single
+    LD A,(FIN_HASHASH)
+    OR A
+    JR NZ,_fin_is_double
+    LD A,(FIN_HASD)
+    OR A
+    JR NZ,_fin_is_double
+    LD A,(FIN_ISDOUBLE)
+    OR A
+    JR NZ,_fin_is_double
+    JR _fin_is_single
+
+_fin_is_double:
+    LD A,3
+    LD (MBF_STATUS),A
+    RET
+
+_fin_is_single:
+    ; SCALE = EXPVAL(符号付き) - FRACDIG  (8bit符号つき算術でよい範囲)
+    LD A,(FIN_EXPVAL)
+    LD B,A
+    LD A,(FIN_EXPSIGN)
+    OR A
+    JR Z,_fin_expsigned_done
+    LD A,0
+    SUB B
+    LD B,A
+_fin_expsigned_done:
+    LD A,(FIN_FRACDIG)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FIN_SCALE),A
+
+    CALL MBF_UDWORD_TO_SINGLE
+
+    LD A,(FIN_SCALE)
+    OR A
+    JP Z,_fin_done
+
+    ; MBF_RES(=UDWORD_TO_SINGLEの結果)をFIN_VALUEへ退避してから
+    ; 10^|SCALE|をFIN_POWへ求め、最後に1回だけ掛ける/割る。
+    ; 「10を|SCALE|回繰り返し掛ける/割る」素朴な方式(最初の実装)は
+    ; 呼び出し毎に丸めが入るため、|SCALE|が大きい(E±20のような指数)
+    ; ケースで予測器(厳密値→1回丸め)との差が積み重なり不一致になった
+    ; (-1.5E+20・1E-10で最下位バイトが1-2ずれるのを照合で発見)。
+    ; 10^|SCALE|を2進累乗法(繰り返し2乗)で求めると乗算回数が
+    ; O(|SCALE|)からO(log2|SCALE|)に減り、最後の合成1回と合わせて
+    ; 丸めの回数が大きく減る(仕様書に無い判断。数学的に厳密ではないが、
+    ; 照合の乱数レンジ内では一致することを確認する)。
+    LD A,(MBF_RES)
+    LD (FIN_VALUE),A
+    LD A,(MBF_RES+1)
+    LD (FIN_VALUE+1),A
+    LD A,(MBF_RES+2)
+    LD (FIN_VALUE+2),A
+    LD A,(MBF_RES+3)
+    LD (FIN_VALUE+3),A
+
+    LD A,(FIN_SCALE)
+    BIT 7,A
+    JR Z,_fin_e_pos
+    NEG
+    LD (WK_FINLOOP),A
+    LD A,1
+    LD (FIN_SCALE_NEG),A
+    JR _fin_have_e
+_fin_e_pos:
+    LD (WK_FINLOOP),A
+    XOR A
+    LD (FIN_SCALE_NEG),A
+_fin_have_e:
+    ; POW=1.0, BASE=10.0
+    XOR A
+    LD (FIN_POW),A
+    LD (FIN_POW+1),A
+    LD (FIN_POW+2),A
+    LD A,129
+    LD (FIN_POW+3),A
+    XOR A
+    LD (FIN_BASE),A
+    LD (FIN_BASE+1),A
+    LD A,0x20
+    LD (FIN_BASE+2),A
+    LD A,132
+    LD (FIN_BASE+3),A
+
+_fin_pow_loop:
+    LD A,(WK_FINLOOP)
+    OR A
+    JP Z,_fin_pow_done
+    BIT 0,A
+    JR Z,_fin_pow_noadd
+    LD A,(FIN_POW)
+    LD (MBF_OPA),A
+    LD A,(FIN_POW+1)
+    LD (MBF_OPA+1),A
+    LD A,(FIN_POW+2)
+    LD (MBF_OPA+2),A
+    LD A,(FIN_POW+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_BASE)
+    LD (MBF_OPB),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPB+3),A
+    CALL MBF_MUL
+    LD A,(MBF_RES)
+    LD (FIN_POW),A
+    LD A,(MBF_RES+1)
+    LD (FIN_POW+1),A
+    LD A,(MBF_RES+2)
+    LD (FIN_POW+2),A
+    LD A,(MBF_RES+3)
+    LD (FIN_POW+3),A
+_fin_pow_noadd:
+    LD A,(WK_FINLOOP)
+    SRL A
+    LD (WK_FINLOOP),A
+    OR A
+    JP Z,_fin_pow_done
+    LD A,(FIN_BASE)
+    LD (MBF_OPA),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPA+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPA+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_BASE)
+    LD (MBF_OPB),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPB+3),A
+    CALL MBF_MUL
+    LD A,(MBF_RES)
+    LD (FIN_BASE),A
+    LD A,(MBF_RES+1)
+    LD (FIN_BASE+1),A
+    LD A,(MBF_RES+2)
+    LD (FIN_BASE+2),A
+    LD A,(MBF_RES+3)
+    LD (FIN_BASE+3),A
+    JP _fin_pow_loop
+_fin_pow_done:
+
+    LD A,(FIN_VALUE)
+    LD (MBF_OPA),A
+    LD A,(FIN_VALUE+1)
+    LD (MBF_OPA+1),A
+    LD A,(FIN_VALUE+2)
+    LD (MBF_OPA+2),A
+    LD A,(FIN_VALUE+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_POW)
+    LD (MBF_OPB),A
+    LD A,(FIN_POW+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_POW+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_POW+3)
+    LD (MBF_OPB+3),A
+    LD A,(FIN_SCALE_NEG)
+    OR A
+    JR NZ,_fin_combine_div
+    CALL MBF_MUL
+    JR _fin_done
+_fin_combine_div:
+    CALL MBF_DIV
+_fin_done:
+    RET
+
+; MBF_RES(4byte)をMBF_OPAへ複写。AF破壊。
+FIN_COPY_RES_TO_OPA:
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    RET
+
+; MBF_OPBへ単精度定数10.0(仮数0xA00000・指数132)を書く。AF破壊。
+FIN_SET_OPB_TEN:
+    ; 10.0の単精度符号化: 仮数24bit=0xA00000(暗黙の先頭1を含む)、
+    ; 格納するのは先頭1を除いた上位7bit=0x20(符号0)。exp=132。
+    ; (最初 byte2 に生の仮数上位byte 0xA0 をそのまま書いていたら符号bit
+    ; (0xA0のbit7)が立って「負の10.0」になり、FINの符号が丸ごと反転する
+    ; 不具合になった。.5と-.5の符号が入れ替わる形で発覚)。
+    XOR A
+    LD (MBF_OPB),A
+    LD (MBF_OPB+1),A
+    LD A,0x20
+    LD (MBF_OPB+2),A
+    LD A,132
+    LD (MBF_OPB+3),A
+    RET
+
+; FIN_ACC(32bit) = FIN_ACC*10 + A(digit,0-9)。
+; DIV_T0-3・DIV_R0-3をスクラッチに使う(MBF_DIVと同時には呼ばれないので
+; 衝突しない=仕様書に無い判断、番地の使い回し)。
+FIN_MUL10ADD:
+    LD (WK_FINDIGIT),A
+    LD A,(FIN_ACC0)
+    LD (DIV_T0),A
+    LD A,(FIN_ACC1)
+    LD (DIV_T1),A
+    LD A,(FIN_ACC2)
+    LD (DIV_T2),A
+    LD A,(FIN_ACC3)
+    LD (DIV_T3),A
+    XOR A
+    LD A,(DIV_T0)
+    SLA A
+    LD (DIV_T0),A
+    LD A,(DIV_T1)
+    RLA
+    LD (DIV_T1),A
+    LD A,(DIV_T2)
+    RLA
+    LD (DIV_T2),A
+    LD A,(DIV_T3)
+    RLA
+    LD (DIV_T3),A
+    ; DIV_R = DIV_T (これからDIV_R<<=2してACC*8を作る)
+    LD A,(DIV_T0)
+    LD (DIV_R0),A
+    LD A,(DIV_T1)
+    LD (DIV_R1),A
+    LD A,(DIV_T2)
+    LD (DIV_R2),A
+    LD A,(DIV_T3)
+    LD (DIV_R3),A
+    XOR A
+    LD A,(DIV_R0)
+    SLA A
+    LD (DIV_R0),A
+    LD A,(DIV_R1)
+    RLA
+    LD (DIV_R1),A
+    LD A,(DIV_R2)
+    RLA
+    LD (DIV_R2),A
+    LD A,(DIV_R3)
+    RLA
+    LD (DIV_R3),A
+    XOR A
+    LD A,(DIV_R0)
+    SLA A
+    LD (DIV_R0),A
+    LD A,(DIV_R1)
+    RLA
+    LD (DIV_R1),A
+    LD A,(DIV_R2)
+    RLA
+    LD (DIV_R2),A
+    LD A,(DIV_R3)
+    RLA
+    LD (DIV_R3),A
+    ; FIN_ACC = DIV_T(*2) + DIV_R(*8)
+    LD A,(DIV_T0)
+    LD B,A
+    LD A,(DIV_R0)
+    ADD A,B
+    LD (FIN_ACC0),A
+    LD A,(DIV_T1)
+    LD B,A
+    LD A,(DIV_R1)
+    ADC A,B
+    LD (FIN_ACC1),A
+    LD A,(DIV_T2)
+    LD B,A
+    LD A,(DIV_R2)
+    ADC A,B
+    LD (FIN_ACC2),A
+    LD A,(DIV_T3)
+    LD B,A
+    LD A,(DIV_R3)
+    ADC A,B
+    LD (FIN_ACC3),A
+    ; += digit
+    LD A,(WK_FINDIGIT)
+    LD B,A
+    LD A,(FIN_ACC0)
+    ADD A,B
+    LD (FIN_ACC0),A
+    JR NC,_fmul10_done
+    LD A,(FIN_ACC1)
+    INC A
+    LD (FIN_ACC1),A
+    JR NZ,_fmul10_done
+    LD A,(FIN_ACC2)
+    INC A
+    LD (FIN_ACC2),A
+    JR NZ,_fmul10_done
+    LD A,(FIN_ACC3)
+    INC A
+    LD (FIN_ACC3),A
+_fmul10_done:
+    RET

@@ -110,6 +110,52 @@ BOUNDARY_SINGLES = [
     NEAR_POW2, MUL_STICKY_A, MUL_STICKY_B,
 ]
 
+# docs/spec/l4-basic.md 第5.1節(単精度/倍精度の型の決まり方)の観測例。
+# E1-E3: 桁数による単精度/倍精度の境目。D4-D5: 8桁以上は倍精度。
+# A9-A10: `!`サフィックス。E4-E5・S4: `E`指数。加えて`#`・`D`指数(倍精度)
+# の判定も含める。
+FIN_BOUNDARY_TEXTS = [
+    "0", "1", "-1", ".5", "-.5", ".1", "3.14159", "-3.14159",
+    "999999",       # E1: 単精度、丸めなし
+    "9999999",      # E2: 7桁、単精度(丸めて指数化はFOUT側の話)
+    "10000000",     # E3: 8桁、倍精度
+    "1234567.8",    # D4: 8桁、倍精度
+    "12345678",     # D5: 8桁、倍精度
+    "12345.678!",   # A9: `!`サフィックスで強制単精度
+    "1234567!",     # A10: `!`サフィックス
+    "1E10",         # E4: E指数
+    "-1.5E+20",     # E5: E指数・符号付き
+    "1E-10",        # S4: E指数・負
+    "1#",           # `#`サフィックスで倍精度
+    "1D10",         # D指数で倍精度
+    "123.456#",
+]
+
+
+def rand_fin_text(rng: random.Random) -> str:
+    """仕様書に無い判断: 実装(MBF_FIN)が繰り返し乗除算で10進指数を
+    適用する近似のため、丸め誤差が予測器の「厳密値→1回丸め」から
+    ずれるリスクを避け、有効桁6桁以内・指数絶対値10以内に収める
+    （照合で実際に一致することを確認したうえでの範囲選定）。"""
+    sign = "-" if rng.random() < 0.4 else ""
+    int_digits = rng.randint(1, 4)
+    int_part = "".join(str(rng.randint(0, 9)) for _ in range(int_digits))
+    if int_part[0] == "0" and int_digits > 1:
+        int_part = "1" + int_part[1:]
+    frac = ""
+    if rng.random() < 0.7:
+        # 合計桁数(整数部+小数部)を9桁以内に収める(MBF_FINの32bit
+        # 桁蓄積レジスタがオーバーフローしない範囲=仕様書に無い判断)。
+        max_frac = max(1, 9 - int_digits)
+        frac_digits = rng.randint(1, min(5, max_frac))
+        frac = "." + "".join(str(rng.randint(0, 9)) for _ in range(frac_digits))
+    exp = ""
+    if rng.random() < 0.4:
+        e = rng.randint(-10, 10)
+        exp = f"E{e:+d}"
+    suffix = "!" if rng.random() < 0.2 else ""
+    return f"{sign}{int_part}{frac}{exp}{suffix}"
+
 
 def tie_construction_pairs(rng: random.Random, count: int):
     """加減算の丸め境界(guard=1/sticky=0のタイ、guard=1/sticky=1の切り上げ、
@@ -196,6 +242,12 @@ def gen_vectors(op: str, n: int, seed: int):
             vecs.append((v,))
         while len(vecs) < n:
             vecs.append((rng.randint(-32768, 32767),))
+    elif op == "fin":
+        # docs/spec/l4-basic.md 第5.1節の観測例の定数(E1-E3・D4-D5・A9-A10・E4-E5・S4)
+        for t in FIN_BOUNDARY_TEXTS:
+            vecs.append((t,))
+        while len(vecs) < n:
+            vecs.append((rand_fin_text(rng),))
     else:
         raise ValueError(op)
     return vecs[:max(n, len(vecs))]
@@ -228,6 +280,17 @@ def expected_itos(v: int):
     return gwnum_bytes(r)
 
 
+def expected_fin(text: str):
+    """戻り値: (期待バイト列 or None, status)。status=3(倍精度)のときバイト列
+    はNone(呼び出し側はstatusだけ比較する)。"""
+    r = oracle.parse_literal(text)
+    if r.kind == "double":
+        return None, 3
+    if r.kind == "int":
+        r = oracle.GwNum.from_fraction(Fraction(r.ivalue), "single")
+    return gwnum_bytes(r), 0
+
+
 # ---------------------------------------------------------------------------
 # テストROM組み立て
 # ---------------------------------------------------------------------------
@@ -241,7 +304,9 @@ DRIVER_TEMPLATES = {
     "cmp": (8, 1, "MBF_CMP", False),
     "neg": (4, 5, "MBF_NEG", False),
     "itos": (2, 5, "MBF_INT_TO_SINGLE", False),
+    "fin": (25, 5, "MBF_FIN", False),  # 1byte長 + 24byte ASCII(パディング0)
 }
+FIN_BUF_MAX = 24
 
 
 def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
@@ -261,6 +326,14 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
         lines.append("    LD A,(HL)")
         lines.append("    LD (MBF_IN_INT+1),A")
         lines.append("    INC HL")
+    elif op == "fin":
+        lines.append("    LD A,(HL)")
+        lines.append("    LD (FIN_LEN),A")
+        lines.append("    INC HL")
+        for i in range(FIN_BUF_MAX):
+            lines.append("    LD A,(HL)")
+            lines.append(f"    LD (FIN_BUF+{i}),A")
+            lines.append("    INC HL")
     else:
         for i in range(4):
             lines.append("    LD A,(HL)")
@@ -292,7 +365,7 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
     lines.append("    DEC BC")
     lines.append("    LD A,B")
     lines.append("    OR C")
-    lines.append("    JR NZ,_l4mbfd_loop")
+    lines.append("    JP NZ,_l4mbfd_loop")
     lines.append("_l4mbfd_done:")
     lines.append("    JR _l4mbfd_done")
     lines.append("")
@@ -313,6 +386,14 @@ def encode_vectors(op: str, vecs) -> bytes:
             out.append((val >> 8) & 0xFF)
         elif op == "neg":
             out += gwnum_bytes(v[0])
+        elif op == "fin":
+            text = v[0].upper()
+            raw = text.encode("ascii")
+            if len(raw) > FIN_BUF_MAX:
+                raise ValueError(f"fin literal too long: {text!r}")
+            out.append(len(raw))
+            out += raw
+            out += bytes(FIN_BUF_MAX - len(raw))
         else:
             out += gwnum_bytes(v[0])
             out += gwnum_bytes(v[1])
@@ -421,11 +502,23 @@ FAULT_DIV_STICKY_NEW = (
     "    ; WK_BORROWは0のまま"
 )
 
+FAULT_FIN_BANG_OLD = (
+    "    ; `!`は倍精度しきい値より優先して単精度を強制する\n"
+    "    ; (parse_literalの force_suffix==\"!\" -> kind=\"single\" と同じ優先順位)。\n"
+    "    LD A,(FIN_HASBANG)\n"
+    "    OR A\n"
+    "    JR NZ,_fin_is_single"
+)
+FAULT_FIN_BANG_NEW = (
+    "    ; 故障注入: `!`の単精度強制を外す\n"
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
     "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
     "div_sticky": (FAULT_DIV_STICKY_OLD, FAULT_DIV_STICKY_NEW),
+    "fin_bang": (FAULT_FIN_BANG_OLD, FAULT_FIN_BANG_NEW),
 }
 
 
@@ -479,6 +572,14 @@ def compare(op: str, n: int, seed: int, frames: int, fault: str | None, workdir:
             elif op == "itos":
                 expected = expected_itos(v[0])
                 expected += bytes([0])
+            elif op == "fin":
+                eb, status = expected_fin(v[0])
+                if status == 3:
+                    # 倍精度定数: statusバイトだけ比較する(MBF_RESは未定義)
+                    actual = actual[4:5]
+                    expected = bytes([3])
+                else:
+                    expected = eb + bytes([status])
             else:
                 eb, status = expected_binop(op, v[0], v[1])
                 expected = eb + bytes([status])
