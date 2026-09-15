@@ -174,25 +174,57 @@ _l4brl_msg:
 ;   バックする(第7.1.1節の対応表に無い形は当面Syntax errorのまま、
 ;   設計項目「仕様書に無い形」参照)。
 ; ---------------------------------------------------------------------
+; M7段階5b追記: 誤りの種類が増えた(Type mismatch・Undefined line number・
+; NEXT without FOR・RETURN without GOSUB・FOR without NEXT・Out of
+; memory・String too long、run.asm参照)ため、CP連鎖ではなく表引きに
+; 変えた。表に無い番号はERR_MSG_2(Syntax error)へフォールバックする
+; (第7.1.1節「対応表に無い形は当面Syntax error」を踏襲)。
 SELECT_ERROR_MSG:
     LD A,(ERROR_KIND)
-    CP 6
-    JR Z,_l4sem_overflow
-    CP 22
-    JR Z,_l4sem_missing
-    CP 11
-    JR Z,_l4sem_divzero
+    LD B,A
+    LD HL,ERRKIND_TABLE
+_l4sem_loop:
+    LD A,(HL)
+    INC HL
+    OR A
+    JR Z,_l4sem_default
+    CP B
+    JR Z,_l4sem_match
+    INC HL
+    INC HL
+    JR _l4sem_loop
+_l4sem_match:
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    EX DE,HL
+    RET
+_l4sem_default:
     LD HL,ERR_MSG_2
     RET
-_l4sem_overflow:
-    LD HL,ERR_MSG_6
-    RET
-_l4sem_missing:
-    LD HL,ERR_MSG_22
-    RET
-_l4sem_divzero:
-    LD HL,ERR_MSG_11
-    RET
+
+ERRKIND_TABLE:
+    DB 6
+    DW ERR_MSG_6
+    DB 22
+    DW ERR_MSG_22
+    DB 11
+    DW ERR_MSG_11
+    DB 13
+    DW ERR_MSG_13
+    DB 8
+    DW ERR_MSG_8
+    DB 1
+    DW ERR_MSG_1
+    DB 3
+    DW ERR_MSG_3
+    DB 26
+    DW ERR_MSG_26
+    DB 7
+    DW ERR_MSG_7
+    DB 15
+    DW ERR_MSG_15
+    DB 0
 
 ; ---------------------------------------------------------------------
 ; DIRECT_LINE — ':'区切りの文を先頭から順に実行する。
@@ -214,6 +246,8 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_list
     CP 2
     JR Z,_l4dl_call_new
+    CP 3
+    JR Z,_l4dl_call_run
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -221,6 +255,9 @@ _l4dl_call_list:
     JR _l4dl_after_stmt
 _l4dl_call_new:
     CALL NEW_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_run:
+    CALL RUN_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -270,8 +307,18 @@ _l4msk_try_print:
 _l4msk_try_new:
     CALL TRY_MATCH_NEW
     OR A
-    RET Z
+    JR Z,_l4msk_try_run
     LD A,2
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_run:
+    ; M7段階5b追記: RUN(run.asmのTRY_MATCH_RUN、l4-program.md第4.1節
+    ; 「new・listと同じく行番号を伴わない直接モードのコマンド」)。
+    CALL TRY_MATCH_RUN
+    OR A
+    RET Z
+    LD A,3
     LD (STMT_KIND),A
     LD A,1
     RET
@@ -446,17 +493,39 @@ _l4ps_loop:
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     OR A
-    JR Z,_l4ps_stmt_end
+    JP Z,_l4ps_stmt_end
     CP ':'
-    JR Z,_l4ps_stmt_end
+    JP Z,_l4ps_stmt_end
     CP '"'
     JR Z,_l4ps_string_item
+    ; M7段階5b追記: 文字列変数(run.asm、接尾辞'$')は数値式ではなく
+    ; その文字列をそのまま出す。'#'(倍精度未実装)はType mismatch。
+    ; それ以外(kind=0/1/2)は従来どおり数値式(EXPR)。
+    CALL LEX_IDENT_PEEK
+    CP 3
+    JR Z,_l4ps_strvar_item
+    CP 4
+    JR Z,_l4ps_strvar_typeerr
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
     CALL PRINT_VALUE
     JR _l4ps_after_item
+_l4ps_strvar_item:
+    CALL LEX_IDENT_CONSUME
+    CALL VAR_READ_STRING
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL PRINT_STRING_VAL
+    JR _l4ps_after_item
+_l4ps_strvar_typeerr:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,13
+    LD (ERROR_KIND),A
+    RET
 _l4ps_string_item:
     CALL ADV_PTR
 _l4ps_str_loop:
@@ -753,12 +822,12 @@ _l4factor_try_num:
 _l4factor_check_dot:
     CALL PEEK_CHAR
     CP '.'
-    JR NZ,_l4factor_bad
+    JR NZ,_l4factor_try_ident
     CALL PEEK_CHAR2
     CP '0'
-    JR C,_l4factor_bad
+    JR C,_l4factor_try_ident
     CP '9'+1
-    JR NC,_l4factor_bad
+    JR NC,_l4factor_try_ident
 _l4factor_is_number:
     CALL LEX_NUMBER
     LD A,(LIT_HASDOT)
@@ -803,6 +872,26 @@ _l4factor_num_ovfl:
     LD (ERROR_KIND),A
     LD A,1
     LD (ERROR_IS_RUNTIME),A
+    RET
+; M7段階5b追記: 数値定数の形でなければ、変数名(run.asmのIDENT_BUF/
+; VAR_READ_NUMERIC)として解釈を試みる。$・#接尾辞は数値の文脈では
+; Type mismatch(13、run.asmヘッダの仕様書に無い判断)。識別子ですら
+; なければ(kind=0)従来どおり_l4factor_badへ落ちる。
+_l4factor_try_ident:
+    CALL LEX_IDENT_CONSUME
+    OR A
+    JR Z,_l4factor_bad
+    CP 3
+    JR Z,_l4factor_ident_typeerr
+    CP 4
+    JR Z,_l4factor_ident_typeerr
+    CALL VAR_READ_NUMERIC
+    RET
+_l4factor_ident_typeerr:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,13
+    LD (ERROR_KIND),A
     RET
 _l4factor_bad:
     LD A,1
