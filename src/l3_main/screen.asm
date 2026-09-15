@@ -94,6 +94,13 @@ _sm_no_extra:
 CLEAR_SCREEN:
     LD B,ROWS
     LD HL,TEXT_BASE
+    JP CLEAR_N_ROWS
+
+; ---------------------------------------------------------------------
+; CLEAR_N_ROWS — HL=先頭VRAM番地、B=消す行数。空白＋既定の属性で埋める
+;   (CLEAR_SCREENの本体を切り出した共通部、M7段階5c-2a追記)。
+; ---------------------------------------------------------------------
+CLEAR_N_ROWS:
 _cs_row_loop:
     PUSH BC
     PUSH HL
@@ -116,6 +123,29 @@ _cs_attr_loop:
     ADD HL,DE
     POP BC
     DJNZ _cs_row_loop
+    RET
+
+; ---------------------------------------------------------------------
+; CLS_SCREEN — M7段階5c-2a: `CLS`文の本体(docs/spec/l4-program.md
+;   第5.1節)。ファンクションキー表示行(row0=19、予約行)を除く
+;   USABLE_ROWS行だけを空白＋既定の属性で埋め、カーソルを絶対行0・
+;   桁0へ戻す(第5.1節F1「消した後に残るのはOk相当の行とファンクション
+;   キー表示の行だけ」——予約行を対象外にする構造はCLEAR_SCREENの
+;   スクロール対象と同じNEWLINE/SCROLLの規約(第15節)をそのまま流用)。
+; ---------------------------------------------------------------------
+; (build_main_rom.pyの故障注入FAULT_OLD/NEWは、SCREEN_MAINの
+;  "LD HL,TEXT_BASE"直後に"LD (VAR_ROWBASE),HL"が続く2行を対象に一意に
+;  検索するため、ここでは同じ並びを作らないよう命令の順序をずらす
+;  〔仕様書に無い判断、実装上の都合のみ〕。)
+CLS_SCREEN:
+    LD B,USABLE_ROWS
+    LD HL,TEXT_BASE
+    CALL CLEAR_N_ROWS
+    LD HL,TEXT_BASE
+    XOR A
+    LD (VAR_ROW),A
+    LD (VAR_COL),A
+    LD (VAR_ROWBASE),HL
     RET
 
 ; ---------------------------------------------------------------------

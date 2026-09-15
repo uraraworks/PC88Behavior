@@ -220,6 +220,8 @@ _l4sem_default:
     RET
 
 ERRKIND_TABLE:
+    DB 5
+    DW ERR_MSG_5
     DB 6
     DW ERR_MSG_6
     DB 22
@@ -274,6 +276,8 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_run
     CP 4
     JR Z,_l4dl_call_cont
+    CP 5
+    JR Z,_l4dl_call_cls
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -287,6 +291,9 @@ _l4dl_call_run:
     JR _l4dl_after_stmt
 _l4dl_call_cont:
     CALL CONT_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_cls:
+    CALL CLS_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -356,8 +363,18 @@ _l4msk_try_cont:
     ; RUN・LIST・NEWと同じく行番号を伴わない直接モードのコマンド)。
     CALL TRY_MATCH_CONT
     OR A
-    RET Z
+    JR Z,_l4msk_try_cls
     LD A,4
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_cls:
+    ; M7段階5c-2a追記: CLS(run.asmのTRY_MATCH_CLS、第5.1節)。直接モードの
+    ; コマンドとしても文としても使える(CLS_STMTが本体、run.asm)。
+    CALL TRY_MATCH_CLS
+    OR A
+    RET Z
+    LD A,5
     LD (STMT_KIND),A
     LD A,1
     RET
@@ -536,48 +553,31 @@ _l4ps_loop:
     CP ':'
     JP Z,_l4ps_stmt_end
     CP '"'
-    JR Z,_l4ps_string_item
+    JR Z,_l4ps_str_item
     ; M7段階5b追記: 文字列変数(run.asm、接尾辞'$')は数値式ではなく
     ; その文字列をそのまま出す。M7段階4b-3で倍精度('#'、kind=4)を
     ; 組み込んだため、Type mismatchにしていたのを取りやめ、他の数値
     ; (kind=0/1/2)と同じくEXPR(FACTORのVAR_READ_NUMERIC経由)へ流す。
+    ; M7段階5c-2a追記: 文字列側はSTRING_EXPR(run.asm、'+'連結・
+    ; MID$/LEFT$/RIGHT$/STR$の関数呼び出しに対応、第4.14節)へ統一した
+    ; (以前は文字列変数を直接VAR_READ_STRING、リテラルを文字ごと
+    ; PRINT_CHARする別経路だったが、連結・関数呼び出しに対応できなかった
+    ; ため統合した)。
     CALL LEX_IDENT_PEEK
     CP 3
-    JR Z,_l4ps_strvar_item
+    JR Z,_l4ps_str_item
     CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
     CALL PRINT_VALUE
     JR _l4ps_after_item
-_l4ps_strvar_item:
-    CALL LEX_IDENT_CONSUME
-    CALL VAR_READ_STRING
+_l4ps_str_item:
+    CALL STRING_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
     CALL PRINT_STRING_VAL
-    JR _l4ps_after_item
-_l4ps_strvar_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,13
-    LD (ERROR_KIND),A
-    RET
-_l4ps_string_item:
-    CALL ADV_PTR
-_l4ps_str_loop:
-    CALL PEEK_CHAR
-    OR A
-    JR Z,_l4ps_str_done
-    CP '"'
-    JR Z,_l4ps_str_close
-    CALL PRINT_CHAR
-    CALL ADV_PTR
-    JR _l4ps_str_loop
-_l4ps_str_close:
-    CALL ADV_PTR
-_l4ps_str_done:
 _l4ps_after_item:
     XOR A
     LD (SUPPRESS_NL),A
@@ -968,12 +968,22 @@ _l4factor_num_ovfl:
 ; M7段階5c追記: 識別子の直後(空白を挟んでもよい、ASSIGN側の'='判定と
 ;   同じ規則)に'('があれば配列の読み出し(ARRAY_READ、run.asm、
 ;   第4.10節・6.5節)として扱う。
+; M7段階5c-2a追記: 識別子が無印(kind=1)で、かつ`LEN`/`VAL`/`ASC`
+;   (第4.14節、いずれも文字列を1個とり数値を返す)に一致し直後が'('なら
+;   数値関数呼び出しとして扱う(FACTOR_TRY_NUM_FUNCS、下記)。一致しなければ
+;   (関数名でない、または'('が続かない)従来どおり変数/配列として読む。
 _l4factor_try_ident:
     CALL LEX_IDENT_CONSUME
     OR A
     JR Z,_l4factor_bad
     CP 3
     JR Z,_l4factor_ident_typeerr
+    CP 1
+    JR NZ,_l4factor_plain_ident
+    CALL FACTOR_TRY_NUM_FUNCS
+    OR A
+    RET NZ
+_l4factor_plain_ident:
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '('
@@ -1003,6 +1013,380 @@ _l4factor_bad_missing:
     LD A,22
     LD (ERROR_KIND),A
 _l4factor_bad_ret:
+    RET
+
+; =======================================================================
+; M7段階5c-2a: LEN/VAL/ASC(数値を返す文字列関数、第4.14節)。
+; =======================================================================
+; JUMP_HL — HLの指す番地へ跳ぶ(間接CALL、CALL JUMP_HLの戻り先を
+;   ハンドラのRETがそのまま使うトランポリン)。
+JUMP_HL:
+    JP (HL)
+
+; FACTOR_TRY_NUM_FUNCS — IDENT_BUF(既にLEX_IDENT_CONSUME済み、kind=1)を
+;   FTNF_TABLEの語と比較する。一致し直後が'('なら該当ハンドラを呼んで
+;   A=1(CUR_TYPE/CUR_DATAに結果、ERROR_FLAG参照)で戻る。不一致、または
+;   '('が続かなければA=0(CUR_PTRは識別子を消費した位置のまま、呼び出し元
+;   はそのまま変数/配列として読み直す)。
+FACTOR_TRY_NUM_FUNCS:
+    LD HL,FTNF_TABLE
+_ftnf_loop:
+    LD A,(HL)
+    OR A
+    JR Z,_ftnf_none
+    LD C,A
+    INC HL
+    PUSH HL
+    LD DE,IDENT_BUF
+    LD B,C
+_ftnf_cmp:
+    LD A,(DE)
+    CP (HL)
+    JR NZ,_ftnf_fail
+    INC HL
+    INC DE
+    DJNZ _ftnf_cmp
+    LD A,7
+    SUB C
+    LD B,A
+    OR A
+    JR Z,_ftnf_zero_ok
+_ftnf_zero_check:
+    LD A,(DE)
+    OR A
+    JR NZ,_ftnf_fail
+    INC DE
+    DJNZ _ftnf_zero_check
+_ftnf_zero_ok:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '('
+    JR NZ,_ftnf_fail
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    POP HL
+    CALL ADV_PTR
+    EX DE,HL
+    CALL JUMP_HL
+    LD A,1
+    RET
+_ftnf_fail:
+    POP HL
+    LD B,0
+    ADD HL,BC
+    INC HL
+    INC HL
+    JR _ftnf_loop
+_ftnf_none:
+    XOR A
+    RET
+
+FTNF_TABLE:
+    DB 3
+    DB "LEN"
+    DW FTNF_DO_LEN
+    DB 3
+    DB "VAL"
+    DW FTNF_DO_VAL
+    DB 3
+    DB "ASC"
+    DW FTNF_DO_ASC
+    DB 0
+
+; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
+;   (LEN/VAL/ASC共通の引数形)。出力: RUN_STR_TMP_LEN/BUF、ERROR_FLAG。
+FTNF_STR_ARG:
+    CALL STRING_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,')'
+    JP EXPECT_CHAR
+
+FTNF_DO_LEN:
+    CALL FTNF_STR_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(RUN_STR_TMP_LEN)
+    LD L,A
+    LD H,0
+    JP VAL_SET_INT
+
+FTNF_DO_VAL:
+    CALL FTNF_STR_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,RUN_STR_TMP_BUF
+    LD A,(RUN_STR_TMP_LEN)
+    LD B,A
+    JP PARSE_NUM_FROM_MEM
+
+FTNF_DO_ASC:
+    CALL FTNF_STR_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(RUN_STR_TMP_LEN)
+    OR A
+    JR NZ,_ftnf_asc_ok
+    ; 空文字列(仕様書に無い判断: 一般的なBASICの慣例どおりIllegal
+    ; function callにする、第7.1節のマニュアル一覧に既にある番号)
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,5
+    LD (ERROR_KIND),A
+    RET
+_ftnf_asc_ok:
+    LD A,(RUN_STR_TMP_BUF)
+    LD L,A
+    LD H,0
+    JP VAL_SET_INT
+
+; ---------------------------------------------------------------------
+; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し
+;   CUR_TYPE/CUR_DATAへ書く(VAL関数・INPUT数値項目が共有、
+;   run.asmのDATA_READ_ONEと同じ「CUR_PTR/LINE_ENDを一時的に差し替える」
+;   手法)。先頭の空白・符号'-'/'+'を許可。数字が無ければ整数0にする
+;   (仕様書に無い判断、VAL("abc")等は未測定)。ERROR_FLAGは変更しない
+;   (常に成功扱い、範囲外はMBF_FIN/DFIN任せで丸まる)。
+; ---------------------------------------------------------------------
+PARSE_NUM_FROM_MEM:
+    LD DE,(CUR_PTR)
+    LD (PNFM_SAVE_PTR),DE
+    LD DE,(LINE_END)
+    LD (PNFM_SAVE_END),DE
+    LD (CUR_PTR),HL
+    LD D,0
+    LD E,B
+    ADD HL,DE
+    LD (LINE_END),HL
+    XOR A
+    LD (PNFM_NEG),A
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '-'
+    JR NZ,_pnfm_check_plus
+    CALL ADV_PTR
+    LD A,1
+    LD (PNFM_NEG),A
+    JR _pnfm_afterneg
+_pnfm_check_plus:
+    CP '+'
+    JR NZ,_pnfm_afterneg
+    CALL ADV_PTR
+_pnfm_afterneg:
+    CALL PEEK_CHAR
+    CP '0'
+    JR C,_pnfm_checkdot
+    CP '9'+1
+    JR C,_pnfm_isnum
+_pnfm_checkdot:
+    CP '.'
+    JR NZ,_pnfm_zero
+    CALL PEEK_CHAR2
+    CP '0'
+    JR C,_pnfm_zero
+    CP '9'+1
+    JR NC,_pnfm_zero
+_pnfm_isnum:
+    CALL LEX_NUMBER
+    LD A,(LIT_HASDOT)
+    OR A
+    JR NZ,_pnfm_general
+    LD A,(LIT_HASEXP)
+    OR A
+    JR NZ,_pnfm_general
+    LD A,(LIT_HASSUFFIX)
+    OR A
+    JR NZ,_pnfm_general
+    CALL LIT_TRY_INT16
+    JR NC,_pnfm_general
+    CALL VAL_SET_INT
+    JR _pnfm_applysign
+_pnfm_general:
+    CALL LIT_COPY_TO_FINBUF
+    CALL MBF_FIN
+    LD A,(MBF_STATUS)
+    CP 3
+    JR Z,_pnfm_double
+    CP 1
+    JR Z,_pnfm_zero
+    CALL VAL_SET_SINGLE_FROM_RES
+    JR _pnfm_applysign
+_pnfm_double:
+    CALL MBF_DFIN
+    LD A,(MBF_STATUS)
+    OR A
+    JR NZ,_pnfm_zero
+    CALL VAL_SET_DOUBLE_FROM_DRES
+    JR _pnfm_applysign
+_pnfm_zero:
+    LD HL,0
+    CALL VAL_SET_INT
+_pnfm_applysign:
+    LD A,(PNFM_NEG)
+    OR A
+    JR Z,_pnfm_done
+    CALL VAL_NEG
+_pnfm_done:
+    LD DE,(PNFM_SAVE_END)
+    LD (LINE_END),DE
+    LD DE,(PNFM_SAVE_PTR)
+    LD (CUR_PTR),DE
+    RET
+
+; ---------------------------------------------------------------------
+; STR$(第4.14節E8)。CUR_TYPE/CUR_DATAの値をRUN_STR_TMP_LEN/BUFへ書式化
+;   する。PRINT_VALUEと同じ桁の作り方(PUD_PLACES流用)だが、末尾の空白
+;   (PRINT時の項目区切り用、l4-basic.md第2節)は付けない(E8「先頭col0は
+;   変化せず数字はcol1から」——先頭の符号1桁だけが残る)。倍精度は
+;   単精度へ丸めてから同じ経路で書式化する(仕様書に無い判断:
+;   ASSIGN_STMTの%代入と同じ考え方、STR$の倍精度書式は未測定のため)。
+; ---------------------------------------------------------------------
+STR_FROM_CUR:
+    XOR A
+    LD (RUN_STR_TMP_LEN),A
+    LD A,(CUR_TYPE)
+    CP 2
+    JR NZ,_sfc_check_int
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DTOS
+    CALL VAL_SET_SINGLE_FROM_RES
+_sfc_check_int:
+    LD A,(CUR_TYPE)
+    OR A
+    JR NZ,_sfc_single
+    LD HL,(CUR_DATA)
+    BIT 7,H
+    JR Z,_sfc_int_pos
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+    LD A,'-'
+    CALL STR_APPEND_CHAR
+    JR _sfc_int_digits
+_sfc_int_pos:
+    LD A,' '
+    CALL STR_APPEND_CHAR
+_sfc_int_digits:
+    JP STR_APPEND_UDEC
+_sfc_single:
+    CALL VAL_LOAD_CUR_TO_OPA
+    CALL MBF_FOUT
+    LD A,(UA_EXP)
+    OR A
+    JR Z,_sfc_s_zero_sign
+    LD A,(FOUT_SIGN)
+    OR A
+    JR NZ,_sfc_s_neg
+_sfc_s_zero_sign:
+    LD A,' '
+    CALL STR_APPEND_CHAR
+    JR _sfc_s_digits
+_sfc_s_neg:
+    LD A,'-'
+    CALL STR_APPEND_CHAR
+_sfc_s_digits:
+    LD A,(FOUT_LEN)
+    LD B,A
+    LD C,0
+_sfc_s_loop:
+    LD A,B
+    OR A
+    RET Z
+    PUSH BC
+    LD HL,FOUT_BUF
+    LD D,0
+    LD E,C
+    ADD HL,DE
+    LD A,(HL)
+    CALL STR_APPEND_CHAR
+    POP BC
+    INC C
+    DEC B
+    JR _sfc_s_loop
+
+; STR_APPEND_CHAR — A=文字。RUN_STR_TMP_BUF[RUN_STR_TMP_LEN]へ追記し
+;   1増やす(31文字超は捨てる、既存のString too long上限と同じ考え方)。
+STR_APPEND_CHAR:
+    PUSH BC
+    LD B,A
+    LD A,(RUN_STR_TMP_LEN)
+    CP 31
+    JR NC,_sac_full
+    PUSH HL
+    PUSH DE
+    LD HL,RUN_STR_TMP_BUF
+    LD E,A
+    LD D,0
+    ADD HL,DE
+    LD (HL),B
+    POP DE
+    POP HL
+    LD A,(RUN_STR_TMP_LEN)
+    INC A
+    LD (RUN_STR_TMP_LEN),A
+_sac_full:
+    POP BC
+    RET
+
+; STR_APPEND_UDEC — HL=符号なし16bit値。RUN_STR_TMP_LEN/BUFへ10進の桁を
+;   前ゼロ抑制つきで追記する(PRINT_UDECと同じ算法、出力先を画面でなく
+;   文字列バッファへ変えただけ)。
+STR_APPEND_UDEC:
+    LD (PUD_VALUE),HL
+    XOR A
+    LD (PUD_STARTED),A
+    LD IX,PUD_PLACES
+    LD B,5
+_sau_place_loop:
+    LD L,(IX+0)
+    LD H,(IX+1)
+    LD (PUD_PLACE),HL
+    XOR A
+    LD (PUD_DIGIT),A
+_sau_sub_loop:
+    LD HL,(PUD_VALUE)
+    LD DE,(PUD_PLACE)
+    OR A
+    SBC HL,DE
+    JR C,_sau_sub_done
+    LD (PUD_VALUE),HL
+    LD A,(PUD_DIGIT)
+    INC A
+    LD (PUD_DIGIT),A
+    JP _sau_sub_loop
+_sau_sub_done:
+    LD A,B
+    CP 1
+    JR NZ,_sau_not_last
+    LD A,(PUD_DIGIT)
+    ADD A,'0'
+    CALL STR_APPEND_CHAR
+    JR _sau_advance
+_sau_not_last:
+    LD A,(PUD_DIGIT)
+    OR A
+    JR NZ,_sau_show
+    LD A,(PUD_STARTED)
+    OR A
+    JR Z,_sau_advance
+_sau_show:
+    LD A,1
+    LD (PUD_STARTED),A
+    LD A,(PUD_DIGIT)
+    ADD A,'0'
+    CALL STR_APPEND_CHAR
+_sau_advance:
+    LD DE,2
+    ADD IX,DE
+    DJNZ _sau_place_loop
     RET
 
 ; ---------------------------------------------------------------------
