@@ -167,6 +167,10 @@ SCRIPTS_EXPECTED=(
   # バイト単位で突き合わせる。自作の空ROMをq88measureで走らせるだけで
   # 公式ROM・私物は不要なのでSKIPは無く、常にrc=0を期待する。
   "tools/l4_mbf_z80_selftest.sh:0"
+  # M7段階5 事前登録準備（2026-09-15）。l4-s5a(LISTの出力行)用の分類器
+  # tools/l4_list_classify.py。合成VRAM写しだけで完結するので公式ROM・
+  # 私物は不要、SKIPは無く常にrc=0を期待する。
+  "tools/l4_list_classify_selftest.sh:0"
 )
 
 overall=0
