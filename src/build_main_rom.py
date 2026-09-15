@@ -59,6 +59,10 @@ L4_PRINT_DISPATCH_ASM = REPO / "src" / "l4_basic" / "print_dispatch.asm"
 L4_ERRORS_ASM = REPO / "src" / "l4_basic" / "errors.asm"
 L4_LEXER_ASM = REPO / "src" / "l4_basic" / "lexer.asm"
 L4_MBF_ASM = REPO / "src" / "l4_basic" / "mbf_single.asm"
+# M7段階4b-3: 倍精度(mbf_double.asm)を連結する。ヘッダコメントのとおり
+# mbf_single.asmの直後に連結して1アセンブル単位にする前提(DA_*/DB_*等
+# mbf_single.asm定義済みシンボルを参照する)。
+L4_MBF_DOUBLE_ASM = REPO / "src" / "l4_basic" / "mbf_double.asm"
 L4_INTERP_ASM = REPO / "src" / "l4_basic" / "interp.asm"
 # M7段階5a: プログラムモード(行の入力・保存・LIST・NEW)。program.asm
 L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
@@ -292,6 +296,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     mbf_path = work / "l4_mbf_gen.asm"
     mbf_path.write_text(L4_MBF_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
+    mbf_double_path = work / "l4_mbf_double_gen.asm"
+    mbf_double_path.write_text(L4_MBF_DOUBLE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
     interp_text = L4_INTERP_ASM.read_text(encoding="utf-8")
     if inject_l4_sign_space_fault:
         if interp_text.count(L4_SIGN_SPACE_FAULT_OLD) != 1:
@@ -326,6 +333,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{errors_path}"\n'
         + f'\nINCLUDE "{lexer_path}"\n'
         + f'\nINCLUDE "{mbf_path}"\n'
+        + f'\nINCLUDE "{mbf_double_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
         + f'\nINCLUDE "{program_path}"\n'
         + f'\nINCLUDE "{run_path}"\n'
