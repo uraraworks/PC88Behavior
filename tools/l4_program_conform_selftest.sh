@@ -26,10 +26,15 @@ pass() { echo "OK  - $1"; }
 fail() { echo "NG  - $1"; FAIL=1; }
 
 # --- 合成VRAM写しを作る ------------------------------------------------
-# row0-5=バナー相当(除外対象、before/afterで内容を変える)・
-# row6=`run`を打った行(origin。中身はセル収集の対象外)・
-# row7=出力行(数値、2セル)・row8=Ok相当の行(3セル)・
-# row19=最下行(ファンクションキー相当、除外対象、内容を変える)。
+# 2026-09-16改定(runの前にclsを挟む手順)に合わせ、「写し(前)」は
+# clsのOkが出た後を想定する。clsは画面をほぼ全消去しカーソルを先頭へ
+# 戻す(l4-s5fのF1・F10で確認済み)ため、runは低い絶対行(row0)から
+# 打たれる。row0-5はもはやバナー除外の対象ではなく、正規の記録対象
+# であることを検査3で確かめる。
+# row0=`run`を打った行(origin。中身はセル収集の対象外)・
+# row1=出力行(数値、2セル)・row2=Ok相当の行(3セル)・
+# row19=最下行(ファンクションキー相当、除外対象。clsの影響を受けない
+# ため、before/afterで内容を変える)。
 python3 - "$WORK" <<'PYEOF'
 import sys
 ROWS, STRIDE, COLS = 25, 120, 80
@@ -50,69 +55,52 @@ work = sys.argv[1]
 before = blank_dump()
 after = blank_dump()
 
-# バナー行(0-5): before/afterで内容を変える(除外の検査用)。
-for r in range(6):
-    poke_str(before, r, 0, "BANNERB")
-    poke_str(after, r, 0, "BANNERA")
-
-# 最下行(19): 同様にbefore/afterで内容を変える。
+# 最下行(19): before/afterで内容を変える(除外の検査用。clsの影響を
+# 受けない行という想定)。
 poke_str(before, 19, 0, "FKEYB")
 poke_str(after, 19, 0, "FKEYA")
 
-# row6: `run`のエコー(origin。セル収集の対象外なので中身は問わない)。
-poke_str(after, 6, 0, "run")
+# row0: `run`のエコー(origin。セル収集の対象外なので中身は問わない)。
+poke_str(after, 0, 0, "run")
 
-# row7: 出力行(数値"42"、2セル)。
-poke_str(after, 7, 0, "42")
+# row1: 出力行(数値"42"、2セル)。
+poke_str(after, 1, 0, "42")
 
-# row8: Ok相当(3セル、englishでも中身は問われない設計)。
-poke_str(after, 8, 0, "Ok!")
+# row2: Ok相当(3セル、englishでも中身は問われない設計)。
+poke_str(after, 2, 0, "Ok!")
 
 with open(f"{work}/before.bin", "wb") as f:
     f.write(bytes(before))
 with open(f"{work}/after.bin", "wb") as f:
     f.write(bytes(after))
 
-# --- 陰性対照用: row7に「英字を含む出力」を混ぜたフィクスチャ ---
+# --- 陰性対照用: row1に「英字を含む出力」を混ぜたフィクスチャ ---
 # (漏れないことを検査する対象。CANARYという合成文字列を埋め込む)
 after_canary = blank_dump()
-for r in range(6):
-    poke_str(after_canary, r, 0, "BANNERA")
 poke_str(after_canary, 19, 0, "FKEYA")
-poke_str(after_canary, 6, 0, "run")
-poke_str(after_canary, 7, 0, "CANARY9F3D")
-poke_str(after_canary, 8, 0, "Ok!")
+poke_str(after_canary, 0, 0, "run")
+poke_str(after_canary, 1, 0, "CANARY9F3D")
+poke_str(after_canary, 2, 0, "Ok!")
 with open(f"{work}/after_canary.bin", "wb") as f:
     f.write(bytes(after_canary))
 
-# --- 故障注入用: after の row7 col1 を1文字変える ---
+# --- 故障注入用: after の row1 col1 を1文字変える ---
 after_fault = bytearray(after)
-poke(after_fault, 7, 1, ord('9'))  # "42" -> "92" のようにcol1を変える
+poke(after_fault, 1, 1, ord('9'))  # "42" -> "92" のようにcol1を変える
 with open(f"{work}/after_fault.bin", "wb") as f:
     f.write(bytes(after_fault))
 
-# --- Okが見つからない: row8(最大row0)に「前が空白でない」セルを混ぜる ---
+# --- Okが見つからない: row2(最大row0)に「前が空白でない」セルを混ぜる ---
 before_mixed = blank_dump()
 after_mixed = blank_dump()
-poke_str(before_mixed, 8, 0, "X")   # row8のcol0だけ、押す前から空白でない
-poke_str(after_mixed, 6, 0, "run")
-poke_str(after_mixed, 7, 0, "42")
-poke_str(after_mixed, 8, 0, "Ok!")  # col0は「押す前が空白でない」ことになる
+poke_str(before_mixed, 2, 0, "X")   # row2のcol0だけ、押す前から空白でない
+poke_str(after_mixed, 0, 0, "run")
+poke_str(after_mixed, 1, 0, "42")
+poke_str(after_mixed, 2, 0, "Ok!")  # col0は「押す前が空白でない」ことになる
 with open(f"{work}/before_mixed.bin", "wb") as f:
     f.write(bytes(before_mixed))
 with open(f"{work}/after_mixed.bin", "wb") as f:
     f.write(bytes(after_mixed))
-
-# --- origin_row_suspicious: 最小row0が6未満 ---
-before_low = blank_dump()
-after_low = blank_dump()
-poke_str(after_low, 3, 0, "run")
-poke_str(after_low, 4, 0, "1")
-poke_str(after_low, 5, 0, "Ok!")
-with open(f"{work}/before_low.bin", "wb") as f:
-    f.write(bytes(before_low))
-with open(f"{work}/after_low.bin", "wb") as f:
-    f.write(bytes(after_low))
 
 # --- insufficient_rows: 変化した行が1行だけ ---
 before_one = blank_dump()
@@ -151,8 +139,8 @@ else
   fail "検査2: 同じ入力でSHA-256が食い違った"
 fi
 
-# --- 検査3: バナー行・最下行を変えても記録(SHA)は変わらない -------------
-# (before/afterの一方だけバナー内容を変えた第3のフィクスチャで確認)
+# --- 検査3: 最下行(19)を変えてもSHAは変わらないが、row0-5相当の内容が
+# 変わるとSHAが変わる(2026-09-16改定でバナー除外を外したことの検査)。
 python3 - "$WORK" <<'PYEOF'
 import sys
 ROWS, STRIDE = 25, 120
@@ -162,26 +150,41 @@ def poke_str(buf, row, col, s):
     for i, ch in enumerate(s):
         buf[row*STRIDE+col+i] = ord(ch)
 work = sys.argv[1]
+
+# 3a: 最下行(19)だけ内容を変える。SHAは陽性対照(検査1)と同じはず。
 before = blank_dump()
 after = blank_dump()
-for r in range(6):
-    poke_str(before, r, 0, "DIFFERENT-BANNER-1")
-    poke_str(after, r, 0, "ANOTHER-BANNER-2222")
 poke_str(after, 19, 0, "DIFFERENT-FKEY-XYZ")
-poke_str(after, 6, 0, "run")
-poke_str(after, 7, 0, "42")
-poke_str(after, 8, 0, "Ok!")
-with open(f"{work}/before_altbanner.bin", "wb") as f:
+poke_str(after, 0, 0, "run")
+poke_str(after, 1, 0, "42")
+poke_str(after, 2, 0, "Ok!")
+with open(f"{work}/before_altfkey.bin", "wb") as f:
     f.write(bytes(before))
-with open(f"{work}/after_altbanner.bin", "wb") as f:
+with open(f"{work}/after_altfkey.bin", "wb") as f:
     f.write(bytes(after))
+
+# 3b: 出力行(row1)の値を変える。row0-5はもう除外されないため、SHAは
+# 陽性対照と違うはず。
+after_row1 = blank_dump()
+poke_str(after_row1, 0, 0, "run")
+poke_str(after_row1, 1, 0, "99")
+poke_str(after_row1, 2, 0, "Ok!")
+with open(f"{work}/after_row1changed.bin", "wb") as f:
+    f.write(bytes(after_row1))
 PYEOF
-OUT3="$(python3 "$RECORD" --before "$WORK/before_altbanner.bin" --after "$WORK/after_altbanner.bin")"
-SHA3="$(printf '%s' "$OUT3" | cut -f4)"
-if [ "$SHA3" = "$SHA1" ]; then
-  pass "検査3: バナー行・最下行の内容を変えてもSHA-256は変わらない(除外が効いている)"
+OUT3A="$(python3 "$RECORD" --before "$WORK/before_altfkey.bin" --after "$WORK/after_altfkey.bin")"
+SHA3A="$(printf '%s' "$OUT3A" | cut -f4)"
+if [ "$SHA3A" = "$SHA1" ]; then
+  pass "検査3a: 最下行(19)の内容を変えてもSHA-256は変わらない(除外が効いている)"
 else
-  fail "検査3: バナー行・最下行の内容を変えるとSHA-256が変わってしまった (期待$SHA1 実際$SHA3)"
+  fail "検査3a: 最下行(19)の内容を変えるとSHA-256が変わってしまった (期待$SHA1 実際$SHA3A)"
+fi
+OUT3B="$(python3 "$RECORD" --before "$WORK/before.bin" --after "$WORK/after_row1changed.bin")"
+SHA3B="$(printf '%s' "$OUT3B" | cut -f4)"
+if [ "$SHA3B" != "$SHA1" ] && [ -n "$SHA3B" ]; then
+  pass "検査3b: row0-5相当の出力行を変えるとSHA-256が変わる(バナー除外を外したことの確認)"
+else
+  fail "検査3b: row0-5相当の出力行を変えてもSHA-256が変わらなかった"
 fi
 
 # --- 検査4: 陰性対照。英字を含む出力(CANARY)がstdoutに一切現れない -----
@@ -235,26 +238,16 @@ else
   fail "検査6b: ok_row_not_foundなのにNA以外の値が出た ($OUT6)"
 fi
 
-# --- 検査7: origin_row_suspicious(最小row0が6未満) ----------------------
-# 既定の除外行(0-5)を使うと row3-5 のフィクスチャがそもそも
-# char_changes に現れずno_changesになってしまう(バナー除外が先に効く
-# ため、この判別は既定設定では原理的に届かない)。判別ロジック自体の
-# 検出力を確かめるため、ここだけ最下行(19)のみ除外して呼ぶ。
-OUT7="$(python3 "$RECORD" --before "$WORK/before_low.bin" --after "$WORK/after_low.bin" --exclude-rows 19)"
-STATUS7="$(printf '%s' "$OUT7" | cut -f1)"
-if [ "$STATUS7" = "origin_row_suspicious" ]; then
-  pass "検査7: 最小row0が6未満のとき origin_row_suspicious と判別する"
-else
-  fail "検査7: 期待した判別(origin_row_suspicious)にならなかった ($OUT7)"
-fi
-
-# --- 検査8: insufficient_rows(変化した行が1行だけ) -----------------------
+# --- 検査7: insufficient_rows(変化した行が1行だけ) -----------------------
+# (旧検査7の origin_row_suspicious は、cls後は絶対行0〜1が正しい
+# origin_rowになるため前提が逆転し廃止。tools/l4_program_conform_
+# record.py のモジュールdocstring参照)
 OUT8="$(python3 "$RECORD" --before "$WORK/before_one.bin" --after "$WORK/after_one.bin")"
 STATUS8="$(printf '%s' "$OUT8" | cut -f1)"
 if [ "$STATUS8" = "insufficient_rows" ]; then
-  pass "検査8: 変化した行が1行だけのとき insufficient_rows と判別する"
+  pass "検査7: 変化した行が1行だけのとき insufficient_rows と判別する"
 else
-  fail "検査8: 期待した判別(insufficient_rows)にならなかった ($OUT8)"
+  fail "検査7: 期待した判別(insufficient_rows)にならなかった ($OUT8)"
 fi
 
 # --- 検査9: no_changes(before/afterが完全一致) ---------------------------
@@ -282,22 +275,31 @@ else
   fail "検査10b: status=okなのに終了コードが非0だった"
 fi
 
-# --- 検査11: tools/l4_program_typeplan.py の打鍵計画・G9/G10ヘルパ -----
+# --- 検査8: tools/l4_program_typeplan.py の打鍵計画・G9/G10ヘルパ -----
+# (2026-09-16改定: runの前にclsを挟む。g9_check_frame=clsを打つ直前、
+# cls_dump_frame=clsのOk後=写し(前)として使うフレーム)
 PLAN="$(python3 "$TYPEPLAN" --bas "$SCRIPT_DIR/../tests/programs/p01_kuku.bas" 2>&1)"
 PLAN_OK=1
 printf '%s' "$PLAN" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 assert d['num_lines'] == 6, d['num_lines']
-assert d['type_string'].startswith('new\n10 for'), d['type_string'][:20]
-assert d['type_string'].endswith('run\n'), d['type_string'][-6:]
-assert d['run_start_frame'] == 700 + 8*d['prefix_char_count']
-assert d['dump_after_frame'] == d['run_start_frame'] + 8*4 + 300 or True  # 桁は別途frame_planで検算
+assert d['segment1'].startswith('new\n10 for'), d['segment1'][:20]
+assert d['segment1'].endswith('cls\n'), d['segment1'][-4:]
+assert d['segment2'] == 'run\n', d['segment2']
+assert d['g9_check_frame'] == 700 + 8*d['prefix_char_count']
+assert d['cls_line_end'] == d['g9_check_frame'] + 8*4  # 'cls\n' は4文字
+assert d['cls_dump_frame'] == d['cls_line_end'] + 300
+assert d['dump_before_frame'] == d['cls_dump_frame']
+assert d['segment2_type_at'] == d['cls_dump_frame']
+assert d['line_end2'] == d['cls_dump_frame'] + 8*4  # 'run\n' は4文字
+assert d['dump_after_frame'] == d['line_end2'] + 300
+assert d['type_segments'] == [[700, d['segment1']], [d['cls_dump_frame'], d['segment2']]]
 " || PLAN_OK=0
 if [ "$PLAN_OK" = "1" ]; then
-  pass "検査11a: l4_program_typeplan.py がp01の打鍵計画を正しく組み立てる(行数・打鍵文字列・run_start_frame)"
+  pass "検査8: l4_program_typeplan.py がp01の打鍵計画を正しく組み立てる(行数・打鍵文字列・cls挟み込み・各フレーム)"
 else
-  fail "検査11a: l4_program_typeplan.py の打鍵計画が期待と違う"
+  fail "検査8: l4_program_typeplan.py の打鍵計画が期待と違う"
 fi
 
 python3 -c "
@@ -311,9 +313,9 @@ assert r2['fits'] is False, r2
 print('OK')
 " >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-  pass "検査11b: check_output_fits_screen が20行境界を正しく判定する(G10)"
+  pass "検査11: check_output_fits_screen が20行境界を正しく判定する(G10)"
 else
-  fail "検査11b: check_output_fits_screen の境界判定が期待と違う"
+  fail "検査11: check_output_fits_screen の境界判定が期待と違う"
 fi
 
 # G9のnonblank行数確認(合成写し)。row6-13(new+Ok+6行)が非空白、それ以外0。
@@ -346,9 +348,9 @@ assert r2['arrived'] is False, r2
 print('OK')
 " >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-  pass "検査11c: check_keystroke_arrival が非空白行数の一致/不一致を正しく判定する(G9)"
+  pass "検査12: check_keystroke_arrival が非空白行数の一致/不一致を正しく判定する(G9)"
 else
-  fail "検査11c: check_keystroke_arrival の判定が期待と違う"
+  fail "検査12: check_keystroke_arrival の判定が期待と違う"
 fi
 
 echo

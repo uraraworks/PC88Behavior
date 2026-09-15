@@ -3,30 +3,67 @@
 
 事前登録 `docs/notes/l4-c5-representative-programs-conformance-scene-
 preregistration.md`（`2837926`）「腕」節・「P8（INPUT）の打鍵タイミング」
-節どおり、`tests/programs/*.bas` の1本を読み、`new` → 各行 → `run` の
-打鍵文字列と、`--vram-dump`を置くべきフレーム番号を組み立てる。
+節・G9（打鍵到達確認）節どおりに `tests/programs/*.bas` の1本を読み、
+打鍵文字列と`--vram-dump`を置くべきフレーム番号を組み立てる。
 
-## フレームの決め方（全腕共通）
+## 手順（2026-09-16改定: `run`の前に`cls`を挟む）
+
+試走で、行数の多いプログラム（`p02`・`p03`・`p06`）は、プログラムの
+入力そのもの（`new`〜各行の打鍵）だけで画面が下へ流れ（スクロール）、
+`run`を打った行の位置が一意に定まらない（`tools/l4_program_conform_
+record.py`が`ok_row_not_found`と正しく判別した）ことが分かった。
+
+対策として、プログラムを打ち終えた直後に`cls`を打ち、その`Ok`が出た
+後の写しを「写し(前)」として使う手順に変える。`cls`は画面を消して
+カーソルを先頭（絶対行0）へ戻すため（`l4-s5f`のF1・F10で確認済み）、
+以後`run`を打った行・出力・`Ok`はいずれも先頭付近の低い絶対行に収まり、
+プログラムの行数に左右されなくなる。
+
+**`run`の打鍵は、`cls`の`Ok`が出たことを確認した時点（`cls_dump_frame`）
+より後にしか始めない。** 最初の実装は`new`〜`cls`〜`run`を1つの
+`--type`文字列として連続で打鍵し、`cls_dump_frame`はその内部の任意の
+フレームへの単なる写し取得点として扱っていたが、それでは`run`の打鍵が
+`cls`の直後（`cls`の`Ok`を待たずに）始まってしまい、`cls_dump_frame`
+時点の写しに`run`の打鍵・出力までもが写り込み、`cls`前後の差分が
+「変化なし」になってしまう不具合が公式ROMでの試走で見つかった
+（`tools/l4_program_conform_record.py`が`no_changes`と正しく検出した）。
+そこで`l4-s5d`のD12・`l4-s5e`のE1/E2と同じやり方——`--type-at`で区切った
+別々の`--type`区間にする——に直し、`run`（P8はさらに入力値）の区間の
+`--type-at`を`cls_dump_frame`（またはP8のプロンプト確認フレーム）に
+明示的に合わせる。
+
+## 打鍵の区間（P1〜P7、2区間）
+
+```
+区間1 (type_at=700):  new\n<プログラムの各行>\ncls\n
+区間2 (type_at=cls_dump_frame): run\n
+```
+
+## フレームの決め方
 
 1文字あたり `hold+gap=8` フレーム（`l4-s5a` 以来の段階5の前例どおり）。
 `type_at` の基準は `700`（起動settle `--type-at 300 --type '\n'` の後）。
 
 - `prefix` = `"new\n"` + プログラムの各行を `\n` 区切りで連結したもの +
-  `"\n"`（＝`run` を打つ直前までの打鍵文字列）
-- `run_start_frame` = `700 + 8 * len(prefix)`
-  （`run` の最初の文字 `r` が打鍵される瞬間のフレーム。ここより前に
-  `run` は一切打たれていないため、事前登録の記録器
-  （`tools/l4_program_conform_record.py`）が要求する
-  「`origin_row` = 変化した行のうち最小のrow0（=`run`を打った行）」を
-  満たすには、この`run_start_frame`を「写し(前)」に使う）
-- `full` = `prefix` + `"run\n"`
-- `line_end_full` = `700 + 8 * len(full)`
-- `dump_final` = `line_end_full + 300`
+  `"\n"`（＝`cls` を打つ直前までの打鍵文字列）
+- `g9_check_frame` = `700 + 8 * len(prefix)`
+  （プログラムを打ち終えた瞬間。事前登録のG9〔打鍵到達確認〕は、
+  ここで取った写しに対して行う——`cls`より前、`run`より前）
+- `segment1` = `prefix` + `"cls\n"`
+- `cls_line_end` = `700 + 8 * len(segment1)`
+  （`cls\n`の最後の文字が打鍵される瞬間）
+- `cls_dump_frame` = `cls_line_end + 300`
+  （`cls`の`Ok`が出るまでの余裕。既存の前例——`l4-s5a`以来の
+  `dump(k)=line_end(k)+300`——をそのまま流用する。この写しを
+  「写し(前)」として`tools/l4_program_conform_record.py`に渡す）
+- `segment2` = `"run\n"`。`--type-at cls_dump_frame`で区間1とは別に打つ
+- `line_end2` = `cls_dump_frame + 8 * len(segment2)`
+- `dump_final` = `line_end2 + 300`
 - `run_total_frames` = `dump_final + 200`
 
-P8（`INPUT`を含む）だけは、事前登録の「P8（INPUT）の打鍵タイミング」
-節の式をそのまま使う（`l4-s5e` のE1・E2と同じ考え方）。`prog`（`new`+
-各行+`run`）は`full`と同一。
+P8（`INPUT`を含む）は、`run\n`の後さらにプロンプト確認・入力値の区間が
+続く（`l4-s5e` のE1・E2と同じ考え方。事前登録の式の`n1`は本ノートの
+`segment1+segment2`の合計文字数に相当する）。
 
 ## 使い方
 
@@ -36,10 +73,11 @@ python3 tools/l4_program_typeplan.py --bas tests/programs/p08_input_calc.bas --i
 ```
 
 出力はJSON 1行（安全な計画情報のみ。画面本文・実行結果は含まない）。
-`--type`にそのまま渡せる打鍵文字列も含む（自分で書いた`tests/programs/`
-のソースそのものであり、公式ROM由来のデータではないため、禁止事項7
-（画面本文）の対象外——打つ前の入力そのものであって、実行結果の画面
-ではない）。
+`type_segments`に`[type_at, text]`の並びを含む——`tools/l4_program_run.sh`
+はこれをそのまま複数の`--type-at`/`--type`引数の組に展開する。
+自分で書いた`tests/programs/`のソースそのものであり、公式ROM由来の
+データではないため、禁止事項7（画面本文）の対象外——打つ前の入力
+そのものであって、実行結果の画面ではない。
 """
 from __future__ import annotations
 
@@ -54,6 +92,8 @@ import l4_vram_probe  # noqa: E402
 TYPE_AT_BASE = 700
 FRAMES_PER_CHAR = 8
 SETTLE_TYPE_AT = 300
+CLS_SEGMENT = "cls\n"
+RUN_SEGMENT = "run\n"
 
 
 def read_program_lines(bas_path: str) -> "list[str]":
@@ -68,79 +108,98 @@ def read_program_lines(bas_path: str) -> "list[str]":
     return lines
 
 
-def build_strings(lines: "list[str]") -> "tuple[str, str]":
-    """(prefix, full) を返す。prefix は `run` を打つ直前まで、full は
-    `run\n` まで含む。"""
-    prefix = "new\n" + "\n".join(lines) + "\n"
-    full = prefix + "run\n"
-    return prefix, full
-
-
 def frame_plan(lines: "list[str]") -> dict:
-    """INPUTを含まない腕(P1〜P7)の打鍵計画。"""
-    prefix, full = build_strings(lines)
-    run_start_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
-    line_end_full = TYPE_AT_BASE + FRAMES_PER_CHAR * len(full)
-    dump_final = line_end_full + 300
+    """INPUTを含まない腕(P1〜P7)の打鍵計画。2区間(new〜cls / run)。"""
+    prefix = "new\n" + "\n".join(lines) + "\n"
+    g9_check_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
+
+    segment1 = prefix + CLS_SEGMENT
+    cls_line_end = TYPE_AT_BASE + FRAMES_PER_CHAR * len(segment1)
+    cls_dump_frame = cls_line_end + 300
+
+    segment2 = RUN_SEGMENT
+    line_end2 = cls_dump_frame + FRAMES_PER_CHAR * len(segment2)
+    dump_final = line_end2 + 300
     run_total_frames = dump_final + 200
+
     return {
         "num_lines": len(lines),
         "prefix_char_count": len(prefix),
-        "full_char_count": len(full),
-        "type_string": full,
         "settle_type_at": SETTLE_TYPE_AT,
         "type_at": TYPE_AT_BASE,
-        "run_start_frame": run_start_frame,
-        "line_end_full": line_end_full,
-        "dump_before_frame": run_start_frame,
+        "g9_check_frame": g9_check_frame,
+        "segment1": segment1,
+        "cls_line_end": cls_line_end,
+        "cls_dump_frame": cls_dump_frame,
+        "dump_before_frame": cls_dump_frame,
+        "segment2_type_at": cls_dump_frame,
+        "segment2": segment2,
+        "line_end2": line_end2,
         "dump_after_frame": dump_final,
         "run_total_frames": run_total_frames,
+        "type_segments": [[TYPE_AT_BASE, segment1], [cls_dump_frame, segment2]],
     }
 
 
 def input_frame_plan(lines: "list[str]", input_value: str) -> dict:
-    """INPUTを含む腕(P8)の打鍵計画。事前登録「P8（INPUT）の打鍵タイミング」
-    節の式をそのまま使う。"""
-    prefix, full = build_strings(lines)
-    run_start_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
+    """INPUTを含む腕(P8)の打鍵計画。3区間(new〜cls / run / 入力値)。
+    `run`の後のプロンプト確認は`l4-s5e`のE1・E2と同じ考え方
+    (`+300`フレームの余裕を`--nonblank-summary-rows`で確認)。"""
+    prefix = "new\n" + "\n".join(lines) + "\n"
+    g9_check_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
 
-    n1 = len(full)
-    line_end1 = TYPE_AT_BASE + FRAMES_PER_CHAR * n1
-    dump1 = line_end1 + 300
-    type_at2 = dump1
-    val = input_value + "\n"
-    n2 = len(val)
-    line_end2 = type_at2 + FRAMES_PER_CHAR * n2
-    dump2 = line_end2 + 300
-    run2 = dump2 + 200
+    segment1 = prefix + CLS_SEGMENT
+    cls_line_end = TYPE_AT_BASE + FRAMES_PER_CHAR * len(segment1)
+    cls_dump_frame = cls_line_end + 300
+
+    segment2 = RUN_SEGMENT
+    line_end2 = cls_dump_frame + FRAMES_PER_CHAR * len(segment2)
+    dump_prompt = line_end2 + 300
+
+    type_at3 = dump_prompt
+    segment3 = input_value + "\n"
+    n3 = len(segment3)
+    line_end3 = type_at3 + FRAMES_PER_CHAR * n3
+    dump_final = line_end3 + 300
+    run_total_frames = dump_final + 200
 
     return {
         "num_lines": len(lines),
         "prefix_char_count": len(prefix),
-        "full_char_count": n1,
-        "type_string": full,
         "settle_type_at": SETTLE_TYPE_AT,
         "type_at": TYPE_AT_BASE,
-        "run_start_frame": run_start_frame,
-        # G9(打鍵の到達確認)には run_start_frame の写しを使う(runより前)。
-        "dump_before_frame": run_start_frame,
-        "line_end1": line_end1,
-        "dump_prompt_frame": dump1,
-        "type_at2": type_at2,
-        "input_type_string": val,
-        "input_char_count": n2,
+        "g9_check_frame": g9_check_frame,
+        "segment1": segment1,
+        "cls_line_end": cls_line_end,
+        "cls_dump_frame": cls_dump_frame,
+        "dump_before_frame": cls_dump_frame,
+        "segment2_type_at": cls_dump_frame,
+        "segment2": segment2,
         "line_end2": line_end2,
-        "dump_final_frame": dump2,
-        "run_total_frames": run2,
+        "dump_prompt_frame": dump_prompt,
+        "type_at2": dump_prompt,  # 旧フィールド名(l4-s5e踏襲)。type_at3と同義。
+        "segment3_type_at": type_at3,
+        "segment3": segment3,
+        "input_type_string": segment3,
+        "input_char_count": n3,
+        "line_end3": line_end3,
+        "dump_final_frame": dump_final,
+        "run_total_frames": run_total_frames,
+        "type_segments": [
+            [TYPE_AT_BASE, segment1],
+            [cls_dump_frame, segment2],
+            [type_at3, segment3],
+        ],
     }
 
 
 def check_keystroke_arrival(
     dump_path: str, expected_line_count: int, exclude_rows: "set[int] | None" = None
 ) -> dict:
-    """G9(打鍵の到達確認)。`run`を打つ直前の写し(dump_before_frame)を
-    `--nonblank-summary-rows`で調べ、非空白セルを含む行数を数える。
-    事前登録どおり、比較するのは「行数」だけ(文字コードは見ない)。
+    """G9(打鍵の到達確認)。プログラムを打ち終えた直後（`cls`より前）の
+    写し(`g9_check_frame`)を`--nonblank-summary-rows`で調べ、非空白
+    セルを含む行数を数える。事前登録どおり、比較するのは「行数」だけ
+    (文字コードは見ない)。
 
     非空白行数の期待値は `expected_line_count + 2`
     （`new`自身の行1つ + `new`直後の`Ok`行1つ + プログラムの行数ぶん）。
@@ -149,7 +208,9 @@ def check_keystroke_arrival(
     構造に基づく前提であり、想定が崩れていれば不一致として検出される
     （黙って一致扱いにはしない）。
 
-    バナー行(0-5)・最下行(19、ファンクションキー表示行)は除く。
+    この時点では`cls`をまだ打っていないため、`new`~プログラムの行は
+    l4-s5a以来の慣行どおり絶対行6から積み上がる。バナー行(0-5)・
+    最下行(19、ファンクションキー表示行)は除く。
     """
     if exclude_rows is None:
         exclude_rows = {0, 1, 2, 3, 4, 5, 19}

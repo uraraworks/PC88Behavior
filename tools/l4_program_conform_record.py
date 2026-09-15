@@ -13,13 +13,25 @@ preregistration.md`（`2837926`）「比べるもの・正規化」節どおり:
     「前が空白だったセル」を(row0-origin_row, col0, 文字コード)に
     正規化した並び
   - `ok_relative_row` = `ok_row - origin_row`
-  - 比較しない: バナーの行(0-5)、最下行(19、ファンクションキー表示行)、
-    位置の絶対値(row0そのもの)
+  - 比較しない: 最下行(19、ファンクションキー表示行)、位置の絶対値
+    (row0そのもの)
 
-`--before`には、`run`を打つ直前の写し（`tools/l4_program_typeplan.py`の
-`run_start_frame`で取った写し）を渡すことを前提とする。この前提により
-`origin_row`（変化した行の最小row0）が「`run`を打った行」と一致する
-（`run`はこの写しより後にしか打たれていないため）。
+## 手順（2026-09-16改定: `run`の前に`cls`を挟む）
+
+`--before`には、`tools/l4_program_typeplan.py`の`cls_dump_frame`
+（プログラムを打ち終えた後に`cls`を打ち、その`Ok`が出るのを待った
+時点）で取った写しを渡すことを前提とする。試走で、行数の多いプログラム
+（`p02`・`p03`・`p06`）は、`new`〜各行の打鍵そのものだけで画面が
+スクロールし、`run`を打った行の位置が一意に定まらないことが分かった
+（`ok_row_not_found`として正しく判別された）。`cls`を挟むことで、
+`run`はカーソルが先頭（`l4-s5f`のF1・F10で確認した絶対行0〜1）へ戻った
+直後に打たれるため、プログラムの行数に左右されなくなる。
+
+この変更に伴い、**バナー行(0-5)は比較対象から外さない**（以前の版は
+除外していたが、`cls`後は絶対行0〜1が`run`のエコー・出力・`Ok`の
+正しい置き場になるため、除外すると肝心の記録を消してしまう）。最下行
+(19、ファンクションキー表示行。`cls`の影響を受けないことを`l4-s5f`の
+F1で確認済み)だけを引き続き除外する。
 
 ## 「見つからない」の判別（黙ってSHAを出さない）
 
@@ -33,11 +45,14 @@ preregistration.md`（`2837926`）「比べるもの・正規化」節どおり:
   - `ok_row_not_found`: 最大row0の行が`Ok`らしい形（前が空白だった
     セルだけで構成される、件数が少ない）をしていない。出力の続きを
     `Ok`行と誤認している可能性がある（写しが早すぎた、または出力が
-    多すぎて`Ok`が捉えられていない）
-  - `origin_row_suspicious`: 最小row0が6未満（`l4-s5a`以来の段階5測定
-    全体で、打鍵はrow6以降にしか現れていない）。スクロールにより
-    `run`を打った行自体が画面外へ押し出され、無関係な行を`origin_row`
-    と誤認している可能性がある
+    多すぎて`Ok`が捉えられていない。`cls`を挟んでも、出力そのものが
+    20行を超えれば起こりうる——その場合はG10で別途判別する）
+
+（旧版にあった`origin_row_suspicious`——最小row0が6未満なら疑うという
+判定——は、`cls`後は絶対行0〜1が正しい`origin_row`になるため前提が
+逆転し、廃止した。`cls`の直後は画面がほぼ全消去された状態のはずなので、
+それでも`ok_row_not_found`に該当する形（`Ok`らしい行が見当たらない）が
+起きれば、それ自体が十分な異常検出になる）
 
 出してよいもの（これ以外は標準出力・標準エラーへ出さない。CLAUDE.md
 禁止事項7 厳守）:
@@ -47,7 +62,7 @@ preregistration.md`（`2837926`）「比べるもの・正規化」節どおり:
 
 使い方:
   python3 tools/l4_program_conform_record.py --before before.bin --after after.bin \
-      [--exclude-rows 0,1,2,3,4,5,19] [--ok-max-count 6]
+      [--exclude-rows 19] [--ok-max-count 6]
 
 出力(TSV、1行):
   status<TAB>cell_count<TAB>ok_relative_row<TAB>sha256
@@ -64,9 +79,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import l4_vram_probe  # noqa: E402
 
-DEFAULT_EXCLUDE_ROWS = {0, 1, 2, 3, 4, 5, 19}
+DEFAULT_EXCLUDE_ROWS = {19}
 DEFAULT_OK_MAX_COUNT = 6
-ORIGIN_ROW_MIN_EXPECTED = 6
 
 
 def build_record(
@@ -87,9 +101,6 @@ def build_record(
 
     origin_row = rows_touched[0]
     ok_row = rows_touched[-1]
-
-    if origin_row < ORIGIN_ROW_MIN_EXPECTED:
-        return {"status": "origin_row_suspicious"}
 
     ok_cells = [c for c in char_changes if c["row0"] == ok_row]
     ok_looks_valid = len(ok_cells) <= ok_max_count and all(c.get("was_blank") for c in ok_cells)
@@ -122,7 +133,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--before", required=True)
     ap.add_argument("--after", required=True)
-    ap.add_argument("--exclude-rows", default="0,1,2,3,4,5,19")
+    ap.add_argument("--exclude-rows", default="19")
     ap.add_argument("--ok-max-count", type=int, default=DEFAULT_OK_MAX_COUNT)
     args = ap.parse_args()
 
