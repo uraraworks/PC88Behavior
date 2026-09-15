@@ -302,6 +302,73 @@ else
   fail "整数溢れ昇格: $PROMO_CHECK"
 fi
 
+# --- 9. l4-s4c: --small-rule/--small-len を足しても既定(sym)は変わらない --
+SMALL_RULE_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, m.MBF_SINGLE_DIGITS, "sym", 0)
+    if a != b:
+        print(f"MISMATCH {expr}: default={a} explicit={b}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$SMALL_RULE_DEFAULT_CHECK" = "PASS" ]; then
+  pass "--small-rule/--small-len 省略時(既定sym/0)は明示指定と一致(32腕全件)"
+else
+  fail "small_rule既定値の一致: $SMALL_RULE_DEFAULT_CHECK"
+fi
+
+# --- 10. l4-s4c候補予測表の再生成がデータ行一致すること -------------------
+S4C="$REPO_ROOT/docs/notes/l4-s4c-candidate-predictions.tsv"
+if [ -f "$S4C" ]; then
+  TMP="$(mktemp)"
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4c_gen.err
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4C") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4c-candidate-predictions.tsv の再生成がデータ行一致"
+  else
+    fail "l4-s4c候補予測表の再生成が既存ファイルとデータ行不一致(diff未一致)"
+  fi
+  rm -f "$TMP"
+else
+  echo "SKIP - l4-s4c候補予測表がまだ無い(1本目のコミット時点では正常)"
+fi
+
+# --- 11. 故障注入: LEN(T)のTを1ずらすと判定が変わること(検出力の確認) -----
+# K4相当(1.5e-7、単精度6桁)はLEN7では指数表記・LEN8では固定小数点になる
+# 境界例。Tを+1/-1ずらすと結果が変わることを確認する。
+LEN_FAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+expr = "1.5e-7"
+_, p7, _ = m.predict(expr, 6, "len", 7)
+_, p8, _ = m.predict(expr, 6, "len", 8)
+ok = p7 != p8 and p7 == " 1.5E-07 " and p8 == " .00000015 "
+print("PASS" if ok else f"FAIL p7={p7!r} p8={p8!r}")
+EOF
+)"
+if [ "$LEN_FAULT_CHECK" = "PASS" ]; then
+  pass "LEN(T)のTを1ずらす(7→8)と1.5e-7の判定が指数表記→固定小数点に変わる(検出力の確認)"
+else
+  fail "LEN故障注入の検出力: $LEN_FAULT_CHECK"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"

@@ -780,7 +780,31 @@ def _significant_digits(value: Fraction, ndig: int) -> Tuple[str, int]:
     return s, e
 
 
-def fout_format(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str, bool]:
+def _small_side_fixed(e: int, nsig: int, ndig: int, small_rule: str, small_len: int) -> bool:
+    """|v|<1(e<=0)のときの固定小数点⇔指数表記の判定(候補規則、l4-s4c用)。
+
+    大きい側(e>0)はどの候補でも現行の規則(e<=ndig)のまま変えない
+    (l4-s4c依頼「大きい側は現行の規則のまま変えない」)。
+
+    - "sym": 現行の対称近似則(v1/v2)。固定 iff e > -ndig。
+    - "len": 固定表記にしたときの小数点より右の文字数
+      (先頭の0を含む = (-e)+nsig)が small_len(T)以下なら固定。
+      leading_zeros=(-e)はfout_formatの固定表記の実際の組み立て
+      ("."+("0"*(-e))+trimmed)と同じ値。
+    """
+    if small_rule == "sym":
+        return e > -ndig
+    if small_rule == "len":
+        return (-e) + nsig <= small_len
+    raise ValueError(f"unknown small_rule {small_rule!r}")
+
+
+def fout_format(
+    num: GwNum,
+    single_digits: int = MBF_SINGLE_DIGITS,
+    small_rule: str = "sym",
+    small_len: int = 0,
+) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
     経由したか=approx)
 
@@ -789,6 +813,11 @@ def fout_format(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str
     参照)。倍精度の桁数(MBF_DOUBLE_DIGITS=16)はこの引数の影響を受けない
     ($FOFMTが単精度と倍精度で別々に有効桁数を持つ構造(MATH1.ASM
     1338-1341)にならい、単精度側だけを差し替える)。
+    small_rule/small_len: |v|<1 の側の固定⇔指数切替を選ぶ候補規則
+    (l4-s4c用)。既定は "sym"(現行の対称近似則)で、これまでの予測表
+    (l4-s4a v1/v2・l4-s4b・s4a事後)と完全に一致する。"len"のときは
+    small_len(T)を使う(_small_side_fixed参照)。大きい側の規則は
+    どちらでも変えない。
     """
     if num.kind == "int":
         return str(abs(num.ivalue)), False
@@ -805,7 +834,13 @@ def fout_format(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str
         trimmed = "0"
     nsig = len(trimmed)
 
-    use_fixed = (-ndig) < e <= ndig  # v1と同じ未解決の近似則(approx=True)
+    if e > 0:
+        use_fixed = e <= ndig  # 大きい側: 現行の規則のまま(候補によらず不変)
+    else:
+        use_fixed = _small_side_fixed(e, nsig, ndig, small_rule, small_len)
+    # v1/v2と同じく、この判定自体は未解決の近似則の一種(approx=True)。
+    # "len"候補も$FOFMTの命令単位の再現ではなく機械的な帰結として導入した
+    # ものなので同様にapprox=Trueのまま返す。
 
     if use_fixed:
         if e <= 0:
@@ -825,27 +860,36 @@ def fout_format(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str
         return f"{mant}{marker}{sign_ch}{abs(exp_val):02d}", True
 
 
-def print_one(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str, bool]:
-    body, approx = fout_format(num, single_digits)
+def print_one(
+    num: GwNum,
+    single_digits: int = MBF_SINGLE_DIGITS,
+    small_rule: str = "sym",
+    small_len: int = 0,
+) -> Tuple[str, bool]:
+    body, approx = fout_format(num, single_digits, small_rule, small_len)
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
 
 
 def predict(
-    typed_print_body: str, single_digits: int = MBF_SINGLE_DIGITS
+    typed_print_body: str,
+    single_digits: int = MBF_SINGLE_DIGITS,
+    small_rule: str = "sym",
+    small_len: int = 0,
 ) -> Tuple[str, str, bool]:
     """戻り値: (kind, predicted, approx)
 
-    single_digits: fout_format() と同じ(既定7)。既定のままなら
-    従来のv2予測(有効桁数7)と完全に一致する
-    (tools/l4_mbf_oracle_v2_selftest.sh で確認)。
+    single_digits: fout_format() と同じ(既定7)。
+    small_rule/small_len: fout_format() と同じ(既定"sym"/0)。
+    いずれも既定のままなら従来のv2予測(有効桁数7・対称近似則)と
+    完全に一致する(tools/l4_mbf_oracle_v2_selftest.sh で確認)。
     """
     try:
         num = eval_expr(typed_print_body)
     except GwError as e:
-        residual_line, approx = print_one(e.residual, single_digits)
+        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len)
         return "error", f"{e.kind};{residual_line}", approx
-    line, approx = print_one(num, single_digits)
+    line, approx = print_one(num, single_digits, small_rule, small_len)
     return "numeric", line, approx
 
 
@@ -859,11 +903,23 @@ if __name__ == "__main__":
         default=MBF_SINGLE_DIGITS,
         help="単精度の有効桁数(既定7=GW-BASICどおり。倍精度は常に16)",
     )
+    ap.add_argument(
+        "--small-rule",
+        choices=("sym", "len"),
+        default="sym",
+        help="|v|<1側の固定⇔指数切替の候補規則(既定sym=現行の対称近似則)",
+    )
+    ap.add_argument(
+        "--small-len",
+        type=int,
+        default=0,
+        help="--small-rule len のときの小数点右の許容文字数T",
+    )
     ap.add_argument("exprs", nargs="+")
     args = ap.parse_args()
     for arg in args.exprs:
         body = arg
         if body.lower().startswith("print "):
             body = body[6:]
-        kind, pred, approx = predict(body, args.single_digits)
+        kind, pred, approx = predict(body, args.single_digits, args.small_rule, args.small_len)
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")
