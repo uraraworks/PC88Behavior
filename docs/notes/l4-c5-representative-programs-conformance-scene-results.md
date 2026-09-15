@@ -172,3 +172,88 @@ expected_l4_programs.tsv`にコミット済みとして固定する。プログ�
 期待値作成用の使い捨てドライバ・写し・記録・自作ROM一式・公式ROM一式の
 複製はリポジトリ外の作業ディレクトリ（scratchpad配下）に置き、本ノートを
 書いたあと削除した。
+
+---
+
+## 追補4: `run`の後の待ちを+3000フレームへ延ばした後の測り直しと自作の照合
+
+事前登録: [追補4](l4-c5-representative-programs-conformance-scene-preregistration-addendum4.md)
+（`14930c1`）。器具: `tools/l4_program_typeplan.py`の`RUN_WAIT_FRAMES`・
+`tools/l4_program_run.sh`の`approx_ok_frame`観察・
+`tools/l4_program_conform_selftest.sh`検査8/13更新（`404a686`）。
+
+### 経緯
+
+自作main ROM側の照合で、P2（`p02_primes.bas`）が`ok_row_not_found`に
+なった。原因は実装の誤りではなく、自作のインタプリタが公式より実行が
+遅く、`run`の後の待ち（旧`+300`フレーム）の間に実行が終わらなかった
+ため（追補4の経緯節どおり）。待ちを全腕一律`+3000`フレームへ延ばし、
+公式側の期待値を測り直したうえで、既存の期待値（`67aa02b`）との完全
+一致を関門に加えて確認した。
+
+### 公式側の測り直し（8腕×2走、既存期待値との一致確認）
+
+- 参照コミット（腕の入力、`tests/programs`）: `ae43aba`（変更なし。
+  測定前後で`git log -1 --format=%H -- tests/programs`が同一である
+  ことを確認済み。追補3のG11）
+- `PC88_REF_ROM_DIR`をコマンドごとに渡し、`tools/l4_program_run.sh`を
+  各腕2走実施した（`+3000`フレームの待ち）
+- G3（決定論性）: 8腕すべてでrun1=run2の記録が完全一致
+- G8（出力完了）・G9（打鍵到達）・G10（画面収まり）: 8腕すべて真
+- **既存期待値（`67aa02b`）との一致（追補4で新設の関門）**: 8腕すべて
+  `cell_count`・`ok_relative_row`・`sha256`のすべてが完全一致。
+  一致しない腕は無かったため、`tests/conformance/
+  expected_l4_programs.tsv`は**差し替えていない**（値は測定前と同一）
+- `tools/conform_l4.sh`（`PC88_REF_ROM_DIR`あり）をそのまま最後まで
+  完走させ（前回ノートで報告した並行編集の影響は解消済み）、
+  「`公式ROM側の集計(PROGRAM場面) conform: 8/8`」「`conform_l4:
+  自作ROM側・公式ROM側とも全項目OK`」を確認した（既存の打鍵エコー
+  11腕・PRINT16腕・FLOAT25腕も引き続き公式・自作とも全`conform`）
+
+### 自作側の照合（今のHEAD、P3・P4の修正`b8cc125`・`aa83ac6`を含む）
+
+`tests/conformance/expected_l4_programs.tsv`の見出しコメントを一時的に
+`selfmade=implemented`へ書き換えて`tools/conform_l4.sh`（公式環境
+なし）を回し、P1〜P8の自作側を確かめた（期待値の`cell_count`・
+`ok_relative_row`・`sha256`は書き換えていない。書き換えたのは見出し
+コメント1行のみ）。
+
+- **P1〜P8の8本すべて`conform`**（`自作ROM側の集計(PROGRAM場面)
+  conform: 8/8`・`not_conform: 0/8`・`gate_failed: 0/8`）
+- 既存の場面（打鍵エコー11腕・PRINT16腕・FLOAT25腕）も引き続き全
+  `conform`（振る舞いは変えていない）
+- 検出力の自己検査a〜d(PROGRAM)・自己検査e(群の印の切替)も全項目OK
+- 8本すべて`conform`だったため、見出しコメントの
+  `selfmade=implemented`への書き換えをそのまま採用し、別コミット
+  「M7: l4-c5 代表プログラムの自作側の印を implemented に（P1〜P8
+  conform）」とした
+
+### 速さの観察（判定とは別。`tools/l4_program_run.sh`の`approx_ok_frame`）
+
+追補4第4節どおり、`run`（P8は入力値）の打鍵から`Ok`行が現れるまでの
+おおよそのフレーム数を、判定とは別の観察として記録した（6分割した
+観察用サンプル写しのうち、最初に`status=ok`になったサンプルのフレーム
+番号。画面の文字は出していない）。
+
+公式ROM・自作ROM（現HEAD）とも、8腕全てで観察できた最初のサンプル
+フレームが一致した（両者とも同じ観測窓・同じ分割数で見た限り、最も
+粗い分割の中では見分けがつかない程度に近い、という意味の観察であり、
+より細かい速さの比較〔2分探索等〕は追補4の範囲外として行っていない）。
+`P8`のように入力の後の待ちが長い腕でも、観察できた範囲では公式・自作
+とも同じ粗さの窓の中に収まった。速さの違いは判定（`conform`/
+`not_conform`）には一切使っていない。
+
+### 判定
+
+- 公式ROM側: 8腕とも既存期待値と完全一致（`conform`相当、
+  `tools/conform_l4.sh`本体でも確認済み）。期待値ファイルは変更なし
+- 自作ROM側: 8腕とも`conform`。群"programs"の印を`implemented`へ
+  切り替えた
+- 既存の場面（打鍵エコー・PRINT・FLOAT、計52腕）: 公式・自作とも
+  引き続き全`conform`
+
+### 生データ（追補4分）
+
+測り直し・自作照合に使った使い捨てドライバ・写し・記録・自作ROM一式・
+公式ROM一式の複製はリポジトリ外の作業ディレクトリ（scratchpad配下）に
+置き、本節を書いたあと削除した。
