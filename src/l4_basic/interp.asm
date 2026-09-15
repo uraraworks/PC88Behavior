@@ -1120,6 +1120,10 @@ FTNF_TABLE:
     DB 3
     DB "ASC"
     DW FTNF_DO_ASC
+    ; M7段階5c-2b: CINT(第4.15節)。
+    DB 4
+    DB "CINT"
+    DW FTNF_DO_CINT
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1171,6 +1175,41 @@ _ftnf_asc_ok:
     LD A,(RUN_STR_TMP_BUF)
     LD L,A
     LD H,0
+    JP VAL_SET_INT
+
+; ---------------------------------------------------------------------
+; FTNF_NUM_ARG — '('消費済みの位置から数値式を1個読み(LOGIC_OR_EXPR、
+;   run.asm)、')'を確認する(CINT等の数値引数、FTNF_STR_ARGの数値版)。
+;   出力: CUR_TYPE/CUR_DATA、ERROR_FLAG。
+; ---------------------------------------------------------------------
+FTNF_NUM_ARG:
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,')'
+    JP EXPECT_CHAR
+
+; ---------------------------------------------------------------------
+; FTNF_DO_CINT — 第4.15節E13・E14。既存のCUR_TO_INT16(run.asm、
+;   ASSIGN_STMTの%代入・MID$等の引数と同じ「半分は絶対値の大きい側」の
+;   丸め、第4.4b節)をそのまま使う。範囲外はOverflow(6、第7.1節)。
+; ---------------------------------------------------------------------
+FTNF_DO_CINT:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL CUR_TO_INT16
+    OR A
+    JR NZ,_cint_ok
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+_cint_ok:
+    EX DE,HL
     JP VAL_SET_INT
 
 ; ---------------------------------------------------------------------

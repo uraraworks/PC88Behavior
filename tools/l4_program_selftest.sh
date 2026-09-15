@@ -744,7 +744,7 @@ run_m7_5c2a("case_h1_print_no_split_at_edge",
 ])
 
 # =======================================================================
-# M7段階5c-2b: LOCATE(第5.2節)・COLOR(第5.4節)。
+# M7段階5c-2b: LOCATE(第5.2節)・COLOR(第5.4節)・CINT(第4.15節)。
 # =======================================================================
 
 # 5.2節F2: `locate 10,5:print 7`(絶対行5・絶対桁11=x+符号1桁)。
@@ -779,6 +779,14 @@ run_m7_5c2a("case_f5_color_2", ["10 color 2:print 7"], [
 run_m7_5c2a("case_f6_color_7", ["10 color 7:print 7"], [
     (0, "Ok"), (1, "run"), (2, " 7 "),
 ], attr_checks=[(2, 0, 0x80), (2, 1, 0x07)])
+
+# 4.15節E13-E14: CINT(半端は絶対値の大きい側)。
+run_m7_5c2a("case_e13_cint_pos", ["10 print cint(2.5)"], [
+    (0, "Ok"), (1, "run"), (2, expect_num(3)),
+])
+run_m7_5c2a("case_e14_cint_neg", ["10 print cint(-2.5)"], [
+    (0, "Ok"), (1, "run"), (2, expect_num(-3)),
+])
 
 print()
 if FAILED:
