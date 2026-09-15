@@ -54,15 +54,20 @@ else
   fail "既知のMBF単精度バイト列: $CHECK1"
 fi
 
-# --- 2. 予測表の再生成がバイト一致すること -----------------------------
+# --- 2. 予測表の再生成がデータ行一致すること -----------------------------
+# 見出し行(#で始まる行、生成時点の予測器sha256)は「その予測を生成した
+# 時点の予測器」を指す記録なので、現在のファイルのsha256で上書きする
+# 比較対象にはしない(事前登録物は測定後に書き換えない。2026-09-15、
+# v2側で見出しだけ再生成してしまった件〔3482064→f7e99d5へ戻した〕を
+# 踏まえ、v1側も同じ比較方法に揃えた)。データ行だけを比較する。
 ARMS="$REPO_ROOT/docs/notes/l4-s4a-gwbasic-predictions.tsv"
 if [ -f "$ARMS" ]; then
   TMP="$(mktemp)"
   (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions.py) > "$TMP" 2>/tmp/l4_oracle_gen.err
-  if diff -q "$TMP" "$ARMS" >/dev/null 2>&1; then
-    pass "docs/notes/l4-s4a-gwbasic-predictions.tsv の再生成がバイト一致"
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$ARMS") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4a-gwbasic-predictions.tsv の再生成がデータ行一致(見出しのshaは比較対象外)"
   else
-    fail "予測表の再生成が既存ファイルと不一致(diff未一致)"
+    fail "予測表の再生成が既存ファイルとデータ行不一致(diff未一致)"
   fi
   rm -f "$TMP"
 else

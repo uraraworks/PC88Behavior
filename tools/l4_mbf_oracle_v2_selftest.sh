@@ -71,15 +71,22 @@ else
   fail "INFPD/INFMD: $CHECK_INF"
 fi
 
-# --- 3. 予測表v2の再生成がバイト一致すること -----------------------------
+# --- 3. 予測表v2の再生成がデータ行一致すること -----------------------------
+# 見出し行(#で始まる行)は「その予測を生成した時点の予測器」のsha256を
+# 指す記録であり、再生成のたびに現在のファイルのsha256で上書きしてよい
+# ものではない(事前登録物は測定後に書き換えない。2026-09-15、3482064の
+# 誤りをf7e99d5へ戻した際の教訓)。この検査はコメント行を除いた
+# データ行どうしだけを比較する。生成スクリプト自体はコミット済みの
+# ファイルへ直接書き込まない(標準出力するだけ)ので、比較は常に一時
+# ファイル上で行う。
 ARMS="$REPO_ROOT/docs/notes/l4-s4a-gwbasic-predictions-v2.tsv"
 if [ -f "$ARMS" ]; then
   TMP="$(mktemp)"
   (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions_v2.py) > "$TMP" 2>/tmp/l4_oracle_v2_gen.err
-  if diff -q "$TMP" "$ARMS" >/dev/null 2>&1; then
-    pass "docs/notes/l4-s4a-gwbasic-predictions-v2.tsv の再生成がバイト一致"
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$ARMS") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4a-gwbasic-predictions-v2.tsv の再生成がデータ行一致(見出しのshaは比較対象外)"
   else
-    fail "予測表v2の再生成が既存ファイルと不一致(diff未一致)"
+    fail "予測表v2の再生成が既存ファイルとデータ行不一致(diff未一致)"
   fi
   rm -f "$TMP"
 else
@@ -147,7 +154,10 @@ else
   fail "倍精度が影響を受けてしまっている: $DOUBLE_UNAFFECTED_CHECK"
 fi
 
-# --- 3.6 仮説H6予測表(単精度6桁)の再生成がバイト一致すること --------------
+# --- 3.6 仮説H6予測表(単精度6桁)の再生成がデータ行一致すること ------------
+# ここも見出し行(#で始まる行、生成時点の予測器sha256)は比較対象外にする。
+# l4-s4b-h6-predictions.tsv は測定中の事前登録物であり、この検査(比較のみ、
+# 一時ファイルへ生成)を含めコミット済みファイルへは一切書き込まない。
 for pair in \
   "docs/notes/l4-s4b-h6-predictions.tsv:tools/gen_l4_s4b_h6_predictions.py" \
   "docs/notes/l4-s4a-h6-posthoc.tsv:tools/gen_l4_s4a_h6_posthoc.py"
@@ -158,10 +168,10 @@ do
   if [ -f "$TARGET" ]; then
     TMP="$(mktemp)"
     (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>/tmp/l4_oracle_h6_gen.err
-    if diff -q "$TMP" "$TARGET" >/dev/null 2>&1; then
-      pass "$OUT の再生成がバイト一致"
+    if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$TARGET") >/dev/null 2>&1; then
+      pass "$OUT の再生成がデータ行一致(見出しのshaは比較対象外)"
     else
-      fail "$OUT の再生成が既存ファイルと不一致(diff未一致)"
+      fail "$OUT の再生成が既存ファイルとデータ行不一致(diff未一致)"
     fi
     rm -f "$TMP"
   else

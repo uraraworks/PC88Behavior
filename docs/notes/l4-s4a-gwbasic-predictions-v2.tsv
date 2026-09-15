@@ -1,4 +1,4 @@
-# 生成元: tools/l4_mbf_oracle_v2.py sha256=0193bda64e46727ac79164ea1c9f5c4b1016fe6cf941f9367dfa8cfab42c4074
+# 生成元: tools/l4_mbf_oracle_v2.py sha256=640936d1212ec89aa8c9cb6eeecfbf86eb36ef59bb4555d36fc7f9334ea5e337
 # 生成コマンド: python3 tools/gen_l4_s4a_predictions_v2.py
 id	typed	kind	predicted	approx
 F1	print 1.5	numeric	" 1.5 "	1
