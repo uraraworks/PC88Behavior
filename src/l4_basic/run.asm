@@ -121,6 +121,61 @@ RUN_BREAK_TXT: DB "Break",0
 RUN_INTXT: DB " in ",0
 
 ; =======================================================================
+; M7段階5c: IF〜THEN〜ELSE・比較・AND/OR/NOT・配列・CONT・^ \ MOD・
+;   READ/DATA/RESTORE・REM・1行複数文の残りを実装する。RAM配置は
+;   GOSUBスタック終端(0xD930)〜配列テーブル(0xD980以降)の空き番地
+;   (既存: mbf_single/mbf_double=0xC0xx台、式の作業域=0xC2C0-0xC405、
+;   実行エンジン=0xD000-0xD059、変数表=0xD100-0xD75F、FOR=0xD800-
+;   0xD8BF、GOSUB=0xD900-0xD92F、L3/L4作業域・PROGRAM_AREA=0xE800台、
+;   スタックSP=0xF000。いずれとも重ならない)。
+; =======================================================================
+RUN_KW_TEXT             EQU 0D930h ; 2B 汎用キーワード照合(下記)のスクラッチ
+RUN_KW_LEN              EQU 0D932h ; 1B
+LOGIC_TMP_RIGHT         EQU 0D933h ; 2B AND/OR演算中の右辺int16退避
+RUN_CMP_OP              EQU 0D935h ; 1B 比較演算子種別(0=,1<>,2<,3>,4<=,5>=)
+RUN_CMP_RAW             EQU 0D936h ; 1B VAL_COMPARE_CUR_RHSの生の結果
+RUN_DATA_WANT_KIND      EQU 0D937h ; 1B DATA_READ_ONEの要求型(0数値/1文字列)
+RUN_DATA_REC            EQU 0D938h ; 2B DATA走査中のレコード先頭(0=未着手)
+RUN_DATA_PTR            EQU 0D93Ah ; 2B DATA走査/読み取りの再開位置
+RUN_DATA_END            EQU 0D93Ch ; 2B 同レコードのLINE_END
+RUN_DATA_STATE          EQU 0D93Eh ; 1B 0=次を探す必要/1=読み取り位置あり/2=尽きた
+RUN_DATA_MAIN_SAVE_PTR  EQU 0D93Fh ; 2B DATA処理中の本線CUR_PTR退避
+RUN_DATA_MAIN_SAVE_END  EQU 0D941h ; 2B 同LINE_END
+RUN_DATA_NEG            EQU 0D943h ; 1B DATA数値リテラルの'-'
+RUN_CONT_REC            EQU 0D944h ; 2B CONT再開レコード(0=無効、第4.11節)
+RUN_CONT_PTR            EQU 0D946h ; 2B
+RUN_CONT_END            EQU 0D948h ; 2B
+RUN_ARITH_L             EQU 0D94Ah ; 2B \・MODの左辺int16
+RUN_ARITH_R             EQU 0D94Ch ; 2B \・MODの右辺int16
+SDIV_SIGNQ              EQU 0D94Eh ; 1B SDIV16の商の符号
+SDIV_SIGNR              EQU 0D94Fh ; 1B SDIV16の剰余の符号
+RUN_POW_EXP             EQU 0D950h ; 2B ^の指数(int16、符号付き)
+RUN_POW_NEG             EQU 0D952h ; 1B 指数が負か
+RUN_POW_COUNT           EQU 0D953h ; 2B 指数の絶対値(乗算回数)
+RUN_POW_BASE            EQU 0D955h ; 9B ^の底(型1+データ8)を退避
+RUN_VAL_SAVE9           EQU 0D95Eh ; 9B 配列代入の右辺退避(型1+データ8)
+RUN_ARRAY_IDX           EQU 0D967h ; 2B 配列の添字(int16)
+RUN_ARRAY_FREE_PTR      EQU 0D969h ; 2B ARRAY_FINDが記録する空きスロット
+RUN_ARRAY_NAME          EQU 0D96Bh ; 8B 配列名(IDENT_BUFの退避)
+RUN_DIM_COUNT           EQU 0D973h ; 1B DIMの要素数(添字上限+1)
+RUN_IF_TRUE             EQU 0D974h ; 1B IF条件の真偽
+
+; ---- 配列テーブル(第4.10節・6.5節) ----
+; レコード(298B): [NAME 8B][USED 1B][COUNT 1B][DATA(32要素*9B=288B)]
+;   要素は変数と同じ「型1+データ8」(VARREC_VALUEと同形式)。
+;   宣言なし配列は既定COUNT=11(添字0-10、D9-D11の観測から10が上限と
+;   推定、仕様書に無い判断・第8節11)。最大4配列・1配列最大32要素
+;   (いずれも仕様書に無い上限)。
+RUN_ARRAY_TAB       EQU 0D980h
+ARRAY_REC_SIZE      EQU 298
+ARRAY_CAP           EQU 4
+ARRAYREC_USED       EQU 8
+ARRAYREC_COUNT      EQU 9
+ARRAYREC_DATA       EQU 10
+ARRAY_MAX_ELEMS     EQU 32
+; 終端 = D980+4*298(4A8h) = DE28h(既存領域と重ならない)
+
+; =======================================================================
 ; LEX_IDENT_PEEK — CUR_PTR位置から識別子(英字1文字+英数字*、末尾に
 ;   任意で%/$/#を1つ)を読み取る(CUR_PTRは進めない)。
 ;   出力: A=IDENT_KIND(0=識別子でない/1=無印/2=%/3=$/4=#)、
@@ -610,7 +665,7 @@ ASSIGN_STMT:
     LD A,(RUN_ASSIGN_KIND)
     CP 3
     JP Z,_as_string
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -1505,7 +1560,7 @@ _for_copyname1:
     CP '='
     JP NZ,_for_syntax
     CALL ADV_PTR
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -1526,7 +1581,7 @@ _for_copyname2:
     CALL TRY_MATCH_TO
     OR A
     JP Z,_for_syntax
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -1540,7 +1595,7 @@ _for_copyname2:
     CALL TRY_MATCH_STEP
     OR A
     JR Z,_for_default_step
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -1648,7 +1703,16 @@ END_STMT:
     LD (RUN_CTRL),A
     RET
 
+; M7段階5c: CONT(第4.11節)のために、STOPで止まった位置(RUN_CUR_RECORD/
+;   CUR_PTR/LINE_END、STOP自身の直後で以降の':'続き・次の行を指す)を
+;   RUN_CONT_*へ保存する。
 STOP_STMT:
+    LD HL,(RUN_CUR_RECORD)
+    LD (RUN_CONT_REC),HL
+    LD HL,(CUR_PTR)
+    LD (RUN_CONT_PTR),HL
+    LD HL,(LINE_END)
+    LD (RUN_CONT_END),HL
     XOR A
     LD (ERROR_FLAG),A
     LD A,2
@@ -1740,8 +1804,50 @@ _rmsk_try_end:
 _rmsk_try_stop:
     CALL TRY_MATCH_STOP
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_if
     LD A,7
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+; M7段階5c追記: IF/DIM/READ/RESTORE/REM('含む)を、代入へ落ちる前に
+;   照合する(第4.7節・4.10節・6.1〜6.2節・6.7節)。
+_rmsk_try_if:
+    CALL TRY_MATCH_IF
+    OR A
+    JR Z,_rmsk_try_dim
+    LD A,9
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_dim:
+    CALL TRY_MATCH_DIM
+    OR A
+    JR Z,_rmsk_try_read
+    LD A,10
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_read:
+    CALL TRY_MATCH_READ
+    OR A
+    JR Z,_rmsk_try_restore
+    LD A,11
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_restore:
+    CALL TRY_MATCH_RESTORE
+    OR A
+    JR Z,_rmsk_try_rem
+    LD A,12
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_rem:
+    CALL TRY_MATCH_REM_ANY
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,13
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -1762,6 +1868,8 @@ _rmsk_copyname:
     DJNZ _rmsk_copyname
     CALL SKIP_SPACES
     CALL PEEK_CHAR
+    CP '('
+    JR Z,_rmsk_array_assign
     CP '='
     JR NZ,_rmsk_assign_fail
     CALL ADV_PTR
@@ -1769,8 +1877,96 @@ _rmsk_copyname:
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
+_rmsk_array_assign:
+    ; CUR_PTRは'('の直前に残す(ARRAY_ASSIGN_STMTが'('から再解析する)。
+    LD A,14
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
 _rmsk_assign_fail:
     XOR A
+    RET
+
+; RUN_EXEC_ONE_STMT — CUR_PTR位置の文を1つだけ照合・実行する
+;   (RUN_MATCH_STMT_KEYWORDの結果で分岐)。呼び出し前にSKIP_SPACESは
+;   呼び出し元の責任。誤り時もここではメッセージを出さない(呼び出し元の
+;   RUN_EXECが1行1回だけRUN_EMIT_ERRORする、第4.5節)。
+;   M7段階5c: 従来RUN_EXEC内に直書きしていたswitchをここへ切り出し、
+;   IF文(THEN/ELSEの単文実行、IF_STMT参照)から再利用できるようにした。
+;   出力: ERROR_FLAG/ERROR_KIND・RUN_CTRL(呼び出し元が確認する)。
+RUN_EXEC_ONE_STMT:
+    CALL RUN_MATCH_STMT_KEYWORD
+    OR A
+    JR Z,_reos_unmatched
+    LD A,(RUN_STMT_KIND)
+    CP 0
+    JR Z,_reos_print
+    CP 1
+    JR Z,_reos_goto
+    CP 2
+    JR Z,_reos_gosub
+    CP 3
+    JR Z,_reos_return
+    CP 4
+    JR Z,_reos_for
+    CP 5
+    JR Z,_reos_next
+    CP 6
+    JR Z,_reos_end
+    CP 7
+    JR Z,_reos_stop
+    CP 9
+    JR Z,_reos_if
+    CP 10
+    JR Z,_reos_dim
+    CP 11
+    JR Z,_reos_read
+    CP 12
+    JR Z,_reos_restore
+    CP 13
+    JR Z,_reos_rem
+    CP 14
+    JR Z,_reos_arrassign
+    CALL ASSIGN_STMT
+    XOR A
+    LD (RUN_CTRL),A
+    RET
+_reos_print:
+    CALL PRINT_STMT
+    XOR A
+    LD (RUN_CTRL),A
+    RET
+_reos_goto:
+    JP GOTO_STMT
+_reos_gosub:
+    JP GOSUB_STMT
+_reos_return:
+    JP RETURN_STMT
+_reos_for:
+    JP FOR_STMT
+_reos_next:
+    JP NEXT_STMT
+_reos_end:
+    JP END_STMT
+_reos_stop:
+    JP STOP_STMT
+_reos_if:
+    JP IF_STMT
+_reos_dim:
+    JP DIM_STMT
+_reos_read:
+    JP READ_STMT
+_reos_restore:
+    JP RESTORE_STMT
+_reos_rem:
+    JP REM_STMT
+_reos_arrassign:
+    JP ARRAY_ASSIGN_STMT
+_reos_unmatched:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
     RET
 
 RUN_EXEC:
@@ -1779,55 +1975,7 @@ _run_stmt_loop:
     CALL SKIP_SPACES
     CALL AT_END
     JP Z,_run_line_end
-    CALL RUN_MATCH_STMT_KEYWORD
-    OR A
-    JP Z,_run_syntax_error
-    LD A,(RUN_STMT_KIND)
-    CP 0
-    JR Z,_run_do_print
-    CP 1
-    JR Z,_run_do_goto
-    CP 2
-    JR Z,_run_do_gosub
-    CP 3
-    JR Z,_run_do_return
-    CP 4
-    JR Z,_run_do_for
-    CP 5
-    JR Z,_run_do_next
-    CP 6
-    JR Z,_run_do_end
-    CP 7
-    JR Z,_run_do_stop
-    CALL ASSIGN_STMT
-    XOR A
-    LD (RUN_CTRL),A
-    JR _run_after_stmt
-_run_do_print:
-    CALL PRINT_STMT
-    XOR A
-    LD (RUN_CTRL),A
-    JR _run_after_stmt
-_run_do_goto:
-    CALL GOTO_STMT
-    JR _run_after_stmt
-_run_do_gosub:
-    CALL GOSUB_STMT
-    JR _run_after_stmt
-_run_do_return:
-    CALL RETURN_STMT
-    JR _run_after_stmt
-_run_do_for:
-    CALL FOR_STMT
-    JR _run_after_stmt
-_run_do_next:
-    CALL NEXT_STMT
-    JR _run_after_stmt
-_run_do_end:
-    CALL END_STMT
-    JR _run_after_stmt
-_run_do_stop:
-    CALL STOP_STMT
+    CALL RUN_EXEC_ONE_STMT
 _run_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -1842,7 +1990,7 @@ _run_after_stmt:
     JR Z,_run_line_end
     CALL PEEK_CHAR
     CP ':'
-    JR NZ,_run_syntax_error
+    JR NZ,_run_trailing_syntax
     CALL ADV_PTR
     JP _run_stmt_loop
 _run_line_end:
@@ -1854,16 +2002,12 @@ _run_normal_end:
     RET
 _run_halted:
     RET
-_run_error:
-    CALL RUN_EMIT_ERROR
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_run_syntax_error:
+_run_trailing_syntax:
     LD A,1
     LD (ERROR_FLAG),A
     LD A,2
     LD (ERROR_KIND),A
+_run_error:
     CALL RUN_EMIT_ERROR
     XOR A
     LD (ERROR_FLAG),A
@@ -1886,6 +2030,25 @@ _rrs_loop:
     LD DE,RUN_VARTAB_REC_SIZE
     ADD HL,DE
     DJNZ _rrs_loop
+    ; M7段階5c: 配列テーブル・DATA読み取り位置・CONT再開位置も
+    ; RUNのたびに初期化する(RUN_VARTABと同じ「呼ぶたびに初期化する」
+    ; 方針、ヘッダコメント参照)。
+    LD HL,RUN_ARRAY_TAB
+    LD B,ARRAY_CAP
+_rrs_arr_loop:
+    PUSH HL
+    LD DE,ARRAYREC_USED
+    ADD HL,DE
+    LD (HL),0
+    POP HL
+    LD DE,ARRAY_REC_SIZE
+    ADD HL,DE
+    DJNZ _rrs_arr_loop
+    XOR A
+    LD (RUN_DATA_STATE),A
+    LD HL,0
+    LD (RUN_DATA_REC),HL
+    LD (RUN_CONT_REC),HL
     RET
 
 ; RUN_STMT — 直接モードの"RUN"文(interp.asm MATCH_STMT_KEYWORDから
@@ -2477,4 +2640,1619 @@ _l4tmstep_fail:
 
 STMT_STEP_TEXT: DB "STEP"
 STMT_STEP_LEN EQU 4
+
+; =======================================================================
+; TRY_MATCH_KEYWORD_GENERIC — 汎用の固定語形照合(TRY_MATCH_GOTO等と同じ
+;   境界規則)。(RUN_KW_TEXT)=語形の先頭番地・(RUN_KW_LEN)=長さを呼び出し
+;   前に設定して使う。段階5c以降の新規キーワードはこれで済ませ、
+;   個別展開によるROM肥大を避ける(仕様書に無い判断、実装上の選択)。
+;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
+; =======================================================================
+TRY_MATCH_KEYWORD_GENERIC:
+    LD HL,(LINE_END)
+    LD DE,(CUR_PTR)
+    OR A
+    SBC HL,DE
+    LD A,L
+    LD HL,RUN_KW_LEN
+    CP (HL)
+    JR C,_kwg_fail
+    LD HL,(CUR_PTR)
+    LD DE,(RUN_KW_TEXT)
+    LD A,(RUN_KW_LEN)
+    LD B,A
+_kwg_cmp:
+    LD A,(HL)
+    CALL FOLD_UPPER
+    LD C,A
+    LD A,(DE)
+    CP C
+    JR NZ,_kwg_fail
+    INC HL
+    INC DE
+    DJNZ _kwg_cmp
+    LD DE,(LINE_END)
+    PUSH HL
+    OR A
+    SBC HL,DE
+    JR Z,_kwg_boundary_ok
+    POP HL
+    LD A,(HL)
+    CALL FOLD_UPPER
+    CP 'A'
+    JR C,_kwg_boundary_ok2
+    CP 'Z'+1
+    JR NC,_kwg_boundary_ok2
+    JR _kwg_fail
+_kwg_boundary_ok:
+    POP HL
+_kwg_boundary_ok2:
+    LD HL,(CUR_PTR)
+    LD A,(RUN_KW_LEN)
+    LD E,A
+    LD D,0
+    ADD HL,DE
+    LD (CUR_PTR),HL
+    LD A,1
+    RET
+_kwg_fail:
+    XOR A
+    RET
+
+TRY_MATCH_THEN:
+    LD HL,STMT_THEN_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_THEN_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_THEN_TEXT: DB "THEN"
+STMT_THEN_LEN EQU 4
+
+TRY_MATCH_ELSE:
+    LD HL,STMT_ELSE_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_ELSE_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_ELSE_TEXT: DB "ELSE"
+STMT_ELSE_LEN EQU 4
+
+TRY_MATCH_AND:
+    LD HL,STMT_AND_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_AND_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_AND_TEXT: DB "AND"
+STMT_AND_LEN EQU 3
+
+TRY_MATCH_OR:
+    LD HL,STMT_OR_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_OR_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_OR_TEXT: DB "OR"
+STMT_OR_LEN EQU 2
+
+TRY_MATCH_NOT:
+    LD HL,STMT_NOT_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_NOT_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_NOT_TEXT: DB "NOT"
+STMT_NOT_LEN EQU 3
+
+TRY_MATCH_MOD:
+    LD HL,STMT_MOD_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_MOD_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_MOD_TEXT: DB "MOD"
+STMT_MOD_LEN EQU 3
+
+TRY_MATCH_RESTORE:
+    LD HL,STMT_RESTORE_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_RESTORE_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_RESTORE_TEXT: DB "RESTORE"
+STMT_RESTORE_LEN EQU 7
+
+TRY_MATCH_DIM:
+    LD HL,STMT_DIM_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_DIM_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_DIM_TEXT: DB "DIM"
+STMT_DIM_LEN EQU 3
+
+TRY_MATCH_READ:
+    LD HL,STMT_READ_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_READ_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_READ_TEXT: DB "READ"
+STMT_READ_LEN EQU 4
+
+TRY_MATCH_IF:
+    LD HL,STMT_IF_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_IF_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_IF_TEXT: DB "IF"
+STMT_IF_LEN EQU 2
+
+TRY_MATCH_CONT:
+    LD HL,STMT_CONT_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_CONT_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_CONT_TEXT: DB "CONT"
+STMT_CONT_LEN EQU 4
+
+; TRY_MATCH_REM_ANY — "REM"またはシングルクォート"'"(6.7節)。
+TRY_MATCH_REM_ANY:
+    CALL PEEK_CHAR
+    CP 027h
+    JR NZ,_tmra_word
+    CALL ADV_PTR
+    LD A,1
+    RET
+_tmra_word:
+    LD HL,STMT_REM_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_REM_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_REM_TEXT: DB "REM"
+STMT_REM_LEN EQU 3
+
+TRY_MATCH_DATA_KW:
+    LD HL,STMT_DATA_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_DATA_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_DATA_TEXT: DB "DATA"
+STMT_DATA_LEN EQU 4
+
+; =======================================================================
+; 数値→int16変換(AND/OR/NOT・\・MOD・配列添字・^の指数で共通に使う)。
+;   仕様書に無い判断: 単精度・倍精度からの変換はMBF_ROUND_TO_INT16と
+;   同じ「半分は絶対値の大きい側」丸めを流用する(第4.4b節・l4-basic.md
+;   第5.3節と同じ規則の使い回し、第8節17参照)。
+; =======================================================================
+; VAL_TO_INT16_CUR — CUR_TYPE/CUR_DATA -> DE(int16)。CUR_TYPE/DATAを
+;   破壊する(倍精度は単精度へ変換してから丸めるため)。CF=1は範囲外。
+VAL_TO_INT16_CUR:
+    LD A,(CUR_TYPE)
+    OR A
+    JR NZ,_v2i_not_plain
+    LD DE,(CUR_DATA)
+    OR A
+    RET
+_v2i_not_plain:
+    CP 2
+    JR NZ,_v2i_single
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DTOS
+    CALL VAL_SET_SINGLE_FROM_RES
+_v2i_single:
+    CALL VAL_LOAD_CUR_TO_OPA
+    CALL MBF_ROUND_TO_INT16
+    OR A
+    JR Z,_v2i_ovfl
+    OR A
+    RET
+_v2i_ovfl:
+    SCF
+    RET
+
+; VAL_TO_INT16_RHS — RHS_TYPE/RHS_DATAをCUR_TYPE/DATAへ複写してから
+;   VAL_TO_INT16_CURを呼ぶ(CURを破壊する。呼び出し元は必要ならCURを
+;   先に退避すること)。出力・破壊はVAL_TO_INT16_CURと同じ。
+VAL_TO_INT16_RHS:
+    LD HL,RHS_TYPE
+    LD DE,CUR_TYPE
+    LD BC,9
+    LDIR
+    JP VAL_TO_INT16_CUR
+
+; =======================================================================
+; 符号付き16bit除算(\・MOD、第4.12節)。
+; =======================================================================
+; UDIV16 — HL=被除数(符号なし) DE=除数(符号なし) -> HL=商 DE=余り。
+UDIV16:
+    LD B,H
+    LD C,L
+    LD HL,0
+    LD A,16
+_ud16_loop:
+    SLA C
+    RL B
+    ADC HL,HL
+    OR A
+    SBC HL,DE
+    JR NC,_ud16_noadd
+    ADD HL,DE
+    JR _ud16_next
+_ud16_noadd:
+    SET 0,C
+_ud16_next:
+    DEC A
+    JR NZ,_ud16_loop
+    PUSH HL
+    LD H,B
+    LD L,C
+    POP DE
+    RET
+
+NEG16_HL:
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+    RET
+
+NEG16_DE:
+    XOR A
+    SUB E
+    LD E,A
+    LD A,0
+    SBC A,D
+    LD D,A
+    RET
+
+; SDIV16 — HL=被除数(符号付き) DE=除数(符号付き) -> HL=商(0方向切り捨て)
+;   DE=余り(被除数と同じ符号、負の数の商・余りの符号は仕様書に無い判断
+;   ・第8節17)。呼び出し元が0除算を事前に弾くこと。
+SDIV16:
+    XOR A
+    LD (SDIV_SIGNQ),A
+    LD (SDIV_SIGNR),A
+    BIT 7,H
+    JR Z,_sdiv_hpos
+    CALL NEG16_HL
+    LD A,1
+    LD (SDIV_SIGNQ),A
+    LD (SDIV_SIGNR),A
+_sdiv_hpos:
+    BIT 7,D
+    JR Z,_sdiv_dpos
+    CALL NEG16_DE
+    LD A,(SDIV_SIGNQ)
+    XOR 1
+    LD (SDIV_SIGNQ),A
+_sdiv_dpos:
+    CALL UDIV16
+    LD A,(SDIV_SIGNQ)
+    OR A
+    JR Z,_sdiv_qpos
+    CALL NEG16_HL
+_sdiv_qpos:
+    LD A,(SDIV_SIGNR)
+    OR A
+    JR Z,_sdiv_rpos
+    CALL NEG16_DE
+_sdiv_rpos:
+    RET
+
+; VAL_INTDIV — CUR = trunc(CUR \ RHS)(第4.12節)。
+VAL_INTDIV:
+    CALL VAL_TO_INT16_CUR
+    JR C,_vid_ovfl
+    LD (RUN_ARITH_L),DE
+    CALL VAL_TO_INT16_RHS
+    JR C,_vid_ovfl
+    LD (RUN_ARITH_R),DE
+    LD A,D
+    OR E
+    JR Z,_vid_divzero
+    LD HL,(RUN_ARITH_L)
+    LD DE,(RUN_ARITH_R)
+    CALL SDIV16
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_vid_divzero:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,11
+    LD (ERROR_KIND),A
+    RET
+_vid_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+; VAL_MODOP — CUR = CUR MOD RHS(剰余、第4.12節)。
+VAL_MODOP:
+    CALL VAL_TO_INT16_CUR
+    JR C,_vmo_ovfl
+    LD (RUN_ARITH_L),DE
+    CALL VAL_TO_INT16_RHS
+    JR C,_vmo_ovfl
+    LD (RUN_ARITH_R),DE
+    LD A,D
+    OR E
+    JR Z,_vmo_divzero
+    LD HL,(RUN_ARITH_L)
+    LD DE,(RUN_ARITH_R)
+    CALL SDIV16
+    EX DE,HL
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_vmo_divzero:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,11
+    LD (ERROR_KIND),A
+    RET
+_vmo_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+; =======================================================================
+; べき乗 '^'(第4.12節)。FACTORとTERMの間に挿入する優先順位
+;   (仕様書に無い判断、第8節15)。非負整数の指数は繰り返し乗算、負の
+;   指数は絶対値で計算した後に逆数(1/x)を取る。
+; =======================================================================
+POWER_FACTOR:
+    CALL FACTOR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+_pow_loop:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '^'
+    RET NZ
+    CALL ADV_PTR
+    CALL VAL_PUSH
+    CALL FACTOR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_pow_err
+    CALL VAL_TO_INT16_CUR
+    JR C,_pow_ovfl_early
+    PUSH DE
+    CALL VAL_POP
+    POP DE
+    LD (RUN_POW_EXP),DE
+    CALL POWER_COMPUTE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JR _pow_loop
+_pow_err:
+    CALL VAL_POP_DISCARD
+    RET
+_pow_ovfl_early:
+    CALL VAL_POP_DISCARD
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+; POWER_COMPUTE — CUR_TYPE/DATA(底)とRUN_POW_EXP(指数)から
+;   CUR_TYPE/DATA(結果)を計算する。
+POWER_COMPUTE:
+    LD HL,(RUN_POW_EXP)
+    XOR A
+    LD (RUN_POW_NEG),A
+    BIT 7,H
+    JR Z,_powc_have_abs
+    CALL NEG16_HL
+    LD A,1
+    LD (RUN_POW_NEG),A
+_powc_have_abs:
+    LD (RUN_POW_COUNT),HL
+    LD HL,CUR_TYPE
+    LD DE,RUN_POW_BASE
+    LD BC,9
+    LDIR
+    LD HL,1
+    CALL VAL_SET_INT
+    LD HL,(RUN_POW_COUNT)
+    LD A,H
+    OR L
+    JR Z,_powc_done
+_powc_loop:
+    LD HL,RUN_POW_BASE
+    LD DE,RHS_TYPE
+    LD BC,9
+    LDIR
+    CALL VAL_MUL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,(RUN_POW_COUNT)
+    DEC HL
+    LD (RUN_POW_COUNT),HL
+    LD A,H
+    OR L
+    JR NZ,_powc_loop
+_powc_done:
+    LD A,(RUN_POW_NEG)
+    OR A
+    RET Z
+    LD HL,CUR_TYPE
+    LD DE,RHS_TYPE
+    LD BC,9
+    LDIR
+    LD HL,1
+    CALL VAL_SET_INT
+    CALL VAL_DIV
+    RET
+
+; =======================================================================
+; 比較・論理演算(第4.7〜4.9節)。優先順位(仕様書に無い判断、第8節15):
+;   OR(最弱) > AND > NOT > 比較(= <> < > <= >=) > EXPR(+ -) > TERM
+;   (* / \ MOD) > POWER_FACTOR(^) > FACTOR。PRINT/ASSIGN/FOR/配列添字/
+;   カッコの中は、いずれもLOGIC_OR_EXPR(最上位)から入る。
+; =======================================================================
+LOGIC_OR_EXPR:
+    CALL LOGIC_AND_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+_loe_loop:
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_OR
+    OR A
+    RET Z
+    CALL VAL_PUSH
+    CALL LOGIC_AND_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_loe_err
+    CALL VAL_TO_INT16_CUR
+    JR C,_loe_ovfl
+    LD (LOGIC_TMP_RIGHT),DE
+    CALL VAL_POP
+    CALL VAL_TO_INT16_CUR
+    JR C,_loe_ovfl
+    LD HL,(LOGIC_TMP_RIGHT)
+    LD A,L
+    OR E
+    LD L,A
+    LD A,H
+    OR D
+    LD H,A
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    JR _loe_loop
+_loe_err:
+    CALL VAL_POP_DISCARD
+    RET
+_loe_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+LOGIC_AND_EXPR:
+    CALL NOT_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+_lae_loop:
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_AND
+    OR A
+    RET Z
+    CALL VAL_PUSH
+    CALL NOT_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_lae_err
+    CALL VAL_TO_INT16_CUR
+    JR C,_lae_ovfl
+    LD (LOGIC_TMP_RIGHT),DE
+    CALL VAL_POP
+    CALL VAL_TO_INT16_CUR
+    JR C,_lae_ovfl
+    LD HL,(LOGIC_TMP_RIGHT)
+    LD A,L
+    AND E
+    LD L,A
+    LD A,H
+    AND D
+    LD H,A
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    JR _lae_loop
+_lae_err:
+    CALL VAL_POP_DISCARD
+    RET
+_lae_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+NOT_EXPR:
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_NOT
+    OR A
+    JR NZ,_ne_have_not
+    JP COMPARE_EXPR
+_ne_have_not:
+    CALL NOT_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_TO_INT16_CUR
+    JR C,_ne_ovfl
+    LD A,D
+    CPL
+    LD D,A
+    LD A,E
+    CPL
+    LD E,A
+    LD H,D
+    LD L,E
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_ne_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+
+; COMPARE_EXPR — EXPR(+ -のみ)を左右に、= <> < > <= >= の1回だけの
+;   比較(連鎖はしない、仕様書に無い判断・第8節15)。真=-1・偽=0
+;   (第4.8節)。
+COMPARE_EXPR:
+    CALL EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '='
+    JR Z,_ce_eq
+    CP '<'
+    JR Z,_ce_lt_family
+    CP '>'
+    JR Z,_ce_gt_family
+    RET
+_ce_eq:
+    CALL ADV_PTR
+    XOR A
+    LD (RUN_CMP_OP),A
+    JR _ce_rhs
+_ce_lt_family:
+    CALL ADV_PTR
+    CALL PEEK_CHAR
+    CP '>'
+    JR Z,_ce_ne
+    CP '='
+    JR Z,_ce_le
+    LD A,2
+    LD (RUN_CMP_OP),A
+    JR _ce_rhs
+_ce_ne:
+    CALL ADV_PTR
+    LD A,1
+    LD (RUN_CMP_OP),A
+    JR _ce_rhs
+_ce_le:
+    CALL ADV_PTR
+    LD A,4
+    LD (RUN_CMP_OP),A
+    JR _ce_rhs
+_ce_gt_family:
+    CALL ADV_PTR
+    CALL PEEK_CHAR
+    CP '='
+    JR Z,_ce_ge
+    LD A,3
+    LD (RUN_CMP_OP),A
+    JR _ce_rhs
+_ce_ge:
+    CALL ADV_PTR
+    LD A,5
+    LD (RUN_CMP_OP),A
+_ce_rhs:
+    CALL VAL_PUSH
+    CALL EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_ce_err
+    CALL VAL_MOVE_CUR_TO_RHS
+    CALL VAL_POP
+    CALL VAL_COMPARE_CUR_RHS
+    LD (RUN_CMP_RAW),A
+    JP CMP_EVAL_RESULT
+_ce_err:
+    CALL VAL_POP_DISCARD
+    RET
+
+CMP_EVAL_RESULT:
+    LD A,(RUN_CMP_RAW)
+    LD B,A
+    LD A,(RUN_CMP_OP)
+    OR A
+    JR Z,_cer_eq
+    CP 1
+    JR Z,_cer_ne
+    CP 2
+    JR Z,_cer_lt
+    CP 3
+    JR Z,_cer_gt
+    CP 4
+    JR Z,_cer_le
+    JR _cer_ge
+_cer_eq:
+    LD A,B
+    OR A
+    JR Z,_cer_true
+    JR _cer_false
+_cer_ne:
+    LD A,B
+    OR A
+    JR NZ,_cer_true
+    JR _cer_false
+_cer_lt:
+    LD A,B
+    CP 0FFh
+    JR Z,_cer_true
+    JR _cer_false
+_cer_gt:
+    LD A,B
+    CP 1
+    JR Z,_cer_true
+    JR _cer_false
+_cer_le:
+    LD A,B
+    OR A
+    JR Z,_cer_true
+    CP 0FFh
+    JR Z,_cer_true
+    JR _cer_false
+_cer_ge:
+    LD A,B
+    OR A
+    JR Z,_cer_true
+    CP 1
+    JR Z,_cer_true
+    JR _cer_false
+_cer_true:
+    LD HL,0FFFFh
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_cer_false:
+    LD HL,0
+    CALL VAL_SET_INT
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+
+; IF_TEST_NONZERO — CUR_TYPE/DATAが0以外ならA=1、0ならA=0(第4.7節
+;   「0以外の数値は真」)。CUR/RHSを破壊する。
+IF_TEST_NONZERO:
+    XOR A
+    LD (RHS_TYPE),A
+    LD HL,0
+    LD (RHS_DATA),HL
+    LD (RHS_DATA+2),HL
+    CALL VAL_COMPARE_CUR_RHS
+    OR A
+    JR Z,_itn_zero
+    LD A,1
+    RET
+_itn_zero:
+    XOR A
+    RET
+
+; =======================================================================
+; IF_STMT — 第4.7節・6.4節・6.8節。THENの後は行番号(GOTO相当)か1文。
+;   ELSEがあれば偽のとき1文だけ実行する。真のとき、同じ行の':'続きは
+;   RUN_EXECの通常ループがそのまま実行する(6.8節rest_runs_when_true、
+;   ここではELSE節だけを読み飛ばす)。偽のときは、ELSEが見つかるまで
+;   (見つかればその1文を実行して)、無ければ行の残り全てを飛ばす
+;   (6.8節rest_skipped_when_false)。
+; =======================================================================
+IF_STMT:
+    CALL SKIP_SPACES
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL IF_TEST_NONZERO
+    LD (RUN_IF_TRUE),A
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_THEN
+    OR A
+    JP Z,_if_syntax
+    CALL SKIP_SPACES
+    LD A,(RUN_IF_TRUE)
+    OR A
+    JR Z,_if_false
+_if_true:
+    CALL PEEK_CHAR
+    CP '0'
+    JR C,_if_true_stmt
+    CP '9'+1
+    JR NC,_if_true_stmt
+    CALL PARSE_LINENUM_CUR
+    JP C,_if_syntax
+    CALL RUN_FIND_LINE
+    JR C,_if_undef
+    CALL RUN_ENTER_RECORD
+    LD A,1
+    LD (RUN_CTRL),A
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_if_true_stmt:
+    CALL RUN_EXEC_ONE_STMT
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(RUN_CTRL)
+    OR A
+    RET NZ
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_ELSE
+    OR A
+    JR Z,_if_true_stmt_done
+    LD HL,(LINE_END)
+    LD (CUR_PTR),HL
+_if_true_stmt_done:
+    RET
+; 偽: THENの対象を実行せず読み飛ばす。ELSEは':'を挟むとは限らず
+;   (例: "THEN print 1 ELSE print 2"は空白区切り)、1文字ずつ進めながら
+;   TRY_MATCH_ELSEを試す(仕様書に無い判断、単純さ優先で低速だが
+;   1行の長さは小さい)。見つからなければ行末まで丸ごと飛ばす
+;   (6.8節rest_skipped_when_false)。
+_if_false:
+_if_false_check:
+    CALL AT_END
+    JR Z,_if_false_done
+    CALL TRY_MATCH_ELSE
+    OR A
+    JR NZ,_if_false_run_else
+    CALL ADV_PTR
+    JR _if_false_check
+_if_false_run_else:
+    CALL SKIP_SPACES
+    CALL RUN_EXEC_ONE_STMT
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(RUN_CTRL)
+    OR A
+    RET NZ
+    LD HL,(LINE_END)
+    LD (CUR_PTR),HL
+_if_false_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    LD (RUN_CTRL),A
+    RET
+_if_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_if_undef:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,8
+    LD (ERROR_KIND),A
+    RET
+
+; REM_STMT — 第6.7節。CUR_PTRを行末まで進める(':'も含め注釈として
+;   無視する、仕様書に無い判断・第8節31)。
+REM_STMT:
+    LD HL,(LINE_END)
+    LD (CUR_PTR),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    LD (RUN_CTRL),A
+    RET
+
+; =======================================================================
+; 配列(第4.10節・6.5節)
+; =======================================================================
+ARRAY_FIND:
+    XOR A
+    LD H,A
+    LD L,A
+    LD (RUN_ARRAY_FREE_PTR),HL
+    LD HL,RUN_ARRAY_TAB
+    LD B,ARRAY_CAP
+_af_loop:
+    PUSH HL
+    LD DE,ARRAYREC_USED
+    ADD HL,DE
+    LD A,(HL)
+    POP HL
+    OR A
+    JR NZ,_af_check_match
+    LD DE,(RUN_ARRAY_FREE_PTR)
+    LD A,D
+    OR E
+    JR NZ,_af_next
+    LD (RUN_ARRAY_FREE_PTR),HL
+    JR _af_next
+_af_check_match:
+    PUSH HL
+    PUSH BC
+    LD DE,IDENT_BUF
+    LD B,8
+_af_cmp:
+    LD A,(DE)
+    CP (HL)
+    JR NZ,_af_cmp_fail
+    INC HL
+    INC DE
+    DJNZ _af_cmp
+    POP BC
+    POP HL
+    LD A,1
+    RET
+_af_cmp_fail:
+    POP BC
+    POP HL
+_af_next:
+    LD DE,ARRAY_REC_SIZE
+    ADD HL,DE
+    DJNZ _af_loop
+    XOR A
+    RET
+
+; ARRAY_ALLOC — A=要素数(COUNT)。IDENT_BUFの名前で空きスロットへ
+;   初期登録する(USED=1,COUNT=A,DATA全0)。出力: A=1成功(HL=スロット)/
+;   0満杯。
+ARRAY_ALLOC:
+    LD (RUN_DIM_COUNT),A
+    LD HL,(RUN_ARRAY_FREE_PTR)
+    LD A,H
+    OR L
+    JR Z,_aa_full
+    PUSH HL
+    LD DE,IDENT_BUF
+    LD B,8
+_aa_copyname:
+    LD A,(DE)
+    LD (HL),A
+    INC HL
+    INC DE
+    DJNZ _aa_copyname
+    LD (HL),1
+    INC HL
+    LD A,(RUN_DIM_COUNT)
+    LD (HL),A
+    INC HL
+    LD BC,ARRAY_MAX_ELEMS*9
+_aa_clear:
+    LD (HL),0
+    INC HL
+    DEC BC
+    LD A,B
+    OR C
+    JR NZ,_aa_clear
+    POP HL
+    LD A,1
+    RET
+_aa_full:
+    XOR A
+    RET
+
+; ARRAY_GET_OR_CREATE_DEFAULT — IDENT_BUFの配列を確実に用意する
+;   (無ければCOUNT=11で新規作成、第4.10節の推定上限)。
+;   出力: A=1成功(HL=スロット)/0満杯。
+ARRAY_GET_OR_CREATE_DEFAULT:
+    CALL ARRAY_FIND
+    OR A
+    RET NZ
+    LD A,11
+    CALL ARRAY_ALLOC
+    RET
+
+; ARRAY_ELEM_ADDR — HL=配列レコード先頭(呼び出し前提)。RUN_ARRAY_IDXの
+;   添字から要素アドレスを求める。出力: HL'=要素アドレス(CF=0)/
+;   CF=1(範囲外、第9節Subscript out of range)。
+ARRAY_ELEM_ADDR:
+    PUSH HL
+    LD DE,ARRAYREC_COUNT
+    ADD HL,DE
+    LD A,(HL)
+    POP HL
+    LD B,A
+    LD DE,(RUN_ARRAY_IDX)
+    LD A,D
+    OR A
+    JR NZ,_aea_range
+    LD A,E
+    CP B
+    JR NC,_aea_range
+    PUSH HL
+    LD H,0
+    LD L,E
+    LD D,H
+    LD E,L
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,DE
+    LD DE,ARRAYREC_DATA
+    ADD HL,DE
+    POP DE
+    ADD HL,DE
+    OR A
+    RET
+_aea_range:
+    SCF
+    RET
+
+; ARRAY_READ — FACTORから、識別子(IDENT_BUF)の直後に'('を見た時点で
+;   呼ばれる(CUR_PTRは'('の位置)。出力: CUR_TYPE/CUR_DATA(読み出した
+;   値)、ERROR_FLAG/KIND。
+ARRAY_READ:
+    LD HL,IDENT_BUF
+    LD DE,RUN_ARRAY_NAME
+    LD BC,8
+    LDIR
+    CALL ADV_PTR
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_TO_INT16_CUR
+    JR C,_ar_ovfl
+    LD (RUN_ARRAY_IDX),DE
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ')'
+    JR NZ,_ar_syntax
+    CALL ADV_PTR
+    LD HL,RUN_ARRAY_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL ARRAY_GET_OR_CREATE_DEFAULT
+    OR A
+    JR Z,_ar_oom
+    CALL ARRAY_ELEM_ADDR
+    JR C,_ar_range
+    LD DE,CUR_TYPE
+    LD BC,9
+    LDIR
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_ar_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_ar_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+_ar_oom:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
+    RET
+_ar_range:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,9
+    LD (ERROR_KIND),A
+    RET
+
+; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
+;   RUN_MATCH_STMT_KEYWORDが設定済み、CUR_PTRは'('の位置。
+ARRAY_ASSIGN_STMT:
+    LD A,(RUN_ASSIGN_KIND)
+    CP 3
+    JR Z,_aas_typeerr
+    LD HL,RUN_ASSIGN_NAME
+    LD DE,RUN_ARRAY_NAME
+    LD BC,8
+    LDIR
+    CALL ADV_PTR
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_TO_INT16_CUR
+    JR C,_aas_ovfl
+    LD (RUN_ARRAY_IDX),DE
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ')'
+    JR NZ,_aas_syntax
+    CALL ADV_PTR
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '='
+    JR NZ,_aas_syntax
+    CALL ADV_PTR
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,CUR_TYPE
+    LD DE,RUN_VAL_SAVE9
+    LD BC,9
+    LDIR
+    LD HL,RUN_ARRAY_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL ARRAY_GET_OR_CREATE_DEFAULT
+    OR A
+    JR Z,_aas_oom
+    CALL ARRAY_ELEM_ADDR
+    JR C,_aas_range
+    EX DE,HL
+    LD HL,RUN_VAL_SAVE9
+    LD BC,9
+    LDIR
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_aas_typeerr:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,13
+    LD (ERROR_KIND),A
+    RET
+_aas_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_aas_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+_aas_oom:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
+    RET
+_aas_range:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,9
+    LD (ERROR_KIND),A
+    RET
+
+; DIM_STMT — 第4.10節。カンマ区切りで複数配列を宣言できる
+;   (仕様書に無い判断、追加的な拡張)。同名の再DIMはDuplicate
+;   Definition(10、仕様書に無い判断)。
+DIM_STMT:
+_dim_one:
+    CALL SKIP_SPACES
+    CALL LEX_IDENT_CONSUME
+    OR A
+    JR Z,_dim_syntax
+    CP 3
+    JR Z,_dim_typeerr
+    LD HL,IDENT_BUF
+    LD DE,RUN_ARRAY_NAME
+    LD BC,8
+    LDIR
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '('
+    JR NZ,_dim_syntax
+    CALL ADV_PTR
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_TO_INT16_CUR
+    JR C,_dim_ovfl
+    LD A,D
+    OR A
+    JR NZ,_dim_ovfl
+    LD A,E
+    CP ARRAY_MAX_ELEMS
+    JR NC,_dim_ovfl
+    INC A
+    LD (RUN_DIM_COUNT),A
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ')'
+    JR NZ,_dim_syntax
+    CALL ADV_PTR
+    LD HL,RUN_ARRAY_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL ARRAY_FIND
+    OR A
+    JR NZ,_dim_dup
+    LD A,(RUN_DIM_COUNT)
+    CALL ARRAY_ALLOC
+    OR A
+    JR Z,_dim_oom
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ','
+    JR NZ,_dim_done
+    CALL ADV_PTR
+    JR _dim_one
+_dim_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_dim_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_dim_typeerr:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,13
+    LD (ERROR_KIND),A
+    RET
+_dim_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
+    RET
+_dim_dup:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,10
+    LD (ERROR_KIND),A
+    RET
+_dim_oom:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
+    RET
+
+; =======================================================================
+; READ/DATA/RESTORE(第6.1〜6.3節)。DATA_READ_ONEは、実行中のCUR_PTR/
+;   LINE_ENDを一時的にDATA走査位置へ差し替えて既存の字句解析
+;   (PEEK_CHAR/ADV_PTR/SKIP_SPACES/AT_END/LEX_NUMBER等)をそのまま
+;   再利用し、終わったら呼び出し元のCUR_PTR/LINE_ENDへ戻す
+;   (RUN_DATA_MAIN_SAVE_*)。RUN_CUR_RECORD(本線の実行位置)とは別に
+;   RUN_DATA_REC(DATAの走査位置)を持つ。
+; =======================================================================
+DATA_ENTER_RECORD:
+    LD (RUN_DATA_REC),HL
+    INC HL
+    INC HL
+    LD A,(HL)
+    LD C,A
+    LD B,0
+    INC HL
+    LD (CUR_PTR),HL
+    ADD HL,BC
+    LD (LINE_END),HL
+    RET
+
+DATA_ADVANCE_RECORD:
+    LD HL,(RUN_DATA_REC)
+    LD DE,2
+    ADD HL,DE
+    LD A,(HL)
+    LD C,A
+    LD B,0
+    INC BC
+    INC BC
+    INC BC
+    LD HL,(RUN_DATA_REC)
+    ADD HL,BC
+    LD A,(HL)
+    LD B,A
+    PUSH HL
+    INC HL
+    LD A,(HL)
+    POP HL
+    CP 0FFh
+    JR NZ,_dar_have
+    LD A,B
+    CP 0FFh
+    JR NZ,_dar_have
+    XOR A
+    RET
+_dar_have:
+    CALL DATA_ENTER_RECORD
+    LD A,1
+    RET
+
+; DATA_SCAN — CUR_PTR/LINE_END/RUN_DATA_RECが指す位置から、文区切りを
+;   数えながら次の"DATA"文を探す。見つかれば最初の値の直前まで
+;   (空白を読み飛ばして)CUR_PTRを進める。出力: A=1見つかった/0尽きた。
+DATA_SCAN:
+_ds_stmt_loop:
+    CALL AT_END
+    JR Z,_ds_next_record
+    CALL SKIP_SPACES
+    CALL AT_END
+    JR Z,_ds_next_record
+    CALL TRY_MATCH_DATA_KW
+    OR A
+    JR NZ,_ds_found
+    CALL RUN_SKIP_REST_OF_STATEMENT
+    CALL AT_END
+    JR Z,_ds_next_record
+    CALL PEEK_CHAR
+    CP ':'
+    JR NZ,_ds_next_record
+    CALL ADV_PTR
+    JR _ds_stmt_loop
+_ds_next_record:
+    CALL DATA_ADVANCE_RECORD
+    OR A
+    JR Z,_ds_exhausted
+    JR _ds_stmt_loop
+_ds_found:
+    CALL SKIP_SPACES
+    LD A,1
+    RET
+_ds_exhausted:
+    XOR A
+    RET
+
+; DATA_PARSE_NUMBER_LITERAL — FACTORの数値定数解釈(_l4factor_is_number
+;   相当)を、DATA用にCUR_PTR位置へ直接適用する。先頭の'-'も許す
+;   (仕様書に無い判断、DATAの負数リテラルは未測定)。
+DATA_PARSE_NUMBER_LITERAL:
+    CALL PEEK_CHAR
+    CP '-'
+    JR NZ,_dpnl_noneg
+    CALL ADV_PTR
+    LD A,1
+    LD (RUN_DATA_NEG),A
+    JR _dpnl_afterneg
+_dpnl_noneg:
+    XOR A
+    LD (RUN_DATA_NEG),A
+_dpnl_afterneg:
+    CALL LEX_NUMBER
+    LD A,(LIT_HASDOT)
+    OR A
+    JR NZ,_dpnl_general
+    LD A,(LIT_HASEXP)
+    OR A
+    JR NZ,_dpnl_general
+    LD A,(LIT_HASSUFFIX)
+    OR A
+    JR NZ,_dpnl_general
+    CALL LIT_TRY_INT16
+    JR NC,_dpnl_general
+    CALL VAL_SET_INT
+    JR _dpnl_applyneg
+_dpnl_general:
+    CALL LIT_COPY_TO_FINBUF
+    CALL MBF_FIN
+    LD A,(MBF_STATUS)
+    CP 3
+    JR Z,_dpnl_double
+    CP 1
+    JR Z,_dpnl_ovfl
+    CALL VAL_SET_SINGLE_FROM_RES
+    JR _dpnl_applyneg
+_dpnl_double:
+    CALL MBF_DFIN
+    LD A,(MBF_STATUS)
+    OR A
+    JR NZ,_dpnl_ovfl
+    CALL VAL_SET_DOUBLE_FROM_DRES
+    JR _dpnl_applyneg
+_dpnl_ovfl:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
+_dpnl_applyneg:
+    LD A,(RUN_DATA_NEG)
+    OR A
+    JR Z,_dpnl_done
+    CALL VAL_NEG
+_dpnl_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+
+; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
+;   BUFへ読む(31文字超は切り詰め、引用符の特別扱いはしない・第8節29)。
+DATA_PARSE_RAW_TOKEN:
+    XOR A
+    LD (RUN_STR_TMP_LEN),A
+_dprt_loop:
+    CALL AT_END
+    JR Z,_dprt_done
+    CALL PEEK_CHAR
+    CP ','
+    JR Z,_dprt_done
+    CP ':'
+    JR Z,_dprt_done
+    LD B,A
+    LD A,(RUN_STR_TMP_LEN)
+    CP 31
+    JR NC,_dprt_skip
+    LD HL,RUN_STR_TMP_BUF
+    LD D,0
+    LD E,A
+    ADD HL,DE
+    LD (HL),B
+    LD A,(RUN_STR_TMP_LEN)
+    INC A
+    LD (RUN_STR_TMP_LEN),A
+_dprt_skip:
+    CALL ADV_PTR
+    JR _dprt_loop
+_dprt_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+
+; DATA_READ_ONE — A(in)=0数値/1文字列。出力: 数値ならCUR_TYPE/DATA、
+;   文字列ならRUN_STR_TMP_LEN/BUF。DATA切れはOut of DATA(4、第6.3節)。
+DATA_READ_ONE:
+    LD (RUN_DATA_WANT_KIND),A
+    LD HL,(CUR_PTR)
+    LD (RUN_DATA_MAIN_SAVE_PTR),HL
+    LD HL,(LINE_END)
+    LD (RUN_DATA_MAIN_SAVE_END),HL
+    LD A,(RUN_DATA_STATE)
+    CP 2
+    JP Z,_dro_exhausted
+    CP 1
+    JR Z,_dro_have_pos
+    LD HL,(RUN_DATA_REC)
+    LD A,H
+    OR L
+    JR NZ,_dro_resume_scan
+    LD HL,PROGRAM_AREA
+    LD A,(HL)
+    LD B,A
+    PUSH HL
+    INC HL
+    LD A,(HL)
+    POP HL
+    CP 0FFh
+    JR NZ,_dro_enter_first
+    LD A,B
+    CP 0FFh
+    JR NZ,_dro_enter_first
+    JR _dro_exhausted
+_dro_enter_first:
+    CALL DATA_ENTER_RECORD
+    JR _dro_do_scan
+_dro_resume_scan:
+    LD HL,(RUN_DATA_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_DATA_END)
+    LD (LINE_END),HL
+_dro_do_scan:
+    CALL DATA_SCAN
+    OR A
+    JR Z,_dro_exhausted
+    JR _dro_have_value_pos
+_dro_have_pos:
+    LD HL,(RUN_DATA_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_DATA_END)
+    LD (LINE_END),HL
+_dro_have_value_pos:
+    CALL SKIP_SPACES
+    LD A,(RUN_DATA_WANT_KIND)
+    OR A
+    JR NZ,_dro_parse_string
+    CALL DATA_PARSE_NUMBER_LITERAL
+    JR _dro_parsed
+_dro_parse_string:
+    CALL DATA_PARSE_RAW_TOKEN
+_dro_parsed:
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_dro_fail_restore
+    CALL SKIP_SPACES
+    CALL AT_END
+    JR Z,_dro_clause_ends
+    CALL PEEK_CHAR
+    CP ','
+    JR Z,_dro_more
+    JR _dro_clause_ends
+_dro_more:
+    CALL ADV_PTR
+    LD A,1
+    LD (RUN_DATA_STATE),A
+    JR _dro_save
+_dro_clause_ends:
+    XOR A
+    LD (RUN_DATA_STATE),A
+_dro_save:
+    LD HL,(CUR_PTR)
+    LD (RUN_DATA_PTR),HL
+    LD HL,(LINE_END)
+    LD (RUN_DATA_END),HL
+    LD HL,(RUN_DATA_MAIN_SAVE_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_DATA_MAIN_SAVE_END)
+    LD (LINE_END),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_dro_exhausted:
+    LD A,2
+    LD (RUN_DATA_STATE),A
+    LD HL,(RUN_DATA_MAIN_SAVE_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_DATA_MAIN_SAVE_END)
+    LD (LINE_END),HL
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,4
+    LD (ERROR_KIND),A
+    RET
+_dro_fail_restore:
+    LD HL,(RUN_DATA_MAIN_SAVE_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_DATA_MAIN_SAVE_END)
+    LD (LINE_END),HL
+    RET
+
+; READ_STMT — 第6.1節。カンマ区切りで複数変数へ同時READできる
+;   (%・#の丸めは適用せずそのまま代入する、仕様書に無い判断)。
+READ_STMT:
+_read_one:
+    CALL SKIP_SPACES
+    CALL LEX_IDENT_CONSUME
+    OR A
+    JR Z,_read_syntax
+    CP 3
+    JR Z,_read_string_target
+    LD HL,IDENT_BUF
+    LD DE,RUN_ASSIGN_NAME
+    LD BC,8
+    LDIR
+    XOR A
+    CALL DATA_READ_ONE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,RUN_ASSIGN_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL VAR_WRITE_NUMERIC
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JR _read_next
+_read_string_target:
+    LD HL,IDENT_BUF
+    LD DE,RUN_ASSIGN_NAME
+    LD BC,8
+    LDIR
+    LD A,1
+    CALL DATA_READ_ONE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,RUN_ASSIGN_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL VAR_WRITE_STRING
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+_read_next:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ','
+    JR NZ,_read_done
+    CALL ADV_PTR
+    JR _read_one
+_read_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_read_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+
+; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
+;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
+RESTORE_STMT:
+    CALL SKIP_SPACES
+    CALL AT_END
+    JR Z,_restore_ok
+    CALL PEEK_CHAR
+    CP ':'
+    JR Z,_restore_ok
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_restore_ok:
+    XOR A
+    LD (RUN_DATA_STATE),A
+    LD HL,0
+    LD (RUN_DATA_REC),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+
+; =======================================================================
+; CONT(第4.11節) — 直接モードのコマンド(interp.asm DIRECT_LINEから
+;   STMT_KIND=4で呼ばれる、RUNと同じ位置づけ)。STOP_STMTが保存した
+;   RUN_CONT_*から再開し、RUN_EXECの通常の継続処理(_run_after_stmt、
+;   ERROR_FLAG=0・RUN_CTRL=0で開始)へそのまま合流する。
+; =======================================================================
+CONT_STMT:
+    LD HL,(RUN_CONT_REC)
+    LD A,H
+    OR L
+    JR NZ,_cont_have
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,17
+    LD (ERROR_KIND),A
+    RET
+_cont_have:
+    LD (RUN_CUR_RECORD),HL
+    LD HL,(RUN_CONT_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_CONT_END)
+    LD (LINE_END),HL
+    LD HL,0
+    LD (RUN_CONT_REC),HL
+    XOR A
+    LD (RUN_CTRL),A
+    LD (ERROR_FLAG),A
+    JP _run_after_stmt
 

@@ -240,6 +240,14 @@ ERRKIND_TABLE:
     DW ERR_MSG_7
     DB 15
     DW ERR_MSG_15
+    DB 9
+    DW ERR_MSG_9
+    DB 10
+    DW ERR_MSG_10
+    DB 4
+    DW ERR_MSG_4
+    DB 17
+    DW ERR_MSG_17
     DB 0
 
 ; ---------------------------------------------------------------------
@@ -264,6 +272,8 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_new
     CP 3
     JR Z,_l4dl_call_run
+    CP 4
+    JR Z,_l4dl_call_cont
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -274,6 +284,9 @@ _l4dl_call_new:
     JR _l4dl_after_stmt
 _l4dl_call_run:
     CALL RUN_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_cont:
+    CALL CONT_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -333,8 +346,18 @@ _l4msk_try_run:
     ; 「new・listと同じく行番号を伴わない直接モードのコマンド」)。
     CALL TRY_MATCH_RUN
     OR A
-    RET Z
+    JR Z,_l4msk_try_cont
     LD A,3
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_cont:
+    ; M7段階5c追記: CONT(run.asmのTRY_MATCH_CONT、l4-program.md第4.11節。
+    ; RUN・LIST・NEWと同じく行番号を伴わない直接モードのコマンド)。
+    CALL TRY_MATCH_CONT
+    OR A
+    RET Z
+    LD A,4
     LD (STMT_KIND),A
     LD A,1
     RET
@@ -521,7 +544,7 @@ _l4ps_loop:
     CALL LEX_IDENT_PEEK
     CP 3
     JR Z,_l4ps_strvar_item
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -752,8 +775,14 @@ _l4expr_err_pop:
     CALL VAL_POP_DISCARD
     RET
 
+; M7段階5c: べき乗'^'をFACTORとTERMの間の優先順位に挿入した
+;   (POWER_FACTOR、run.asm。第4.12節D14の根拠のみ、優先順位そのものは
+;   仕様書に無い判断・第8節15)。TERMの各被演算子はPOWER_FACTOR経由に
+;   した(以前はFACTOR直呼び)。'\'(整数除算、0x5C)・MOD(run.asm
+;   TRY_MATCH_MOD)も*/と同じ優先順位に追加した(仕様書に無い判断、
+;   優先順位の細部は第8節15参照)。
 TERM:
-    CALL FACTOR
+    CALL POWER_FACTOR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -765,11 +794,16 @@ _l4term_loop:
     JR Z,_l4term_mul
     CP '/'
     JR Z,_l4term_div
+    CP 05Ch
+    JR Z,_l4term_intdiv
+    CALL TRY_MATCH_MOD
+    OR A
+    JR NZ,_l4term_mod
     CALL VAL_POP_DISCARD
     RET
 _l4term_mul:
     CALL ADV_PTR
-    CALL FACTOR
+    CALL POWER_FACTOR
     LD A,(ERROR_FLAG)
     OR A
     JR NZ,_l4term_err_pop
@@ -782,13 +816,39 @@ _l4term_mul:
     JP _l4term_loop
 _l4term_div:
     CALL ADV_PTR
-    CALL FACTOR
+    CALL POWER_FACTOR
     LD A,(ERROR_FLAG)
     OR A
     JR NZ,_l4term_err_pop
     CALL VAL_MOVE_CUR_TO_RHS
     CALL VAL_POP
     CALL VAL_DIV
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JP _l4term_loop
+_l4term_intdiv:
+    CALL ADV_PTR
+    CALL POWER_FACTOR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_l4term_err_pop
+    CALL VAL_MOVE_CUR_TO_RHS
+    CALL VAL_POP
+    CALL VAL_INTDIV
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JP _l4term_loop
+_l4term_mod:
+    ; TRY_MATCH_MODは一致時にCUR_PTRを既に消費済み(ADV_PTR不要)。
+    CALL POWER_FACTOR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_l4term_err_pop
+    CALL VAL_MOVE_CUR_TO_RHS
+    CALL VAL_POP
+    CALL VAL_MODOP
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -813,7 +873,7 @@ _l4factor_try_paren:
     CP '('
     JR NZ,_l4factor_try_num
     CALL ADV_PTR
-    CALL EXPR
+    CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -905,14 +965,23 @@ _l4factor_num_ovfl:
 ; Type mismatch(13、run.asmヘッダの仕様書に無い判断)。M7段階4b-3で
 ; #(倍精度、kind=4)はVAR_READ_NUMERIC(CUR_TYPE=2として読む)を通す
 ; ようにした。識別子ですらなければ(kind=0)従来どおり_l4factor_badへ落ちる。
+; M7段階5c追記: 識別子の直後(空白を挟んでもよい、ASSIGN側の'='判定と
+;   同じ規則)に'('があれば配列の読み出し(ARRAY_READ、run.asm、
+;   第4.10節・6.5節)として扱う。
 _l4factor_try_ident:
     CALL LEX_IDENT_CONSUME
     OR A
     JR Z,_l4factor_bad
     CP 3
     JR Z,_l4factor_ident_typeerr
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '('
+    JR Z,_l4factor_array_read
     CALL VAR_READ_NUMERIC
     RET
+_l4factor_array_read:
+    JP ARRAY_READ
 _l4factor_ident_typeerr:
     LD A,1
     LD (ERROR_FLAG),A

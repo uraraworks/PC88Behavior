@@ -406,6 +406,210 @@ run("case_b10_runtime_error", "NEW\\n10 print 1+\\nRUN\\n", [
     {"kind": "cmd", "out": 1, "texts": ["Missing operand in 10"]},
 ])
 
+# =======================================================================
+# M7段階5c: IF〜THEN〜ELSE・比較・AND/OR/NOT・配列・CONT・^ \ MOD・
+# READ/DATA/RESTORE・REM・1行複数文の残り(docs/spec/l4-program.md
+# 第7版第4.7〜4.12節・第6節)。
+# =======================================================================
+
+# 4.7節: IF〜THEN〜ELSE(D1・D2・D6・D13・D15、branch_ok)。
+run("case_d1_if_then_true", "NEW\\n10 if 1<2 then print 1\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(1)]},
+])
+run("case_d2_if_then_else", "NEW\\n10 if 2<1 then print 1 else print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+run("case_d6_if_then_lineno", "NEW\\n10 a=3\\n20 if a>2 then 40\\n30 print 1\\n40 print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+run("case_d13_if_nonzero_true", "NEW\\n10 if 1 then print 5\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(5)]},
+])
+run("case_d15_if_and_compound", "NEW\\n10 if 1<2 and 3<4 then print 8\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(8)]},
+])
+
+# 4.8節: 比較演算の値(D3-D5、true_is_minus1)。
+run("case_d3_lt_true", "NEW\\n10 print 1<2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(-1)]},
+])
+run("case_d4_lt_false", "NEW\\n10 print 2<1\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(0)]},
+])
+run("case_d5_eq_true", "NEW\\n10 print 1=1\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(-1)]},
+])
+
+# 4.9節: AND/OR/NOTはビットごと(D7・D8、bitwise)。
+run("case_d7_and_or", "NEW\\n10 print 3 and 5\\n20 print 3 or 5\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), expect_num(7)]},
+])
+run("case_d8_not", "NEW\\n10 print not 0\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(-1)]},
+])
+
+# 4.10節: 配列(D9・D10、array_ok)。宣言あり/なしのどちらでも使える。
+run("case_d9_dim_array", "NEW\\n10 dim a(3)\\n20 a(2)=7\\n30 print a(2)\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(7)]},
+])
+run("case_d10_array_no_dim", "NEW\\n10 a(5)=1\\n20 print a(5)\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(1)]},
+])
+# D11: 宣言なし配列の範囲外添字は誤り(出力1行、文言は書かない)。
+run("case_d11_array_out_of_range", "NEW\\n10 a(11)=1\\n20 print 1\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1},
+])
+
+# 4.11節: CONT(D12、cont_resumes)。STOPで止まった次の行から再開する。
+run("case_d12_cont", "NEW\\n10 print 1\\n20 stop\\n30 print 2\\nRUN\\nCONT\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), "Break in 20"]},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+
+# 4.12節: 演算子^・\・MOD(D14)。
+run("case_d14_pow_intdiv_mod", "NEW\\n10 print 2^3\\n20 print 7\\2\\n30 print 7 mod 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 3, "texts": [expect_num(8), expect_num(3), expect_num(1)]},
+])
+
+# 6.1節: READ/DATA(G1-G4、read_ok)。
+run("case_g1_read_multi", "NEW\\n10 read a,b\\n20 print a+b\\n30 data 3,4\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(7)]},
+])
+run("case_g2_read_in_loop", "NEW\\n10 for i=1 to 3\\n20 read a\\n30 print a;\\n40 next\\n50 data 5,6,7\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(5) + expect_num(6) + expect_num(7)]},
+])
+run("case_g4_read_string", "NEW\\n10 read a$\\n20 print a$\\n30 data 12\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": ["12"]},
+])
+
+# 6.2節: RESTORE(G3、restore_ok)。
+run("case_g3_restore", "NEW\\n10 read a\\n20 restore\\n30 read b\\n40 print a;b\\n50 data 8,9\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(8) + expect_num(8)]},
+])
+
+# 6.3節: DATA切れは誤り(G8、出力1行・文言は書かない)。
+run("case_g8_out_of_data", "NEW\\n10 read a\\n20 print a\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1},
+])
+
+# 6.4節: THENの後の代入(G5、then_assign_ok)。
+run("case_g5_then_assign", "NEW\\n10 if 1 then a=5\\n20 print a\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(5)]},
+])
+
+# 6.5節: 配列の添字0(G6、index0_ok)。
+run("case_g6_array_index0", "NEW\\n10 dim a(3)\\n20 a(0)=7\\n30 print a(0)\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(7)]},
+])
+
+# 6.6節: ':'で1行に複数の文(G7、multi_ok)。
+run("case_g7_multi_stmt", "NEW\\n10 a=1:b=2:print a+b\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(3)]},
+])
+
+# 6.7節: REMと'(G9・G10、rem_ok)。
+run("case_g9_rem", "NEW\\n10 print 1:rem 9\\n20 print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), expect_num(2)]},
+])
+run("case_g10_quote_rem", "NEW\\n10 ' 9\\n20 print 3\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(3)]},
+])
+
+# 6.8節: IFと同じ行の残り(G11・G12)。真なら':'以降も実行
+# (rest_runs_when_true)、偽なら':'以降も含め同じ行の残り全てを飛ばす
+# (rest_skipped_when_false)。
+run("case_g11_if_true_rest_runs", "NEW\\n10 a=2:if a=2 then print 1:print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), expect_num(2)]},
+])
+run("case_g12_if_false_rest_skipped", "NEW\\n10 if 0 then print 1:print 2\\n20 print 3\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(3)]},
+])
+
 print()
 if FAILED:
     print("l4_program_selftest(python本体): NG")
