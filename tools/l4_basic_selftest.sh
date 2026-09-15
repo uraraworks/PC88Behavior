@@ -73,6 +73,10 @@ MISSING_OPERAND_MSG="$(awk -F'\t' '$1=="22"{print $2}' "$ERRORS_TSV")"
 if [ -z "$MISSING_OPERAND_MSG" ]; then
   echo "エラー: errors.tsvに番号22の項が無い" >&2; exit 1
 fi
+DIVZERO_MSG="$(awk -F'\t' '$1=="11"{print $2}' "$ERRORS_TSV")"
+if [ -z "$DIVZERO_MSG" ]; then
+  echo "エラー: errors.tsvに番号11の項が無い" >&2; exit 1
+fi
 
 # -----------------------------------------------------------------------
 say "1. 通常ビルド（PRINT実行用。--enable-l4-selftestは付けない。"
@@ -210,10 +214,79 @@ check_row case_err_missing2 'PRINT 2*\n'  "$MISSING_OPERAND_MSG"
 # 閉じない括弧・知らない語 → Syntax error(2)(第6.1.1節の資料の記載どおり)
 check_row case_err_paren    'PRINT (1+2\n' "$SYNTAX_ERROR_MSG"
 check_row case_err_word     'PRINTX 1\n'   "$SYNTAX_ERROR_MSG"
-# 定数・式の結果が-32768〜32767を超える → Overflow(6)
-check_row case_err_ovfl_const 'PRINT 40000\n'        "$OVERFLOW_MSG"
-check_row case_err_ovfl_sum   'PRINT 30000+30000\n'  "$OVERFLOW_MSG"
-check_row case_err_ovfl_sub   'PRINT -32768-1\n'     "$OVERFLOW_MSG"
+# 定数・式の結果が-32768〜32767を超える場合は、M7段階4a-2(単精度の組み込み)
+# 以降はOverflowにならず単精度へ「昇格」する(l4-basic.md 第5.2節、
+# promote群P1〜P3、実測40000/60000/-32769。第9節に記録した測定>資料の
+# 食い違いのとおり、旧第6.1.1節の資料の記載どおりのOverflow扱いは廃止)。
+# 検査名も"ovfl"から昇格を表す"promote"へ改めた。単精度の値は整数と同じ
+# 前置1桁・後置空白1で出る(第5.3節)ため、expect_num()をそのまま使える。
+check_row case_promote_const 'PRINT 40000\n'        "$(expect_num 40000)"
+check_row case_promote_sum   'PRINT 30000+30000\n'  "$(expect_num 60000)"
+check_row case_promote_sub   'PRINT -32768-1\n'     "$(expect_num -32769)"
+
+# -----------------------------------------------------------------------
+say "3e. 単精度浮動小数点PRINT(l4-basic.md 第5節、M7段階4a-2)"
+# 第5節の観測例をそのまま期待値として使う(仕様書の表から書き写す。
+# 数値そのものは自作ROMの出力であって画面本文ではないため禁止事項7の
+# 対象外——l4-basic.md冒頭「画面本文」の取り扱い節と同じ位置づけ)。
+check_row case_fp_frac        'PRINT 1/3\n'        " .333333 "
+check_row case_fp_leadingdot  'PRINT .5\n'         " .5 "
+check_row case_fp_neg         'PRINT -.5\n'        "-.5 "
+check_row case_fp_bang        'PRINT 12345.678!\n' " 12345.7 "
+check_row case_fp_large_exp   'PRINT 1234567\n'    " 1.23457E+06 "
+check_row case_fp_exp         'PRINT 1e10\n'       " 1E+10 "
+check_row case_fp_exp_neg     'PRINT -1.5e+20\n'   "-1.5E+20 "
+check_row case_fp_small_fixed 'PRINT 1.5e-6\n'     " .0000015 "
+check_row case_fp_small_exp   'PRINT 1e-8\n'       " 1E-08 "
+check_row case_fp_div_real    'PRINT 7/2\n'        " 3.5 "
+check_row case_fp_digits7     'PRINT 9999999\n'    " 1E+07 "
+check_row case_fp_tie         'PRINT -34281.25\n'  "-34281.3 "
+
+# -----------------------------------------------------------------------
+say "3f. 範囲外・0除算(l4-basic.md 第5.6節): 出力2行・Okが相対+3"
+# 文言は第7.1節のマニュアル一覧(Overflow=6, Division by zero=11)。
+# 1行目(空行)の扱いは仕様書に無い判断(interp.asmヘッダコメント参照、
+# 実際の画面表示の文言・中身そのものは未確認、第10節5)。
+ROW_OK_RUNTIME=5
+check_runtime_err() {
+  local label="$1" typed="$2" expected_msg="$3"
+  local dump="$WORK/${label}.vram.bin"
+  "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 600 --type "$typed" --type-at 60 \
+      --vram-dump "$dump" --vram-dump-at 560 \
+      >"$WORK/${label}.stdout.txt" 2>"$WORK/${label}.stderr.txt"
+  if [ $? -ne 0 ]; then fail "q88measure($label)が失敗"; cat "$WORK/${label}.stderr.txt" >&2; return; fi
+  python3 - "$dump" "$expected_msg" "$label" "$STRIDE" "$ROW_OUTPUT" "$ROW_OK_RUNTIME" << 'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+expected_msg = sys.argv[2]
+label = sys.argv[3]
+stride = int(sys.argv[4])
+row_blank = int(sys.argv[5])
+row_msg = row_blank + 1
+row_ok = int(sys.argv[6])
+
+def row_text(row, n):
+    base = row * stride
+    return data[base:base+n].decode("ascii", errors="replace")
+
+got_blank = row_text(row_blank, len(expected_msg)).rstrip(" ")
+got_msg = row_text(row_msg, len(expected_msg))
+ok_txt = row_text(row_ok, 2)
+result_ok = (got_blank == "") and (got_msg == expected_msg) and (ok_txt == "Ok")
+if result_ok:
+    print(f"OK: {label} 1行目=空 2行目='{got_msg}' Ok行='{ok_txt}'")
+else:
+    print(f"NG: {label} 1行目='{got_blank}' 2行目='{got_msg}'(期待'{expected_msg}') Ok行='{ok_txt}'(期待'Ok')")
+    sys.exit(1)
+PYEOF
+  [ $? -ne 0 ] && fail "範囲外/0除算($label)"
+}
+check_runtime_err case_fp_overflow 'PRINT 1e38*10\n' "$OVERFLOW_MSG"
+check_runtime_err case_fp_divzero  'PRINT 1/0\n'     "$DIVZERO_MSG"
+
+# -----------------------------------------------------------------------
+say "3g. 倍精度定数は段階4bまで未実装のため暫定的にSyntax error(仕様書に無い判断)"
+check_row case_fp_double_pending 'PRINT 1#\n' "$SYNTAX_ERROR_MSG"
 
 # -----------------------------------------------------------------------
 say "3b. PRINT 1（実際にSPACEキーを打鍵）: エコーの1桁前進と実行結果"
