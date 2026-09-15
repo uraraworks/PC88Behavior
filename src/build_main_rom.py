@@ -341,6 +341,19 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     return combined
 
 
+
+# N88.ROM 0x79D7 は予約番地(FILLのまま固定する)。エミュレータ(QUASI88、
+# vendor/quasi88-libretro/src/memory.h:48 の`ROM_VERSION main_rom[0x79d7]`)
+# が、この1バイトを文字コードとして読み機種を切り替える('4'以上でV2既定・
+# '8'以上でFH/MH相当のポート挙動、src/pc88main.c:1051・1393・1399・2688・
+# 2698)。公式ROMの同じ番地の値は読まない・合わせない(禁止事項1-2の対象外の
+# 話——これはエミュレータ側の実装の事実であって公式ROMの内部構造ではない)。
+# これまでの適合テストは全て「この番地がFILLのまま(機種判定に既定値が
+# 使われる)」状態で通っているため、コードが伸びてここへ命令の1バイトが
+# 来ると機種が偶然変わり、原因の分かりにくい食い違いを生む。
+ROM_VERSION_RESERVED_ADDR = 0x79D7
+
+
 def assemble(text: str, work: pathlib.Path) -> bytes:
     src_path = work / "n88_main_gen.asm"
     src_path.write_text(text, encoding="utf-8")
@@ -353,6 +366,13 @@ def assemble(text: str, work: pathlib.Path) -> bytes:
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
     rom = bytearray([FILL] * N88_SIZE)
     rom[:len(code)] = code
+    if rom[ROM_VERSION_RESERVED_ADDR] != FILL:
+        raise SystemExit(
+            f"ROM_VERSION予約番地0x{ROM_VERSION_RESERVED_ADDR:04X}が埋め草"
+            f"(0x{FILL:02X})のままではない(0x{rom[ROM_VERSION_RESERVED_ADDR]:02X})。"
+            "コード/表がここへ届き、QUASI88の機種判定(memory.h ROM_VERSION)が"
+            "偶然変わってしまう。この番地の手前でレイアウトを分けること。"
+        )
     return bytes(rom)
 
 

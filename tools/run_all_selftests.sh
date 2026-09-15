@@ -181,6 +181,11 @@ SCRIPTS_EXPECTED=(
   # tools/l4_program_conform_record.py。合成VRAM写しだけで完結するので
   # 公式ROM・私物は不要、SKIPは無く常にrc=0を期待する。
   "tools/l4_program_conform_selftest.sh:0"
+  # M7段階5c-1（2026-09-16）。N88.ROM 0x79D7(QUASI88の機種判定番地、
+  # vendor/quasi88-libretro/src/memory.h ROM_VERSION)が埋め草のまま
+  # 固定されていることの検査。ビルドだけで完結するので公式ROM・私物は
+  # 不要、SKIPは無く常にrc=0を期待する。
+  "tools/check_rom_version_reserved.sh:0"
 )
 
 overall=0
