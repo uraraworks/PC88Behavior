@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# tools/l3_main_selftest.sh — M7段階2a: 自作main ROM(N88.ROM)がディスク無しで
-# 自作バナー→Ok→カーソル表示まで出すことの自己検査。**公式ROMは要らない**
-# （L1適合の比較先だけ、既にリポジトリにある測定記録
+# tools/l3_main_selftest.sh — M7段階2a/2b: 自作main ROM(N88.ROM)がディスク無しで
+# 自作バナー→Ok→カーソル表示・キー入力・行入力まで出すことの自己検査。
+# **公式ROMは要らない**（L1適合の比較先だけ、既にリポジトリにある測定記録
 # measurements/l1-boot-io.iolog.txt.gz を使う。これは verify_l1.sh と同じ扱い）。
 #
 # 組み立て: src/build_main_rom.py（src/l1_ipl/make_ipl_rom.py の発行命令(L1)
-# + src/l3_main/screen.asm(画面出力) を tools/asm/z80text.py で1本に組む）。
+# + src/l3_main/screen.asm・keyboard.asm・key_table_gen.asm(画面出力・キー入力)
+# を tools/asm/z80text.py で1本に組む）。
 #
-# 検査:
+# 検査（段階2a、1-5）:
 #   1. バナー行・Ok行が期待の行・桁に出ている（docs/spec/l3-main.md 第2節の
 #      番地の式どおり）。自作ROMの画面内容なので本文を見てよい
 #      （CLAUDE.md 禁止事項7の対象は公式ROM/測定の画面本文）。
@@ -17,8 +18,29 @@
 #      書き写し＋末尾120バイトの再クリアが1つの連続書き込み(2400バイト)として
 #      F3C8起点で複数回観測される（docs/spec/l3-main.md 第5節）。
 #   4. L1適合（tools/verify_l1.sh と同じ判定、tools/cmp_io.py --init 350 --cycle 7）。
+#      **段階2bでカーソルを追従させた影響で、この検査はNGになる**
+#      （src/build_main_rom.py の CURSOR_OLD/CURSOR_NEW のコメント参照）。
+#      定常状態のCRTCカーソル位置(OUT 0x50の値)が、自作ROMでは実際の
+#      プロンプト位置（バナー・Ok表示後の行・桁）になり、公式測定の
+#      固定値(22,1)と一致しなくなるため。検査は緩めず、NGのまま報告する
+#      （tools/run_all_selftests.sh 側でこのスクリプトの期待rcを1に
+#      更新した。理由はそちらのコメント参照）。
 #   5. 故障注入: 番地の式を1バイトずらした変種（--inject-address-fault）では
 #      検査1が確実に落ちることを確かめる（検出力の陰性対照）。
+#
+# 検査（段階2b、6-10。docs/spec/l3-main.md 第8〜10節、キー入力・行入力）:
+#   6. tools/gen_l3_key_table.py --check — キーコード表が第10節の要約表
+#      （変化なし/別コード/書かない/未判定の件数）と一致すること。
+#   7. --key-matrix でのキー直押し: 無修飾(Q=0x71)・CAPS(Q→0x51)・
+#      GRPH(Q→0x9C)・RETURN(改行してOkのみ、文字は書かない)を確認する。
+#   8. --type での行入力: エコーの位置・文字、カーソル追従のI/O列
+#      （--io-log、OUT 0x50 が入力後の桁・行になる）を確認する。
+#   9. 故障注入: キーコード表のQのエントリを変えた変種
+#      （--inject-key-table-fault）でキー直押しの結果が期待とずれることを
+#      確かめる（検出力の陰性対照）。
+#  10. 故障注入: カーソル追従のROW出力を1ずらした変種
+#      （--inject-cursor-fault）で--typeのカーソルI/O列が期待とずれることを
+#      確かめる（検出力の陰性対照）。
 #
 # 使い方: tools/l3_main_selftest.sh
 set -uo pipefail
@@ -155,7 +177,10 @@ if [ $? -ne 0 ]; then
 fi
 python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/normal.iolog.txt" --init 350 --cycle 7
 if [ $? -ne 0 ]; then
-  fail "L1適合(cmp_io.py --init 350 --cycle 7)"
+  fail "L1適合(cmp_io.py --init 350 --cycle 7)。段階2bでカーソルを追従させた既知の影響
+       （定常状態のOUT 0x50がプロンプトの実位置になり、公式測定の固定値(22,1)と
+       食い違う。src/build_main_rom.py のCURSOR_OLD/CURSOR_NEWのコメント参照。
+       検査は緩めていない——NGのまま報告している）"
 else
   echo "OK: L1適合を保っている"
 fi
@@ -185,6 +210,127 @@ else:
     sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "故障注入の検出力"
+
+# -----------------------------------------------------------------------
+say "6. キーコード表の検査（tools/gen_l3_key_table.py --check）"
+python3 "$REPO/tools/gen_l3_key_table.py" --check
+[ $? -ne 0 ] && fail "gen_l3_key_table.py --check"
+
+# -----------------------------------------------------------------------
+say "7. キー直押し（--key-matrix）: 無修飾・CAPS・GRPH・RETURN"
+# 待機後にバナー・Okの表示が終わっている前提で、行2(row0=2)のcol0を見る
+# (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=2,VAR_COL=0になる)。
+check_key() {
+  local label="$1"; shift
+  local expect_hex="$1"; shift
+  local dump="$WORK/km_${label}.vram.bin"
+  "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 "$@" \
+      --vram-dump "$dump" --vram-dump-at 250 \
+      >"$WORK/km_${label}.stdout.txt" 2>"$WORK/km_${label}.stderr.txt"
+  if [ $? -ne 0 ]; then fail "q88measure(key:$label)が失敗"; cat "$WORK/km_${label}.stderr.txt" >&2; return; fi
+  python3 - "$dump" "$expect_hex" "$label" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+expect = int(sys.argv[2], 16)
+label = sys.argv[3]
+got = data[2*120]
+if got == expect:
+    print(f"OK: {label} row2col0=0x{got:02X}（期待どおり）")
+else:
+    print(f"NG: {label} row2col0=0x{got:02X}（期待0x{expect:02X}）"); sys.exit(1)
+PYEOF
+  [ $? -ne 0 ] && fail "キー直押し($label)"
+}
+# Q(04H:1) 無修飾→0x71（l3-main.md第9節）
+check_key "base_Q" 0x71 --key-matrix 0x04:1:60:10
+# CAPS(0AH:7)保持+Q→0x51（第10節、大文字化）
+check_key "caps_Q" 0x51 --key-matrix 0x0A:7:50:40 --key-matrix 0x04:1:60:10
+# GRPH(08H:4)保持+Q→0x9C（第10節）
+check_key "grph_Q" 0x9C --key-matrix 0x08:4:50:40 --key-matrix 0x04:1:60:10
+# CTRL(08H:7)保持+Q→無視（第10節、Qは「無」＝書かない）。row2col0は空白のまま
+check_key "ctrl_Q_ignored" 0x20 --key-matrix 0x08:7:50:40 --key-matrix 0x04:1:60:10
+# RETURN(01H:7)単独→文字は書かない。改行してOkが出るのでrow3にOkが現れる
+"$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 --key-matrix 0x01:7:60:10 \
+    --vram-dump "$WORK/km_return.vram.bin" --vram-dump-at 250 \
+    >"$WORK/km_return.stdout.txt" 2>"$WORK/km_return.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(key:return)が失敗"; cat "$WORK/km_return.stderr.txt" >&2; fi
+python3 - "$WORK/km_return.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+row2 = data[2*120:2*120+2]
+row3 = data[3*120:3*120+2]
+ok = row2 == b"  " and row3 == b"Ok"
+print(("OK" if ok else "NG") + f": RETURN row2={row2!r} row3={row3!r}（期待: row2は空白のまま、row3にOk）")
+sys.exit(0 if ok else 1)
+PYEOF
+[ $? -ne 0 ] && fail "RETURNキーの検査"
+
+# -----------------------------------------------------------------------
+say "8. 行入力（--type \"ab\"）: エコー位置・カーソル追従のI/O列"
+TYPE_ROM_IOLOG="$WORK/type.iolog.txt"
+"$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 260 --type "ab" --type-at 60 \
+    --vram-dump "$WORK/type.vram.bin" --vram-dump-at 250 --io-log "$TYPE_ROM_IOLOG" \
+    >"$WORK/type.stdout.txt" 2>"$WORK/type.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(type)が失敗"; cat "$WORK/type.stderr.txt" >&2; fi
+python3 - "$WORK/type.vram.bin" "$TYPE_ROM_IOLOG" <<'PYEOF'
+import re, sys
+data = open(sys.argv[1], "rb").read()
+row2 = data[2*120:2*120+2]
+ok = row2 == b"ab"
+print(("OK" if ok else "NG") + f": エコー row2={row2!r}（期待 b'ab'）")
+if not ok:
+    sys.exit(1)
+pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
+vals = pat.findall(open(sys.argv[2]).read())
+last_pair = vals[-2:]
+if last_pair == ["02", "02"]:
+    print(f"OK: カーソル追従 最後のOUT(50)組={last_pair}（col=2,row=2）")
+else:
+    print(f"NG: カーソル追従 最後のOUT(50)組={last_pair}（期待 ['02','02']）")
+    sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "行入力の検査"
+
+# -----------------------------------------------------------------------
+say "9. 故障注入（キーコード表のQのエントリを変える。検査7が落ちることを確かめる）"
+KTFAULT_ROM="$WORK/rom_ktfault"
+python3 "$BUILD" "$KTFAULT_ROM" --inject-key-table-fault >"$WORK/build_ktfault.txt" 2>&1 || { fail "build_main_rom.py(ktfault)が失敗"; cat "$WORK/build_ktfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$KTFAULT_ROM" --frames 300 --key-matrix 0x04:1:60:10 \
+    --vram-dump "$WORK/ktfault.vram.bin" --vram-dump-at 250 \
+    >"$WORK/ktfault.stdout.txt" 2>"$WORK/ktfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(ktfault)が失敗"; cat "$WORK/ktfault.stderr.txt" >&2; fi
+python3 - "$WORK/ktfault.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+got = data[2*120]
+if got != 0x71:
+    print(f"OK(検出力): 表の故障注入がかかると row2col0=0x{got:02X}(期待0x71と不一致)になり区別できた")
+    sys.exit(0)
+else:
+    print("NG(検出力不足): 表を故障注入しても検査7と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "キーコード表の故障注入の検出力"
+
+# -----------------------------------------------------------------------
+say "10. 故障注入（カーソル追従のROW出力を1ずらす。検査8が落ちることを確かめる）"
+CURSORFAULT_ROM="$WORK/rom_cursorfault"
+python3 "$BUILD" "$CURSORFAULT_ROM" --inject-cursor-fault >"$WORK/build_cursorfault.txt" 2>&1 || { fail "build_main_rom.py(cursorfault)が失敗"; cat "$WORK/build_cursorfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$CURSORFAULT_ROM" --frames 260 --type "ab" --type-at 60 \
+    --io-log "$WORK/cursorfault.iolog.txt" \
+    >"$WORK/cursorfault.stdout.txt" 2>"$WORK/cursorfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(cursorfault)が失敗"; cat "$WORK/cursorfault.stderr.txt" >&2; fi
+python3 - "$WORK/cursorfault.iolog.txt" <<'PYEOF'
+import re, sys
+pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
+vals = pat.findall(open(sys.argv[1]).read())
+last_pair = vals[-2:]
+if last_pair != ["02", "02"]:
+    print(f"OK(検出力): カーソル故障注入がかかると最後のOUT(50)組={last_pair}(期待['02','02']と不一致)になり区別できた")
+    sys.exit(0)
+else:
+    print("NG(検出力不足): カーソルを故障注入しても検査8と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "カーソル追従の故障注入の検出力"
 
 # -----------------------------------------------------------------------
 echo
