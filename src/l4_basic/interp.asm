@@ -1120,10 +1120,16 @@ FTNF_TABLE:
     DB 3
     DB "ASC"
     DW FTNF_DO_ASC
-    ; M7段階5c-2b: CINT(第4.15節)。
+    ; M7段階5c-2b: CINT・INT・FIX(第4.15節)。
     DB 4
     DB "CINT"
     DW FTNF_DO_CINT
+    DB 3
+    DB "INT"
+    DW FTNF_DO_INT
+    DB 3
+    DB "FIX"
+    DW FTNF_DO_FIX
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1211,6 +1217,53 @@ FTNF_DO_CINT:
 _cint_ok:
     EX DE,HL
     JP VAL_SET_INT
+
+; ---------------------------------------------------------------------
+; FTNF_DO_FIX — 第4.15節E12(0方向への切り捨て)。整数はそのまま
+;   (整数はFIX/INTいずれも自分自身)。単精度/倍精度は
+;   VAL_LOAD_CUR_TO_OPA(倍精度は単精度へ丸めてから、STR$・ASSIGN%と
+;   同じ「仕様書に無い判断」の簡略化、interp.asmヘッダ参照)で単精度化
+;   してからTRUNC_TO_SINGLE(mbf_single.asm)へ渡す。
+; ---------------------------------------------------------------------
+FTNF_DO_FIX:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(CUR_TYPE)
+    OR A
+    RET Z
+    CALL VAL_LOAD_CUR_TO_OPA
+    CALL TRUNC_TO_SINGLE
+    JP VAL_SET_SINGLE_FROM_RES
+
+; ---------------------------------------------------------------------
+; FTNF_DO_INT — 第4.15節E11(床関数)。FIXと同じTRUNC_TO_SINGLEを使い、
+;   負かつ切り捨てたビットに1があった(TRUNC_HADFRAC)場合だけ
+;   floor=trunc-1.0にする(絶対値方向で1大きくする、sign-magnitudeの
+;   まま-1.0を引けば「より負」になり符号は保たれる)。
+; ---------------------------------------------------------------------
+FTNF_DO_INT:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(CUR_TYPE)
+    OR A
+    RET Z
+    CALL VAL_LOAD_CUR_TO_OPA
+    CALL TRUNC_TO_SINGLE
+    LD A,(TRUNC_HADFRAC)
+    OR A
+    JR Z,_int_settle
+    LD A,(TRUNC_SIGN)
+    OR A
+    JR Z,_int_settle
+    CALL FIN_COPY_RES_TO_OPA
+    CALL FIN_SET_OPB_ONE
+    CALL MBF_SUB
+_int_settle:
+    JP VAL_SET_SINGLE_FROM_RES
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し

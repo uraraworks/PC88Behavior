@@ -96,6 +96,14 @@ SML_MG   EQU 0xC02B
 RES_SIGN EQU 0xC02C
 RES_EXP  EQU 0xC02D
 
+; M7段階5c-2b: INT/FIX/CINT(docs/spec/l4-program.md第4.15節)用の作業域。
+; mbf_single.asmの既存領域(0xC000-0xC0EC付近)とmbf_double.asmの領域
+; (0xC200-)の間の空きへ置く。
+TRUNC_HADFRAC  EQU 0xC0F0  ; 1B TRUNC_TO_SINGLEが切り捨てたビットの中に
+                            ; 1が1つでもあったか(0/1)
+TRUNC_SIGN     EQU 0xC0F1  ; 1B 元の値の符号(UA_SIGNの複写、0/1)
+TRUNC_FRACBITS EQU 0xC0F2  ; 1B 切り捨てるビット数(1-23)
+
 WK_STICKY EQU 0xC030      ; 0/非0
 WK_BORROW EQU 0xC034      ; 1=異符号減算(BIG-SML)で桁借りが起きた側の丸め規則を使う
 WK_SHIFT  EQU 0xC031
@@ -226,6 +234,108 @@ _pkr_setb2:
     LD A,(RES_EXP)
     LD (HL),A
     RET
+
+; =======================================================================
+; TRUNC_TO_SINGLE — M7段階5c-2b: MBF_OPA(単精度)を0方向へ切り捨てた
+; 値をMBF_RESへ書く(FIX、第4.15節)。MBF単精度はGW-BASICと同じ符号+
+; 仮数(sign-magnitude)形式なので、0方向への切り捨ては「仮数の下位
+; (切り捨てる桁数ぶん)のビットを0にする」だけで実現できる(符号は
+; そのまま)。指数(UA_EXP、2進小数点の位置)は変えない。
+;   - 仮数24bit全部が整数部(UA_EXP>=129+23=152、値の絶対値が2^23以上)
+;     なら既に整数、そのまま複写(この単精度符号化の指数バイトげた上げは
+;     129。FIN_SET_OPB_TENの10.0=exp132〔e=3、132=3+129〕と同じ)。
+;   - 絶対値<1(UA_EXP<129、129以下)ならゼロ(ただし元の値が0でなければ
+;     TRUNC_HADFRACを立てる=INT側の床への調整に使う)。
+;   - それ以外(0<=UA_EXP-129<23)は下位(23-(UA_EXP-129))ビットだけを
+;     0にする(右シフトでスティッキー〔捨てたビットのOR〕を取ってから
+;     同じ回数だけ左シフトで戻す=マスクと等価)。
+; TRUNC_HADFRAC/TRUNC_SIGNは呼び出し元(INT)がMBF_SUB呼び出し前に
+; 読むこと(MBF_SUBは内部でUA_*を上書きする)。
+; 出力: MBF_RES、TRUNC_HADFRAC(0/1)、TRUNC_SIGN(0/1)。全レジスタ破壊可。
+; =======================================================================
+TRUNC_TO_SINGLE:
+    CALL MBF_UNPACK_A
+    XOR A
+    LD (TRUNC_HADFRAC),A
+    LD A,(UA_SIGN)
+    LD (TRUNC_SIGN),A
+    LD (RES_SIGN),A
+    LD A,(UA_EXP)
+    OR A
+    JP Z,_trs_zero
+    CP 129
+    JP C,_trs_lt1
+    CP 152
+    JP NC,_trs_intact
+    LD B,A
+    LD A,152
+    SUB B
+    LD (TRUNC_FRACBITS),A
+    LD A,(UA_M2)
+    LD B,A
+    LD A,(UA_M1)
+    LD C,A
+    LD A,(UA_M0)
+    LD D,A
+    LD A,(TRUNC_FRACBITS)
+    LD E,A
+    LD H,0
+_trs_rshift_loop:
+    LD A,E
+    OR A
+    JR Z,_trs_rshift_done
+    SRL B
+    RR C
+    RR D
+    JR NC,_trs_rshift_nosticky
+    LD H,1
+_trs_rshift_nosticky:
+    DEC E
+    JR _trs_rshift_loop
+_trs_rshift_done:
+    LD A,H
+    LD (TRUNC_HADFRAC),A
+    LD A,(TRUNC_FRACBITS)
+    LD E,A
+_trs_lshift_loop:
+    LD A,E
+    OR A
+    JR Z,_trs_lshift_done
+    SLA D
+    RL C
+    RL B
+    DEC E
+    JR _trs_lshift_loop
+_trs_lshift_done:
+    LD A,B
+    LD (BIG_M2),A
+    LD A,C
+    LD (BIG_M1),A
+    LD A,D
+    LD (BIG_M0),A
+    LD A,(UA_EXP)
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_trs_intact:
+    LD A,(UA_M2)
+    LD (BIG_M2),A
+    LD A,(UA_M1)
+    LD (BIG_M1),A
+    LD A,(UA_M0)
+    LD (BIG_M0),A
+    LD A,(UA_EXP)
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_trs_lt1:
+    LD A,1
+    LD (TRUNC_HADFRAC),A
+    XOR A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_trs_zero:
+    XOR A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
 
 ; =======================================================================
 ; MBF_PACK_OVERFLOW — オーバーフロー時の残留値（$INFPD/$INFMD、仮数全bit1・
@@ -2287,6 +2397,19 @@ FIN_SET_OPB_TEN:
     LD A,0x20
     LD (MBF_OPB+2),A
     LD A,132
+    LD (MBF_OPB+3),A
+    RET
+
+; MBF_OPBへ単精度定数1.0(仮数0x800000・指数129)を書く。AF破壊。
+; M7段階5c-2b: TRUNC_TO_SINGLEの結果からINT(床関数)を作るときの
+; 「-1.0する」に使う(仮数が全てインプリシットの先頭1だけなので格納
+; するのは0x00,0x00,0x00、符号0)。
+FIN_SET_OPB_ONE:
+    XOR A
+    LD (MBF_OPB),A
+    LD (MBF_OPB+1),A
+    LD (MBF_OPB+2),A
+    LD A,129
     LD (MBF_OPB+3),A
     RET
 
