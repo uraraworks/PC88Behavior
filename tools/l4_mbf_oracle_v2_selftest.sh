@@ -814,6 +814,226 @@ else
   echo "SKIP - l4-s4f予測表がまだ無い(1本目のコミット時点では正常)"
 fi
 
+# --- 29. --fout-algo gw 追加後も既定(exact)は32腕全件で変わらない --------
+FOUT_ALGO_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, m.MBF_SINGLE_DIGITS, "sym", 0, 0, 0, "exact")
+    if a != b:
+        print(f"MISMATCH {expr}: default={a} explicit={b}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$FOUT_ALGO_DEFAULT_CHECK" = "PASS" ]; then
+  pass "--fout-algo gw 追加後も既定(exact)は32腕全件で変わらない"
+else
+  fail "fout-algo追加後の既定値一致: $FOUT_ALGO_DEFAULT_CHECK"
+fi
+
+# --- 30. 既存9予測表の全腕・全候補列が --fout-algo gw でも変わらないこと --
+# 各生成スクリプト(gen_l4_s4*.py)のARMSと、実際にその表が使っている
+# (single_digits, small_rule, small_len, small_emin, large_n)の組み合わせを
+# そのまま再現し、全腕・全候補列についてexactとgwを比較する(サンプルでは
+# なく網羅)。докs/notes/l4-mbf-oracle.md「exactとgwが食い違う打鍵可能な
+# 定数」の元になった調査と同じ結論(既存9表はいずれも変化なし)を
+# 検査として固定する。
+GW_TABLES_UNCHANGED_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+def body_of(typed):
+    b = typed
+    if b.lower().startswith("print "):
+        b = b[6:]
+    return b
+
+changed = []
+
+import tools.gen_l4_s4a_predictions_v2 as g1
+for aid, _g, typed in g1.ARMS:
+    b = body_of(typed)
+    if m.predict(b, 7, "sym", 0, 0, 0, "exact") != m.predict(b, 7, "sym", 0, 0, 0, "gw"):
+        changed.append(("s4a_v2", aid))
+
+import tools.gen_l4_s4b_h6_predictions as g2
+for aid, _g, typed in g2.ARMS:
+    b = body_of(typed)
+    if m.predict(b, 6, "sym", 0, 0, 0, "exact") != m.predict(b, 6, "sym", 0, 0, 0, "gw"):
+        changed.append(("s4b", aid))
+
+import tools.gen_l4_s4a_h6_posthoc as g3
+for aid, _g, typed in g3.ARMS:
+    b = body_of(typed)
+    if m.predict(b, 6, "sym", 0, 0, 0, "exact") != m.predict(b, 6, "sym", 0, 0, 0, "gw"):
+        changed.append(("s4a_posthoc", aid))
+
+import tools.gen_l4_s4c_candidate_predictions as g4
+for aid, _g, typed in g4.ARMS:
+    b = body_of(typed)
+    for rule, t in [("sym", 0), ("len", 7), ("len", 8), ("len", 9)]:
+        if m.predict(b, 6, rule, t, 0, 0, "exact") != m.predict(b, 6, rule, t, 0, 0, "gw"):
+            changed.append(("s4c_v1", f"{aid}/{rule}{t}"))
+    if m.predict(b, 6, "len", 16, 0, 0, "exact") != m.predict(b, 6, "len", 16, 0, 0, "gw"):
+        changed.append(("s4c_v1_dbl", aid))
+
+import tools.gen_l4_s4c_candidate_predictions_v2 as g5
+for aid, _g, typed in g5.ARMS:
+    b = body_of(typed)
+    if m.predict(b, 6, "sym-def", 0, 0, 0, "exact") != m.predict(b, 6, "sym-def", 0, 0, 0, "gw"):
+        changed.append(("s4c_v2", aid))
+
+import tools.gen_l4_s4d_double_candidate_predictions as g6
+for aid, _g, typed in g6.ARMS:
+    b = body_of(typed)
+    for t in (17, 18):
+        if m.predict(b, 16, "lene", t, -15, 0, "exact") != m.predict(b, 16, "lene", t, -15, 0, "gw"):
+            changed.append(("s4d", f"{aid}/LE{t}"))
+
+import tools.gen_l4_s4e_double_candidate_predictions as g7
+for aid, _g, typed in g7.ARMS:
+    b = body_of(typed)
+    for rule in ("gw", "rstar", "rstar_b"):
+        if m.predict(b, 16, rule, 0, 0, 0, "exact") != m.predict(b, 16, rule, 0, 0, 0, "gw"):
+            changed.append(("s4e", f"{aid}/{rule}"))
+
+import tools.gen_l4_s4e_posthoc_inputs as g8
+for typed in g8.INPUTS:
+    b = body_of(typed)
+    for rule in ("gw", "rstar", "rstar_b"):
+        if m.predict(b, 16, rule, 0, 0, 0, "exact") != m.predict(b, 16, rule, 0, 0, 0, "gw"):
+            changed.append(("s4e_posthoc", f"{typed}/{rule}"))
+
+import tools.gen_l4_s4f_double_large_candidate_predictions as g9
+for aid, typed in g9.ARMS:
+    b = body_of(typed)
+    for ln in (16, 15):
+        if m.predict(b, 16, "rstar", 0, 0, ln, "exact") != m.predict(b, 16, "rstar", 0, 0, ln, "gw"):
+            changed.append(("s4f", f"{aid}/LG{ln}"))
+
+if changed:
+    print(f"FAIL changed={len(changed)} {changed[:10]}")
+else:
+    print("PASS(0件)")
+EOF
+)"
+if [ "$GW_TABLES_UNCHANGED_CHECK" = "PASS(0件)" ]; then
+  pass "既存9予測表は全腕・全候補列で --fout-algo gw でも変化なし(0件)"
+else
+  fail "既存予測表がgwで変化してしまっている: $GW_TABLES_UNCHANGED_CHECK"
+fi
+
+# --- 31. gwの丸め方式(.5を足して切り捨て、タイは常に切り上げ)を確認 -------
+GW_ROUND_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+# 1720365を単精度6桁: 172036.5がちょうどタイ。exactは偶数丸めで172036、
+# gwは常に切り上げで172037。
+_, e, _ = m.predict("1720365", 6, "rstar", 7, 0, 0, "exact")
+_, g, _ = m.predict("1720365", 6, "rstar", 7, 0, 0, "gw")
+ok = e == " 1.72036E+06 " and g == " 1.72037E+06 " and e != g
+print("PASS" if ok else f"FAIL exact={e!r} gw={g!r}")
+EOF
+)"
+if [ "$GW_ROUND_CHECK" = "PASS" ]; then
+  pass "gwの丸め(.5を足して切り捨て)が1720365の6桁丸めでexact(偶数丸め)と食い違うことを確認"
+else
+  fail "gw丸めの確認: $GW_ROUND_CHECK"
+fi
+
+# --- 32. 故障注入: gwの丸めを偶数丸めに戻すとexactと再び一致してしまうこと -
+GW_ROUND_FAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+orig = m._round_half_up_int
+m._round_half_up_int = m._round_half_even  # わざと偶数丸めに壊す
+_, e, _ = m.predict("1720365", 6, "rstar", 7, 0, 0, "exact")
+_, g, _ = m.predict("1720365", 6, "rstar", 7, 0, 0, "gw")
+m._round_half_up_int = orig
+print("FAULT_DETECTED" if e == g else "FAULT_NOT_DETECTED")
+EOF
+)"
+if [ "$GW_ROUND_FAULT_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(gwの丸めを偶数丸めに戻す)でexactと一致してしまう(検査の検出力を確認)"
+else
+  fail "gw丸めの故障注入が検出されなかった: $GW_ROUND_FAULT_CHECK"
+fi
+
+# --- 33. FIN: fout_algo="gw"のとき文字列解析(FIN)側もgwになること ----------
+# net_exp(=指数-小数桁数)の絶対値が大きい倍精度リテラルでexactとgwの
+# FIN解析結果(厳密値)が食い違う例(docs/notes/l4-mbf-oracle.md
+# 「FINの近似の有無」で確認済み、乱数探索で見つけた実例)。
+FIN_ALGO_LINK_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+lit = ".26018159083d-25"
+a = m.parse_literal(lit, "exact").exact()
+b = m.parse_literal(lit, "gw").exact()
+ok = a != b
+print("PASS" if ok else f"FAIL a=={b}? {a==b}")
+EOF
+)"
+if [ "$FIN_ALGO_LINK_CHECK" = "PASS" ]; then
+  pass "FIN(parse_literal)のfin_algo=gwがexactと異なる値を生む具体例を確認(倍精度・大きい指数)"
+else
+  fail "FINのgw確認: $FIN_ALGO_LINK_CHECK"
+fi
+
+# --- 34. eval_expr()経由でもfin_algo="gw"がexactと異なる値を生むこと -------
+# predict()の最終的な表示文字列(FOUT段)は同じ入力でさらにスケーリングが
+# 必要になり得数値によっては別途オーバーフローしうるため、ここでは
+# 値そのもの(FIN段の出力)をeval_expr()で直接比較する。
+PREDICT_FIN_LINK_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+lit = ".26018159083d-25"
+a = m.eval_expr(lit, "exact").exact()
+b = m.eval_expr(lit, "gw").exact()
+print("PASS" if a != b else f"FAIL a==b=={a}")
+EOF
+)"
+if [ "$PREDICT_FIN_LINK_CHECK" = "PASS" ]; then
+  pass "eval_expr()のfin_algo=gwがexactと異なる値を生む(predict()のFOUT連動の前段を確認)"
+else
+  fail "eval_expr()のFIN連動: $PREDICT_FIN_LINK_CHECK"
+fi
+
+# --- 35. l4-fout-exact-vs-gw-candidates.tsv の再生成がデータ行一致 --------
+FOUT_CAND="$REPO_ROOT/docs/notes/l4-fout-exact-vs-gw-candidates.tsv"
+if [ -f "$FOUT_CAND" ]; then
+  TMP="$(mktemp)"
+  (cd "$REPO_ROOT" && PY tools/gen_l4_fout_exact_vs_gw_candidates.py) > "$TMP" 2>/tmp/l4_oracle_fout_cand_gen.err
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$FOUT_CAND") >/dev/null 2>&1; then
+    pass "docs/notes/l4-fout-exact-vs-gw-candidates.tsv の再生成がデータ行一致"
+  else
+    fail "l4-fout-exact-vs-gw-candidates.tsv の再生成が既存ファイルとデータ行不一致"
+  fi
+  rm -f "$TMP"
+else
+  echo "SKIP - l4-fout-exact-vs-gw-candidates.tsv がまだ無い(1本目のコミット時点では正常)"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"

@@ -549,7 +549,15 @@ class GwSyntaxError(Exception):
     pass
 
 
-def parse_literal(text: str) -> GwNum:
+def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
+    """fin_algo: 既定"exact"は厳密値(acc*10**(exponent-frac_digits))を
+    1回だけ丸める従来どおりの実装。"gw"は$FINE/MDPTENが実際に行う
+    「倍精度の不正確な10のべき定数でスケーリングする」処理
+    (_scale_by_pow10_gw、fout_format の "gw" と共通)を、指数適用の
+    たった1箇所で使う(docs/notes/l4-mbf-oracle.md
+    「FINの近似の有無」の実験で、|指数|が大きい倍精度リテラルに限り
+    exactと食い違うことを確認した)。
+    """
     s = text.strip()
     if not s:
         raise GwSyntaxError("empty literal")
@@ -632,7 +640,13 @@ def parse_literal(text: str) -> GwNum:
     elif force_suffix == "#":
         kind = "double"
 
-    value = Fraction(acc) * Fraction(10) ** (exponent - frac_digits)
+    net_exp = exponent - frac_digits
+    if fin_algo == "gw":
+        value = _scale_by_pow10_gw(Fraction(acc), net_exp)
+    elif fin_algo == "exact":
+        value = Fraction(acc) * Fraction(10) ** net_exp
+    else:
+        raise ValueError(f"unknown fin_algo {fin_algo!r}")
     if neg:
         value = -value
 
@@ -694,7 +708,7 @@ def _tokenize(expr: str):
     return toks
 
 
-def eval_expr(expr: str) -> GwNum:
+def eval_expr(expr: str, fin_algo: str = "exact") -> GwNum:
     toks = _tokenize(expr)
     pos = [0]
 
@@ -718,7 +732,7 @@ def eval_expr(expr: str) -> GwNum:
             return parse_factor()
         if t[0] == "num":
             advance()
-            return parse_literal(t[1])
+            return parse_literal(t[1], fin_algo)
         raise GwSyntaxError(f"unexpected token {t!r}")
 
     def parse_term() -> GwNum:
@@ -776,6 +790,84 @@ def _significant_digits(value: Fraction, ndig: int) -> Tuple[str, int]:
     if digits_int >= 10 ** ndig:
         e += 1
         digits_int //= 10
+    s = str(digits_int).rjust(ndig, "0")
+    return s, e
+
+
+def _pow10_as_double(k: int) -> Fraction:
+    """10**k を「倍精度に丸めた値」として返す(厳密な10**kではない)。
+
+    $FOTNV/$FINE が使う10のべきの定数表($DP00等、MATH1.ASM)は倍精度
+    (56bit仮数)で保持されており、10進のべき乗自身が2進で割り切れる
+    場合を除き厳密値ではない。実際のテーブルの生バイト列は読んで
+    いないが、そのようなテーブルは「10**kに最も近い倍精度値」を
+    著者が計算して収めた以外に作りようがないので、$ROUNS と同じ
+    偶数丸めでencode_mbf(・,56)した値を「定数表の値」とみなす。
+    """
+    return decode_mbf(*encode_mbf(Fraction(10) ** k, MBF_DOUBLE_BITS), MBF_DOUBLE_BITS)
+
+
+def _round_to_double(value: Fraction) -> Fraction:
+    """値を「倍精度の演算結果として丸めた」形にする(1回の偶数丸め)。"""
+    if value == 0:
+        return value
+    return decode_mbf(*encode_mbf(value, MBF_DOUBLE_BITS), MBF_DOUBLE_BITS)
+
+
+def _scale_by_pow10_gw(value: Fraction, shift: int) -> Fraction:
+    """$FOTNV/$FINE が使う MDPTEN 相当: value を10**shift倍する処理を、
+    「厳密な10**shiftを掛ける」のではなく「倍精度に丸めた10**|shift|を
+    倍精度の乗算/除算で掛ける(結果も倍精度へ丸める)」という、実際の
+    ソースが行っている精度の落とし方で再現する(MATH1.ASM 1228-1249
+    MDP10: 正指数なら$FMULD、負指数なら除算。どちらも倍精度)。
+    shift=0ならそのまま返す(何もしない、MDPTENが呼ばれないケース)。
+    """
+    if shift == 0:
+        return value
+    pow10 = _pow10_as_double(abs(shift))
+    if shift > 0:
+        scaled = value * pow10
+    else:
+        scaled = value / pow10
+    return _round_to_double(scaled)
+
+
+def _round_half_up_int(value: Fraction) -> int:
+    """$SIGD/$FOTCVの丸め: 既に整数でなければ.5を足してから切り捨てる
+    (MATH2.ASM 1839-1853「CALL $VADDH;CALL $VINT」、$FOTCV側も同型)。
+    厳密な.5ちょうどのタイは常に切り上げになる(偶数丸めではない)。
+    """
+    if value.denominator == 1:
+        return int(value)
+    n, d = value.numerator, value.denominator
+    return (2 * n + d) // (2 * d)  # floor(value + 1/2)
+
+
+def _significant_digits_gw(value: Fraction, ndig: int) -> Tuple[str, int]:
+    """$FOTNV(10のべきによるブラケット、倍精度で実施)→$FOTCV/$SIGD
+    (.5を足して切り捨て、偶数丸めではない)という実際の手順を再現する。
+
+    厳密なEの算出(_decimal_exponent)自体はexactと共通(値を何桁
+    シフトすべきかという「見積もり」の部分であり、$FOTNVのテーブル
+    駆動の初期見積もり+補正ループが最終的に収束する先と数学的に
+    同じだと確認済み。docs/notes/l4-mbf-oracle.md「l4-s4e」参照)。
+    exactと違うのはここから先:
+      1. シフト量ぶんだけ倍精度の不正確な10のべき定数で1回スケーリング
+         する(_scale_by_pow10_gw、厳密値ではなく倍精度の丸めを経る)。
+      2. 丸めは偶数丸めではなく「.5を足して切り捨て」。
+    """
+    e = _decimal_exponent(value)
+    shift = ndig - e
+    scaled = _scale_by_pow10_gw(value, shift)
+    digits_int = _round_half_up_int(scaled)
+    if digits_int >= 10 ** ndig:
+        e += 1
+        digits_int //= 10
+    elif digits_int < 10 ** (ndig - 1) and digits_int != 0:
+        # 倍精度の丸め誤差で下限を割り込んだ場合の防御的な補正
+        # ($FOTNVのFNV20相当、下限を割ったらもう1桁掛け直す)。
+        e -= 1
+        digits_int *= 10
     s = str(digits_int).rjust(ndig, "0")
     return s, e
 
@@ -867,9 +959,17 @@ def fout_format(
     small_len: int = 0,
     small_emin: int = 0,
     large_n: int = 0,
+    fout_algo: str = "exact",
 ) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
     経由したか=approx)
+
+    fout_algo: 桁生成そのもののアルゴリズム。既定"exact"はこれまでの
+    実装(厳密値を求めて$ROUNSと同じ偶数丸めで一度に丸める)。"gw"は
+    $FOTNV(倍精度の不正確な10のべき定数で1回スケーリング)→
+    $FOTCV/$SIGD(.5を足して切り捨てる、偶数丸めではない)という
+    実際の手順を再現する(_significant_digits_gw参照。
+    docs/notes/l4-mbf-oracle.md「FOUTのexactとgwの違い」参照)。
 
     single_digits: 単精度の有効桁数(既定7=GW-BASICどおり)。仮説H6検証用に
     差し替え可能にした口(docs/notes/l4-mbf-oracle.md「H6で採った規則」
@@ -895,7 +995,12 @@ def fout_format(
         return "0", False
     av = -value if value < 0 else value
 
-    digits, e = _significant_digits(av, ndig)
+    if fout_algo == "gw":
+        digits, e = _significant_digits_gw(av, ndig)
+    elif fout_algo == "exact":
+        digits, e = _significant_digits(av, ndig)
+    else:
+        raise ValueError(f"unknown fout_algo {fout_algo!r}")
     trimmed = digits.rstrip("0")
     if trimmed == "":
         trimmed = "0"
@@ -940,8 +1045,11 @@ def print_one(
     small_len: int = 0,
     small_emin: int = 0,
     large_n: int = 0,
+    fout_algo: str = "exact",
 ) -> Tuple[str, bool]:
-    body, approx = fout_format(num, single_digits, small_rule, small_len, small_emin, large_n)
+    body, approx = fout_format(
+        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+    )
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
 
@@ -953,6 +1061,7 @@ def predict(
     small_len: int = 0,
     small_emin: int = 0,
     large_n: int = 0,
+    fout_algo: str = "exact",
 ) -> Tuple[str, str, bool]:
     """戻り値: (kind, predicted, approx)
 
@@ -960,13 +1069,22 @@ def predict(
     small_rule/small_len: fout_format() と同じ(既定"sym"/0)。
     いずれも既定のままなら従来のv2予測(有効桁数7・対称近似則)と
     完全に一致する(tools/l4_mbf_oracle_v2_selftest.sh で確認)。
+    fout_algo: 桁生成(FOUT)のアルゴリズム。"gw"のときはリテラル解析
+    (FIN)側の指数適用も同じ"gw"手順(_scale_by_pow10_gw)を使う
+    (実際のGW-BASICがFIN/FOUTどちらも$FINE/$FOTNVという同じMDPTEN
+    経由の倍精度スケーリングを使っているのに合わせた)。
     """
+    fin_algo = "gw" if fout_algo == "gw" else "exact"
     try:
-        num = eval_expr(typed_print_body)
+        num = eval_expr(typed_print_body, fin_algo)
     except GwError as e:
-        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len, small_emin, large_n)
+        residual_line, approx = print_one(
+            e.residual, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+        )
         return "error", f"{e.kind};{residual_line}", approx
-    line, approx = print_one(num, single_digits, small_rule, small_len, small_emin, large_n)
+    line, approx = print_one(
+        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+    )
     return "numeric", line, approx
 
 
@@ -1005,6 +1123,13 @@ if __name__ == "__main__":
         help="|v|>=1側(大きい側)の固定⇔指数のしきい値(E<large_nなら固定)。"
         "既定0はndig(有効桁数)をそのまま使う=$FOFMT本来の規則",
     )
+    ap.add_argument(
+        "--fout-algo",
+        choices=("exact", "gw"),
+        default="exact",
+        help="桁生成のアルゴリズム(既定exact=厳密値+偶数丸め。"
+        "gw=$FOTNVの倍精度スケーリング+$FOTCV/$SIGDの.5切り捨て丸め)",
+    )
     ap.add_argument("exprs", nargs="+")
     args = ap.parse_args()
     for arg in args.exprs:
@@ -1018,5 +1143,6 @@ if __name__ == "__main__":
             args.small_len,
             args.small_emin,
             args.large_n,
+            args.fout_algo,
         )
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")
