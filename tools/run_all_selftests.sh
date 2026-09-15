@@ -158,6 +158,10 @@ SCRIPTS_EXPECTED=(
   # tools/l4_mbf_oracle.py。ROM・私物なしで完結するのでSKIPは無く、
   # 常にrc=0を期待する。
   "tools/l4_mbf_oracle_selftest.sh:0"
+  # M7段階4 事前登録v2（2026-09-15）。命令単位で四則演算を再現した予測器
+  # tools/l4_mbf_oracle_v2.py。ROM・私物なしで完結するのでSKIPは無く、
+  # 常にrc=0を期待する。
+  "tools/l4_mbf_oracle_v2_selftest.sh:0"
 )
 
 overall=0
