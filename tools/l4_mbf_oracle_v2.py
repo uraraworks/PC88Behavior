@@ -658,7 +658,23 @@ def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
             return GwNum.from_int(iv)
 
     try:
-        num = GwNum.from_fraction(value, kind)
+        if fin_algo == "gw" and kind == "single" and net_exp != 0:
+            # $FINE/MDPTENは指数が非0なら単精度でも必ず倍精度(56bit)を
+            # 経由し、最後に$CSD(csd_narrowと同じ、bit6強制でタイ無し)で
+            # 単精度へ戻す(MATH1.ASM MDPTEN "JNB FIN20"→FRCDBL→MDP10→
+            # "JNB FIN25/FIN50"→$CSD、実ソースで確認済み)。value(既に
+            # 倍精度への丸め済み)をいったん56bitのGwNumへ厳密変換してから
+            # force_to_single(csd_narrow)で単精度化する必要があり、
+            # value を直接encode_mbf(value,24)で丸めるのとは丸め方が違う
+            # (CSDはタイを作らない特殊丸めなので、二重丸めの結果が普通の
+            # 1回丸めと系統的に食い違う入力が実在する。旧実装はここを
+            # GwNum.from_fraction(value,"single")=直接24bit丸めにしていた
+            # ため、二重丸めのタイ潰しが再現されず、$CSDが切り上げる場面で
+            # 切り捨ててしまっていた)。
+            dbl = GwNum.from_fraction(value, "double")
+            num = force_to_single(dbl)
+        else:
+            num = GwNum.from_fraction(value, kind)
     except OverflowError:
         sign = 1 if value < 0 else 0
         raise GwError("Overflow", _max_value_num(kind, sign))

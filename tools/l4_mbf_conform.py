@@ -151,10 +151,18 @@ FIN_BOUNDARY_TEXTS = [
 
 
 def rand_fin_text(rng: random.Random) -> str:
-    """仕様書に無い判断: 実装(MBF_FIN)が繰り返し乗除算で10進指数を
-    適用する近似のため、丸め誤差が予測器の「厳密値→1回丸め」から
-    ずれるリスクを避け、有効桁6桁以内・指数絶対値10以内に収める
-    （照合で実際に一致することを確認したうえでの範囲選定）。"""
+    """仕様書に無い判断: 合計桁数(整数部+小数部)は9桁以内、指数絶対値は
+    10以内に収める。前者はMBF_FINの32bit桁蓄積レジスタ(FIN_ACC)が
+    オーバーフローしない範囲、後者は単精度の実用範囲(指数絶対値が
+    大きいとオーバーフロー/アンダーフローになりやすい)という実装上の
+    制約に基づく選定であり、予測器との丸めの一致・不一致とは無関係
+    （2026-09-15: 以前はここに「丸め誤差が予測器の『厳密値→1回丸め』
+    からずれるリスクを避ける」という記述があったが、それは予測器側の
+    バグ(parse_literalのfin_algo="gw"がCSDの丸めを再現していなかった)
+    が原因で、実装(mbf_single.asm)ではなかった。原因特定・修正済み
+    （tools/l4_mbf_oracle_v2.py parse_literal・l4_mbf_conform.py
+    expected_fin のコメント参照）なので、桁数レンジを狭める理由は
+    もう無い）。"""
     sign = "-" if rng.random() < 0.4 else ""
     int_digits = rng.randint(1, 4)
     int_part = "".join(str(rng.randint(0, 9)) for _ in range(int_digits))
@@ -329,8 +337,20 @@ FOUT_BOUNDARY_FRACTIONS = [
 
 def expected_fin(text: str):
     """戻り値: (期待バイト列 or None, status)。status=3(倍精度)のときバイト列
-    はNone(呼び出し側はstatusだけ比較する)。"""
-    r = oracle.parse_literal(text)
+    はNone(呼び出し側はstatusだけ比較する)。
+
+    fin_algo="gw"を使う(2026-09-15、M7残課題の原因特定で変更): 単精度でも
+    指数が非0なら$FINE/MDPTENは必ず倍精度を経由し最後に$CSDで単精度へ戻す
+    ("厳密値→1回丸め"と同義ではない、二重丸めが系統的に発生する)。
+    実際にGW-BASICのMATH1.ASM($FINE/MDPTEN、"JNB FIN20"→FRCDBL→MDP10→
+    "JNB FIN25/FIN50"→$CSD)を読んで確認した。以前はfin_algo既定の"exact"
+    (厳密値を1回だけ丸める)を使っており、これはoracle担当の以前の確認
+    (コミット1d57966)に基づく近似だったが、乱数照合で「実装が予測器より
+    系統的に+1高い」不一致が消えなかったため、$FINE実装のZ80再現側では
+    なく、この予測側の近似が間違っていたと判断した(詳細はコミット
+    メッセージ、および l4_mbf_oracle_v2.py の parse_literal 内の該当コメント)。
+    """
+    r = oracle.parse_literal(text, fin_algo="gw")
     if r.kind == "double":
         return None, 3
     if r.kind == "int":
