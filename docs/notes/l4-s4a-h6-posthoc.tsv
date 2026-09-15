@@ -1,0 +1,36 @@
+# 生成元: tools/l4_mbf_oracle_v2.py sha256=0193bda64e46727ac79164ea1c9f5c4b1016fe6cf941f9367dfa8cfab42c4074
+# 生成コマンド: python3 tools/gen_l4_s4a_h6_posthoc.py (内部で predict(expr, single_digits=6) を使用。CLI等価: python3 tools/l4_mbf_oracle_v2.py --single-digits 6 <expr>)
+# 事後(post hoc): H6はl4-s4aの観測から立てた仮説。この表は判定に使わない。
+id	typed	kind	predicted	approx
+F1	print 1.5	numeric	" 1.5 "	1
+F2	print .5	numeric	" .5 "	1
+F3	print -.5	numeric	"-.5 "	1
+F4	print 0.25	numeric	" .25 "	1
+F5	print 123.456	numeric	" 123.456 "	1
+D1	print 1/3	numeric	" .333333 "	1
+D2	print 2/3	numeric	" .666667 "	1
+D3	print 10/3	numeric	" 3.33333 "	1
+D4	print 1234567.8	numeric	" 1234567.8 "	1
+D5	print 12345678	numeric	" 12345678 "	1
+E1	print 999999	numeric	" 999999 "	1
+E2	print 9999999	numeric	" 1E+07 "	1
+E3	print 10000000	numeric	" 10000000 "	1
+E4	print 1e10	numeric	" 1E+10 "	1
+E5	print -1.5e+20	numeric	"-1.5E+20 "	1
+S1	print .1	numeric	" .1 "	1
+S2	print .01	numeric	" .01 "	1
+S3	print .001	numeric	" .001 "	1
+S4	print 1e-10	numeric	" 1E-10 "	1
+P1	print 40000	numeric	" 40000 "	1
+P2	print 30000+30000	numeric	" 60000 "	1
+P3	print -32768-1	numeric	"-32769 "	1
+P4	print 200*200	numeric	" 40000 "	1
+P5	print 7/2	numeric	" 3.5 "	1
+W1	print 1#/3	numeric	" .3333333333333333 "	1
+W2	print 1d10	numeric	" 10000000000 "	1
+W3	print 12345678901234#	numeric	" 12345678901234 "	1
+W4	print 1/3#	numeric	" .3333333333333333 "	1
+R1	print .1+.2	numeric	" .3 "	1
+R2	print 1/3*3	numeric	" 1 "	1
+X1	print 1e38*10	error	"Overflow; 1.70141E+38 "	1
+X2	print 1/0	error	"Division by zero; 1.70141E+38 "	1
