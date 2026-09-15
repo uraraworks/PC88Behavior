@@ -55,15 +55,19 @@ run_case "cmp  N=300"  cmp  -n 300 --frames 60
 run_case "itos N=400"  itos -n 400 --frames 60
 run_case "mul  N=400"  mul  -n 400 --frames 200
 run_case "div  N=400"  div  -n 400 --frames 900
-# fin: GW-BASICの$FIN/$FINE/MDPTENの手順(倍精度56bit経由、DBL_MUL/
-# DBL_DIV/DBL_TO_SINGLE_CSD)に作り直し済み(コミット90cb054)。かつて
-# 乱数1000件超の照合で約0.3-0.5%が最下位バイトで系統的に+1ずれる
-# 未解決の残課題があったが、原因は予測器(tools/l4_mbf_oracle_v2.py
-# parse_literalのfin_algo="gw")がCSDの丸めを再現していなかったためと
-# 判明し、予測器側を修正して解消した(mbf_single.asm DBL_MULのヘッダ
-# コメント参照)。乱数5000件超・境界値の照合で不一致0件を確認済みなので
-# --max-mismatchは0のまま使う。
-run_case "fin  N=300"  fin  -n 300 --frames 500  --max-mismatch 0
+# fin: docs/spec/l4-basic.md 第3.6版5.1.1節の推定REP01(1手ごとに
+# 単精度へ丸め直す、$FINE/MDPTENの倍精度56bit経由・$CSD1回丸めではない)
+# に作り直し済み(2026-09-15、M7)。予測器もfin_algo="rep01"に合わせて
+# あり(tools/l4_mbf_conform.py expected_fin)、乱数複数シード計5000件超・
+# 境界値(指数上下限近く・7桁定数・`!`・e+/e-の大小・小数点以下の桁数・
+# 先頭0の小数)の照合で不一致0件を確認済みなので--max-mismatchは0のまま
+# 使う(REP01自体がl4-s4i・l4-s4j実測57件中55件しか再現しない推定である
+# ことは仕様書5.1.1節に記録済みで、この0件はZ80実装と予測器の一致を
+# 指すもの)。
+run_case "fin  N=1300 seed1" fin -n 1300 --seed 1 --frames 3000 --max-mismatch 0
+run_case "fin  N=1300 seed2" fin -n 1300 --seed 2 --frames 3000 --max-mismatch 0
+run_case "fin  N=1300 seed3" fin -n 1300 --seed 3 --frames 3000 --max-mismatch 0
+run_case "fin  N=1300 seed4" fin -n 1300 --seed 4 --frames 3000 --max-mismatch 0
 # fout: 本件(M7段階4-2)でGW手順($FOTNV相当の倍精度DBL_TABLEスケール＋
 # 「0.5を足して切り捨て」)へ作り直した。乱数照合は複数シード合計
 # 5000件超・境界値(MAX_POS/MAX_NEG/MIN_POS/MIN_NEG含む)・仕様書第5節の
@@ -83,6 +87,8 @@ run_case "sub  --fault round_truncate" sub -n 400 --frames 90  --fault round_tru
 run_case "mul  --fault mul_coarse"     mul -n 400 --frames 200 --fault mul_coarse     --expect-ng
 run_case "div  --fault div_sticky"     div -n 400 --frames 900 --fault div_sticky     --expect-ng
 run_case "fin  --fault fin_bang"       fin -n 30  --frames 400 --fault fin_bang       --expect-ng
+run_case "fin  --fault fin_exact"      fin -n 100 --frames 1500 --fault fin_exact      --expect-ng
+run_case "fin  --fault fin_rep10"      fin -n 100 --frames 1500 --fault fin_rep10      --expect-ng
 run_case "fout --fault fout_trunc"       fout -n 200 --frames 20000 --fault fout_trunc       --expect-ng
 run_case "fout --fault fout_round_even"  fout -n 200 --frames 20000 --fault fout_round_even  --expect-ng
 run_case "fout --fault fout_len7"        fout -n 200 --frames 20000 --fault fout_len7        --expect-ng

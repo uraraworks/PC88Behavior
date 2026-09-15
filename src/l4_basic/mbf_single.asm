@@ -881,8 +881,36 @@ MUL_C2 EQU 0xC049
 MUL_C1 EQU 0xC04A
 MUL_C0 EQU 0xC04B
 WK_S   EQU 0xC04C  ; eA+eB (2バイト、0..510)
+WK_MUL_ROUNDMODE EQU 0xC04E  ; 0=既定(粗いROUNS、偶数丸め、$FMULS忠実再現)
+                              ; 1=REP01専用(半分は絶対値の大きい側)。
+                              ; MBF_MULへ直接CALLすると常に0へ確定させる
+                              ; (下記)。REP01側はMBF_MUL_HALFUPへCALLする
+                              ; こと。
+
+; MBF_MUL_HALFUP — MBF_FIN(REP01、docs/spec/l4-basic.md 5.1.1節)専用の
+; 入り口。WK_MUL_ROUNDMODE=1をセットしてからMBF_MULの本体(_mbfmul_body)
+; へ合流する。
+;
+; 2026-09-15追記(M7): 当初はFIN側で「LD A,1 / LD (WK_MUL_ROUNDMODE),A」
+; してからCALL MBF_MULし、戻り値を見てから「XOR A / LD (WK_MUL_ROUNDMODE)」
+; で0へ戻す、という運用にしていたが、無関係な mul の照合(乱数n=400)で
+; 14件が偶数丸めのはずの場面で切り上げになる不一致を出し、原因は
+; WK_MUL_ROUNDMODE がFINを一切呼ばないROM(mul単体テスト)でも0だと
+; 決め打っていたこと(RAMの初期値が0とは限らない、あるいは実行順序に
+; 依存する未初期化読み出し)だった。MBF_MULへ直接入る経路(通常の
+; 四則演算・既存の全呼び出し元)は必ずこの場でWK_MUL_ROUNDMODEを0へ
+; 明示的に確定させ、REP01側だけがそれをスキップして1のまま本体へ
+; 合流する構成に直したことで解消した(以後、呼び出し後に0へ戻す後始末は
+; 不要——次にどちらの入り口から呼ばれても、その入り口が値を確定させる)。
+MBF_MUL_HALFUP:
+    LD A,1
+    LD (WK_MUL_ROUNDMODE),A
+    JR _mbfmul_body
 
 MBF_MUL:
+    XOR A
+    LD (WK_MUL_ROUNDMODE),A
+_mbfmul_body:
     XOR A
     LD (MBF_STATUS),A
     CALL MBF_UNPACK_A
@@ -937,10 +965,19 @@ _mul_have_base_exp:
     ; exp_adj/繰り上がりを一切見ない。tools/l4_mbf_oracle_v2.py
     ; gw_mul_single の "if final_exp == 0: return ...Fraction(0)..." と同じ)。
     ; 仮数側の丸めで指数が0から1以上へ動く余地を先に断つ必要がある。
+    ; WK_MUL_ROUNDMODE=1(REP01専用)のときはこの早期ゼロ確定をしない
+    ; ——tools/l4_mbf_oracle_v2.py _encode_single_away はexp_byte<1でしか
+    ; ゼロにせず、丸めでの繰り上がり(0→1、下のMBF_PACK_RES直前の
+    ; RES_EXP==0判定で結局ゼロと分かる)による復帰を妨げないため。
     LD A,L
+    LD (RES_EXP),A          ; 一時的にRES_EXPへ置く(下でexp_adj/carryを加算)
+    LD A,(WK_MUL_ROUNDMODE)
+    OR A
+    JR NZ,_mul_have_base_exp_done
+    LD A,(RES_EXP)
     OR A
     JP Z,_mul_zero
-    LD (RES_EXP),A          ; 一時的にRES_EXPへ置く(下でexp_adj/carryを加算)
+_mul_have_base_exp_done:
 
     ; --- 24bit×24bit shift-add乗算 ---
     XOR A
@@ -1066,7 +1103,10 @@ _mul_p32_asis:
     JP MBF_PACK_OVERFLOW     ; RES_EXPが256へ桁あふれ=オーバーフロー
 
 _mul_have_m32:
-    ; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0
+    LD A,(WK_MUL_ROUNDMODE)
+    OR A
+    JR NZ,_mul_halfup_tiebreak
+    ; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0 (既定、$FMULS忠実再現)
     LD A,(BIG_MG)
     AND 0xE0
     JR Z,_mul_round_down
@@ -1076,6 +1116,20 @@ _mul_have_m32:
     ; masked==0x80 ちょうど: 偶数丸め(候補仮数の最下位ビット=BIG_M0 bit0)
     LD A,(BIG_M0)
     BIT 0,A
+    JR NZ,_mul_round_up
+    JR _mul_round_down
+_mul_halfup_tiebreak:
+    ; REP01専用(WK_MUL_ROUNDMODE=1のときだけ): guardバイトの最上位1bit
+    ; だけを見て「半分は絶対値の大きい側」(tools/l4_mbf_oracle_v2.py
+    ; _round_half_away_mag)で丸める。オペランドは常に非負(FIN_MUL10ADD
+    ; で積み上げた整数・10.0・単精度0.1の掛け算はすべて符号なし、
+    ; 符号はMBF_UDWORD_TO_SINGLEで最初に付けたFIN_SIGNがXORでそのまま
+    ; 通り抜けるだけ)なので「絶対値の大きい側」は常に切り上げになる。
+    ; guardバイトの下位ビットは判定に無関係(2進小数としてguard bit7が
+    ; 1なら真値は必ずkeep側の0.5以上、0なら必ず0.5未満と確定するため、
+    ; MUL_R1/MUL_R0の破棄は丸め結果に影響しない)。
+    LD A,(BIG_MG)
+    BIT 7,A
     JR Z,_mul_round_down
 _mul_round_up:
     LD A,(BIG_M0)
@@ -1503,6 +1557,14 @@ _pkok_setb2:
 ; 正規化: 32bit値V(非0)をbit31が立つまで左シフト(s回)すると、
 ; V=candidate24*2^(8-s)(近似、下参照)になるので final_exp=160-s。
 ; (V=1のときs=31,final_exp=129={1.0の単精度指数}で検算済み)。
+;
+; 2026-09-15追記(M7・REP01): MBF_FINからはもう呼ばれない。偶数丸めが
+; docs/spec/l4-basic.md 5.1.1節REP01の丸め方(半分は絶対値の大きい側)と
+; 違うため(`!`強制単精度でFIN_ACC>=1,000,000のケースで乱数照合により
+; 発覚。詳細は下のFIN_ACC_TO_SINGLE_AWAYヘッダコメント参照)、MBF_FINは
+; 丸め方だけ違う同型のFIN_ACC_TO_SINGLE_AWAYを使う。このルーチン自体は
+; 他のどこからも呼ばれておらず未使用のまま残置(ROM使用量には数十バイト
+; 計上されるが実行経路には影響しない)。
 ; =======================================================================
 MBF_UDWORD_TO_SINGLE:
     XOR A
@@ -1561,6 +1623,110 @@ _udw_normed:
     LD A,(FIN_ACC0)
     LD (BIG_MG),A
     JP _add_round
+
+; =======================================================================
+; FIN_ACC_TO_SINGLE_AWAY — MBF_UDWORD_TO_SINGLEと同じ入力
+; (FIN_ACC3:ACC2:ACC1:ACC0・FIN_SIGN)から単精度MBFを作るが、24bitに
+; 収まらない場合の丸めが違う: MBF_UDWORD_TO_SINGLE(_add_round、偶数丸め)
+; ではなく「半分は絶対値の大きい側」(docs/spec/l4-basic.md 5.1.1節の
+; REP01、MBF_MULのWK_MUL_ROUNDMODE=1と同じ丸め方)。
+;
+; 発覚の経緯(2026-09-15、M7): REP01実装当初はMBF_UDWORD_TO_SINGLEを
+; そのまま使い回していた(単精度になるのはFIN_ACC<1,000,000のときだけ
+; なので24bit仮数へ必ず厳密に収まり丸め不要、という前提)。しかしこの
+; 前提は`!`(FIN_HASBANG)がFIN_ISDOUBLEしきい値より優先されるケースで
+; 崩れる——"1698.28168E+7!"(acc=169828168、9桁)のような`!`強制単精度
+; リテラルはFIN_ACC>=1,000,000でもkind=singleになり、24bit仮数への
+; 丸めが実際に発生する。乱数照合(n=1300,seed=1)の#626でこの入力が
+; 偶数丸め由来の食い違い(最下位バイトが2違う)を出して発覚した。
+;
+; 正規化(bit31が立つまで左シフト)後のBIG_M2:M1:M0(上位24bit)・
+; BIG_MG(下位8bit、破棄される分)は、FIN_ACCが正確に32bit整数である
+; ことから常に厳密(欠落bitなし)。よってBIG_MGの最上位1bitだけを見れば
+; round_half_awayの判定が完結する(下位7bitは無関係。MBF_MULの
+; _mul_halfup_tiebreakと同じ理由)。
+; =======================================================================
+FIN_ACC_TO_SINGLE_AWAY:
+    XOR A
+    LD (MBF_STATUS),A
+    LD A,(FIN_ACC3)
+    OR A
+    JR NZ,_faa_nz
+    LD A,(FIN_ACC2)
+    OR A
+    JR NZ,_faa_nz
+    LD A,(FIN_ACC1)
+    OR A
+    JR NZ,_faa_nz
+    LD A,(FIN_ACC0)
+    OR A
+    JR NZ,_faa_nz
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_faa_nz:
+    LD A,(FIN_SIGN)
+    LD (RES_SIGN),A
+    LD C,0
+_faa_norm:
+    LD A,(FIN_ACC3)
+    BIT 7,A
+    JR NZ,_faa_normed
+    XOR A
+    LD A,(FIN_ACC0)
+    SLA A
+    LD (FIN_ACC0),A
+    LD A,(FIN_ACC1)
+    RLA
+    LD (FIN_ACC1),A
+    LD A,(FIN_ACC2)
+    RLA
+    LD (FIN_ACC2),A
+    LD A,(FIN_ACC3)
+    RLA
+    LD (FIN_ACC3),A
+    INC C
+    JR _faa_norm
+_faa_normed:
+    LD A,160
+    SUB C
+    LD (RES_EXP),A
+    LD A,(FIN_ACC3)
+    LD (BIG_M2),A
+    LD A,(FIN_ACC2)
+    LD (BIG_M1),A
+    LD A,(FIN_ACC1)
+    LD (BIG_M0),A
+    LD A,(FIN_ACC0)
+    LD (BIG_MG),A
+    BIT 7,A                     ; 丸め: guardバイトの最上位1bitだけで判定
+    JR Z,_faa_round_down
+    LD A,(BIG_M0)
+    INC A
+    LD (BIG_M0),A
+    JR NZ,_faa_round_down
+    LD A,(BIG_M1)
+    INC A
+    LD (BIG_M1),A
+    JR NZ,_faa_round_down
+    LD A,(BIG_M2)
+    INC A
+    LD (BIG_M2),A
+    JR NZ,_faa_round_down
+    LD A,0x80
+    LD (BIG_M2),A
+    XOR A
+    LD (BIG_M1),A
+    LD (BIG_M0),A
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JR Z,_faa_overflow
+_faa_round_down:
+    JP MBF_PACK_RES
+_faa_overflow:
+    JP MBF_PACK_OVERFLOW
 
 ; =======================================================================
 ; UDWORD_TO_DOUBLE — FIN_ACC3:ACC2:ACC1:ACC0(32bit符号なし整数)と
@@ -1656,26 +1822,38 @@ _udwd_normed:
 ;     3段階しきい値がある可能性があるが、どの経路でも「生の桁の値が
 ;     1,000,000に達するかどうか」で単精度/倍精度の分岐が決まる、という
 ;     部分だけを採用した)。
-;   - 数値の合成は GW-BASIC の $FINE/MDPTEN の実際の手順(MATH1.ASM
-;     1145-1240)どおり、有効桁(最大32bit整数として蓄積)を
-;     UDWORD_TO_DOUBLEで倍精度(56bit)へ厳密変換してから、10進指数ぶんの
-;     倍精度10のべき定数(DBL_TABLE)をDBL_MUL/DBL_DIVで1回だけ掛ける・
-;     割り、最後にDBL_TO_SINGLE_CSD($CSD)で単精度へ戻す(下のDBL_MUL
-;     ヘッダコメント参照)。かつては「単精度のまま10.0を2進累乗法で
-;     繰り返し掛ける」近似だったため、繰り返しの乗除算ごとに丸めが入り
-;     予測器の「厳密値→1回丸め」から高頻度でずれていたが、この
-;     GW手順への作り直し(コミット90cb054)で解消した。
-;     2026-09-15追記: それでもなお乱数照合で約0.3-0.5%(常に最下位
-;     バイトが+1高い側)の不一致が残っていたが、これはこのルーチンの
-;     バグではなく、予測器側(tools/l4_mbf_oracle_v2.py parse_literal)の
-;     fin_algo="gw"が単精度への最終丸め($CSD、タイを作らない特殊丸め)を
-;     再現せず直接24bit丸めしていたための予測器側の不一致だった
-;     （実際のMATH1.ASM MDPTENを読み、"JNB FIN20"→FRCDBL→MDP10→
-;     "JNB FIN25/FIN50"→$CSDという、指数が非0なら単精度でも必ず倍精度を
-;     経由し最後に$CSDで戻すという手順そのものを確認した上での結論）。
-;     予測器側を修正し、乱数5000件超・境界値の照合で不一致0件を確認した
-;     (tools/l4_mbf_conform.py・tools/l4_mbf_oracle_v2.py 該当コメント、
-;     コミットメッセージ参照)。
+;   - 数値の合成(単精度、指数SCALE≠0): docs/spec/l4-basic.md 第3.6版
+;     5.1.1節「単精度の定数の読み取り(FIN)」の推定REP01に従う
+;     (2026-09-15、M7)。有効桁(最大32bit整数として蓄積したFIN_ACC、
+;     単精度になるのはFIN_ACC<1,000,000のときだけなので24bit仮数へ
+;     必ず厳密に収まる)をMBF_UDWORD_TO_SINGLEで単精度へ変換し、
+;     正味指数SCALEの絶対値回数だけ「10.0を掛ける(SCALE>0)」または
+;     「単精度に丸めた0.1〔FIN_SET_OPB_S01〕を掛ける(SCALE<0)」を
+;     1回ずつ・毎回単精度へ丸め直しながら繰り返す(_fin_rep01_loop)。
+;     丸めは「半分は絶対値の大きい側」(MBF_MULのWK_MUL_ROUNDMODE=1
+;     モード、$FMULSの偶数丸めとは別)。符号はMBF_UDWORD_TO_SINGLEが
+;     最初にFIN_SIGNを付け、以後は正のオペランド(10.0/S01)を掛ける
+;     だけなので変わらず最後まで保たれる(符号は最後に適用、と数学的に
+;     等価)。
+;     REP01は測定で前向きに確定した規則ではなく、ユーザー判断
+;     (2026-09-15)により実装した開発者判断。l4-s4i・l4-s4j実測57件中
+;     55件を再現し、J17・J20の2件(93.6e+10・8.418484e+11という定数の
+;     読み取りが実測と1ビット違う)は未説明のまま仕様書に記録されている
+;     (仕様書第10節「未確定」参照)。
+;
+;     2026-09-15以前の経緯(倍精度56bit経由・DBL_TABLE1回掛け/割りの
+;     旧実装、GW実機の$FINE/MDPTEN手順の再現だったが実測の一部
+;     〔l4-s4i対照C6・l4-s4j 4腕〕と食い違うことが判明したため
+;     REP01へ置き換えた): 倍精度10のべき定数(DBL_TABLE)を
+;     DBL_MUL/DBL_DIVで1回だけ掛ける・割ってからDBL_TO_SINGLE_CSDで
+;     単精度へ戻す実装だった。DBL_TABLEとDBL_MUL/DBL_DIVはFOUTの
+;     10進変換が今も使うため残す。UDWORD_TO_DOUBLE・DBL_TO_SINGLE_CSDは
+;     旧FIN実装専用だったため、この置き換えでどこからも呼ばれなく
+;     なった(未使用のまま残置。ROM使用量には数バイト計上されるが
+;     FOUTを含め他のどの経路にも影響しない)。旧実装が単精度のまま
+;     10.0を2進累乗法で繰り返し掛ける近似だった際の不具合(乱数照合で
+;     約2.6%不一致)と、GW手順への作り直し(コミット90cb054)、予測器側の
+;     $CSD再現不足(コミットde9e12e)の経緯は、そのままコミット履歴に残る。
 ;   - 指数(E/D)の桁は2桁までしか蓄積しない(3桁目以降は無視、単精度の
 ;     範囲では現実的に不要)。
 ;
@@ -1699,12 +1877,12 @@ FIN_HASD    EQU 0xC0A4
 FIN_ISDOUBLE EQU 0xC0A5
 FIN_SCALE   EQU 0xC0A6   ; 符号つき1バイト(-128..127)。exponent-fracdig
 WK_FINDIGIT EQU 0xC0A7
-WK_FINLOOP  EQU 0xC0AA
 FIN_HASBANG EQU 0xC0AB
-FIN_VALUE   EQU 0xC0AC   ; 4バイト(AC-AF)
-FIN_SCALE_NEG EQU 0xC0B0
-FIN_POW     EQU 0xC0B1   ; 4バイト(B1-B4)
-FIN_BASE    EQU 0xC0B5   ; 4バイト(B5-B8)
+; REP01(_fin_scale_nonzeroのループ)専用ワーク。旧実装のFIN_VALUE/
+; FIN_SCALE_NEG/FIN_POW/FIN_BASE/WK_FINLOOP(倍精度2進累乗法の名残、
+; 使われていなかった)をこの用途へ差し替えた。
+FIN_REP01_COUNT EQU 0xC0AC  ; |SCALE|の残り回数(0-255)
+FIN_REP01_MODE  EQU 0xC0AD  ; 0=×10.0(SCALE>0側) 1=×S01(SCALE<0側)
 
 MBF_FIN:
     XOR A
@@ -1963,73 +2141,118 @@ _fin_expsigned_done:
     LD A,(FIN_SCALE)
     OR A
     JP NZ,_fin_scale_nonzero
-    CALL MBF_UDWORD_TO_SINGLE
+    CALL FIN_ACC_TO_SINGLE_AWAY
     JP _fin_done
 
-    ; $FINE/MDPTENの再現: 倍精度(56bit)へ変換し、10^|SCALE|の倍精度
-    ; 定数を1回だけ掛ける/割ってから単精度へ$CSDで切り詰める
-    ; (GW-BASICのMATH1.ASM 1145-1240を命令単位で読んで再現。前の実装は
-    ; 単精度のまま10.0を2進累乗法で繰り返し掛ける自前の近似だったため、
-    ; 乱数照合で約2.6%が最下位桁でずれた——予測器担当がGW-BASICの
-    ; $FIN/$FIDIGを確認した結果〔コミット1d57966〕、単精度は
-    ; 「厳密値→1回丸め」とGWの実際の手順が完全に一致することが
-    ; わかったため、自前の近似をやめてGWの実際の手順に合わせた)。
-    ; 積み上げた整数(FIN_ACC)は単精度へは変換せず、UDWORD_TO_DOUBLEで
-    ; 直接倍精度(丸め不要、32bitは56bit仮数へ必ず厳密に収まる)へ
-    ; 変換してから指数を適用する——単精度へ先に丸めてから倍精度化すると
-    ; 2重丸めになり、FIN_ACCが2^24を超える`!`強制単精度リテラルで
-    ; 予測器とずれた("2246.07656!"のような9桁の例で発覚、仕様書に無い
-    ; 判断としてここに明記)。
-    ; |SCALE|>38(MDP10が2パスに分ける稀なケース)は未対応
-    ; =仕様書に無い判断、本ルーチンのヘッダコメント参照。
+    ; REP01(docs/spec/l4-basic.md 第3.6版 5.1.1節): 積み上げた整数
+    ; (FIN_ACC)をFIN_ACC_TO_SINGLE_AWAYでまず単精度へ変換し(FIN_ACCが
+    ; 1,000,000未満なら厳密、`!`強制単精度でそれ以上のときは半分は
+    ; 絶対値の大きい側で丸める。MBF_UDWORD_TO_SINGLEの偶数丸めを使うと
+    ; ずれる=下のFIN_ACC_TO_SINGLE_AWAYヘッダコメント参照)、正味指数
+    ; |SCALE|回だけ「10.0を掛ける(SCALE>0)」または「単精度に丸めた
+    ; 0.1〔FIN_SET_OPB_S01〕を掛ける(SCALE<0)」を1回ずつ・毎回単精度へ
+    ; 丸め直しながら繰り返す。丸めはMBF_MULのWK_MUL_ROUNDMODE=1(半分は
+    ; 絶対値の大きい側、$FMULSの偶数丸めとは別)。ここのオペランドは
+    ; 常に非負(10.0・S01)なのでXORによる符号伝播はFIN_SIGNをそのまま
+    ; 素通りさせるだけで、「符号は最後に適用する」と数学的に等価。
 _fin_scale_nonzero:
-    LD A,(FIN_SCALE)
-    BIT 7,A
-    JP NZ,_fin_scale_check_neg
-    CP 39
-    JP NC,_fin_scale_overflow
-    JP _fin_scale_range_ok
-_fin_scale_check_neg:
-    NEG
-    CP 39
-    JP NC,_fin_scale_overflow_neg
-_fin_scale_range_ok:
-    CALL UDWORD_TO_DOUBLE
+    CALL FIN_ACC_TO_SINGLE_AWAY
+    CALL FIN_COPY_RES_TO_OPA
 
     LD A,(FIN_SCALE)
     BIT 7,A
-    JP Z,_fin_dpos
-    NEG                           ; A=|SCALE| (1..38)、そのままテーブル添字
-    CALL DBL_TABLE_LOOKUP
-    CALL DBL_DIV
-    JP _fin_after_scale
-_fin_dpos:
-    CALL DBL_TABLE_LOOKUP
-    CALL DBL_MUL
-_fin_after_scale:
+    JR Z,_fin_rep01_setpos
+    NEG                            ; A=|SCALE|
+    LD (FIN_REP01_COUNT),A
+    LD A,1
+    LD (FIN_REP01_MODE),A
+    JR _fin_rep01_loop
+_fin_rep01_setpos:
+    LD (FIN_REP01_COUNT),A
+    XOR A
+    LD (FIN_REP01_MODE),A
+_fin_rep01_loop:
+    LD A,(FIN_REP01_COUNT)
+    OR A
+    JR Z,_fin_rep01_done
+    LD A,(FIN_REP01_MODE)
+    OR A
+    JR NZ,_fin_rep01_use_s01
+    CALL FIN_SET_OPB_TEN
+    CALL MBF_MUL_HALFUP
+    JR _fin_rep01_afterop
+_fin_rep01_use_s01:
+    CALL FIN_SET_OPB_S01
+    CALL MBF_MUL_HALFUP
+_fin_rep01_afterop:
     LD A,(MBF_STATUS)
     OR A
-    JP Z,_fin_scale_ok
-    ; DBL_MUL/DBL_DIVがオーバーフローを検出済み(RES_SIGNは設定済み)。
-    ; MBF_RESへ残留値($INFPD/$INFMD相当)を書く。
-    CALL MBF_PACK_OVERFLOW
-    JP _fin_done
-_fin_scale_ok:
-    CALL DBL_TO_SINGLE_CSD
+    JR NZ,_fin_rep01_done          ; オーバーフロー確定。MBF_RES/STATUSは
+                                    ; MBF_MULが既に正しい符号で埋めている
+    CALL FIN_COPY_RES_TO_OPA
+    LD A,(FIN_REP01_COUNT)
+    DEC A
+    LD (FIN_REP01_COUNT),A
+    JR _fin_rep01_loop
+_fin_rep01_done:
     JP _fin_done
 
-_fin_scale_overflow:
+_fin_done:
+    RET
+
+; =======================================================================
+; _fin_scale_nonzero_EXACT_FAULT — 通常経路からは呼ばれない。
+; tools/l4_mbf_conform.py --fault fin_exact(陽性対照)専用の代替実装。
+; REP01(1手ごとに単精度へ丸め直す)ではなく、「厳密値を求めて最後に
+; 1回だけ単精度へ丸める」(EXACT相当)を再現する。積み上げた整数を
+; UDWORD_TO_DOUBLEで倍精度(56bit、厳密)へ変換し、DBL_TABLEの10^|SCALE|
+; 定数をDBL_MUL/DBL_DIVで1回だけ掛ける/割ってから、DBL_TO_SINGLE_CSDで
+; 単精度へ1回だけ丸める(旧FIN実装〔コミット90cb054〕そのもの)。
+; |SCALE|>38(DBL_TABLEの範囲外)は未対応のままオーバーフロー扱いにする。
+; =======================================================================
+_fin_scale_nonzero_EXACT_FAULT:
+    LD A,(FIN_SCALE)
+    BIT 7,A
+    JP NZ,_finXF_check_neg
+    CP 39
+    JP NC,_finXF_overflow
+    JP _finXF_range_ok
+_finXF_check_neg:
+    NEG
+    CP 39
+    JP NC,_finXF_overflow_neg
+_finXF_range_ok:
+    CALL UDWORD_TO_DOUBLE
+    LD A,(FIN_SCALE)
+    BIT 7,A
+    JP Z,_finXF_dpos
+    NEG
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_DIV
+    JP _finXF_after_scale
+_finXF_dpos:
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_MUL
+_finXF_after_scale:
+    LD A,(MBF_STATUS)
+    OR A
+    JP Z,_finXF_scale_ok
+    CALL MBF_PACK_OVERFLOW
+    JP _fin_done
+_finXF_scale_ok:
+    CALL DBL_TO_SINGLE_CSD
+    JP _fin_done
+_finXF_overflow:
     LD A,(FIN_SIGN)
     LD (RES_SIGN),A
     CALL MBF_PACK_OVERFLOW
     JP _fin_done
-_fin_scale_overflow_neg:
+_finXF_overflow_neg:
     XOR A
     LD (RES_SIGN),A
     LD (RES_EXP),A
     CALL MBF_PACK_RES
-_fin_done:
-    RET
+    JP _fin_done
 
 ; MBF_RES(4byte)をMBF_OPAへ複写。AF破壊。
 FIN_COPY_RES_TO_OPA:
@@ -2056,6 +2279,25 @@ FIN_SET_OPB_TEN:
     LD A,0x20
     LD (MBF_OPB+2),A
     LD A,132
+    LD (MBF_OPB+3),A
+    RET
+
+; MBF_OPBへ単精度に丸めた0.1(REP01の"S01")を書く。AF破壊。
+; バイト列はtools/gen_l4_fin_rep01_s01.py(tools/l4_mbf_oracle_v2.pyの
+; _encode_single_away=round_half_awayと同じ計算)の出力をそのまま転記した
+; ものであり、手計算・手入力していない(90cb054で10のべき乗テーブルの
+; 手入力に転記ミスが複数あった教訓)。
+;   $ python3 tools/gen_l4_fin_rep01_s01.py
+;   exp_byte=125 mant=0xCCCCCD
+;   db 0xcd, 0xcc, 0x4c, 0x7d  ; 単精度0.1(round_half_away)
+FIN_SET_OPB_S01:
+    LD A,0xCD
+    LD (MBF_OPB),A
+    LD A,0xCC
+    LD (MBF_OPB+1),A
+    LD A,0x4C
+    LD (MBF_OPB+2),A
+    LD A,0x7D
     LD (MBF_OPB+3),A
     RET
 

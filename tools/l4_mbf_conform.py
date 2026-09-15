@@ -153,6 +153,18 @@ FIN_BOUNDARY_TEXTS = [
     "1#",           # `#`サフィックスで倍精度
     "1D10",         # D指数で倍精度
     "123.456#",
+    # M7(REP01)追記(2026-09-15): _fin_scale_nonzeroの反復(10.0倍/S01倍)
+    # 回数=|SCALE|の境界を機械的に踏む値。指数の上下限近く(単精度は
+    # おおよそ1E-38〜1E+38)・7桁定数(9999999は上にある)・`!`・e+/e-の
+    # 大小・小数点以下の桁数・先頭0の小数を意図的に混ぜる
+    # (仕様書に無い判断、REP01実装担当が選定)。
+    "1E38", "-1E38", "9.99999E37", "1E-38", "1E-37", "-1E-38",
+    "3.4E38", "3.4E38!", "1.2E-38#",           # 単精度の実用上限/下限近辺
+    "1.234567E30", "1.234567E-30",              # 7桁の仮数部+E指数
+    "1E+30", "1E-30", "1e+05", "1e-05",         # e+/e-の大小(小さい方)
+    "0.0001", "-0.0001", "0.00001234",          # 先頭0の小数
+    "123.456789", "-0.000123456",               # 小数点以下の桁数が多い
+    "5E0", "5E-0", "5E+0",                      # 指数0(符号の有無違い)
 ]
 
 
@@ -375,18 +387,26 @@ def expected_fin(text: str):
     """戻り値: (期待バイト列 or None, status)。status=3(倍精度)のときバイト列
     はNone(呼び出し側はstatusだけ比較する)。
 
-    fin_algo="gw"を使う(2026-09-15、M7残課題の原因特定で変更): 単精度でも
-    指数が非0なら$FINE/MDPTENは必ず倍精度を経由し最後に$CSDで単精度へ戻す
-    ("厳密値→1回丸め"と同義ではない、二重丸めが系統的に発生する)。
-    実際にGW-BASICのMATH1.ASM($FINE/MDPTEN、"JNB FIN20"→FRCDBL→MDP10→
-    "JNB FIN25/FIN50"→$CSD)を読んで確認した。以前はfin_algo既定の"exact"
-    (厳密値を1回だけ丸める)を使っており、これはoracle担当の以前の確認
-    (コミット1d57966)に基づく近似だったが、乱数照合で「実装が予測器より
-    系統的に+1高い」不一致が消えなかったため、$FINE実装のZ80再現側では
-    なく、この予測側の近似が間違っていたと判断した(詳細はコミット
-    メッセージ、および l4_mbf_oracle_v2.py の parse_literal 内の該当コメント)。
+    fin_algo="rep01"を使う(2026-09-15、M7): docs/spec/l4-basic.md
+    第3.6版5.1.1節「単精度の定数の読み取り(FIN)」の推定REP01
+    (ユーザー判断により実装を進める規則)。l4-s4i・l4-s4j実測57件中55件を
+    再現する規則で、以前使っていた"gw"(倍精度56bit経由・$CSD1回丸め、
+    $FINE/MDPTENの実際の手順の再現)は対照C6(l4-s4i)・4腕(l4-s4j)で
+    実測と食い違うことが分かったため置き換えた
+    (詳細はdocs/spec/l4-basic.md 5.1.1節「観測」、
+    tools/l4_mbf_oracle_v2.py parse_literal内の該当コメント参照)。
+
+    REP01は指数の絶対値ぶん10.0/S01を1回ずつ掛ける反復なので、境界値
+    (1E38・1E-38付近)ではparse_literalがOverflowError由来のGwErrorを
+    投げる。mbf_single.asm側もMBF_MUL(WK_MUL_ROUNDMODE=1)が同じ境界で
+    オーバーフロー検出しMBF_STATUS=1を返す設計なので、ここでも
+    status=1・残留値($INFPD/$INFMD相当)を返して合わせる
+    (expected_binopと同じ扱い)。
     """
-    r = oracle.parse_literal(text, fin_algo="gw")
+    try:
+        r = oracle.parse_literal(text, fin_algo="rep01")
+    except oracle.GwError as e:
+        return gwnum_bytes(e.residual), 1
     if r.kind == "double":
         return None, 3
     if r.kind == "int":
@@ -595,12 +615,12 @@ FAULT_ROUND_TRUNCATE_OLD = "_add_round:\n    ; guard = BIG_MG。"
 FAULT_ROUND_TRUNCATE_NEW = "_add_round:\n    JP _add_round_down\n    ; guard = BIG_MG。"
 
 FAULT_MUL_COARSE_OLD = (
-    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0\n"
+    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0 (既定、$FMULS忠実再現)\n"
     "    LD A,(BIG_MG)\n"
     "    AND 0xE0"
 )
 FAULT_MUL_COARSE_NEW = (
-    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0\n"
+    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0 (既定、$FMULS忠実再現)\n"
     "    LD A,(BIG_MG)\n"
     "    AND 0xFF"  # 故障注入: 下位5bitをマスクしない(=粗いタイ判定を外す)
 )
@@ -624,6 +644,40 @@ FAULT_FIN_BANG_OLD = (
 )
 FAULT_FIN_BANG_NEW = (
     "    ; 故障注入: `!`の単精度強制を外す\n"
+)
+
+# M7(REP01)追記(2026-09-15): docs/spec/l4-basic.md 5.1.1節REP01の陽性対照。
+# fin_exact: 「1手ごとの丸めを最後の1回にまとめる」(EXACT相当)。
+# _fin_scale_nonzero の先頭を、mbf_single.asm に残置してある
+# _fin_scale_nonzero_EXACT_FAULT(倍精度56bit経由・DBL_MUL/DBL_DIVを
+# 1回だけ掛ける/割ってからDBL_TO_SINGLE_CSDで単精度へ1回だけ丸める、
+# REP01置き換え前の旧実装)へ無条件でJPさせる。
+FAULT_FIN_EXACT_OLD = (
+    "_fin_scale_nonzero:\n"
+    "    CALL FIN_ACC_TO_SINGLE_AWAY\n"
+    "    CALL FIN_COPY_RES_TO_OPA\n"
+)
+FAULT_FIN_EXACT_NEW = (
+    "_fin_scale_nonzero:\n"
+    "    ; 故障注入: 1手ごとの丸めをやめ、最後に1回だけ丸める(EXACT相当)\n"
+    "    JP _fin_scale_nonzero_EXACT_FAULT\n"
+    "    CALL FIN_ACC_TO_SINGLE_AWAY\n"
+    "    CALL FIN_COPY_RES_TO_OPA\n"
+)
+
+# fin_rep10: 「0.1を掛ける代わりに10で割る」(REP10相当)。負の正味指数の
+# 反復だけを対象に、単精度に丸めたS01との乗算をMBF_DIVによる10.0での
+# 除算へ差し替える。
+FAULT_FIN_REP10_OLD = (
+    "_fin_rep01_use_s01:\n"
+    "    CALL FIN_SET_OPB_S01\n"
+    "    CALL MBF_MUL_HALFUP\n"
+)
+FAULT_FIN_REP10_NEW = (
+    "_fin_rep01_use_s01:\n"
+    "    ; 故障注入: 0.1を掛ける代わりに10で割る(REP10相当)\n"
+    "    CALL FIN_SET_OPB_TEN\n"
+    "    CALL MBF_DIV\n"
 )
 
 # M7追記(2026-09-15): FOUTがGW手順(倍精度$FOTNV+ガードビットのみの
@@ -679,6 +733,8 @@ FAULTS = {
     "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
     "div_sticky": (FAULT_DIV_STICKY_OLD, FAULT_DIV_STICKY_NEW),
     "fin_bang": (FAULT_FIN_BANG_OLD, FAULT_FIN_BANG_NEW),
+    "fin_exact": (FAULT_FIN_EXACT_OLD, FAULT_FIN_EXACT_NEW),
+    "fin_rep10": (FAULT_FIN_REP10_OLD, FAULT_FIN_REP10_NEW),
     "fout_trunc": (FAULT_FOUT_TRUNC_OLD, FAULT_FOUT_TRUNC_NEW),
     "fout_round_even": (FAULT_FOUT_ROUND_EVEN_OLD, FAULT_FOUT_ROUND_EVEN_NEW),
     "fout_len7": (FAULT_FOUT_LEN7_OLD, FAULT_FOUT_LEN7_NEW),
