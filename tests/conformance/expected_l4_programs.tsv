@@ -39,7 +39,18 @@
 # （G11で期待値コミット時点と一致を確認する）とする。測定後に
 # tests/programs を変えたら、この期待値は測り直しが要る。
 #
+# 測定に使った tests/programs のコミット（G11。本行をコミットした
+# 時点のtests/programsと同一であることを確認済み）: ae43aba
+#
 # 書式（TSV。1行1腕）:
 #   arm<TAB>cell_count<TAB>ok_relative_row<TAB>sha256
 #
 # arm    cell_count  ok_relative_row  sha256
+P1	139	10	35952aa0176cd30eed3ed339908c967d6db471108171989948617f2bdb0056da
+P2	16	2	bc032a28ce77cf467c3a96069c43da2274bd3dc9ee0cb1c9874e6e590ba628c3
+P3	6	2	91d2620c77d98c59f94e097c0afa851163e092d692fafc810c2904514bf4f3e3
+P4	114	4	99b703164562312a4a289b5b5ea8f461e9506445b6afc394e060d7dfbd2ac8b8
+P5	69	3	bc248adc4d408f87067e33b0778f23c738979b515630eb4e9a1af1f6fd0ab181
+P6	25	8	2c4d1154e3e34400df4f5a87f329d417fc8dc8a3ccf4f147692355f8db0f0fd6
+P7	2	2	236e1a9f44d16f3990b66453cf5600243de839c24bb90e78b1b024e73126ae66
+P8	7	4	153246097cdfc8c49a1d891f211c2edf71906587b0fd3a62eac10aa34e7978c7
