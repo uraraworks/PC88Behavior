@@ -15,19 +15,18 @@ ROMへ埋め込むキーコード表を機械的に生成する（手で打ち�
   一つも登場しないため衝突しない）。「変化なし(同)」の欄は無修飾コード
   そのものを入れておく（呼び出し側は毎回そのまま1回引くだけでよい）。
 
-  SHIFT修飾はこの表に含めない。l3-main.md 第10節・第15節-6のとおり、
-  SHIFT保持時の実際の16進コードはこの版では確定していない（「変化するか
-  どうか」までしか分からない）ため、実装側はSHIFT保持中の押下を無視する
-  という選択をした（docs/spec に無いことの一覧に記載）。
+  - SHIFT_CODE_TAB  : SHIFT保持中のコード（M7段階2c、`e915172`の実測値。
+                      l3-main.md 第10節SHIFT列）
 
 ## 検査（--check）
 
 l3-main.md 第10節の要約表（各修飾ごとの「変化なし/別コード/書かない/
 未判定」の件数）は、この文書のどこにも自動生成されておらず独立に書かれた
 文である。生成した表からこの4分類の件数を数え直し、要約表の数値
-（カナ 17/47/0/0、GRPH 2/56/6/0、CTRL 17/0/43/4、CAPS 38/26/0/0）と
-一致することを確認する。手で打ち込んだ行の内容と、独立に書かれた要約文が
-一致するかどうかを見るので、単なる自己ループにはならない。
+（カナ 17/47/0/0、GRPH 2/56/6/0、CTRL 17/0/43/4、CAPS 38/26/0/0、
+SHIFT 18/46/0/0）と一致することを確認する。手で打ち込んだ行の内容と、
+独立に書かれた要約文が一致するかどうかを見るので、単なる自己ループには
+ならない。
 
 使い方:
     python3 tools/gen_l3_key_table.py                 # 生成
@@ -115,7 +114,21 @@ CAPS_ROWS = [
     "=", "=",
 ]
 
-for name, rows in [("KANA", KANA_ROWS), ("GRPH", GRPH_ROWS), ("CTRL", CTRL_ROWS), ("CAPS", CAPS_ROWS)]:
+# 第10節SHIFT列（`e915172`実測、取り直し後）。BASE_ROWSと同じ64キーの並び。
+SHIFT_ROWS = [
+    "=", "=", "=", "=", "=", "=", "=", "=",
+    "=", "=", "=", "=", "=", "=", "=",
+    0x7E, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+    0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+    0x58, 0x59, 0x5A, 0x7B, 0x7C, 0x7D, 0x7E, 0x3D,
+    "=", 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2A, 0x2B, 0x3C, 0x3E, 0x3F,
+    "=", "=",
+]
+
+for name, rows in [("KANA", KANA_ROWS), ("GRPH", GRPH_ROWS), ("CTRL", CTRL_ROWS),
+                    ("CAPS", CAPS_ROWS), ("SHIFT", SHIFT_ROWS)]:
     assert len(rows) == 64, f"{name}: {len(rows)}"
 
 # 第10節・要約表（3行目の集計表）の宣言値。生成した表から数え直した値と
@@ -125,6 +138,7 @@ DECLARED_SUMMARY = {
     "GRPH": (2, 56, 6, 0),
     "CTRL": (17, 0, 43, 4),
     "CAPS": (38, 26, 0, 0),
+    "SHIFT": (18, 46, 0, 0),
 }
 # CTRLの「未判定4」は本生成表では無視(None)として扱うため、書かない(無)と
 # 未判定はどちらもテーブル上は同じ0になる。集計検査ではこの2つの合計を
@@ -161,7 +175,8 @@ def summarize(rows):
 def check():
     ok = True
     for name, rows in [("カナ", KANA_ROWS), ("GRPH", GRPH_ROWS),
-                        ("CTRL", CTRL_ROWS), ("CAPS", CAPS_ROWS)]:
+                        ("CTRL", CTRL_ROWS), ("CAPS", CAPS_ROWS),
+                        ("SHIFT", SHIFT_ROWS)]:
         same, other, none_ = summarize(rows)
         d_same, d_other, d_nowrite, d_undet = DECLARED_SUMMARY[name]
         d_none = d_nowrite + d_undet  # このテーブルでは「書かない」も「未判定」も0にまとめる
@@ -184,6 +199,18 @@ def check():
         (0x07, 7, 0x00, "07:7 no_write→無視"),
         (0x01, 7, 0x00, "01:7 RETURN→表には無い(別扱い)"),
     ]
+    shift = build_table(SHIFT_ROWS)
+    shift_spot = [
+        (0x04, 1, 0x51, "Q SHIFT(第10節 0x20ビットが落ちる)"),
+        (0x00, 1, 0x31, "テンキー1 SHIFT=同"),
+    ]
+    for port, bit, expect, label in shift_spot:
+        got = shift[port * 8 + bit]
+        if got != expect:
+            print(f"NG: スポットチェック失敗 {label}: got={got:#04x} expect={expect:#04x}")
+            ok = False
+        else:
+            print(f"OK: スポットチェック {label} = {got:#04x}")
     for port, bit, expect, label in spot:
         got = base[port * 8 + bit]
         if got != expect:
@@ -208,16 +235,17 @@ def generate():
     grph = build_table(GRPH_ROWS)
     ctrl = build_table(CTRL_ROWS)
     caps = build_table(CAPS_ROWS)
+    shift = build_table(SHIFT_ROWS)
 
     header = (
         "; key_table_gen.asm — tools/gen_l3_key_table.py が生成した。手で編集しない。\n"
         ";\n"
-        "; 根拠: docs/spec/l3-main.md 第9節（無修飾コード表）・第10節（修飾ごとの表）。\n"
+        "; 根拠: docs/spec/l3-main.md 第9節（無修飾コード表）・第10節（修飾ごとの表、\n"
+        "; SHIFT列は`e915172`の実測値）。\n"
         "; index = port*8 + bit （port は 0x00-0x0B）。値0x00 = 無視する\n"
-        "; （no_write・未判定・キーが存在しない・SHIFT保持中のいずれか。\n"
-        "; SHIFTの実コードはl3-main.md第15節-6のとおり未確定のためこの版では\n"
-        "; 実装しない。tools/gen_l3_key_table.py --check で第10節の要約表\n"
-        "; （変化なし/別コード/書かない/未判定の件数）との一致を検査済み）。\n"
+        "; （no_write・未判定・キーが存在しないのいずれか。\n"
+        "; tools/gen_l3_key_table.py --check で第10節の要約表\n"
+        "; （変化なし/別コード/書かない/未判定の件数、SHIFTを含む）との一致を検査済み）。\n"
     )
     body = "\n".join([
         render_table("BASE_CODE_TAB", base),
@@ -225,6 +253,7 @@ def generate():
         render_table("GRPH_CODE_TAB", grph),
         render_table("CTRL_CODE_TAB", ctrl),
         render_table("CAPS_CODE_TAB", caps),
+        render_table("SHIFT_CODE_TAB", shift),
     ])
     OUT.write_text(header + "\n" + body + "\n", encoding="utf-8")
     print(f"生成した: {OUT}")
