@@ -610,6 +610,88 @@ run("case_g12_if_false_rest_skipped", "NEW\\n10 if 0 then print 1:print 2\\n20 p
     {"kind": "cmd", "out": 1, "texts": [expect_num(3)]},
 ])
 
+# =======================================================================
+# M7段階5c-2a: INPUT(第4.13節)・文字列関数(第4.14節)・CLS(第5.1節)。
+# CLSは画面を消しカーソルを絶対行0へ戻すため、行入力の`run()`/`layout()`
+# (相対行の積み上げが前提)とは別立てのヘルパで確かめる。打鍵計画は
+# l4_program_typeplan.pyのP1〜P8と同じ形("new"→"cls"→各行→"cls"→"run"、
+# INPUTがあれば続けて入力値)を流用する。1文字あたり8フレーム
+# (l4-s5a以来の前例)、余裕はいずれも既存の300フレームに合わせた。
+# =======================================================================
+def run_m7_5c2a(label, lines, checks, input_value=None):
+    """lines: プログラムの各行(行番号込み)。checks: [(絶対行, 期待文字列)]
+    (絶対行0='Ok'〔1回目のcls〕・1='run'・2以降が出力、l4_program_
+    typeplan.pyのsegment1/2と同じ並び)。input_valueがあればRUN後に
+    プロンプトを待たず追加で打鍵する(l4-s5eのE1/E2と同じ考え方)。"""
+    prog = "new\ncls\n" + "\n".join(lines) + "\ncls\n"
+    type_at = 700
+    seg1_end = type_at + 8 * len(prog)
+    dump1 = seg1_end + 300
+    seg2 = "run\n"
+    line_end2 = dump1 + 8 * len(seg2)
+    segs = [(type_at, prog), (dump1, seg2)]
+    dump_final = line_end2 + 300
+    if input_value is not None:
+        dump_prompt = line_end2 + 300
+        seg3 = input_value + "\n"
+        line_end3 = dump_prompt + 8 * len(seg3)
+        dump_final = line_end3 + 300
+        segs.append((dump_prompt, seg3))
+    total = dump_final + 200
+    dump = work / f"{label}.vram.bin"
+    out = work / f"{label}.stdout.txt"
+    err = work / f"{label}.stderr.txt"
+    args = [frontend, "--core", core, "--rom-dir", rom, "--frames", str(total)]
+    for at, text in segs:
+        args += ["--type-at", str(at), "--type", text]
+    args += ["--vram-dump", str(dump), "--vram-dump-at", str(dump_final)]
+    proc = subprocess.run(args, stdout=open(out, "wb"), stderr=open(err, "wb"))
+    if proc.returncode != 0:
+        fail(f"q88measure({label})が失敗")
+        print(err.read_text(errors="replace"))
+        return
+    data = dump.read_bytes()
+
+    def row_text(r, n):
+        base = r * STRIDE
+        return data[base:base + n].decode("ascii", errors="replace")
+
+    for row, text in checks:
+        got = row_text(row, len(text))
+        if got != text:
+            fail(f"{label} row{row} got={got!r} exp={text!r}")
+
+
+# 4.13節E1: INPUT単一変数(21*2=42)。
+run_m7_5c2a("case_e1_input_single", ["10 input a", "20 print a*2"], [
+    (0, "Ok"), (1, "run"), (2, "? 21"), (3, expect_num(42)), (4, "Ok"),
+], input_value="21")
+
+# 4.13節E2: INPUT複数変数(','区切り、3+4=7)。
+run_m7_5c2a("case_e2_input_multi", ["10 input a,b", "20 print a+b"], [
+    (0, "Ok"), (1, "run"), (2, "? 3,4"), (3, expect_num(7)), (4, "Ok"),
+], input_value="3,4")
+
+# 4.14節E3-E10: 文字列関数一式・'+'連結。
+run_m7_5c2a("case_e3_e10_string_funcs", [
+    '10 a$="hello"', '20 b$="world"',
+    '30 print mid$(a$,2,3)', '40 print len(a$)',
+    '50 print left$(a$,3)', '60 print right$(a$,3)',
+    '70 c$=a$+b$', '80 print c$', '90 print str$(len(c$))',
+    '100 print val("12")+1', '110 print asc("1")',
+], [
+    (0, "Ok"), (1, "run"),
+    (2, "ell"), (3, expect_num(5)), (4, "hel"), (5, "llo"),
+    (6, "helloworld"), (7, " 10"), (8, expect_num(13)), (9, expect_num(49)),
+    (10, "Ok"),
+])
+
+# 5.1節F10: プログラム中のCLS(消去後に残るのはOk相当と、消去前に出した
+# 値の代わりに'7'だけになる、消去後の絶対行0)。
+run_m7_5c2a("case_f10_program_cls", ["10 cls", "20 print 7"], [
+    (0, expect_num(7)), (1, "Ok"),
+])
+
 print()
 if FAILED:
     print("l4_program_selftest(python本体): NG")
