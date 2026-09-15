@@ -881,6 +881,14 @@ MUL_C2 EQU 0xC049
 MUL_C1 EQU 0xC04A
 MUL_C0 EQU 0xC04B
 WK_S   EQU 0xC04C  ; eA+eB (2バイト、0..510)
+WK_DROUND_MODE EQU 0xC04F  ; M7段階4b-2: DBL_DIVの丸めモード共有フラグ
+                             ; (0=既定・偶数丸め 1=AWAY・半分は絶対値の
+                             ; 大きい側)。mbf_double.asmのMBF_DADD_AWAY/
+                             ; MBF_DMUL_AWAY〔倍精度FIN用〕とも同じ
+                             ; フラグ番地を共有する(WK_MUL_ROUNDMODEと
+                             ; 同じ設計——既定入口が毎回0へ明示的に
+                             ; 確定させ、AWAY入口だけ1のまま本体へ合流。
+                             ; RAM未初期化値に依存しない=6dbd1cbの教訓)。
 WK_MUL_ROUNDMODE EQU 0xC04E  ; 0=既定(粗いROUNS、偶数丸め、$FMULS忠実再現)
                               ; 1=REP01専用(半分は絶対値の大きい側)。
                               ; MBF_MULへ直接CALLすると常に0へ確定させる
@@ -3692,9 +3700,20 @@ _dmul_overflow:
 ; =======================================================================
 ; DBL_DIV — DA(倍精度) /= DB(倍精度、常に正)。結果はDAへ書き戻す。
 ; MBF_ADDのguard+sticky偶数丸めと同じ考え方をDIVの復元法(MBF_DIVと
-; 同型、8byteレジスタ・63回)へ広げたもの。
+; 同型、8byteレジスタ・63回)へ広げたもの。既定(この入口)は偶数丸め
+; (WK_DROUND_MODE=0を毎回明示的に確定させる)。M7段階4b-2追記:
+; DBL_DIV_AWAY(半分は絶対値の大きい側、倍精度FINのDREP10Aの
+; 真の÷10で使う)は同じ本体(_dbldiv_body)へWK_DROUND_MODE=1のまま
+; 合流する(MBF_MUL_HALFUPと同じ設計、WK_MUL_ROUNDMODEのコメント参照)。
 ; =======================================================================
+DBL_DIV_AWAY:
+    LD A,1
+    LD (WK_DROUND_MODE),A
+    JP _dbldiv_body
 DBL_DIV:
+    XOR A
+    LD (WK_DROUND_MODE),A
+_dbldiv_body:
     XOR A
     LD (MBF_STATUS),A
     ; DAが0(DA_EXP=0)ならそのままゼロで返す(DBL_MULと同じ理由)。
@@ -4132,6 +4151,11 @@ _ddiv_have_finalexp:
     LD C,A
     LD A,(WK_DREMZERO)
     OR C
+    JP NZ,_ddiv_round_up
+    ; 真のタイ(ガード=0x80ちょうど・真の剰余無し)。WK_DROUND_MODE=1
+    ; (DBL_DIV_AWAY)なら常に切り上げ、既定(0)なら偶数丸め。
+    LD A,(WK_DROUND_MODE)
+    OR A
     JP NZ,_ddiv_round_up
     LD A,(DA_M0)
     BIT 0,A

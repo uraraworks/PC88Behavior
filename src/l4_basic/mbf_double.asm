@@ -129,6 +129,13 @@ DMC0  EQU 0xC25B
 DWK_MULLOOP EQU 0xC25C
 DWK_MULS    EQU 0xC25D   ; 2バイト、eA+eBの一時領域(0..510)
 
+DFIN_COUNT EQU 0xC25F    ; M7段階4b-2: MBF_DFINの×10/÷10反復回数の残り。
+                          ; CALL MBF_DMUL_AWAY/MBF_DDIV_AWAY(内部でBC等を
+                          ; 自由に使う)をまたぐループなので、レジスタでは
+                          ; なくRAMに残り回数を持つ(レジスタに持つと
+                          ; 呼び出し先が破壊し、最初の実装でループが暴走
+                          ; した——乱数照合で発覚、コミットメッセージ参照)。
+
 ; =======================================================================
 ; DBL_UNPACK_A — MBF_DOPA(外部形式8byte)を DA_*（mbf_single.asmで定義済み、
 ; インプリシットビット込みの展開形式）へ展開する。AF,HL,B破壊。
@@ -385,8 +392,21 @@ _dpkok_setb6:
 ; mbf_single.asm MBF_ADDの56bit仮数版。丸めはガード1byte+スティッキーの
 ; 偶数丸め（$FADDD/$ROUND相当。加減算は「厳密値を1回偶数丸め」と等価と
 ; 確認済みなので単精度と同じ方式でよい）。全レジスタ破壊可。
+;
+; M7段階4b-2追記: MBF_DADD_AWAY（半分は絶対値の大きい側。倍精度FIN
+; DREP10Aの数字積み上げ・×10適用で使う、docs/spec/l4-basic.md 5.1.2節）は
+; 同じ本体(_dadd_body)へWK_DROUND_MODE=1のまま合流する(mbf_single.asm
+; MBF_MUL_HALFUP/WK_MUL_ROUNDMODEと同じ設計。既定入口が毎回0を明示的に
+; 確定させ、AWAY入口だけ1のまま合流——RAM未初期化値に依存しない)。
 ; =======================================================================
+MBF_DADD_AWAY:
+    LD A,1
+    LD (WK_DROUND_MODE),A
+    JP _dadd_body
 MBF_DADD:
+    XOR A
+    LD (WK_DROUND_MODE),A
+_dadd_body:
     XOR A
     LD (MBF_STATUS),A
     LD (DWK_STICKY),A
@@ -899,6 +919,11 @@ _dadd_round:
     JP NZ,_dadd_round_down
     JP _dadd_round_up
 _dadd_round_tie:
+    ; 真のタイ。WK_DROUND_MODE=1(MBF_DADD_AWAY)なら常に切り上げ、
+    ; 既定(0)なら偶数丸め(候補仮数の最下位ビット)。
+    LD A,(WK_DROUND_MODE)
+    OR A
+    JP NZ,_dadd_round_up
     LD A,(DBIG_M0)
     BIT 0,A
     JP Z,_dadd_round_down
@@ -1153,7 +1178,17 @@ _dcmp_lt:
 ; ビットから試す向きはDBL_MULのコメントにある通り、上位から試すと重みが
 ; 逆転して壊れる——同じ理由でこの向きを踏襲した）。
 ; =======================================================================
+; M7段階4b-2追記: MBF_DMUL_AWAY（半分は絶対値の大きい側。倍精度FIN
+; DREP10Aの×10適用で使う）は同じ本体へWK_DROUND_MODE=1のまま合流する
+; (MBF_DADD_AWAYと同じ設計)。
+MBF_DMUL_AWAY:
+    LD A,1
+    LD (WK_DROUND_MODE),A
+    JP _dmul_entry_body
 MBF_DMUL:
+    XOR A
+    LD (WK_DROUND_MODE),A
+_dmul_entry_body:
     CALL DBL_UNPACK_A
     CALL DBL_UNPACK_B
     XOR A
@@ -1459,6 +1494,10 @@ _dmulc_have_m:
     LD A,(DPR0)
     OR C
     JP NZ,_dmulc_round_up
+    ; 真のタイ。WK_DROUND_MODE=1(MBF_DMUL_AWAY)なら常に切り上げ。
+    LD A,(WK_DROUND_MODE)
+    OR A
+    JP NZ,_dmulc_round_up
     LD A,(DPR7)
     BIT 0,A
     JP Z,_dmulc_round_down
@@ -1672,3 +1711,304 @@ MBF_DTOS:
     LD (MBF_STATUS),A
     CALL DBL_UNPACK_A
     JP DBL_TO_SINGLE_CSD
+
+; =======================================================================
+; MBF_DDIV_AWAY — MBF_DDIVと同じだが丸めは半分なら絶対値の大きい側
+; （mbf_single.asm DBL_DIV_AWAYを使う。倍精度FIN DREP10Aの真の÷10専用）。
+; =======================================================================
+MBF_DDIV_AWAY:
+    CALL DBL_UNPACK_A
+    CALL DBL_UNPACK_B
+    XOR A
+    LD (MBF_STATUS),A
+    LD A,(DB_EXP)
+    OR A
+    JP NZ,_dddiva_b_nonzero
+    LD A,(DA_EXP)
+    OR A
+    JP Z,_dddiva_zerobyzero_sign
+    LD A,(DA_SIGN)
+    LD (RES_SIGN),A
+    JP _dddiva_zerodivide_pack
+_dddiva_zerobyzero_sign:
+    XOR A
+    LD (RES_SIGN),A
+_dddiva_zerodivide_pack:
+    LD A,2
+    LD (MBF_STATUS),A
+    JP DBL_PACK_OVERFLOW_KEEPSTATUS
+_dddiva_b_nonzero:
+    CALL DBL_DIV_AWAY
+    LD A,(MBF_STATUS)
+    CP 1
+    JP Z,DBL_PACK_OVERFLOW
+    JP DBL_PACK_RES
+
+; 10.0の倍精度MBF定数(8byte)。DBL_TABLEの10^1エントリと同じ値
+; (tools/l4_mbf_oracle_v2.py encode_mbf(Fraction(10),56)、独立に計算した
+; 決定論的な値。ROM由来のバイト列ではない——DBL_TABLEのヘッダコメント
+; と同じ理由）。
+DBL_CONST_TEN:
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x84
+
+; 0.1を倍精度へ丸めた定数(8byte、偶数丸め)。通常経路では使わない
+; ——tools/l4_mbf_conform.py --fault dfin_div_as_mul(陰性対照。DREP10Aの
+; 「真の÷10」を単精度REP01と同じ「丸めた0.1の乗算」に壊す)専用。
+; tools/l4_mbf_oracle_v2.py encode_mbf(Fraction(1,10),56)で独立に計算した
+; 値(ROM由来ではない)。
+DBL_CONST_TENTH:
+    db 0xcd, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0x4c, 0x7d
+
+; =======================================================================
+; MBF_DFIN — 10進の数字文字列(FIN_BUF、FIN_LEN。mbf_single.asmと共有)を
+; 倍精度MBFへ変換し MBF_DRES へ書く。docs/spec/l4-basic.md 5.1.2節の
+; 推定DREP10A。
+;
+; 倍精度かどうかの見分け(小数点を除く数字8桁以上・`#`・`d`指数)は
+; まずmbf_single.asmの既存MBF_FINを呼び、その戻り値(MBF_STATUS=3)を
+; そのまま使う(コーディネータの指示どおり、字句解析の作り直しはしない)。
+; MBF_FINは倍精度と判定すると値を計算せずMBF_STATUS=3を返すだけなので、
+; 数字の桁文字列自体はMBF_DFIN側でFIN_BUF/FIN_LENを独立に読み直し、
+; 32bitのFIN_ACC(単精度専用、10桁程度で桁あふれする)を使わず、
+; 倍精度の累積で組み立て直す。
+;
+; DREP10A本体: 数字を先頭からacc=acc*10+dで積み上げ、1手ごとに倍精度
+; (56bit仮数)へ丸める(MBF_DMUL_AWAY・MBF_DADD_AWAY、丸めは半分なら
+; 絶対値の大きい側)。正味の指数n(FIN_EXPVAL符号つき-FIN_FRACDIG、
+; mbf_single.asm _fin_is_singleのSCALE計算と同型)についてn>0なら10を
+; n回掛け(MBF_DMUL_AWAY)、n<0なら10で|n|回**本当に割り**
+; (MBF_DDIV_AWAY、単精度REP01の「丸めた0.1を掛ける」ではない)、
+; 1手ごとに丸める。符号は最後に適用する(演算は常に非負どうし)。
+;
+; 仕様書に無い判断: MBF_STATUS!=3(倍精度と判定されなかった入力)は
+; DFINの契約外だが、保険として単精度の結果(MBF_RES)をSINGLE_TO_DOUBLEで
+; 厳密変換して返す(_dfin_fallback_single、オーバーフロー時は未対応の
+; まま=MBF_DRESを更新しない)。tools/l4_mbf_conform.py dfinの照合ベクタは
+; 倍精度と判定される文字列だけを使うため、この経路は重点的な検証を
+; していない。
+; =======================================================================
+MBF_DFIN:
+    CALL MBF_FIN
+    LD A,(MBF_STATUS)
+    CP 3
+    JP NZ,_dfin_fallback_single
+
+    XOR A
+    LD (FIN_POS),A
+    LD HL,FIN_BUF
+    LD A,(HL)
+    CP '-'
+    JP NZ,_dfin_chkplus
+    LD A,1
+    LD (FIN_POS),A
+    JP _dfin_scan_start
+_dfin_chkplus:
+    CP '+'
+    JP NZ,_dfin_scan_start
+    LD A,1
+    LD (FIN_POS),A
+_dfin_scan_start:
+    XOR A
+    LD (FIN_SEENDOT),A
+    LD (FIN_FRACDIG),A
+    LD (MBF_DOPA),A
+    LD (MBF_DOPA+1),A
+    LD (MBF_DOPA+2),A
+    LD (MBF_DOPA+3),A
+    LD (MBF_DOPA+4),A
+    LD (MBF_DOPA+5),A
+    LD (MBF_DOPA+6),A
+    LD (MBF_DOPA+7),A
+
+_dfin_digit_loop:
+    LD A,(FIN_POS)
+    LD C,A
+    LD A,(FIN_LEN)
+    CP C
+    JP Z,_dfin_digits_done
+    LD HL,FIN_BUF
+    LD B,0
+    ADD HL,BC
+    LD A,(HL)
+    CP '.'
+    JP NZ,_dfin_try_digit
+    LD A,(FIN_SEENDOT)
+    OR A
+    JP NZ,_dfin_digits_done
+    LD A,1
+    LD (FIN_SEENDOT),A
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JP _dfin_digit_loop
+_dfin_try_digit:
+    CP '0'
+    JP C,_dfin_digits_done
+    CP '9'+1
+    JP NC,_dfin_digits_done
+    SUB '0'
+    LD (WK_FINDIGIT),A
+
+    ; acc = round_away(acc*10)
+    LD HL,DBL_CONST_TEN
+    LD DE,MBF_DOPB
+    LD BC,8
+    LDIR
+    CALL MBF_DMUL_AWAY
+    LD A,(MBF_STATUS)
+    OR A
+    JP NZ,_dfin_overflow
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPA
+    LD BC,8
+    LDIR
+
+    ; acc = round_away(acc + digit)
+    LD A,(WK_FINDIGIT)
+    LD (MBF_IN_INT),A
+    XOR A
+    LD (MBF_IN_INT+1),A
+    CALL MBF_ITOD
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPB
+    LD BC,8
+    LDIR
+    CALL MBF_DADD_AWAY
+    LD A,(MBF_STATUS)
+    OR A
+    JP NZ,_dfin_overflow
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPA
+    LD BC,8
+    LDIR
+
+    LD A,(FIN_SEENDOT)
+    OR A
+    JP Z,_dfin_digit_next
+    LD A,(FIN_FRACDIG)
+    INC A
+    LD (FIN_FRACDIG),A
+_dfin_digit_next:
+    LD A,(FIN_POS)
+    INC A
+    LD (FIN_POS),A
+    JP _dfin_digit_loop
+
+_dfin_digits_done:
+    ; net_exp(FIN_SCALEを再利用・上書き) = EXPVAL(符号つき) - FRACDIG
+    LD A,(FIN_EXPVAL)
+    LD B,A
+    LD A,(FIN_EXPSIGN)
+    OR A
+    JP Z,_dfin_expsigned_done
+    XOR A
+    SUB B
+    LD B,A
+_dfin_expsigned_done:
+    LD A,(FIN_FRACDIG)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FIN_SCALE),A
+
+    LD A,(FIN_SCALE)
+    OR A
+    JP Z,_dfin_scale_done
+    BIT 7,A
+    JP Z,_dfin_scale_pos
+    NEG
+    LD (DFIN_COUNT),A
+    ; 注意(仕様書に無い判断ではなくバグ修正の記録): 反復回数はB等の
+    ; レジスタではなくDFIN_COUNT(RAM)に持つ。CALL MBF_DDIV_AWAY/
+    ; MBF_DMUL_AWAYはBC等を内部で自由に使って戻るため、最初レジスタB
+    ; に残り回数を持たせたところ、乱数照合(".5#"・"1D10"等)で
+    ; ループ回数が化けて全く違う指数の値が返る不一致として発覚した。
+_dfin_scale_neg_loop:
+    LD HL,DBL_CONST_TEN
+    LD DE,MBF_DOPB
+    LD BC,8
+    LDIR
+    CALL MBF_DDIV_AWAY
+    LD A,(MBF_STATUS)
+    OR A
+    JP NZ,_dfin_overflow
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPA
+    LD BC,8
+    LDIR
+    LD A,(DFIN_COUNT)
+    DEC A
+    LD (DFIN_COUNT),A
+    JP NZ,_dfin_scale_neg_loop
+    JP _dfin_scale_done
+_dfin_scale_pos:
+    LD (DFIN_COUNT),A
+_dfin_scale_pos_loop:
+    LD HL,DBL_CONST_TEN
+    LD DE,MBF_DOPB
+    LD BC,8
+    LDIR
+    CALL MBF_DMUL_AWAY
+    LD A,(MBF_STATUS)
+    OR A
+    JP NZ,_dfin_overflow
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPA
+    LD BC,8
+    LDIR
+    LD A,(DFIN_COUNT)
+    DEC A
+    LD (DFIN_COUNT),A
+    JP NZ,_dfin_scale_pos_loop
+_dfin_scale_done:
+    ; 値がちょうど0(指数byte=0)なら符号ビットを立てない
+    ; (mbf_single.asm MBF_NEGと同じ「ゼロは符号を変えない」規則。
+    ; 立てるとexp=0のままbyte6だけ0x80になる「不純な0」が生じ、
+    ; 予測器の全byte0の表現と食い違う——"-0#"等の乱数照合で発覚)。
+    LD A,(MBF_DOPA+7)
+    OR A
+    JP Z,_dfin_possign
+    LD A,(FIN_SIGN)
+    OR A
+    JP Z,_dfin_possign
+    LD A,(MBF_DOPA+6)
+    OR 0x80
+    LD (MBF_DOPA+6),A
+_dfin_possign:
+    LD HL,MBF_DOPA
+    LD DE,MBF_DRES
+    LD BC,8
+    LDIR
+    XOR A
+    LD (MBF_STATUS),A
+    RET
+_dfin_overflow:
+    ; MBF_DMUL_AWAY/MBF_DADD_AWAY/MBF_DDIV_AWAYが既にMBF_STATUS=1と
+    ; 残留値(MBF_DRES、符号はその時点のRES_SIGN由来=常に非負側)を
+    ; 書いている。最後にFIN_SIGNで符号だけ補う。
+    LD A,(FIN_SIGN)
+    OR A
+    JP Z,_dfin_of_possign
+    LD A,(MBF_DRES+6)
+    OR 0x80
+    LD (MBF_DRES+6),A
+_dfin_of_possign:
+    RET
+
+_dfin_fallback_single:
+    LD A,(MBF_STATUS)
+    CP 1
+    JP Z,_dfin_fb_ret
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    CALL MBF_UNPACK_A
+    CALL SINGLE_TO_DOUBLE
+    JP DBL_PACK_RES
+_dfin_fb_ret:
+    RET

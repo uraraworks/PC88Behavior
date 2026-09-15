@@ -273,6 +273,76 @@ def rand_fin_text(rng: random.Random) -> str:
     return f"{sign}{int_part}{frac}{exp}{suffix}"
 
 
+# M7段階4b-2: 倍精度FIN(DREP10A)の境界値。いずれもmbf_single.asm
+# MBF_FINが倍精度と判定する形(数字8桁以上・`#`・`d`指数)。
+# docs/spec/l4-basic.md 5.1.2節・5.3節・5.4節・5.5節の観測例の打鍵文字列
+# そのもの(画面本文ではなく自分で指定した打鍵文字列なので禁止事項7の
+# 対象外)を流用し、1e-38付近・16桁ちょうど・半端・17桁以上の整数・
+# `#`付き小数・`d`指数の各境界を踏む。
+DFIN_BOUNDARY_TEXTS = [
+    "0#", "1#", "-1#", ".5#", "12345678",          # 単純な倍精度定数
+    "1D10",                                         # W2
+    "12345678901234#",                              # W3
+    "123456789012345#",                             # G1(15桁、E=14)
+    "123456789012345.6#",                           # G8(16有効桁)
+    "1234567890123456#",                            # G3(16桁ちょうど、E=15)
+    "1D15",                                          # G5(16桁ちょうど)
+    "1D16",                                          # C2(17桁相当、E=16)
+    "1D17",                                          # C3
+    "99999999999999995#",                            # G10(丸めで18桁相当)
+    "12345678901234567#",                             # C4(17桁の定数)
+    "123456789012345678",                             # 18桁の整数(#なしでも桁数で倍精度)
+    "1.234567890123456D-2",                           # L6(k=1)
+    "1.23456789012345D-3",                            # M2(k=2)
+    "1.2345678901234D-3",                             # Q10(k=2,s=14)
+    "1.5D-14",                                        # M8(k=13)
+    "1D-15",                                          # L1(k=14ぎりぎり)
+    "1.5D-15",                                        # L3(k=14、k+s=16ぎりぎり)
+    "2D-16",                                          # Q6(k=15、指数境界)
+    "1.5D-16",                                        # L4(k=15)
+    "1.23D-15",                                       # M3
+    "1D-38", "1.5D-38", "9.99999999999999D-39",       # 1e-38付近
+    "1D38", "-1D38",                                  # 指数上限付近
+    "1234567890123456.5#",                            # 16桁目の半端(丸め)
+    "2000000000000000.5#",                            # 同上(0→1側)
+    "9007199254740992.5#",                            # 同上(16桁目が偶数)
+    "-1234567890123456.5#",                           # 負の半端
+    "60487647593824219489241",  # 桁の積み上げ(×10)過程の20-21桁目で
+                                 # 実際にタイになる例(乱数探索で確認、
+                                 # --fault dfin_round_evenの検出力の根拠)
+]
+
+
+def rand_dfin_text(rng: random.Random) -> str:
+    """rand_fin_textの倍精度版。合計桁数8-20桁・指数絶対値38以内に
+    収める(倍精度の実用範囲、仕様書に無い判断)。`#`か`d`指数のどちらか
+    (または両方の元になる長い整数)で必ず倍精度と判定されるようにする。"""
+    # FIN_BUF_MAX(24byte)に収まるよう、桁数・指数桁を絞る(仕様書に無い
+    # 判断): sign(1)+int(9)+dot(1)+frac(6)+exp記号(4)+suffix(1)=22以内。
+    sign = "-" if rng.random() < 0.4 else ""
+    int_digits = rng.randint(1, 9)
+    int_part = "".join(str(rng.randint(0, 9)) for _ in range(int_digits))
+    if int_part[0] == "0" and int_digits > 1:
+        int_part = "1" + int_part[1:]
+    frac = ""
+    total_digits = int_digits
+    if rng.random() < 0.7 and total_digits < 15:
+        frac_digits = rng.randint(1, min(6, 15 - total_digits))
+        frac = "." + "".join(str(rng.randint(0, 9)) for _ in range(frac_digits))
+        total_digits += frac_digits
+    use_d = rng.random() < 0.5
+    exp = ""
+    if use_d or rng.random() < 0.3:
+        e = rng.randint(-38, 38)
+        letter = "D" if use_d else "E"
+        exp = f"{letter}{e:+d}"
+    # 8桁未満・E指数・#なしだと単精度と判定されてしまうので、その場合は
+    # #を強制する(倍精度専用opの契約=必ず倍精度と判定される文字列)。
+    force_hash = total_digits < 8 and not (use_d and exp)
+    suffix = "#" if force_hash else ""
+    return f"{sign}{int_part}{frac}{exp}{suffix}"
+
+
 def tie_construction_pairs(rng: random.Random, count: int):
     """加減算の丸め境界(guard=1/sticky=0のタイ、guard=1/sticky=1の切り上げ、
     guard=0の切り捨て)を機械的に作る。
@@ -364,6 +434,11 @@ def gen_vectors(op: str, n: int, seed: int):
             vecs.append((t,))
         while len(vecs) < n:
             vecs.append((rand_fin_text(rng),))
+    elif op == "dfin":
+        for t in DFIN_BOUNDARY_TEXTS:
+            vecs.append((t,))
+        while len(vecs) < n:
+            vecs.append((rand_dfin_text(rng),))
     elif op in ("dadd", "dsub", "dmul", "ddiv", "dcmp"):
         for a in BOUNDARY_DOUBLES:
             for b in BOUNDARY_DOUBLES:
@@ -555,6 +630,24 @@ def expected_fin(text: str):
     return gwnum_bytes(r), 0
 
 
+def expected_dfin(text: str):
+    """M7段階4b-2: 倍精度FIN(DREP10A)の正解役。dfin_algo="drep10a"
+    (tools/l4_mbf_oracle_v2.py parse_literal、oracle_v2_selftestで
+    tools/l4_dmodels.py drep10a_v2と乱数1万件バイト一致を確認済み)。
+    戻り値: (期待8byteバイト列, status)。
+    """
+    try:
+        r = oracle.parse_literal(text, dfin_algo="drep10a")
+    except oracle.GwError as e:
+        return gwnum8_bytes(e.residual), 1
+    if r.kind != "double":
+        # 契約外(dfin opの照合ベクタは倍精度と判定される文字列だけを
+        # 使うため通常は起きない)。Z80側のフォールバック
+        # (SINGLE_TO_DOUBLE、厳密)と同じ変換を予測側でも行う。
+        r = oracle.force_to_double(r)
+    return gwnum8_bytes(r), 0
+
+
 # ---------------------------------------------------------------------------
 # テストROM組み立て
 # ---------------------------------------------------------------------------
@@ -580,6 +673,9 @@ DRIVER_TEMPLATES = {
     "itod": (2, 9, "MBF_ITOD", False),
     "stod": (4, 9, "MBF_STOD", False),
     "dtos": (8, 5, "MBF_DTOS", False),
+    # M7段階4b-2: 倍精度FIN(DREP10A)。入力はfinと同じ1byte長+24byte ASCII、
+    # 出力はdadd等と同じ8byte倍精度+status。
+    "dfin": (25, 9, "MBF_DFIN", False),
 }
 FIN_BUF_MAX = 24
 FOUT_BUF_MAX = 16
@@ -602,7 +698,7 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
         lines.append("    LD A,(HL)")
         lines.append("    LD (MBF_IN_INT+1),A")
         lines.append("    INC HL")
-    elif op == "fin":
+    elif op == "fin" or op == "dfin":
         lines.append("    LD A,(HL)")
         lines.append("    LD (FIN_LEN),A")
         lines.append("    INC HL")
@@ -680,7 +776,7 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
         lines.append("    LD A,(MBF_STATUS)")
         lines.append("    LD (DE),A")
         lines.append("    INC DE")
-    elif op in ("dadd", "dsub", "dmul", "ddiv", "dneg", "itod", "stod"):
+    elif op in ("dadd", "dsub", "dmul", "ddiv", "dneg", "itod", "stod", "dfin"):
         # 結果は倍精度8byte(MBF_DRES)+status。
         for i in range(8):
             lines.append(f"    LD A,(MBF_DRES+{i})")
@@ -723,7 +819,7 @@ def encode_vectors(op: str, vecs) -> bytes:
             out += gwnum_bytes(v[0])
         elif op == "dneg" or op == "dtos":
             out += gwnum8_bytes(v[0])
-        elif op == "fin":
+        elif op == "fin" or op == "dfin":
             text = v[0].upper()
             raw = text.encode("ascii")
             if len(raw) > FIN_BUF_MAX:
@@ -984,6 +1080,38 @@ FAULT_DDIV_STICKY_NEW = (
     "    JP NZ,_ddiv_round_up"
 )
 
+# M7段階4b-2: 倍精度FIN(DREP10A)の陰性対照。乗算(桁の×10適用)のタイ判定
+# を狙う——事前の乱数探索(200件試行)で「60487647593824219489241」を
+# 積み上げる過程の20-21桁目に実際にタイが発生することを確認済み
+# (除算÷10側は乱数探索20万件でタイが1件も見つからず、10進の桁を10で
+# 割って56bit境界にちょうど乗るのは非常に稀と判断し、乗算側を対象にした)。
+FAULT_DFIN_ROUND_EVEN_OLD = (
+    "    ; 真のタイ。WK_DROUND_MODE=1(MBF_DMUL_AWAY)なら常に切り上げ。\n"
+    "    LD A,(WK_DROUND_MODE)\n"
+    "    OR A\n"
+    "    JP NZ,_dmulc_round_up\n"
+)
+FAULT_DFIN_ROUND_EVEN_NEW = (
+    "    ; 故障注入: WK_DROUND_MODE(AWAY指定)を無視し常に偶数丸めにする\n"
+)
+
+FAULT_DFIN_DIV_AS_MUL_OLD = (
+    "_dfin_scale_neg_loop:\n"
+    "    LD HL,DBL_CONST_TEN\n"
+    "    LD DE,MBF_DOPB\n"
+    "    LD BC,8\n"
+    "    LDIR\n"
+    "    CALL MBF_DDIV_AWAY\n"
+)
+FAULT_DFIN_DIV_AS_MUL_NEW = (
+    "_dfin_scale_neg_loop:\n"
+    "    LD HL,DBL_CONST_TENTH  ; 故障注入: 真の÷10ではなく丸めた0.1の乗算にする\n"
+    "    LD DE,MBF_DOPB\n"
+    "    LD BC,8\n"
+    "    LDIR\n"
+    "    CALL MBF_DMUL_AWAY\n"
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
@@ -1000,6 +1128,8 @@ FAULTS = {
     "dround_truncate": (FAULT_DROUND_TRUNCATE_OLD, FAULT_DROUND_TRUNCATE_NEW),
     "dmul_sticky": (FAULT_DMUL_STICKY_OLD, FAULT_DMUL_STICKY_NEW),
     "ddiv_sticky": (FAULT_DDIV_STICKY_OLD, FAULT_DDIV_STICKY_NEW),
+    "dfin_round_even": (FAULT_DFIN_ROUND_EVEN_OLD, FAULT_DFIN_ROUND_EVEN_NEW),
+    "dfin_div_as_mul": (FAULT_DFIN_DIV_AS_MUL_OLD, FAULT_DFIN_DIV_AS_MUL_NEW),
 }
 
 
@@ -1073,6 +1203,9 @@ def compare(op: str, n: int, seed: int, frames: int, fault: str | None, workdir:
                 expected = eb + bytes([status])
             elif op in ("dadd", "dsub", "dmul", "ddiv"):
                 eb, status = expected_dbinop(op, v[0], v[1])
+                expected = eb + bytes([status])
+            elif op == "dfin":
+                eb, status = expected_dfin(v[0])
                 expected = eb + bytes([status])
             elif op == "fin":
                 eb, status = expected_fin(v[0])
