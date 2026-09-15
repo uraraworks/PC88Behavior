@@ -58,6 +58,7 @@ L4_TOKENS_ASM = REPO / "src" / "l4_basic" / "tokens.asm"
 L4_PRINT_DISPATCH_ASM = REPO / "src" / "l4_basic" / "print_dispatch.asm"
 L4_ERRORS_ASM = REPO / "src" / "l4_basic" / "errors.asm"
 L4_LEXER_ASM = REPO / "src" / "l4_basic" / "lexer.asm"
+L4_MBF_ASM = REPO / "src" / "l4_basic" / "mbf_single.asm"
 L4_INTERP_ASM = REPO / "src" / "l4_basic" / "interp.asm"
 
 # 故障注入（tools/l4_basic_selftest.sh の陰性対照用）。
@@ -284,6 +285,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     lexer_path = work / "l4_lexer_gen.asm"
     lexer_path.write_text(L4_LEXER_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
+    mbf_path = work / "l4_mbf_gen.asm"
+    mbf_path.write_text(L4_MBF_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
     interp_text = L4_INTERP_ASM.read_text(encoding="utf-8")
     if inject_l4_sign_space_fault:
         if interp_text.count(L4_SIGN_SPACE_FAULT_OLD) != 1:
@@ -311,6 +315,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{print_dispatch_path}"\n'
         + f'\nINCLUDE "{errors_path}"\n'
         + f'\nINCLUDE "{lexer_path}"\n'
+        + f'\nINCLUDE "{mbf_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
     )
     return combined
