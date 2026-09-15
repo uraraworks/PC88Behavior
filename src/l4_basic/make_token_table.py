@@ -103,7 +103,17 @@ def asm_escape(word: str) -> str:
     # z80 アセンブラの文字列リテラルとして安全な形にする。対象語は
     # keywords.tsv の表記どおり（$ @ ( ) / . = # - を含みうる）で、
     # 二重引用符自体は語に含まれない（keywords.tsv に無いことを確認済み）。
-    return word
+    #
+    # 追記（v2、資料1由来の190語への切り替えで発覚）: '¥'（U+00A5、円記号）
+    # 1語だけは非ASCII文字で、字句解析アセンブラ(tools/asm/z80text.py)の
+    # 文字列リテラルはASCIIしか受け付けない。これは番号の割り当て規則
+    # （辞書順・0x80からの採番）そのものとは無関係な、文字コード表現だけの
+    # 問題なので、ここで生バイト0x5Cに変換してから渡す。0x5Cはこの版の
+    # ¥キーが実際に送出する値そのもの（docs/spec/l3-main.md「05|4|5C|¥」、
+    # tools/gen_l3_key_table.py・key_table_gen.asmで測定済み）であり、
+    # 当て推量ではない。長さ(len(word))は変換前の1文字のまま使うため、
+    # 語長バイトは影響を受けない。
+    return word.replace("¥", chr(0x5C))
 
 
 def write_asm(entries: list[tuple[str, tuple[int, ...]]], path: str) -> None:

@@ -202,5 +202,5 @@ L4_TOKEN_TABLE:
     db 1, "=", 0x86
     db 1, ">", 0x87
     db 1, "^", 0xFF, 0xBD
-    db 1, "¥", 0xFF, 0xBE
+    db 1, "\", 0xFF, 0xBE
     db 0        ; 番兵（語長0＝表の終端）
