@@ -28,7 +28,7 @@
 # not_implemented_yet の間は8腕とも判定外(not_implemented_yet)として
 # 表示し、rcに含めない。実装担当がプログラムモードの実装を終えたら
 # implemented に書き換える）:
-# group programs selfmade=not_implemented_yet
+# group programs selfmade=implemented
 #
 # 生成: 公式ROM一式(PC88_REF_ROM_DIR)で各腕2走を実施し、2走の記録
 # (cell_count/ok_relative_row/sha256)が完全一致し、かつ関門
