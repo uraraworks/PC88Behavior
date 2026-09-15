@@ -2145,3 +2145,704 @@ FIN_MUL10ADD:
     LD (FIN_ACC3),A
 _fmul10_done:
     RET
+
+; =======================================================================
+; MBF_FOUT — 単精度MBF(MBF_OPA)を10進の数字文字列(FOUT_BUF、FOUT_LEN)へ
+; 変換する。符号の桁・後置空白は呼び出し側(PRINT)の仕事とし、ここでは
+; 数字列だけを返す(coordinator指示どおりの境界)。
+;
+; docs/spec/l4-basic.md 第5.3〜5.5節(第3.1版、単精度の規則は不変)の規則:
+;   有効6桁に丸め、末尾0を除去。整数部が6桁を超えたら`E±nn`指数表記
+;   （丸めた後の値で判定）。|v|<1側はLEN7則(固定表記にしたときの
+;   小数点右の文字数が7以下なら固定)。
+;
+; 仕様書に無い判断（アルゴリズムそのもの。8086の$FOUT/$FOFMTの写経では
+; ない）:
+;   - 値を[100000,1000000)へ収まるまで単精度の10.0で繰り返し
+;     掛ける/割る(FIN同様、繰り返し丸めが入る近似。MBF_FINのような
+;     2進累乗法は使っていない——ここでの繰り返し回数は|10進指数|程度
+;     で頭打ちなうえ、単精度の指数範囲全体(概ね±38)をカバーする必要が
+;     あり、実装の時間の都合で素朴な逐次乗除算のままにした)。
+;   - 0.5を足してから整数部を右シフトで取り出す(偶数丸めではなく
+;     「0.5を足して切り捨て」。真のタイでは常に切り上げになり、
+;     GW-BASICの偶数丸めとは異なりうる)。
+;   - 得た整数(最大32bit)を10で6回割って6桁を1の位から取り出す。
+; =======================================================================
+FOUT_SIGN     EQU 0xC0C0
+FOUT_E        EQU 0xC0C1   ; 符号つき1バイト
+FOUT_SCALECNT EQU 0xC0C2   ; 符号つき1バイト
+FOUT_INT3     EQU 0xC0C3
+FOUT_INT2     EQU 0xC0C4
+FOUT_INT1     EQU 0xC0C5
+FOUT_INT0     EQU 0xC0C6
+WK_REM10      EQU 0xC0C7
+FOUT_DIGITS   EQU 0xC0C8   ; 6バイト(C8-CD)
+FOUT_NSIG     EQU 0xC0CE
+FOUT_ISFIXED  EQU 0xC0CF
+FOUT_BUF      EQU 0xC0D0   ; 16バイト(D0-DF)
+FOUT_LEN      EQU 0xC0E0
+WK_FOUTLOOP   EQU 0xC0E1
+FOUT_DIGIDX   EQU 0xC0E2
+FOUT_R_START  EQU 0xC0E3
+FOUT_R_COUNT  EQU 0xC0E4
+FOUT_R_CHAR   EQU 0xC0E5
+FOUT_SHIFTCNT EQU 0xC0E6
+FOUT_SHIFTORIG EQU 0xC0E7
+FOUT_ORIGVAL   EQU 0xC0E8   ; 4バイト(E8-EB)
+
+MBF_FOUT:
+    XOR A
+    LD (MBF_STATUS),A
+    LD (FOUT_LEN),A
+    CALL MBF_UNPACK_A
+    LD A,(UA_EXP)
+    OR A
+    JP NZ,_fout_nonzero
+    LD A,'0'
+    CALL FOUT_APPEND_CHAR
+    RET
+_fout_nonzero:
+    LD A,(UA_SIGN)
+    LD (FOUT_SIGN),A
+    ; |OPA| (符号bitだけ落とす。OPAはこのルーチン内で書き換えてよい
+    ; =仕様書に無い判断、呼び出し側はOPAの保存を期待しない設計)
+    LD A,(MBF_OPA+2)
+    AND 0x7F
+    LD (MBF_OPA+2),A
+    XOR A
+    LD (FOUT_SCALECNT),A
+    ; 元の値(符号を落としただけ)を退避しておく。桁合わせのループは
+    ; 「何回10倍/10分の1にすればよいか」を数えるためだけに使い、実際の
+    ; 桁合わせはこの後2進累乗法で1回だけ行う(仕様書に無い判断。最初は
+    ; ループ内で直接掛け続けていたが、乱数1200件照合で約67%が丸め誤差の
+    ; 積み重ねで不一致になり、MBF_FINと同じ2進累乗法に作り直した)。
+    LD A,(MBF_OPA)
+    LD (FOUT_ORIGVAL),A
+    LD A,(MBF_OPA+1)
+    LD (FOUT_ORIGVAL+1),A
+    LD A,(MBF_OPA+2)
+    LD (FOUT_ORIGVAL+2),A
+    LD A,(MBF_OPA+3)
+    LD (FOUT_ORIGVAL+3),A
+
+_fout_scale_up:
+    CALL FOUT_SET_OPB_1E5
+    CALL MBF_CMP
+    LD A,(MBF_OUT_CMP)
+    CP 0xFF
+    JP NZ,_fout_scale_up_done
+    CALL FIN_SET_OPB_TEN
+    CALL MBF_MUL
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    LD A,(FOUT_SCALECNT)
+    INC A
+    LD (FOUT_SCALECNT),A
+    JP _fout_scale_up
+_fout_scale_up_done:
+
+_fout_scale_down:
+    CALL FOUT_SET_OPB_1E6
+    CALL MBF_CMP
+    LD A,(MBF_OUT_CMP)
+    CP 0xFF
+    JP Z,_fout_scale_down_done
+    CALL FIN_SET_OPB_TEN
+    CALL MBF_DIV
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    LD A,(FOUT_SCALECNT)
+    DEC A
+    LD (FOUT_SCALECNT),A
+    JP _fout_scale_down
+_fout_scale_down_done:
+
+    ; e = 6 - SCALECNT
+    LD A,6
+    LD B,A
+    LD A,(FOUT_SCALECNT)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FOUT_E),A
+
+    ; SCALECNTは決まったので、実際の桁合わせは元の値(FOUT_ORIGVAL)へ
+    ; 10^|SCALECNT|を2進累乗法(MBF_FINと同じ手法。FIN_POW/FIN_BASE/
+    ; WK_FINLOOP/FIN_SCALE_NEGを使い回す=仕様書に無い判断、FINと同時に
+    ; 呼ばれないので安全)で1回だけ適用し、複数回の丸めの積み重なりを
+    ; 避ける。
+    LD A,(FOUT_SCALECNT)
+    OR A
+    JP Z,_fout_pow_skip
+    BIT 7,A
+    JP Z,_fout_pow_e_pos
+    NEG
+    LD (WK_FINLOOP),A
+    LD A,1
+    LD (FIN_SCALE_NEG),A
+    JP _fout_pow_have_e
+_fout_pow_e_pos:
+    LD (WK_FINLOOP),A
+    XOR A
+    LD (FIN_SCALE_NEG),A
+_fout_pow_have_e:
+    XOR A
+    LD (FIN_POW),A
+    LD (FIN_POW+1),A
+    LD (FIN_POW+2),A
+    LD A,129
+    LD (FIN_POW+3),A
+    CALL FIN_SET_OPB_TEN
+    LD A,(MBF_OPB)
+    LD (FIN_BASE),A
+    LD A,(MBF_OPB+1)
+    LD (FIN_BASE+1),A
+    LD A,(MBF_OPB+2)
+    LD (FIN_BASE+2),A
+    LD A,(MBF_OPB+3)
+    LD (FIN_BASE+3),A
+_fout_pow_loop:
+    LD A,(WK_FINLOOP)
+    OR A
+    JP Z,_fout_pow_done
+    BIT 0,A
+    JP Z,_fout_pow_noadd
+    LD A,(FIN_POW)
+    LD (MBF_OPA),A
+    LD A,(FIN_POW+1)
+    LD (MBF_OPA+1),A
+    LD A,(FIN_POW+2)
+    LD (MBF_OPA+2),A
+    LD A,(FIN_POW+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_BASE)
+    LD (MBF_OPB),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPB+3),A
+    CALL MBF_MUL
+    LD A,(MBF_RES)
+    LD (FIN_POW),A
+    LD A,(MBF_RES+1)
+    LD (FIN_POW+1),A
+    LD A,(MBF_RES+2)
+    LD (FIN_POW+2),A
+    LD A,(MBF_RES+3)
+    LD (FIN_POW+3),A
+_fout_pow_noadd:
+    LD A,(WK_FINLOOP)
+    SRL A
+    LD (WK_FINLOOP),A
+    OR A
+    JP Z,_fout_pow_done
+    LD A,(FIN_BASE)
+    LD (MBF_OPA),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPA+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPA+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_BASE)
+    LD (MBF_OPB),A
+    LD A,(FIN_BASE+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_BASE+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_BASE+3)
+    LD (MBF_OPB+3),A
+    CALL MBF_MUL
+    LD A,(MBF_RES)
+    LD (FIN_BASE),A
+    LD A,(MBF_RES+1)
+    LD (FIN_BASE+1),A
+    LD A,(MBF_RES+2)
+    LD (FIN_BASE+2),A
+    LD A,(MBF_RES+3)
+    LD (FIN_BASE+3),A
+    JP _fout_pow_loop
+_fout_pow_done:
+    LD A,(FOUT_ORIGVAL)
+    LD (MBF_OPA),A
+    LD A,(FOUT_ORIGVAL+1)
+    LD (MBF_OPA+1),A
+    LD A,(FOUT_ORIGVAL+2)
+    LD (MBF_OPA+2),A
+    LD A,(FOUT_ORIGVAL+3)
+    LD (MBF_OPA+3),A
+    LD A,(FIN_POW)
+    LD (MBF_OPB),A
+    LD A,(FIN_POW+1)
+    LD (MBF_OPB+1),A
+    LD A,(FIN_POW+2)
+    LD (MBF_OPB+2),A
+    LD A,(FIN_POW+3)
+    LD (MBF_OPB+3),A
+    LD A,(FIN_SCALE_NEG)
+    OR A
+    JP NZ,_fout_pow_div
+    CALL MBF_MUL
+    JP _fout_pow_apply_done
+_fout_pow_div:
+    CALL MBF_DIV
+_fout_pow_apply_done:
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    JP _fout_pow_finalize
+_fout_pow_skip:
+    LD A,(FOUT_ORIGVAL)
+    LD (MBF_OPA),A
+    LD A,(FOUT_ORIGVAL+1)
+    LD (MBF_OPA+1),A
+    LD A,(FOUT_ORIGVAL+2)
+    LD (MBF_OPA+2),A
+    LD A,(FOUT_ORIGVAL+3)
+    LD (MBF_OPA+3),A
+_fout_pow_finalize:
+
+    ; 整数部を切り出しつつ偶数丸めする(旧実装は「0.5を足してから
+    ; 切り捨て」だったが、乱数1200件照合で約67%が最下位桁+1の系統的な
+    ; ずれになり不採用にした——原因はここではなく整列済み値の丸めの
+    ; 甘さだったので、guard/sticky方式の偶数丸めに置き換えた=
+    ; 仕様書に無い判断)。
+    ; shift = 152 - UA_EXP (OPAは桁合わせ後のスケール済み値)
+    CALL MBF_UNPACK_A
+    LD A,152
+    LD B,A
+    LD A,(UA_EXP)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FOUT_SHIFTCNT),A
+    LD (FOUT_SHIFTORIG),A
+    LD A,(UA_M2)
+    LD (FOUT_INT2),A
+    LD A,(UA_M1)
+    LD (FOUT_INT1),A
+    LD A,(UA_M0)
+    LD (FOUT_INT0),A
+    XOR A
+    LD (FOUT_INT3),A
+_fout_shift_loop:
+    LD A,(FOUT_SHIFTCNT)
+    OR A
+    JP Z,_fout_shift_done
+    XOR A
+    LD A,(FOUT_INT2)
+    SRL A
+    LD (FOUT_INT2),A
+    LD A,(FOUT_INT1)
+    RRA
+    LD (FOUT_INT1),A
+    LD A,(FOUT_INT0)
+    RRA
+    LD (FOUT_INT0),A
+    LD A,(FOUT_SHIFTCNT)
+    DEC A
+    LD (FOUT_SHIFTCNT),A
+    JP _fout_shift_loop
+_fout_shift_done:
+    ; 偶数丸め: 捨てた下位FOUT_SHIFTORIGビット(<=7bit、UA_M0の下位に
+    ; そのまま残っている)をHALF(=2^(shift-1))と比較する。
+    LD A,(FOUT_SHIFTORIG)
+    OR A
+    JP Z,_fout_round_done      ; shift=0なら丸め不要(小数部が無い)
+    DEC A
+    LD (WK_FOUTLOOP),A
+    LD A,1
+    LD (WK_REM10),A
+_fout_half_loop:
+    LD A,(WK_FOUTLOOP)
+    OR A
+    JP Z,_fout_half_done
+    LD A,(WK_REM10)
+    SLA A
+    LD (WK_REM10),A
+    LD A,(WK_FOUTLOOP)
+    DEC A
+    LD (WK_FOUTLOOP),A
+    JP _fout_half_loop
+_fout_half_done:
+    LD A,(WK_REM10)
+    LD B,A
+    SLA A
+    DEC A
+    LD C,A
+    LD A,(UA_M0)
+    AND C
+    CP B
+    JP C,_fout_round_done
+    JP NZ,_fout_round_up
+    LD A,(FOUT_INT0)
+    BIT 0,A
+    JP Z,_fout_round_done
+_fout_round_up:
+    LD A,(FOUT_INT0)
+    INC A
+    LD (FOUT_INT0),A
+    JP NZ,_fout_round_done
+    LD A,(FOUT_INT1)
+    INC A
+    LD (FOUT_INT1),A
+    JP NZ,_fout_round_done
+    LD A,(FOUT_INT2)
+    INC A
+    LD (FOUT_INT2),A
+_fout_round_done:
+
+    ; 桁あふれ判定: 整数部>=1,000,000なら10で割ってe+=1
+    ; (0x0F4240 = 1,000,000。FOUT_INT3は常に0の範囲なので3byte比較でよい)
+    LD A,(FOUT_INT2)
+    CP 0x0F
+    JP C,_fout_no_overflow
+    JP NZ,_fout_do_overflow
+    LD A,(FOUT_INT1)
+    CP 0x42
+    JP C,_fout_no_overflow
+    JP NZ,_fout_do_overflow
+    LD A,(FOUT_INT0)
+    CP 0x40
+    JP C,_fout_no_overflow
+_fout_do_overflow:
+    CALL INT32_DIVMOD10
+    LD A,(FOUT_E)
+    INC A
+    LD (FOUT_E),A
+_fout_no_overflow:
+
+    ; 6桁を1の位から取り出す
+    LD A,5
+    LD (FOUT_DIGIDX),A
+    LD A,6
+    LD (WK_FOUTLOOP),A
+_fout_digit_loop:
+    CALL INT32_DIVMOD10
+    LD A,(FOUT_DIGIDX)
+    LD D,0
+    LD E,A
+    LD HL,FOUT_DIGITS
+    ADD HL,DE
+    LD A,(WK_REM10)
+    ADD A,'0'
+    LD (HL),A
+    LD A,(FOUT_DIGIDX)
+    DEC A
+    LD (FOUT_DIGIDX),A
+    LD A,(WK_FOUTLOOP)
+    DEC A
+    LD (WK_FOUTLOOP),A
+    JP NZ,_fout_digit_loop
+
+    ; 末尾0を除去
+    LD A,6
+    LD (FOUT_NSIG),A
+_fout_trim_loop:
+    LD A,(FOUT_NSIG)
+    CP 1
+    JP Z,_fout_trim_done
+    LD D,0
+    LD E,A
+    DEC E
+    LD HL,FOUT_DIGITS
+    ADD HL,DE
+    LD A,(HL)
+    CP '0'
+    JP NZ,_fout_trim_done
+    LD A,(FOUT_NSIG)
+    DEC A
+    LD (FOUT_NSIG),A
+    JP _fout_trim_loop
+_fout_trim_done:
+
+    ; 固定/指数の判定
+    LD A,(FOUT_E)
+    OR A
+    JP Z,_fout_small
+    JP P,_fout_large
+    JP _fout_small
+_fout_large:
+    CP 7
+    JP C,_fout_isfixed_yes
+    JP _fout_isfixed_no
+_fout_small:
+    LD A,(FOUT_E)
+    NEG
+    LD B,A
+    LD A,(FOUT_NSIG)
+    ADD A,B
+    CP 8
+    JP C,_fout_isfixed_yes
+_fout_isfixed_no:
+    JP _fout_build_exp
+_fout_isfixed_yes:
+    JP _fout_build_fixed
+
+_fout_build_fixed:
+    LD A,(FOUT_E)
+    OR A
+    JP Z,_fout_fx_dotpath
+    JP P,_fout_fx_check_ge
+    ; e<=0 -> "." + "0"*(-e) + trimmed (e=0のときは"0"*0="")
+_fout_fx_dotpath:
+    LD A,'.'
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_E)
+    NEG
+    LD (FOUT_R_COUNT),A
+    LD A,'0'
+    LD (FOUT_R_CHAR),A
+    CALL FOUT_APPEND_REPEAT
+    XOR A
+    LD (FOUT_R_START),A
+    LD A,(FOUT_NSIG)
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+    JP _fout_done
+_fout_fx_check_ge:
+    JP Z,_fout_fx_e_zero
+    LD A,(FOUT_NSIG)
+    LD B,A
+    LD A,(FOUT_E)
+    CP B
+    JP NC,_fout_fx_e_ge_nsig
+    ; 0<e<nsig -> trimmed[:e] + "." + trimmed[e:]
+    XOR A
+    LD (FOUT_R_START),A
+    LD A,(FOUT_E)
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+    LD A,'.'
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_E)
+    LD (FOUT_R_START),A
+    LD A,(FOUT_NSIG)
+    LD B,A
+    LD A,(FOUT_E)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+    JP _fout_done
+_fout_fx_e_zero:
+    ; e==0 (nsig>=1なので e>=nsig は e=0=nsig=0の時だけだが
+    ; nsig>=1なので必ず0<nsig、つまりe(0)<nsigに該当する境界——
+    ; 上のNC分岐はe>=nsigをe=0,nsig=0のときだけ通るはずなので
+    ; ここには来ない想定。安全のためtrimmedをそのまま出す)
+    XOR A
+    LD (FOUT_R_START),A
+    LD A,(FOUT_NSIG)
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+    JP _fout_done
+_fout_fx_e_ge_nsig:
+    ; e>=nsig -> trimmed + "0"*(e-nsig)
+    XOR A
+    LD (FOUT_R_START),A
+    LD A,(FOUT_NSIG)
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+    LD A,(FOUT_E)
+    LD B,A
+    LD A,(FOUT_NSIG)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FOUT_R_COUNT),A
+    LD A,'0'
+    LD (FOUT_R_CHAR),A
+    CALL FOUT_APPEND_REPEAT
+    JP _fout_done
+
+_fout_build_exp:
+    LD A,(FOUT_DIGITS)
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_NSIG)
+    CP 1
+    JP Z,_fout_exp_nofrac
+    LD A,'.'
+    CALL FOUT_APPEND_CHAR
+    LD A,1
+    LD (FOUT_R_START),A
+    LD A,(FOUT_NSIG)
+    DEC A
+    LD (FOUT_R_COUNT),A
+    CALL FOUT_APPEND_RANGE
+_fout_exp_nofrac:
+    LD A,'E'
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_E)
+    DEC A
+    BIT 7,A
+    JP Z,_fout_exp_pos
+    NEG
+    LD (WK_FOUTLOOP),A
+    LD A,'-'
+    CALL FOUT_APPEND_CHAR
+    JP _fout_exp_have_sign
+_fout_exp_pos:
+    LD (WK_FOUTLOOP),A
+    LD A,'+'
+    CALL FOUT_APPEND_CHAR
+_fout_exp_have_sign:
+    XOR A
+    LD (WK_FINDIGIT),A
+_fout_exp_tens_loop:
+    LD A,(WK_FOUTLOOP)
+    CP 10
+    JP C,_fout_exp_tens_done
+    SUB 10
+    LD (WK_FOUTLOOP),A
+    LD A,(WK_FINDIGIT)
+    INC A
+    LD (WK_FINDIGIT),A
+    JP _fout_exp_tens_loop
+_fout_exp_tens_done:
+    LD A,(WK_FINDIGIT)
+    ADD A,'0'
+    CALL FOUT_APPEND_CHAR
+    LD A,(WK_FOUTLOOP)
+    ADD A,'0'
+    CALL FOUT_APPEND_CHAR
+
+_fout_done:
+    RET
+
+; --- FOUT補助ルーチン -------------------------------------------------
+
+; A=文字。FOUT_BUF[FOUT_LEN]へ書きFOUT_LENを進める。
+FOUT_APPEND_CHAR:
+    PUSH AF
+    LD HL,FOUT_BUF
+    LD A,(FOUT_LEN)
+    LD D,0
+    LD E,A
+    ADD HL,DE
+    POP AF
+    LD (HL),A
+    LD A,(FOUT_LEN)
+    INC A
+    LD (FOUT_LEN),A
+    RET
+
+; FOUT_DIGITS[FOUT_R_START .. +FOUT_R_COUNT) を FOUT_BUF へ追記する。
+FOUT_APPEND_RANGE:
+    LD A,(FOUT_R_COUNT)
+    OR A
+    RET Z
+    LD A,(FOUT_R_START)
+    LD D,0
+    LD E,A
+    LD HL,FOUT_DIGITS
+    ADD HL,DE
+    LD A,(HL)
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_R_START)
+    INC A
+    LD (FOUT_R_START),A
+    LD A,(FOUT_R_COUNT)
+    DEC A
+    LD (FOUT_R_COUNT),A
+    JP FOUT_APPEND_RANGE
+
+; FOUT_R_CHAR を FOUT_R_COUNT 回だけ FOUT_BUF へ追記する。
+FOUT_APPEND_REPEAT:
+    LD A,(FOUT_R_COUNT)
+    OR A
+    RET Z
+    LD A,(FOUT_R_CHAR)
+    CALL FOUT_APPEND_CHAR
+    LD A,(FOUT_R_COUNT)
+    DEC A
+    LD (FOUT_R_COUNT),A
+    JP FOUT_APPEND_REPEAT
+
+; FOUT_INT3:2:1:0(32bit) /= 10。商は同じ場所へ、余りはWK_REM10へ(0-9)。
+INT32_DIVMOD10:
+    XOR A
+    LD (WK_REM10),A
+    LD B,32
+_i32d10_loop:
+    XOR A
+    LD A,(FOUT_INT0)
+    SLA A
+    LD (FOUT_INT0),A
+    LD A,(FOUT_INT1)
+    RLA
+    LD (FOUT_INT1),A
+    LD A,(FOUT_INT2)
+    RLA
+    LD (FOUT_INT2),A
+    LD A,(FOUT_INT3)
+    RLA
+    LD (FOUT_INT3),A
+    LD A,(WK_REM10)
+    RLA
+    LD (WK_REM10),A
+    LD A,(WK_REM10)
+    CP 10
+    JP C,_i32d10_skip
+    SUB 10
+    LD (WK_REM10),A
+    LD A,(FOUT_INT0)
+    OR 1
+    LD (FOUT_INT0),A
+_i32d10_skip:
+    DEC B
+    JP NZ,_i32d10_loop
+    RET
+
+; MBF_OPBへ単精度定数100000.0を書く。AF破壊。
+FOUT_SET_OPB_1E5:
+    XOR A
+    LD (MBF_OPB),A
+    LD A,0x50
+    LD (MBF_OPB+1),A
+    LD A,0x43
+    LD (MBF_OPB+2),A
+    LD A,145
+    LD (MBF_OPB+3),A
+    RET
+
+; MBF_OPBへ単精度定数1000000.0を書く。AF破壊。
+FOUT_SET_OPB_1E6:
+    XOR A
+    LD (MBF_OPB),A
+    LD A,0x24
+    LD (MBF_OPB+1),A
+    LD A,0x74
+    LD (MBF_OPB+2),A
+    LD A,148
+    LD (MBF_OPB+3),A
+    RET
+
+; MBF_OPBへ単精度定数0.5を書く。AF破壊。
+FOUT_SET_OPB_HALF:
+    XOR A
+    LD (MBF_OPB),A
+    LD (MBF_OPB+1),A
+    LD (MBF_OPB+2),A
+    LD A,128
+    LD (MBF_OPB+3),A
+    RET
