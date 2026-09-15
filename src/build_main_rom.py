@@ -50,6 +50,8 @@ N88_SIZE = make_ipl_rom.N88_SIZE
 FILL = make_ipl_rom.FILL
 
 SCREEN_ASM = REPO / "src" / "l3_main" / "screen.asm"
+KEYBOARD_ASM = REPO / "src" / "l3_main" / "keyboard.asm"
+KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
 
 # 挿入点の目印。render_asm() の出力に必ず1回だけ現れる
 # （make_ipl_rom.build_n88() の「IM2ベクタページをIへ積む」直前）。
@@ -61,14 +63,50 @@ INSERT_MARK = "    LD A,VEC_TABLE>>8"
 FAULT_OLD = "    LD HL,TEXT_BASE\n    LD (VAR_ROWBASE),HL"
 FAULT_NEW = "    LD HL,TEXT_BASE+1\n    LD (VAR_ROWBASE),HL"
 
+# M7段階2b: VSYNCハンドラ(make_ipl_rom.sub_vsync_handler)が固定で出す
+# カーソル位置(X=22,Y=1)の2個のOUTを、keyboard.asmのL3_VSYNC_HOOK呼び出しへ
+# 置き換える。make_ipl_rom.py自体は無変更（render_asm()の出力テキストへの
+# 置換であり、INSERT_MARK/FAULT_OLDと同じ手法）。置き換え後もVSYNC
+# ハンドラ内のOUT(0x50)は2回のまま(l3-main.mdの番地の式に無関係、
+# L1側のCRTCコマンド書式(l1-ipl.md第5d節)のパラメータ2バイトという構造は
+# 変わらない)。
+#
+# 置換前後でバイト数を8バイトのまま変えない（CALL nn=3バイト+NOP×5）。
+# render_asm()はmake_ipl_rom.pyがPythonの2パスアセンブラで内部的に確定した
+# バイト位置を書き出したものであり、IM2ベクタテーブル直前の詰め物
+# （align_page()）は「次のラベルが256バイト境界に来るまで」計算された
+# **固定件数**の db として書き出される（z80textの再アセンブル時に
+# 動的再計算されるわけではない）。ここでバイト数を変えると詰め物の数が
+# 合わなくなり、VEC_TABLEが256バイト境界からずれ、IM2の割り込みベクタ
+# 引き（(I<<8)|レベル）が完全に外れて暴走する（実機で確認済み。
+# 5バイト短いCALL単体に置き換えたところ、VSYNC割り込みが初めて発生する
+# 箇所でCPUが無関係な番地へ飛び、L1適合検査①が344件目で全く別内容に
+# 化けて不合格になった）。バイト数を揃えることでこれを避けている。
+CURSOR_OLD = "    LD A,0x16\n    OUT (0x50),A\n    LD A,0x01\n    OUT (0x50),A"
+CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP"
 
-def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool) -> str:
+# カーソル追従の故障注入（tools/l3_main_selftest.sh --cursor-fault 相当）。
+# SET_CURSOR(keyboard.asm)のCOL/ROWの出力順を1バイトずらす。
+CURSOR_FAULT_OLD = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    OUT (50h),A"
+CURSOR_FAULT_NEW = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    INC A\n    OUT (50h),A"
+
+# 故障注入（tools/l3_main_selftest.sh の陰性対照用）。BASE_CODE_TAB の
+# Q(04H:1、l3-main.md第9節)の1エントリだけを変える
+# （tools/gen_l3_key_table.py --check で検査済みの表を、生成後に
+# 1バイトだけ壊す）。
+KEY_TABLE_FAULT_OLD = "    DB 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77"
+KEY_TABLE_FAULT_NEW = "    DB 0x70, 0x51, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77"
+
+
+def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
+                        inject_cursor_fault: bool = False,
+                        inject_key_table_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
     asm_obj = make_ipl_rom._LAST_ASM
     ipl_text = asm_emit.render_asm(
-        asm_obj, "M7段階2a: make_ipl_rom.build_n88() の発行命令(L1) + l3_main/screen.asm(画面出力)")
+        asm_obj, "M7段階2: make_ipl_rom.build_n88() の発行命令(L1) + l3_main/(画面出力・キー入力)")
 
     if INSERT_MARK not in ipl_text:
         raise SystemExit(f"挿入点が見つからない: {INSERT_MARK!r}")
@@ -76,20 +114,43 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool)
         raise SystemExit(f"挿入点が一意でない: {INSERT_MARK!r}")
     ipl_text = ipl_text.replace(INSERT_MARK, "    CALL SCREEN_MAIN\n" + INSERT_MARK)
 
+    if CURSOR_OLD not in ipl_text:
+        raise SystemExit(f"カーソル追従の置換点が見つからない: {CURSOR_OLD!r}")
+    if ipl_text.count(CURSOR_OLD) != 1:
+        raise SystemExit(f"カーソル追従の置換点が一意でない: {CURSOR_OLD!r}")
+    ipl_text = ipl_text.replace(CURSOR_OLD, CURSOR_NEW)
+
     screen_text = SCREEN_ASM.read_text(encoding="utf-8")
     if inject_fault:
         if screen_text.count(FAULT_OLD) != 1:
             raise SystemExit("故障注入の対象行が一意に見つからない（screen.asm が変わった？）")
         screen_text = screen_text.replace(FAULT_OLD, FAULT_NEW)
 
+    keyboard_text = KEYBOARD_ASM.read_text(encoding="utf-8")
+    if inject_cursor_fault:
+        if keyboard_text.count(CURSOR_FAULT_OLD) != 1:
+            raise SystemExit("カーソル故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
+        keyboard_text = keyboard_text.replace(CURSOR_FAULT_OLD, CURSOR_FAULT_NEW)
+
     screen_path = work / "screen_gen.asm"
     screen_path.write_text(screen_text, encoding="utf-8")
+    keyboard_path = work / "keyboard_gen.asm"
+    keyboard_path.write_text(keyboard_text, encoding="utf-8")
+    key_table_text = KEY_TABLE_ASM.read_text(encoding="utf-8")
+    if inject_key_table_fault:
+        if key_table_text.count(KEY_TABLE_FAULT_OLD) != 1:
+            raise SystemExit("表の故障注入の対象行が一意に見つからない（key_table_gen.asm が変わった？）")
+        key_table_text = key_table_text.replace(KEY_TABLE_FAULT_OLD, KEY_TABLE_FAULT_NEW)
+    key_table_path = work / "key_table_gen.asm"
+    key_table_path.write_text(key_table_text, encoding="utf-8")
 
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
         f"EXTRA_LINES EQU {extra_lines}\n"
         + ipl_text
         + f'\nINCLUDE "{screen_path}"\n'
+        + f'\nINCLUDE "{keyboard_path}"\n'
+        + f'\nINCLUDE "{key_table_path}"\n'
     )
     return combined
 
@@ -130,6 +191,10 @@ def main():
                      help="バナーとOkの間に挟む埋め草行の数（スクロール試験用）")
     ap.add_argument("--inject-address-fault", action="store_true",
                      help="故障注入: 番地の式を1バイトずらす（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-cursor-fault", action="store_true",
+                     help="故障注入: カーソル追従(SET_CURSOR)のROW出力を1ずらす（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-key-table-fault", action="store_true",
+                     help="故障注入: キーコード表(Q)の1エントリを変える（自己検査の陰性対照専用）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -152,7 +217,8 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
 
     try:
-        combined = build_combined_asm(work, args.extra_lines, args.inject_address_fault)
+        combined = build_combined_asm(work, args.extra_lines, args.inject_address_fault,
+                                       args.inject_cursor_fault, args.inject_key_table_fault)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +229,8 @@ def main():
         used = len(combined.splitlines())
         print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM)")
         print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
-              f"inject_address_fault={args.inject_address_fault}")
+              f"inject_address_fault={args.inject_address_fault} "
+              f"inject_cursor_fault={args.inject_cursor_fault}")
     finally:
         if cleanup:
             shutil.rmtree(work, ignore_errors=True)

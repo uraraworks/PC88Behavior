@@ -25,6 +25,11 @@
 ; バナー文言は自作の名前・バージョンのみ（禁止事項6・
 ; docs/notes/banner-attribution-2026-08-16.md）。公式の製品名・
 ; 著作権表示は含まない。
+;
+; M7段階2b追記: カーソルの追従・キー入力・行入力は keyboard.asm にある。
+; build_main_rom.py が、L1のVSYNCハンドラが毎フレーム出す固定カーソル位置
+; (22,1)のOUTを keyboard.asm の L3_VSYNC_HOOK 呼び出しに置き換える
+; （make_ipl_rom.py 自体は無変更）。
 
 TEXT_BASE   EQU 0F3C8h   ; l3-main.md 第2節
 STRIDE      EQU 120      ; l3-main.md 第1節（80桁+40属性）
@@ -49,6 +54,7 @@ SCREEN_MAIN:
     LD HL,TEXT_BASE
     LD (VAR_ROWBASE),HL
     CALL CLEAR_SCREEN
+    CALL KEY_INIT           ; keyboard.asm — KEY_OLDを初期化（M7段階2b）
 
     LD HL,BANNER_TXT
     CALL PRINT_STR
