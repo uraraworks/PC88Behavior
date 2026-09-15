@@ -362,6 +362,23 @@ run("case_c12_percent_round_half", "NEW\\n10 a=1\\n20 a%=a+0.5\\n30 print a%\\nR
     {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
 ])
 
+# M7段階4b-3: 4.4c節、倍精度変数(#)への代入と精度(C6/C7)。単精度どうしの
+# 演算結果(1/3)を#変数へ代入すると単精度の丸め誤差が倍精度の桁数のまま
+# 出る(C6)。倍精度どうしの演算(1#/3)を代入すると乱れない(C7)。
+run("case_c6_double_var_single_calc", "NEW\\n10 a#=1/3\\n20 print a#\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [" .3333333432674408 "]},
+])
+
+run("case_c7_double_var_double_calc", "NEW\\n10 a#=1#/3\\n20 print a#\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [" .3333333333333333 "]},
+])
+
 # 4.4d節: 文字列変数の基本動作(C8、string_ok)。
 run("case_c8_string_var", 'NEW\\n10 a$="12"\\n20 print a$\\nRUN\\n', [
     {"kind": "cmd", "out": 0},

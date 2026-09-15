@@ -285,8 +285,30 @@ check_runtime_err case_fp_overflow 'PRINT 1e38*10\n' "$OVERFLOW_MSG"
 check_runtime_err case_fp_divzero  'PRINT 1/0\n'     "$DIVZERO_MSG"
 
 # -----------------------------------------------------------------------
-say "3g. 倍精度定数は段階4bまで未実装のため暫定的にSyntax error(仕様書に無い判断)"
-check_row case_fp_double_pending 'PRINT 1#\n' "$SYNTAX_ERROR_MSG"
+say "3g. 倍精度浮動小数点PRINT(l4-basic.md 第5節、M7段階4b-3)"
+# 仕様書の観測例(第5.1・5.3・5.4・5.5節)を期待値として書く。FD1〜FD8
+# (tools/conform_l4.sh、W1/W4・C2・G3・M7・M2・L3相当)とバイト単位まで
+# 重ならない残りの境目を中心に選んだ。
+check_row case_fp_d_basic       'PRINT 1#\n'                       " 1 "
+check_row case_fp_d_dexp        'PRINT 1d10\n'                     " 10000000000 "
+check_row case_fp_d_digits8     'PRINT 12345678\n'                 " 12345678 "
+check_row case_fp_d_frac8       'PRINT 1234567.8\n'                " 1234567.8 "
+check_row case_fp_d_c3          'PRINT 1d17\n'                     " 1D+17 "
+check_row case_fp_d_c4          'PRINT 12345678901234567#\n'       " 1.234567890123457D+16 "
+check_row case_fp_d_g1          'PRINT 123456789012345#\n'         " 123456789012345 "
+check_row case_fp_d_g5          'PRINT 1d15\n'                     " 1000000000000000 "
+check_row case_fp_d_g8          'PRINT 123456789012345.6#\n'       " 123456789012345.6 "
+check_row case_fp_d_g9          'PRINT 1d15*10\n'                  " 1D+16 "
+check_row case_fp_d_g10         'PRINT 99999999999999995#\n'       " 1D+17 "
+check_row case_fp_d_l1          'PRINT 1d-15\n'                    " .000000000000001 "
+check_row case_fp_d_l4          'PRINT 1.5d-16\n'                  " 1.5D-16 "
+check_row case_fp_d_l6          'PRINT 1.234567890123456d-2\n'     " .01234567890123456 "
+check_row case_fp_d_l7          'PRINT 1#/3000\n'                  " 3.333333333333333D-04 "
+check_row case_fp_d_m3          'PRINT 1.23d-15\n'                 " 1.23D-15 "
+check_row case_fp_d_m8          'PRINT 1.5d-14\n'                  " .000000000000015 "
+check_row case_fp_d_q1          'PRINT 1#/70\n'                    " .01428571428571429 "
+check_row case_fp_d_q6          'PRINT 2d-16\n'                    " 2D-16 "
+check_row case_fp_d_neg         'PRINT -60965.251#+60965\n'        "-.2509999999992942 "
 
 # -----------------------------------------------------------------------
 say "3b. PRINT 1（実際にSPACEキーを打鍵）: エコーの1桁前進と実行結果"
