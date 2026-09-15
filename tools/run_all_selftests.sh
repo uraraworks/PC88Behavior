@@ -138,6 +138,10 @@ SCRIPTS_EXPECTED=(
   # それ以外はすべて公式測定と一致させる、という判断。
   # tools/l3_main_selftest.sh 検査4のコメント参照）、期待rcを0に戻した。
   "tools/l3_main_selftest.sh:0"
+  # M7段階3準備（2026-09-15）。マニュアルテキスト(refs/manual.txt、私物)が
+  # 無い環境ではSKIPで即rc=0になる（tools/l4_extract_keywords_selftest.sh
+  # 内のSKIPメッセージ参照）。
+  "tools/l4_extract_keywords_selftest.sh:0"
 )
 
 overall=0
