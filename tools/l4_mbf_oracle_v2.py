@@ -275,6 +275,77 @@ def _rep01_single_magnitude(acc: int, net_exp: int) -> Tuple[int, int]:
     return exp_byte, mant
 
 
+# ---------------------------------------------------------------------------
+# DREP10A(l4-s4l/l4-s4k、倍精度の定数読み取りの候補) — 数字を先頭から
+# acc=acc*10+dで積み上げて1手ごとに倍精度(56bit仮数)へ丸め、正味の指数n
+# についてn>0なら10をn回掛け、n<0なら**真の÷10**をn回行い、1手ごとに
+# 丸める。丸めは半分なら絶対値の大きい側(round_half_away、単精度REP01と
+# 同じ_round_half_away_magを56bitに適用)。符号は最後。
+# 単精度REP01との違い: 負の正味指数側が「丸め済み0.1との乗算」ではなく
+# 「真の除算」であること。
+# 出所: l4-s4k(親から渡された実測36件)・l4-s4l(Codexの分析、
+# docs/notes/l4-dfin-model-search.md)。l4-s4l(62e35b4)はno_survivorだが
+# DREP10Aは数値を出した24腕+対照12腕の全てに一致(外れた4腕は#付き定数で
+# 数値を出さなかった)。l4-s4kの36件も再現。測定はしていない。
+# ---------------------------------------------------------------------------
+
+
+def _encode_double_away(value: Fraction) -> Tuple[int, int]:
+    """非負のFractionを倍精度(56bit仮数)へround_half_awayで丸める。
+    戻り値: (exp_byte, mant)。exp_byte>255ならOverflowErrorを投げる。
+    """
+    if value == 0:
+        return (0, 0)
+    k = _pow2_bracket(value)
+    mant_exact = value * Fraction(2) ** (MBF_DOUBLE_BITS - k)
+    m = _round_half_away_mag(mant_exact)
+    if m >= (1 << MBF_DOUBLE_BITS):
+        k += 1
+        m = 1 << (MBF_DOUBLE_BITS - 1)
+    exp_byte = k + 128
+    if exp_byte > 255:
+        raise OverflowError("drep10a double overflow")
+    if exp_byte < 1:
+        return (0, 0)
+    return (exp_byte, m)
+
+
+def _decode_double_frac(exp_byte: int, mant: int) -> Fraction:
+    if exp_byte == 0:
+        return Fraction(0)
+    k = exp_byte - 128
+    return Fraction(mant) * Fraction(2) ** (k - MBF_DOUBLE_BITS)
+
+
+def _drep10a_double_magnitude(digits: str, net_exp: int) -> Tuple[int, int]:
+    """DREP10A手順で、非負の桁文字列digitsを1桁ずつ積み上げ(毎回56bitへ
+    round_half_away)、正味指数net_expの分だけ×10(正)/真の÷10(負)を
+    1手ずつ適用して(exp_byte, mant)を返す。数字の積み上げ・指数適用の
+    どちらもround_half_awayで統一する(l4-s4l v2の訂正どおり、右辺の
+    桁数の多い整数でも同じ手順で読む)。
+    """
+    exp_byte, mant = 0, 0
+    val = Fraction(0)
+    for ch in digits or "0":
+        val = val * 10
+        exp_byte, mant = _encode_double_away(val)
+        val = _decode_double_frac(exp_byte, mant)
+        val = val + int(ch)
+        exp_byte, mant = _encode_double_away(val)
+        val = _decode_double_frac(exp_byte, mant)
+    if net_exp > 0:
+        for _ in range(net_exp):
+            val = val * 10
+            exp_byte, mant = _encode_double_away(val)
+            val = _decode_double_frac(exp_byte, mant)
+    elif net_exp < 0:
+        for _ in range(-net_exp):
+            val = val / 10
+            exp_byte, mant = _encode_double_away(val)
+            val = _decode_double_frac(exp_byte, mant)
+    return exp_byte, mant
+
+
 def mbf4_bytes(sign: int, exp_byte: int, mant: int) -> bytes:
     frac = mant & 0x7FFFFF
     b0 = frac & 0xFF
@@ -628,14 +699,20 @@ class GwSyntaxError(Exception):
     pass
 
 
-def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
-    """fin_algo: 既定"exact"は厳密値(acc*10**(exponent-frac_digits))を
-    1回だけ丸める従来どおりの実装。"gw"は$FINE/MDPTENが実際に行う
-    「倍精度の不正確な10のべき定数でスケーリングする」処理
-    (_scale_by_pow10_gw、fout_format の "gw" と共通)を、指数適用の
-    たった1箇所で使う(docs/notes/l4-mbf-oracle.md
+def parse_literal(text: str, fin_algo: str = "exact", dfin_algo: str = "exact") -> GwNum:
+    """fin_algo: 単精度の定数読み取り。既定"exact"は厳密値
+    (acc*10**(exponent-frac_digits))を1回だけ丸める従来どおりの実装。
+    "gw"は$FINE/MDPTENが実際に行う「倍精度の不正確な10のべき定数で
+    スケーリングする」処理(_scale_by_pow10_gw、fout_format の "gw" と
+    共通)を、指数適用のたった1箇所で使う(docs/notes/l4-mbf-oracle.md
     「FINの近似の有無」の実験で、|指数|が大きい倍精度リテラルに限り
-    exactと食い違うことを確認した)。
+    exactと食い違うことを確認した)。"rep01"はl4-s4jのREP01(数字を
+    1手ずつ積み上げ・指数適用も1手ずつ、単精度だけに効く)。
+
+    dfin_algo: 倍精度の定数読み取り。既定"exact"はfin_algoの
+    "exact"/"rep01"と同じ処理(厳密値を1回丸め、倍精度の定数読み取りは
+    従来どおり変更しない)。"drep10a"はl4-s4l/l4-s4kのDREP10A
+    (_drep10a_double_magnitude参照、倍精度の定数だけに効く)。
     """
     s = text.strip()
     if not s:
@@ -759,6 +836,13 @@ def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
             # 最後に符号を付ける(定義どおり「符号は最後」)。
             exp_byte, mant = _rep01_single_magnitude(acc, net_exp)
             num = GwNum("single", sign=(1 if neg else 0), exp=exp_byte, mant=mant)
+        elif dfin_algo == "drep10a" and kind == "double":
+            # DREP10A: 桁文字列digits("".join(digits))を1桁ずつ積み上げ・
+            # 正味指数の分だけ×10/真の÷10を1手ずつ、毎回round_half_awayで
+            # 56bitへ丸める(_drep10a_double_magnitude参照)。symbolの
+            # valueは使わない。
+            exp_byte, mant = _drep10a_double_magnitude("".join(digits), net_exp)
+            num = GwNum("double", sign=(1 if neg else 0), exp=exp_byte, mant=mant)
         else:
             num = GwNum.from_fraction(value, kind)
     except OverflowError:
@@ -810,7 +894,7 @@ def _tokenize(expr: str):
     return toks
 
 
-def eval_expr(expr: str, fin_algo: str = "exact") -> GwNum:
+def eval_expr(expr: str, fin_algo: str = "exact", dfin_algo: str = "exact") -> GwNum:
     toks = _tokenize(expr)
     pos = [0]
 
@@ -834,7 +918,7 @@ def eval_expr(expr: str, fin_algo: str = "exact") -> GwNum:
             return parse_factor()
         if t[0] == "num":
             advance()
-            return parse_literal(t[1], fin_algo)
+            return parse_literal(t[1], fin_algo, dfin_algo)
         raise GwSyntaxError(f"unexpected token {t!r}")
 
     def parse_term() -> GwNum:
@@ -916,6 +1000,17 @@ def _round_to_double(value: Fraction) -> Fraction:
     return decode_mbf(*encode_mbf(value, MBF_DOUBLE_BITS), MBF_DOUBLE_BITS)
 
 
+# 倍精度の指数byte(8bit、bias+128)は単精度と共有するため10^39以上を
+# 単一のMBF倍精度定数として表現できない(10^38≈1e38<2^127≈1.7e38は
+# 収まるが10^39は収まらない、encode_mbfのOverflowErrorで確認済み)。
+# 5373c78でZ80実装側は38ずつに分割してDBL_MUL/DBL_DIVを複数回適用する
+# 設計にしたが、予測器(_scale_by_pow10_gw)は当時1回のべき乗のままだった
+# ため、MIN_POS/MIN_NEG近傍(指数byte概ね1-19、10^39以上のスケールが
+# 必要)でOverflowErrorになり検算できない穴が残っていた。M7でここを
+# 同じ38分割方式に直す。
+_POW10_GW_CHUNK = 38
+
+
 def _scale_by_pow10_gw(value: Fraction, shift: int) -> Fraction:
     """$FOTNV/$FINE が使う MDPTEN 相当: value を10**shift倍する処理を、
     「厳密な10**shiftを掛ける」のではなく「倍精度に丸めた10**|shift|を
@@ -923,15 +1018,27 @@ def _scale_by_pow10_gw(value: Fraction, shift: int) -> Fraction:
     ソースが行っている精度の落とし方で再現する(MATH1.ASM 1228-1249
     MDP10: 正指数なら$FMULD、負指数なら除算。どちらも倍精度)。
     shift=0ならそのまま返す(何もしない、MDPTENが呼ばれないケース)。
+
+    |shift|が_POW10_GW_CHUNK(38)を超える場合は、10^39以上の単一定数を
+    作らずに38ずつに分割して複数回適用する(Z80実装〔5373c78〕と同じ
+    分割方式)。|shift|<=38のときは分割ループが1回だけ回るので、
+    これまでの挙動(1回のスケーリング)と完全に同じ結果になる
+    (tools/l4_mbf_oracle_v2_selftest.shで確認)。
     """
     if shift == 0:
         return value
-    pow10 = _pow10_as_double(abs(shift))
-    if shift > 0:
-        scaled = value * pow10
-    else:
-        scaled = value / pow10
-    return _round_to_double(scaled)
+    remaining = abs(shift)
+    result = value
+    while remaining > 0:
+        chunk = min(remaining, _POW10_GW_CHUNK)
+        pow10 = _pow10_as_double(chunk)
+        if shift > 0:
+            result = result * pow10
+        else:
+            result = result / pow10
+        result = _round_to_double(result)
+        remaining -= chunk
+    return result
 
 
 def _round_half_up_int(value: Fraction) -> int:
@@ -1062,9 +1169,16 @@ def fout_format(
     small_emin: int = 0,
     large_n: int = 0,
     fout_algo: str = "exact",
+    n88: bool = False,
 ) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
     経由したか=approx)
+
+    n88: N88想定の書式設定を1つにまとめた口(docs/notes/l4-mbf-oracle.md
+    「N88設定」節参照)。Trueのとき、single_digits/small_rule/small_len/
+    large_nの引数値を無視し、num.kindに応じて単精度=6桁・len・T=7、
+    倍精度=16桁(既定のMBF_DOUBLE_DIGITSのまま)・rstarを使う
+    (large_nはどちらも既定0=ndigのまま=LG6/LG16相当)。既定False。
 
     fout_algo: 桁生成そのもののアルゴリズム。既定"exact"はこれまでの
     実装(厳密値を求めて$ROUNSと同じ偶数丸めで一度に丸める)。"gw"は
@@ -1090,6 +1204,12 @@ def fout_format(
     """
     if num.kind == "int":
         return str(abs(num.ivalue)), False
+
+    if n88:
+        single_digits = 6
+        small_rule = "len" if num.kind == "single" else "rstar"
+        small_len = 7 if num.kind == "single" else 0
+        large_n = 0
 
     ndig = single_digits if num.kind == "single" else MBF_DOUBLE_DIGITS
     value = num.exact()
@@ -1148,9 +1268,10 @@ def print_one(
     small_emin: int = 0,
     large_n: int = 0,
     fout_algo: str = "exact",
+    n88: bool = False,
 ) -> Tuple[str, bool]:
     body, approx = fout_format(
-        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo, n88
     )
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
@@ -1164,6 +1285,9 @@ def predict(
     small_emin: int = 0,
     large_n: int = 0,
     fout_algo: str = "exact",
+    fin_algo: Optional[str] = None,
+    dfin_algo: str = "exact",
+    n88: bool = False,
 ) -> Tuple[str, str, bool]:
     """戻り値: (kind, predicted, approx)
 
@@ -1175,17 +1299,36 @@ def predict(
     (FIN)側の指数適用も同じ"gw"手順(_scale_by_pow10_gw)を使う
     (実際のGW-BASICがFIN/FOUTどちらも$FINE/$FOTNVという同じMDPTEN
     経由の倍精度スケーリングを使っているのに合わせた)。
+    fin_algo: 単精度の定数読み取り(parse_literal参照)を明示的に指定
+    したいとき用。既定None(未指定)は従来どおり
+    fout_algo=="gw"のときだけ"gw"、それ以外は"exact"という自動連動
+    (これまでの予測表を変えないため)。明示的に渡すと自動連動より
+    こちらが優先される(l4-s4jのREP01(単精度)をfout_algo="gw"と独立に
+    組み合わせるために追加)。
+    dfin_algo: 倍精度の定数読み取り(parse_literal参照)。既定"exact"
+    (これまでどおり変更しない)。l4-s4l/l4-s4kのDREP10A(倍精度)は
+    "drep10a"を渡す。
+    n88: N88想定の書式設定を1つにまとめた口(fout_format参照)。Trueの
+    とき、single_digits/small_rule/small_lenの引数値をkindに応じて
+    上書きするのに加え、fin_algo="rep01"・dfin_algo="drep10a"・
+    fout_algo="gw"も強制する(docs/notes/l4-mbf-oracle.md「N88設定」参照)。
+    既定False(既存の呼び出しは影響を受けない)。
     """
-    fin_algo = "gw" if fout_algo == "gw" else "exact"
+    if n88:
+        fin_algo = "rep01"
+        dfin_algo = "drep10a"
+        fout_algo = "gw"
+    elif fin_algo is None:
+        fin_algo = "gw" if fout_algo == "gw" else "exact"
     try:
-        num = eval_expr(typed_print_body, fin_algo)
+        num = eval_expr(typed_print_body, fin_algo, dfin_algo)
     except GwError as e:
         residual_line, approx = print_one(
-            e.residual, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+            e.residual, single_digits, small_rule, small_len, small_emin, large_n, fout_algo, n88
         )
         return "error", f"{e.kind};{residual_line}", approx
     line, approx = print_one(
-        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo, n88
     )
     return "numeric", line, approx
 
@@ -1232,6 +1375,25 @@ if __name__ == "__main__":
         help="桁生成のアルゴリズム(既定exact=厳密値+偶数丸め。"
         "gw=$FOTNVの倍精度スケーリング+$FOTCV/$SIGDの.5切り捨て丸め)",
     )
+    ap.add_argument(
+        "--fin-algo",
+        choices=("exact", "gw", "rep01"),
+        default=None,
+        help="単精度の定数読み取りを明示指定(既定None=--fout-algoに自動連動、"
+        "これまでの挙動)。rep01はl4-s4jのREP01",
+    )
+    ap.add_argument(
+        "--dfin-algo",
+        choices=("exact", "drep10a"),
+        default="exact",
+        help="倍精度の定数読み取り(既定exact=変更なし)。drep10aはl4-s4l/l4-s4kのDREP10A",
+    )
+    ap.add_argument(
+        "--n88",
+        action="store_true",
+        help="N88想定の書式設定を一括指定(単精度6桁・LEN7・fin=rep01・"
+        "倍精度16桁・rstar・dfin=drep10a・fout-algo=gw)。他の書式系引数を上書きする",
+    )
     ap.add_argument("exprs", nargs="+")
     args = ap.parse_args()
     for arg in args.exprs:
@@ -1246,5 +1408,8 @@ if __name__ == "__main__":
             args.small_emin,
             args.large_n,
             args.fout_algo,
+            args.fin_algo,
+            args.dfin_algo,
+            args.n88,
         )
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")

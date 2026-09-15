@@ -1195,6 +1195,294 @@ else
   fail "rep01の独立実装との突合せ: $REP01_CROSSCHECK"
 fi
 
+# --- 42. dfin_algo=drep10a追加後も既定(exact)は変わらない ------------------
+DREP10A_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+import inspect
+default = inspect.signature(m.parse_literal).parameters["dfin_algo"].default
+lits = ["1.5", "12345678", "1d10", "1.234567890123456d-3", "70965094997406390272"]
+ok = default == "exact"
+for t in lits:
+    a = m.parse_literal(t)  # 既定引数
+    b = m.parse_literal(t, "exact", "exact")
+    if a.exact() != b.exact() or a.kind != b.kind:
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$DREP10A_DEFAULT_CHECK" = "PASS" ]; then
+  pass "dfin_algo=drep10a追加後も既定はexactのまま(parse_literalのシグネチャ・代表例)"
+else
+  fail "drep10a追加後の既定確認: $DREP10A_DEFAULT_CHECK"
+fi
+
+# --- 43. l4-s4l親の2例をdrep10aで再確認(x=cになりE-result=0) --------------
+DREP10A_EXAMPLE_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+ok = True
+x1 = m.parse_literal("7096509499740639e+4", "exact", "drep10a").exact()
+c1 = m.parse_literal("70965094997406390272", "exact", "drep10a").exact()
+if x1 != c1:
+    ok = False
+x2 = m.parse_literal("-962467.4715e+15#", "exact", "drep10a").exact()
+c2 = m.parse_literal("962467471500000002048", "exact", "drep10a").exact()
+if x2 != -c2:
+    ok = False
+print("PASS" if ok else f"FAIL x1={x1} c1={c1} x2={x2} c2={c2}")
+EOF
+)"
+if [ "$DREP10A_EXAMPLE_CHECK" = "PASS" ]; then
+  pass "l4-s4l親の2例をdrep10aで確認(左右の定数が同じ読み方で一致)"
+else
+  fail "drep10a親の2例: $DREP10A_EXAMPLE_CHECK"
+fi
+
+# --- 44. 故障注入A: 丸めを偶数(DREP10E相当)に壊すとNG ----------------------
+DREP10A_FAULT_EVEN_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+orig = m._round_half_away_mag
+def broken_even(x):
+    n, d = x.numerator, x.denominator
+    q, r = divmod(n, d)
+    twice = 2 * r
+    if twice < d:
+        return q
+    if twice > d:
+        return q + 1
+    return q if (q % 2 == 0) else q + 1
+
+m._round_half_away_mag = broken_even
+try:
+    val = m.parse_literal("7096509499740639e+4", "exact", "drep10a").exact()
+finally:
+    m._round_half_away_mag = orig
+
+print("FAULT_DETECTED" if val != 70965094997406391296 else "NOT_DETECTED")
+EOF
+)"
+if [ "$DREP10A_FAULT_EVEN_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(丸めを偶数=DREP10E相当に壊す)でNGを検出"
+else
+  fail "故障注入(drep10a丸めを偶数に): $DREP10A_FAULT_EVEN_CHECK"
+fi
+
+# --- 45. 故障注入B: 真の÷10を丸め済み0.1の乗算(DREP01相当)に壊すとNG ------
+DREP10A_FAULT_MUL01_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+from fractions import Fraction
+
+lit = "1.23456789e-16"  # 9桁なので倍精度(drep10aの対象)
+proper = m.parse_literal(lit, "exact", "drep10a").exact()
+
+orig = m._drep10a_double_magnitude
+
+def broken_mul01(digits, net_exp):
+    s01_exp, s01_mant = m._encode_double_away(Fraction(1, 10))
+    s01 = m._decode_double_frac(s01_exp, s01_mant)
+    exp_byte, mant = 0, 0
+    val = Fraction(0)
+    for ch in digits or "0":
+        val = val * 10
+        exp_byte, mant = m._encode_double_away(val)
+        val = m._decode_double_frac(exp_byte, mant)
+        val = val + int(ch)
+        exp_byte, mant = m._encode_double_away(val)
+        val = m._decode_double_frac(exp_byte, mant)
+    if net_exp > 0:
+        for _ in range(net_exp):
+            val = val * 10
+            exp_byte, mant = m._encode_double_away(val)
+            val = m._decode_double_frac(exp_byte, mant)
+    elif net_exp < 0:
+        for _ in range(-net_exp):
+            val = val * s01  # 真の÷10の代わりに丸め済み0.1の乗算(DREP01相当)
+            exp_byte, mant = m._encode_double_away(val)
+            val = m._decode_double_frac(exp_byte, mant)
+    return exp_byte, mant
+
+m._drep10a_double_magnitude = broken_mul01
+try:
+    broken = m.parse_literal(lit, "exact", "drep10a").exact()
+finally:
+    m._drep10a_double_magnitude = orig
+
+print("FAULT_DETECTED" if broken != proper else "NOT_DETECTED")
+EOF
+)"
+if [ "$DREP10A_FAULT_MUL01_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(真の÷10を丸め済み0.1の乗算=DREP01相当に壊す)でNGを検出(1.23456789e-16)"
+else
+  fail "故障注入(drep10aの÷10をDREP01相当に): $DREP10A_FAULT_MUL01_CHECK"
+fi
+
+# --- 46. 予測器のdrep10aとtools/l4_dmodels.pyのdrep10a_v2が乱数1万件で一致 -
+DREP10A_CROSSCHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys, random
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+from tools import l4_dmodels as dm
+
+def rand_lit(rng):
+    ndig = rng.randint(8, 16)
+    digs = [rng.choice("0123456789") for _ in range(ndig)]
+    if digs[0] == "0":
+        digs[0] = rng.choice("123456789")
+    dp = rng.randint(0, ndig)
+    if dp == 0:
+        s = "." + "".join(digs)
+    elif dp == ndig:
+        s = "".join(digs) + "."
+    else:
+        s = "".join(digs[:dp]) + "." + "".join(digs[dp:])
+    sign = rng.choice(["", "-"])
+    e = rng.randint(-20, 20)
+    return f"{sign}{s}e{e:+d}"
+
+rng = random.Random(42)
+tried = 0
+mismatches = 0
+for _ in range(10000):
+    t = rand_lit(rng)
+    tried += 1
+    try:
+        onum = m.parse_literal(t, "exact", "drep10a")
+        o_res = ("ok", (onum.sign, onum.exp, onum.mant))
+    except m.GwError as e:
+        o_res = ("err", e.kind)
+    try:
+        dnum = dm.parse_double_literal(t, "drep10a_v2")
+        d_res = ("ok", (dnum.sign, dnum.exp, dnum.mant))
+    except Exception:
+        d_res = ("err", "Overflow")
+    if o_res != d_res:
+        mismatches += 1
+
+print(f"PASS tried={tried} mismatches={mismatches}" if mismatches == 0 else f"FAIL tried={tried} mismatches={mismatches}")
+EOF
+)"
+if [ "${DREP10A_CROSSCHECK%% *}" = "PASS" ]; then
+  pass "予測器のdfin_algo=drep10aとtools/l4_dmodels.pyのdrep10a_v2が乱数1万件でバイト一致($DREP10A_CROSSCHECK)"
+else
+  fail "drep10aの独立実装との突合せ: $DREP10A_CROSSCHECK"
+fi
+
+# --- 47. 1e-38付近(指数byte1-19相当)の穴が塞がり、FOUTの予測が出せること --
+POW10_HOLE_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+ok = True
+lits = [
+    "1.234567890123456e-38",
+    "9.999999999999999e-39",
+    "1.234567890123456d-38",
+]
+for t in lits:
+    try:
+        num = m.parse_literal(t, "exact", "exact")
+        line, _approx = m.print_one(num, 16, "rstar", 0, 0, 0, "gw")
+        if not line.strip():
+            ok = False
+    except OverflowError:
+        ok = False
+    except m.GwError:
+        ok = False
+
+# 直接、以前overflowしていたshift(38超)を試す
+from fractions import Fraction
+try:
+    r = m._scale_by_pow10_gw(Fraction(1, 10**38), 53)
+    if r <= 0:
+        ok = False
+except OverflowError:
+    ok = False
+
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$POW10_HOLE_CHECK" = "PASS" ]; then
+  pass "1e-38付近(指数byte1-19相当、shift>38)でFOUTの予測がOverflowせず出せる"
+else
+  fail "1e-38付近の穴: $POW10_HOLE_CHECK"
+fi
+
+# --- 48. --n88 追加後も既定(n88=False)は32腕全件で変わらない --------------
+N88_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+import tools.gen_l4_s4a_predictions_v2 as g1
+
+def body_of(typed):
+    b = typed
+    if b.lower().startswith("print "):
+        b = b[6:]
+    return b
+
+changed = []
+for aid, _g, typed in g1.ARMS:
+    b = body_of(typed)
+    before = m.predict(b, 7, "sym", 0, 0, 0, "exact")
+    after = m.predict(b, 7, "sym", 0, 0, 0, "exact", None, "exact", False)
+    if before != after:
+        changed.append(aid)
+print("PASS(0件)" if not changed else f"FAIL changed={changed}")
+EOF
+)"
+if [ "$N88_DEFAULT_CHECK" = "PASS(0件)" ]; then
+  pass "--n88(n88引数)追加後も既定(False)は32腕全件で変わらない"
+else
+  fail "n88追加後の既定確認: $N88_DEFAULT_CHECK"
+fi
+
+# --- 49. --n88 が単精度6桁・LEN7、倍精度16桁・rstar、fin=rep01・dfin=drep10a
+#         ・fout-algo=gwを一括指定することを確認 --------------------------
+N88_BUNDLE_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+ok = True
+
+# 単精度: n88=Trueの結果が、single_digits=6/len/7/fin=rep01/fout=gwを
+# 明示指定した場合と一致する
+a = m.predict("5.1e+10-51000000512", n88=True)
+b = m.predict(
+    "5.1e+10-51000000512", 6, "len", 7, 0, 0, "gw", "rep01", "exact"
+)
+if a != b:
+    ok = False
+
+# 倍精度: n88=Trueの結果が、16桁/rstar/dfin=drep10a/fout=gwを明示指定した
+# 場合と一致する
+c = m.predict("7096509499740639e+4-70965094997406390272", n88=True)
+d = m.predict(
+    "7096509499740639e+4-70965094997406390272",
+    16, "rstar", 0, 0, 0, "gw", "exact", "drep10a",
+)
+if c != d:
+    ok = False
+
+print("PASS" if ok else f"FAIL a={a} b={b} c={c} d={d}")
+EOF
+)"
+if [ "$N88_BUNDLE_CHECK" = "PASS" ]; then
+  pass "--n88が単精度6桁/len7/fin=rep01と倍精度16桁/rstar/dfin=drep10a(+fout=gw)を一括指定することを確認"
+else
+  fail "n88一括指定の確認: $N88_BUNDLE_CHECK"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"
