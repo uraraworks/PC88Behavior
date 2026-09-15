@@ -5,7 +5,8 @@
 # 無いため）。
 #
 # 検査:
-#   1. 字句解析: L4_TOKEN_TABLE(tokens.asm、189語)の全項目が、項目自身の
+#   1. 字句解析: L4_TOKEN_TABLE(tokens.asm、190語。資料1「予約語」由来のv2、
+#      docs/notes/l4-keywords-extraction.md)の全項目が、項目自身の
 #      語のバイト列を入力として与えたとき正しいトークンに変換される
 #      （LEX_SELFTEST。--enable-l4-selftestを立てたビルドで起動時に走らせ、
 #      結果(SELFTEST_TOTAL/PASS/FAILIX)をmem-write-logで読む。画面へは

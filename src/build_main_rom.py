@@ -75,8 +75,8 @@ L4_ZONE_WIDTH_FAULT_NEW = "ZONE_WIDTH EQU 10"
 # 同じ壊れた表から読むため自己参照的に一致してしまい検出できないと判明
 # した。語長を壊すと、自己一致に使う語の切り出し長・トークン位置の計算
 # 自体がずれるため、LEX_MATCH_WORDの独立な探索結果と食い違い、検出できる)。
-L4_TOKEN_FAULT_OLD = '    db 3, "ABS", 0x84'
-L4_TOKEN_FAULT_NEW = '    db 2, "ABS", 0x84'
+L4_TOKEN_FAULT_OLD = '    db 3, "ABS", 0x88'
+L4_TOKEN_FAULT_NEW = '    db 2, "ABS", 0x88'
 
 # 挿入点の目印。render_asm() の出力に必ず1回だけ現れる
 # （make_ipl_rom.build_n88() の「IM2ベクタページをIへ積む」直前）。

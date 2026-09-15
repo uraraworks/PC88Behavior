@@ -3,20 +3,19 @@
 make_print_dispatch.py — src/l4_basic/tokens.tsv から PRINT の語形と
 トークン番号を機械抽出し、src/l4_basic/print_dispatch.asm を生成する。
 
-## 背景（なぜ分割抽出が要るか）
+## 背景（'/'分割の回避策を外した経緯）
 
-tokens.tsv の word 列は、語の一覧の出所である keywords.tsv がマニュアル
-目次から抽出したそのままの見出し文字列であり（docs/notes/l4-keywords-extraction.md）、
-PRINT は単独では載っておらず、"PRINT/LPRINT"（PRINT文とLPRINT文をまとめた
-1つの目次見出し）という1行になっている。実際に打鍵される "PRINT" という
-5文字だけを取り出すため、word列を '/' で分割し、分割後の候補の中から
-大文字ASCIIで完全一致するものを探す。
+旧版（段階3b、6897071ほか）は、当時の keywords.tsv（v1、マニュアル目次からの
+機械抽出）で PRINT が単独では載っておらず "PRINT/LPRINT"（PRINT文と
+LPRINT文をまとめた1つの目次見出し）という1行になっていたため、word列を
+'/' で分割してから "PRINT" に一致する候補を探す回避策が要った。
 
-この分割規則（'/'を区切りとして複数語の同義見出しを分ける）はこのスクリプト
-固有の実装判断であり、tokens.tsv/keywords.tsv の生成規則（既存の
-make_token_table.py・l4-token-design.md）そのものではない。理由は
-docs/notes/l4-design.md に書けないこの版の実装ノート
-（この生成物のヘッダコメントと報告に残す）。
+v1は目次の見出しであって命令語一覧ではなかったこと自体が欠陥であり
+（docs/notes/l4-keywords-extraction.md「v2 — 資料1「予約語」への切り替え」）、
+語の一覧を資料1（資-1、PDF 377頁）の書き起こしに置き換えたv2の
+keywords.tsv/tokens.tsv では、PRINT は元から単独の1語（LPRINTとは別行）
+として載っている。したがって '/' 分割は不要になり、このスクリプトは
+tokens.tsv の word 列から "PRINT" に完全一致する行を単純に探すだけになった。
 
 このスクリプトは tokens.tsv 以外を読まない。tokens.tsv・tokens.asm・
 keywords.tsv・make_token_table.py 自体は変更しない（新規ファイルの追加のみ）。
@@ -61,22 +60,20 @@ def read_tokens(tokens_tsv_path: str) -> list[tuple[str, list[int]]]:
 
 
 def find_print_token(rows: list[tuple[str, list[int]]]) -> list[int]:
-    """word列を'/'で分割し、候補の中に完全一致するTARGET_WORDを含む行を探す。
+    """word列に TARGET_WORD と完全一致する行を探す（v2、単独語として載っている）。
 
     複数行がヒットしたら曖昧（tokens.tsvが変わった証拠）としてエラーにする。
     """
-    hits: list[tuple[str, list[int]]] = []
-    for word, token_bytes in rows:
-        parts = word.split("/")
-        if TARGET_WORD in parts:
-            hits.append((word, token_bytes))
+    hits: list[tuple[str, list[int]]] = [
+        (word, token_bytes) for word, token_bytes in rows if word == TARGET_WORD
+    ]
     if len(hits) == 0:
         raise SystemExit(
-            f"tokens.tsvに '{TARGET_WORD}' を含む語形の行が無い（tokens.tsvが変わった？）"
+            f"tokens.tsvに '{TARGET_WORD}' に完全一致する行が無い（tokens.tsvが変わった？）"
         )
     if len(hits) > 1:
         raise SystemExit(
-            f"tokens.tsvに '{TARGET_WORD}' を含む語形の行が複数ある（曖昧）: {hits}"
+            f"tokens.tsvに '{TARGET_WORD}' に完全一致する行が複数ある（曖昧）: {hits}"
         )
     return hits[0][1]
 
@@ -86,8 +83,8 @@ def write_asm(token_bytes: list[int], path: str) -> None:
     lines.append("; print_dispatch.asm — src/l4_basic/make_print_dispatch.py が生成")
     lines.append("; 手で編集しない（再実行で再生成する）。")
     lines.append("; 入力: src/l4_basic/tokens.tsv。PRINTの語形とトークン番号は")
-    lines.append(f'; word列を"/"で分割した候補から "{TARGET_WORD}" に完全一致する行を')
-    lines.append("; 機械的に探して取り出した（make_print_dispatch.py 参照）。")
+    lines.append(f'; word列から "{TARGET_WORD}" に完全一致する行を機械的に')
+    lines.append("; 探して取り出した（make_print_dispatch.py 参照）。")
     lines.append(";")
     lines.append("; 用途: 直接モードの行頭キーワード照合（interp.asm TRY_MATCH_PRINT）。")
     lines.append("; '?'の代替表記は l4-token-design.md の追記により字句解析側で")
