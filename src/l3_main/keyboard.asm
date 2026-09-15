@@ -267,12 +267,21 @@ _lp_skip_store:
 ; 改行を1つ足す(通常完了・構文の誤りのいずれも既に桁0のため実際には
 ; 効かない。行末の区切りで改行が抑止されたまま行が終わる未測定の場合に
 ; だけ効く安全策)。
+;
+; M7段階5a追記: BASIC_RUN_LINE の代わりに program.asm の
+; BASIC_HANDLE_LINE を呼ぶ。行番号つきの行（プログラムモード）は
+; l4-program.md 第1節のとおり無出力（Ok も出ない）なので、
+; BASIC_HANDLE_LINE が A=1 を返したときはOk表示を丸ごと飛ばす。
 ; ---------------------------------------------------------------------
 LINE_FINISH:
     CALL NEWLINE
-    CALL BASIC_RUN_LINE
+    CALL BASIC_HANDLE_LINE
+    PUSH AF
     XOR A
     LD (VAR_LINELEN),A
+    POP AF
+    OR A
+    JR NZ,_lf_done            ; 行番号つきの行: 無出力のまま終わる(第1節)
     LD A,(VAR_COL)
     OR A
     JR Z,_lf_ok
@@ -281,6 +290,7 @@ _lf_ok:
     LD HL,OK_TXT
     CALL PRINT_STR
     CALL NEWLINE
+_lf_done:
     RET
 
 ; ---------------------------------------------------------------------

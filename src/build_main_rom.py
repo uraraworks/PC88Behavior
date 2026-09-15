@@ -60,6 +60,8 @@ L4_ERRORS_ASM = REPO / "src" / "l4_basic" / "errors.asm"
 L4_LEXER_ASM = REPO / "src" / "l4_basic" / "lexer.asm"
 L4_MBF_ASM = REPO / "src" / "l4_basic" / "mbf_single.asm"
 L4_INTERP_ASM = REPO / "src" / "l4_basic" / "interp.asm"
+# M7段階5a: プログラムモード(行の入力・保存・LIST・NEW)。program.asm
+L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 
 # 故障注入（tools/l4_basic_selftest.sh の陰性対照用）。
 # 数値の前置空白(正/0のとき)を出す2行(PUSH HLとLD A,' ')を削り、
@@ -304,6 +306,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     interp_path = work / "l4_interp_gen.asm"
     interp_path.write_text(interp_text, encoding="utf-8")
 
+    program_path = work / "l4_program_gen.asm"
+    program_path.write_text(L4_PROGRAM_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
         f"EXTRA_LINES EQU {extra_lines}\n"
@@ -317,6 +322,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{lexer_path}"\n'
         + f'\nINCLUDE "{mbf_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
+        + f'\nINCLUDE "{program_path}"\n'
     )
     return combined
 

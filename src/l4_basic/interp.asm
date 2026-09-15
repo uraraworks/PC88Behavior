@@ -123,16 +123,21 @@ LIT_HASSUFFIX EQU 0E968h
 ZONE_WIDTH EQU 14
 
 ; ---------------------------------------------------------------------
-; BASIC_RUN_LINE — keyboard.asm の LINE_FINISH から、RETURN確定直後
-;   （改行済み、桁0の出力行の先頭）に呼ばれる。LINE_BUF/VAR_LINELENを
-;   読み、直接モードの行として実行する。構文の誤りがあれば、この中で
-;   メッセージを1行出して改行する。範囲外・0除算(ERROR_IS_RUNTIME=1)
-;   のときはメッセージの前に空行を1つ追加し、出力が2行になるように
-;   する（l4-basic.md 第5.6節、文言・空行の中身自体は仕様書に無い
-;   判断——ヘッダコメント参照）。「Ok」自体はここでは出さない
-;   （呼び出し元LINE_FINISHの役目のまま）。
+; BASIC_RUN_DIRECT — 直接モードの行としての実行本体（旧BASIC_RUN_LINE。
+;   M7段階5aで program.asm の BASIC_HANDLE_LINE が新しい入口になり、
+;   行番号つきの行（プログラムモード、program.asm PROGRAM_STORE_LINE）
+;   と直接モードの行（本ルーチン、PRINT/NEW/LISTを含む）を振り分ける
+;   ようになった。keyboard.asm の LINE_FINISH は BASIC_HANDLE_LINE を
+;   呼ぶ（program.asm 参照）。
+;
+;   LINE_BUF/VAR_LINELENを読み、直接モードの行として実行する。構文の
+;   誤りがあれば、この中でメッセージを1行出して改行する。範囲外・
+;   0除算(ERROR_IS_RUNTIME=1)のときはメッセージの前に空行を1つ追加し、
+;   出力が2行になるようにする（l4-basic.md 第5.6節、文言・空行の中身
+;   自体は仕様書に無い判断——ヘッダコメント参照）。「Ok」自体はここでは
+;   出さない（呼び出し元LINE_FINISHの役目のまま）。
 ; ---------------------------------------------------------------------
-BASIC_RUN_LINE:
+BASIC_RUN_DIRECT:
     XOR A
     LD (ERROR_FLAG),A
     LD (ERROR_IS_RUNTIME),A
@@ -204,7 +209,19 @@ _l4dl_loop:
     LD (ERROR_FLAG),A
     RET
 _l4dl_have_stmt:
+    LD A,(STMT_KIND)
+    CP 1
+    JR Z,_l4dl_call_list
+    CP 2
+    JR Z,_l4dl_call_new
     CALL PRINT_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_list:
+    CALL LIST_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_new:
+    CALL NEW_STMT
+_l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
@@ -224,9 +241,15 @@ _l4dl_bad_trailing:
 ; ---------------------------------------------------------------------
 ; MATCH_STMT_KEYWORD — 現在位置の文キーワードを見る。
 ;   '?' は PRINT の代替表記として扱う(l4-token-design.md 追記)。
+;   M7段階5a追記: LIST・NEW（program.asm、l4-program.md 第0節「new・list
+;   はいずれも行番号を伴わない直接モードのコマンドとして扱われる」）も
+;   ここで認識する。STMT_KIND(program.asm)に一致した文の種類を残す
+;   (0=PRINT 1=LIST 2=NEW)。DIRECT_LINEはこれを見て呼び分ける。
 ;   出力: A=1(認識してCUR_PTRを消費した)/0(未認識、CUR_PTR不変)
 ; ---------------------------------------------------------------------
 MATCH_STMT_KEYWORD:
+    XOR A
+    LD (STMT_KIND),A
     CALL PEEK_CHAR
     CP '?'
     JR NZ,_l4msk_try_print
@@ -235,6 +258,127 @@ MATCH_STMT_KEYWORD:
     RET
 _l4msk_try_print:
     CALL TRY_MATCH_PRINT
+    OR A
+    RET NZ
+    CALL TRY_MATCH_LIST
+    OR A
+    JR Z,_l4msk_try_new
+    LD A,1
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_new:
+    CALL TRY_MATCH_NEW
+    OR A
+    RET Z
+    LD A,2
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+
+STMT_LIST_TEXT: DB "LIST"
+STMT_LIST_LEN EQU 4
+STMT_NEW_TEXT: DB "NEW"
+STMT_NEW_LEN EQU 3
+
+; ---------------------------------------------------------------------
+; TRY_MATCH_LIST / TRY_MATCH_NEW — TRY_MATCH_PRINTと全く同じ構造
+;   （固定語形を大文字小文字を区別せず照合し、続く文字が英字でないこと
+;   まで確認する）を"LIST"・"NEW"に対して行う。出力: A=1(一致、CUR_PTR
+;   を消費)/0(不一致、CUR_PTR不変)。
+; ---------------------------------------------------------------------
+TRY_MATCH_LIST:
+    LD HL,(LINE_END)
+    LD DE,(CUR_PTR)
+    OR A
+    SBC HL,DE
+    LD A,L
+    CP STMT_LIST_LEN
+    JR C,_l4tml_fail
+    LD HL,(CUR_PTR)
+    LD DE,STMT_LIST_TEXT
+    LD B,STMT_LIST_LEN
+_l4tml_cmp:
+    LD A,(HL)
+    CALL FOLD_UPPER
+    LD C,A
+    LD A,(DE)
+    CP C
+    JR NZ,_l4tml_fail
+    INC HL
+    INC DE
+    DJNZ _l4tml_cmp
+    LD DE,(LINE_END)
+    PUSH HL
+    OR A
+    SBC HL,DE
+    JR Z,_l4tml_boundary_ok
+    POP HL
+    LD A,(HL)
+    CALL FOLD_UPPER
+    CP 'A'
+    JR C,_l4tml_boundary_ok2
+    CP 'Z'+1
+    JR NC,_l4tml_boundary_ok2
+    JR _l4tml_fail
+_l4tml_boundary_ok:
+    POP HL
+_l4tml_boundary_ok2:
+    LD HL,(CUR_PTR)
+    LD DE,STMT_LIST_LEN
+    ADD HL,DE
+    LD (CUR_PTR),HL
+    LD A,1
+    RET
+_l4tml_fail:
+    XOR A
+    RET
+
+TRY_MATCH_NEW:
+    LD HL,(LINE_END)
+    LD DE,(CUR_PTR)
+    OR A
+    SBC HL,DE
+    LD A,L
+    CP STMT_NEW_LEN
+    JR C,_l4tmn_fail
+    LD HL,(CUR_PTR)
+    LD DE,STMT_NEW_TEXT
+    LD B,STMT_NEW_LEN
+_l4tmn_cmp:
+    LD A,(HL)
+    CALL FOLD_UPPER
+    LD C,A
+    LD A,(DE)
+    CP C
+    JR NZ,_l4tmn_fail
+    INC HL
+    INC DE
+    DJNZ _l4tmn_cmp
+    LD DE,(LINE_END)
+    PUSH HL
+    OR A
+    SBC HL,DE
+    JR Z,_l4tmn_boundary_ok
+    POP HL
+    LD A,(HL)
+    CALL FOLD_UPPER
+    CP 'A'
+    JR C,_l4tmn_boundary_ok2
+    CP 'Z'+1
+    JR NC,_l4tmn_boundary_ok2
+    JR _l4tmn_fail
+_l4tmn_boundary_ok:
+    POP HL
+_l4tmn_boundary_ok2:
+    LD HL,(CUR_PTR)
+    LD DE,STMT_NEW_LEN
+    ADD HL,DE
+    LD (CUR_PTR),HL
+    LD A,1
+    RET
+_l4tmn_fail:
+    XOR A
     RET
 
 ; ---------------------------------------------------------------------

@@ -63,6 +63,8 @@ SCREEN_MAIN:
     LD (VAR_ROWBASE),HL
     CALL CLEAR_SCREEN
     CALL KEY_INIT           ; keyboard.asm — KEY_OLDを初期化（M7段階2b）
+    CALL PROGRAM_INIT       ; l4_basic/program.asm — プログラム領域を
+                             ; 空にする（M7段階5a、未初期化のまま読まない）
 
     LD HL,BANNER_TXT
     CALL PRINT_STR
