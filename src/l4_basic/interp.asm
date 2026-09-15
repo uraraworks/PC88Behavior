@@ -1120,7 +1120,7 @@ FTNF_TABLE:
     DB 3
     DB "ASC"
     DW FTNF_DO_ASC
-    ; M7段階5c-2b: CINT・INT・FIX(第4.15節)。
+    ; M7段階5c-2b: CINT・INT・FIX(第4.15節)・ABS・SGN(第4.16節)。
     DB 4
     DB "CINT"
     DW FTNF_DO_CINT
@@ -1130,6 +1130,12 @@ FTNF_TABLE:
     DB 3
     DB "FIX"
     DW FTNF_DO_FIX
+    DB 3
+    DB "ABS"
+    DW FTNF_DO_ABS
+    DB 3
+    DB "SGN"
+    DW FTNF_DO_SGN
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1264,6 +1270,104 @@ FTNF_DO_INT:
     CALL MBF_SUB
 _int_settle:
     JP VAL_SET_SINGLE_FROM_RES
+
+; ---------------------------------------------------------------------
+; VAL_CUR_SIGN — CUR_TYPE/CUR_DATAが負(かつ非ゼロ)ならA=1、それ以外
+;   (0または正)はA=0。ABS/SGN共通(第4.16節)。整数はCUR_DATA+1(上位
+;   バイト)のbit7、単精度/倍精度はMBF形式の符号ビット(第3.7節の
+;   バイト並び、単精度=CUR_DATA+2 bit7・倍精度=CUR_DATA+6 bit7)。
+;   破壊: AF。
+; ---------------------------------------------------------------------
+VAL_CUR_SIGN:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vcs_double
+    OR A
+    JR NZ,_vcs_single
+    LD A,(CUR_DATA+1)
+    JR _vcs_checkbit
+_vcs_single:
+    LD A,(CUR_DATA+2)
+    JR _vcs_checkbit
+_vcs_double:
+    LD A,(CUR_DATA+6)
+_vcs_checkbit:
+    AND 080h
+    RET Z
+    LD A,1
+    RET
+
+; ---------------------------------------------------------------------
+; VAL_CUR_IS_ZERO — CUR_TYPE/CUR_DATAが0ならA=1、それ以外はA=0。
+;   整数はCUR_DATA(16bit)がゼロ、単精度/倍精度は指数バイトがゼロ
+;   (MBF_UNPACK_Aと同じ「指数0=値0」規則、単精度=CUR_DATA+3・
+;   倍精度=CUR_DATA+7)。破壊: AF,HL。
+; ---------------------------------------------------------------------
+VAL_CUR_IS_ZERO:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vciz_double
+    OR A
+    JR NZ,_vciz_single
+    LD HL,(CUR_DATA)
+    LD A,H
+    OR L
+    JR Z,_vciz_zero
+    XOR A
+    RET
+_vciz_single:
+    LD A,(CUR_DATA+3)
+    OR A
+    JR Z,_vciz_zero
+    XOR A
+    RET
+_vciz_double:
+    LD A,(CUR_DATA+7)
+    OR A
+    JR Z,_vciz_zero
+    XOR A
+    RET
+_vciz_zero:
+    LD A,1
+    RET
+
+; ---------------------------------------------------------------------
+; FTNF_DO_ABS — 第4.16節E15。負ならVAL_NEGで符号を反転するだけ
+;   (MBF単精度/倍精度はsign-magnitude形式なので符号ビットの反転=絶対値化、
+;   整数は2の補数、いずれもVAL_NEGが型ごとに正しく行う)。
+; ---------------------------------------------------------------------
+FTNF_DO_ABS:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_CUR_SIGN
+    OR A
+    RET Z
+    JP VAL_NEG
+
+; ---------------------------------------------------------------------
+; FTNF_DO_SGN — 第4.16節E15。0ならCUR=0(整数)、負なら-1、それ以外は1。
+; ---------------------------------------------------------------------
+FTNF_DO_SGN:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_CUR_IS_ZERO
+    OR A
+    JR Z,_sgn_notzero
+    LD HL,0
+    JP VAL_SET_INT
+_sgn_notzero:
+    CALL VAL_CUR_SIGN
+    OR A
+    JR Z,_sgn_pos
+    LD HL,0FFFFh
+    JP VAL_SET_INT
+_sgn_pos:
+    LD HL,1
+    JP VAL_SET_INT
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し
