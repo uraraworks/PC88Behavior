@@ -1056,7 +1056,13 @@ _dneg_iszero:
 MBF_DCMP:
     CALL DBL_UNPACK_A
     CALL DBL_UNPACK_B
+    JP DBL_CMP_UNPACKED
 
+; DBL_CMP_UNPACKED — MBF_DCMPの本体。DA_*/DB_*が既に展開済み(呼び出し側
+; がDBL_UNPACK_A/Bを済ませた、またはDBL_TABLE_LOOKUP等で直接埋めた)前提
+; で比較する。MBF_DOUT_CMPへ結果を書く(M7段階4b-2、DFOUTの桁合わせ
+; ブラケット探索〔10^15/10^16との比較〕専用に追加)。
+DBL_CMP_UNPACKED:
     LD A,(DA_EXP)
     OR A
     JP NZ,_dcmp_a_nonzero
@@ -1181,6 +1187,24 @@ _dcmp_lt:
 ; M7段階4b-2追記: MBF_DMUL_AWAY（半分は絶対値の大きい側。倍精度FIN
 ; DREP10Aの×10適用で使う）は同じ本体へWK_DROUND_MODE=1のまま合流する
 ; (MBF_DADD_AWAYと同じ設計)。
+; DBL_DMUL_UNPACKED/_AWAY — MBF_DMUL/MBF_DMUL_AWAYと同じ本体だが、
+; DA_*/DB_*が既に展開済み(DBL_UNPACK_A/BやDBL_TABLE_LOOKUP等で直接
+; 埋めた)前提で計算する。M7段階4b-2追記: MBF_DFOUTの桁合わせ(元の値に
+; 10^kを掛ける)専用に追加した——当初はmbf_single.asm DBL_MUL(FOUT/FIN
+; 専用、DAが単精度/整数からの昇格由来で有効32bitしかない前提の制限版)を
+; 誤って流用しており、DFOUTの入力(一般の56bit倍精度)の下位24bitが
+; 無言で無視されて桁が化ける不一致(乱数照合、1/3等で発覚)を起こした。
+; 一般の56bit×56bit乗算が要るのでMBF_DMULの本体(_dmul_core_start)へ
+; 合流させ、外部形式のパック/アンパックの往復だけを省く。
+DBL_DMUL_UNPACKED:
+    XOR A
+    LD (WK_DROUND_MODE),A
+    JP _dmul_core_start
+DBL_DMUL_UNPACKED_AWAY:
+    LD A,1
+    LD (WK_DROUND_MODE),A
+    JP _dmul_core_start
+
 MBF_DMUL_AWAY:
     LD A,1
     LD (WK_DROUND_MODE),A
@@ -1191,6 +1215,7 @@ MBF_DMUL:
 _dmul_entry_body:
     CALL DBL_UNPACK_A
     CALL DBL_UNPACK_B
+_dmul_core_start:
     XOR A
     LD (MBF_STATUS),A
     LD A,(DA_EXP)
@@ -2011,4 +2036,803 @@ _dfin_fallback_single:
     CALL SINGLE_TO_DOUBLE
     JP DBL_PACK_RES
 _dfin_fb_ret:
+    RET
+
+; =======================================================================
+; MBF_DFOUT — 倍精度MBF(MBF_DOPA)を10進の数字文字列(DFOUT_BUF、DFOUT_LEN)
+; へ変換する。符号の桁・後置空白は呼び出し側(PRINT)の仕事(単精度
+; MBF_FOUTと同じ境界)。
+;
+; docs/spec/l4-basic.md 第3.7版5.3〜5.5節の規則:
+;   有効16桁に丸め(半分は絶対値の大きい側)、末尾0を除去。整数部の桁数
+;   (E)が16以上ならE±nn指数表記(D)、16未満なら固定表記。|v|<1側は
+;   RSTAR則(k=-E: k<=1なら常に固定、そうでなければk+s<=16かつk<=14で
+;   固定)。
+;
+; 設計はmbf_single.asm MBF_FOUTの倍精度版（$FOTNV/MDPTEN・$SIGD/$FOTCVの
+; 考え方は同じ、桁数・しきい値だけ16桁用に広げた）。単精度は「単精度の
+; まま探索してから倍精度を1回だけ経由」だったが、倍精度は最初から
+; 倍精度なので探索そのものをDA_*上で行い(DBL_MUL/DBL_DIVで10を掛け/
+; 割りながら10^15/10^16と比較)、SCALECNTが決まってから元の値
+; (DFOUT_ORIGVAL)へDBL_TABLE(10^0-10^38、38ずつ分割)を1回だけ適用する
+; 点は単精度と同じ設計を踏襲した。
+; =======================================================================
+DFOUT_SIGN      EQU 0xC260
+DFOUT_E         EQU 0xC261   ; 符号つき1バイト
+DFOUT_SCALECNT  EQU 0xC262   ; 符号つき1バイト
+DFOUT_ORIGVAL   EQU 0xC263   ; 8バイト(EXP+M6..M0。符号は別途DFOUT_SIGN)
+DFOUT_INT       EQU 0xC26B   ; 7バイト(56bit整数、LSBから)
+WK_DFOUT_REM10  EQU 0xC272
+DFOUT_DIGITS    EQU 0xC273   ; 16バイト
+DFOUT_NSIG      EQU 0xC283
+DFOUT_BUF       EQU 0xC285   ; 24バイト(指数表記の最大長に余裕を見た)
+DFOUT_LEN       EQU 0xC29D
+WK_DFOUT_LOOP   EQU 0xC29E
+DFOUT_DIGIDX    EQU 0xC29F
+DFOUT_R_START   EQU 0xC2A0
+DFOUT_R_COUNT   EQU 0xC2A1
+DFOUT_R_CHAR    EQU 0xC2A2
+WK_DFOUT_K      EQU 0xC2A3
+WK_DFOUT_SHIFTCNT EQU 0xC2A4
+WK_DFOUT_GUARD  EQU 0xC2A5
+WK_DFOUT_M10_T  EQU 0xC2A6   ; 7バイト(DFOUT_INT_MUL10の作業領域)
+
+MBF_DFOUT:
+    XOR A
+    LD (MBF_STATUS),A
+    LD (DFOUT_LEN),A
+    CALL DBL_UNPACK_A
+    LD A,(DA_EXP)
+    OR A
+    JP NZ,_dfout_nonzero
+    LD A,'0'
+    CALL DFOUT_APPEND_CHAR
+    RET
+_dfout_nonzero:
+    LD A,(DA_SIGN)
+    LD (DFOUT_SIGN),A
+    XOR A
+    LD (DA_SIGN),A
+    LD (DFOUT_SCALECNT),A
+    ; 元の値(符号を落とした絶対値)を退避
+    LD A,(DA_EXP)
+    LD (DFOUT_ORIGVAL),A
+    LD A,(DA_M6)
+    LD (DFOUT_ORIGVAL+1),A
+    LD A,(DA_M5)
+    LD (DFOUT_ORIGVAL+2),A
+    LD A,(DA_M4)
+    LD (DFOUT_ORIGVAL+3),A
+    LD A,(DA_M3)
+    LD (DFOUT_ORIGVAL+4),A
+    LD A,(DA_M2)
+    LD (DFOUT_ORIGVAL+5),A
+    LD A,(DA_M1)
+    LD (DFOUT_ORIGVAL+6),A
+    LD A,(DA_M0)
+    LD (DFOUT_ORIGVAL+7),A
+
+_dfout_scale_up:
+    LD A,15
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_CMP_UNPACKED
+    LD A,(MBF_DOUT_CMP)
+    CP 0xFF
+    JP NZ,_dfout_scale_up_done
+    LD A,1
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_DMUL_UNPACKED
+    LD A,(DFOUT_SCALECNT)
+    INC A
+    LD (DFOUT_SCALECNT),A
+    JP _dfout_scale_up
+_dfout_scale_up_done:
+
+_dfout_scale_down:
+    LD A,16
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_CMP_UNPACKED
+    LD A,(MBF_DOUT_CMP)
+    CP 0xFF
+    JP Z,_dfout_scale_down_done
+    LD A,1
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_DIV
+    LD A,(DFOUT_SCALECNT)
+    DEC A
+    LD (DFOUT_SCALECNT),A
+    JP _dfout_scale_down
+_dfout_scale_down_done:
+
+    ; e = 16 - SCALECNT
+    LD A,16
+    LD B,A
+    LD A,(DFOUT_SCALECNT)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (DFOUT_E),A
+
+    ; SCALECNTが決まったので、実際の桁合わせは元の値(DFOUT_ORIGVAL)を
+    ; DA_*へ戻してから、DBL_TABLE(10^0-10^38)を38ずつに分割して
+    ; DBL_MUL/DBL_DIVで適用する(mbf_single.asm MBF_FOUTのFOUT_DREMAIN/
+    ; FOUT_DSCALE_NEG/WK_DFOUT_APPLYをそのまま再利用、5373c78の分割)。
+    XOR A
+    LD (DA_SIGN),A
+    LD A,(DFOUT_ORIGVAL)
+    LD (DA_EXP),A
+    LD A,(DFOUT_ORIGVAL+1)
+    LD (DA_M6),A
+    LD A,(DFOUT_ORIGVAL+2)
+    LD (DA_M5),A
+    LD A,(DFOUT_ORIGVAL+3)
+    LD (DA_M4),A
+    LD A,(DFOUT_ORIGVAL+4)
+    LD (DA_M3),A
+    LD A,(DFOUT_ORIGVAL+5)
+    LD (DA_M2),A
+    LD A,(DFOUT_ORIGVAL+6)
+    LD (DA_M1),A
+    LD A,(DFOUT_ORIGVAL+7)
+    LD (DA_M0),A
+
+    LD A,(DFOUT_SCALECNT)
+    OR A
+    JP Z,_dfout_dscale_done
+    BIT 7,A
+    JP Z,_dfout_dscale_pos
+    NEG
+    LD (FOUT_DREMAIN),A
+    LD A,1
+    LD (FOUT_DSCALE_NEG),A
+    JP _dfout_dscale_loop
+_dfout_dscale_pos:
+    LD (FOUT_DREMAIN),A
+    XOR A
+    LD (FOUT_DSCALE_NEG),A
+_dfout_dscale_loop:
+    LD A,(FOUT_DREMAIN)
+    OR A
+    JP Z,_dfout_dscale_done
+    CP 39
+    JP C,_dfout_dscale_apply
+    LD A,38
+_dfout_dscale_apply:
+    LD (WK_DFOUT_APPLY),A
+    CALL DBL_TABLE_LOOKUP
+    LD A,(FOUT_DSCALE_NEG)
+    OR A
+    JP NZ,_dfout_dscale_div
+    CALL DBL_DMUL_UNPACKED
+    JP _dfout_dscale_applied
+_dfout_dscale_div:
+    CALL DBL_DIV
+_dfout_dscale_applied:
+    LD A,(FOUT_DREMAIN)
+    LD B,A
+    LD A,(WK_DFOUT_APPLY)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (FOUT_DREMAIN),A
+    JP _dfout_dscale_loop
+_dfout_dscale_done:
+
+    ; 整数部の切り出し($SIGD/$FOTCV相当、「0.5を足して切り捨て」=
+    ; シフトで最後に落ちる1ビットだけで丸めが決まる。単精度
+    ; MBF_FOUTのヘッダコメント参照)。shift = 184 - DA_EXP。
+    LD A,184
+    LD B,A
+    LD A,(DA_EXP)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (WK_DFOUT_SHIFTCNT),A
+    XOR A
+    LD (WK_DFOUT_GUARD),A
+_dfout_dshift_loop:
+    LD A,(WK_DFOUT_SHIFTCNT)
+    OR A
+    JP Z,_dfout_dshift_done
+    XOR A
+    LD A,(DA_M6)
+    SRL A
+    LD (DA_M6),A
+    LD A,(DA_M5)
+    RRA
+    LD (DA_M5),A
+    LD A,(DA_M4)
+    RRA
+    LD (DA_M4),A
+    LD A,(DA_M3)
+    RRA
+    LD (DA_M3),A
+    LD A,(DA_M2)
+    RRA
+    LD (DA_M2),A
+    LD A,(DA_M1)
+    RRA
+    LD (DA_M1),A
+    LD A,(DA_M0)
+    RRA
+    LD (DA_M0),A
+    JP NC,_dfout_dshift_noguard
+    LD A,1
+    LD (WK_DFOUT_GUARD),A
+    JP _dfout_dshift_cont
+_dfout_dshift_noguard:
+    XOR A
+    LD (WK_DFOUT_GUARD),A
+_dfout_dshift_cont:
+    LD A,(WK_DFOUT_SHIFTCNT)
+    DEC A
+    LD (WK_DFOUT_SHIFTCNT),A
+    JP _dfout_dshift_loop
+_dfout_dshift_done:
+    ; DA_M6..M0(56bit、shift後は整数部)をDFOUT_INT(7byte)へコピー。
+    LD A,(DA_M6)
+    LD (DFOUT_INT+6),A
+    LD A,(DA_M5)
+    LD (DFOUT_INT+5),A
+    LD A,(DA_M4)
+    LD (DFOUT_INT+4),A
+    LD A,(DA_M3)
+    LD (DFOUT_INT+3),A
+    LD A,(DA_M2)
+    LD (DFOUT_INT+2),A
+    LD A,(DA_M1)
+    LD (DFOUT_INT+1),A
+    LD A,(DA_M0)
+    LD (DFOUT_INT),A
+    LD A,(WK_DFOUT_GUARD)
+    OR A
+    JP Z,_dfout_round_done
+    LD A,(DFOUT_INT)
+    INC A
+    LD (DFOUT_INT),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+1)
+    INC A
+    LD (DFOUT_INT+1),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+2)
+    INC A
+    LD (DFOUT_INT+2),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+3)
+    INC A
+    LD (DFOUT_INT+3),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+4)
+    INC A
+    LD (DFOUT_INT+4),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+5)
+    INC A
+    LD (DFOUT_INT+5),A
+    JP NZ,_dfout_round_done
+    LD A,(DFOUT_INT+6)
+    INC A
+    LD (DFOUT_INT+6),A
+_dfout_round_done:
+
+    ; 桁あふれ判定: DFOUT_INT >= 10^16 なら10で割ってe+=1
+    CALL DFOUT_INT_GE_1E16
+    LD A,(WK_DFOUT_K)
+    OR A
+    JP Z,_dfout_no_overflow
+    CALL DFOUT_INT_DIVMOD10
+    LD A,(DFOUT_E)
+    INC A
+    LD (DFOUT_E),A
+_dfout_no_overflow:
+
+    ; 桁下限割れの防御的補正(単精度と同じ$FOTNV FNV20相当)。
+    ; DFOUT_INT<10^15かつ非0ならもう1桁掛け直す。
+    CALL DFOUT_INT_LT_1E15
+    LD A,(WK_DFOUT_K)
+    OR A
+    JP Z,_dfout_no_underflow
+    LD A,(DFOUT_INT)
+    LD B,A
+    LD A,(DFOUT_INT+1)
+    OR B
+    LD B,A
+    LD A,(DFOUT_INT+2)
+    OR B
+    LD B,A
+    LD A,(DFOUT_INT+3)
+    OR B
+    LD B,A
+    LD A,(DFOUT_INT+4)
+    OR B
+    LD B,A
+    LD A,(DFOUT_INT+5)
+    OR B
+    LD B,A
+    LD A,(DFOUT_INT+6)
+    OR B
+    JP Z,_dfout_no_underflow
+    CALL DFOUT_INT_MUL10
+    LD A,(DFOUT_E)
+    DEC A
+    LD (DFOUT_E),A
+_dfout_no_underflow:
+
+    ; 16桁を1の位から取り出す
+    LD A,15
+    LD (DFOUT_DIGIDX),A
+    LD A,16
+    LD (WK_DFOUT_LOOP),A
+_dfout_digit_loop:
+    CALL DFOUT_INT_DIVMOD10
+    LD A,(DFOUT_DIGIDX)
+    LD D,0
+    LD E,A
+    LD HL,DFOUT_DIGITS
+    ADD HL,DE
+    LD A,(WK_DFOUT_REM10)
+    ADD A,'0'
+    LD (HL),A
+    LD A,(DFOUT_DIGIDX)
+    DEC A
+    LD (DFOUT_DIGIDX),A
+    LD A,(WK_DFOUT_LOOP)
+    DEC A
+    LD (WK_DFOUT_LOOP),A
+    JP NZ,_dfout_digit_loop
+
+    ; 末尾0を除去
+    LD A,16
+    LD (DFOUT_NSIG),A
+_dfout_trim_loop:
+    LD A,(DFOUT_NSIG)
+    CP 1
+    JP Z,_dfout_trim_done
+    LD D,0
+    LD E,A
+    DEC E
+    LD HL,DFOUT_DIGITS
+    ADD HL,DE
+    LD A,(HL)
+    CP '0'
+    JP NZ,_dfout_trim_done
+    LD A,(DFOUT_NSIG)
+    DEC A
+    LD (DFOUT_NSIG),A
+    JP _dfout_trim_loop
+_dfout_trim_done:
+
+    ; 固定/指数の判定(docs/spec/l4-basic.md 5.4/5.5節)
+    LD A,(DFOUT_E)
+    OR A
+    JP Z,_dfout_small
+    JP P,_dfout_large
+    JP _dfout_small
+_dfout_large:
+    ; E>0: 整数部の桁数(=DFOUT_E)が16以下なら固定(docs/spec/l4-basic.md
+    ; 5.4節「E<16(整数部が16桁以下)なら固定」——ここでのDFOUT_Eは
+    ; single_precisionのFOUT_Eと同じ「整数部の桁数そのもの」を表す
+    ; (仕様書の科学的記数法のEとは1ずれる。単精度は元コードのCP7
+    ; 〔E<7で固定〕がdigit_count<=6と一致することから検算済み)。
+    ; 2026-09-15追記(バグ修正): 当初CP16〔E<16で固定〕としていたが、
+    ; 16桁ちょうどの整数(G3「1234567890123456#」、E=16)が誤って
+    ; 指数表記になる不一致として乱数照合で発覚。正しくはCP17。
+    CP 17
+    JP C,_dfout_isfixed_yes
+    JP _dfout_isfixed_no
+_dfout_small:
+    ; E<=0: k=-E。k<=1なら常に固定、そうでなければk+s<=16かつk<=14。
+    LD A,(DFOUT_E)
+    NEG
+    LD (WK_DFOUT_K),A
+    CP 2
+    JP C,_dfout_isfixed_yes
+    LD B,A
+    LD A,(DFOUT_NSIG)
+    ADD A,B
+    CP 17
+    JP NC,_dfout_isfixed_no
+    LD A,(WK_DFOUT_K)
+    CP 15
+    JP NC,_dfout_isfixed_no
+_dfout_isfixed_yes:
+    JP _dfout_build_fixed
+_dfout_isfixed_no:
+    JP _dfout_build_exp
+
+_dfout_build_fixed:
+    LD A,(DFOUT_E)
+    OR A
+    JP Z,_dfout_fx_dotpath
+    JP P,_dfout_fx_check_ge
+_dfout_fx_dotpath:
+    LD A,'.'
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_E)
+    NEG
+    LD (DFOUT_R_COUNT),A
+    LD A,'0'
+    LD (DFOUT_R_CHAR),A
+    CALL DFOUT_APPEND_REPEAT
+    XOR A
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_NSIG)
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+    JP _dfout_done
+_dfout_fx_check_ge:
+    JP Z,_dfout_fx_e_zero
+    LD A,(DFOUT_NSIG)
+    LD B,A
+    LD A,(DFOUT_E)
+    CP B
+    JP NC,_dfout_fx_e_ge_nsig
+    XOR A
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_E)
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+    LD A,'.'
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_E)
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_NSIG)
+    LD B,A
+    LD A,(DFOUT_E)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+    JP _dfout_done
+_dfout_fx_e_zero:
+    XOR A
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_NSIG)
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+    JP _dfout_done
+_dfout_fx_e_ge_nsig:
+    XOR A
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_NSIG)
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+    LD A,(DFOUT_E)
+    LD B,A
+    LD A,(DFOUT_NSIG)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (DFOUT_R_COUNT),A
+    LD A,'0'
+    LD (DFOUT_R_CHAR),A
+    CALL DFOUT_APPEND_REPEAT
+    JP _dfout_done
+
+_dfout_build_exp:
+    LD A,(DFOUT_DIGITS)
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_NSIG)
+    CP 1
+    JP Z,_dfout_exp_nofrac
+    LD A,'.'
+    CALL DFOUT_APPEND_CHAR
+    LD A,1
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_NSIG)
+    DEC A
+    LD (DFOUT_R_COUNT),A
+    CALL DFOUT_APPEND_RANGE
+_dfout_exp_nofrac:
+    LD A,'D'
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_E)
+    DEC A
+    BIT 7,A
+    JP Z,_dfout_exp_pos
+    NEG
+    LD (WK_DFOUT_LOOP),A
+    LD A,'-'
+    CALL DFOUT_APPEND_CHAR
+    JP _dfout_exp_have_sign
+_dfout_exp_pos:
+    LD (WK_DFOUT_LOOP),A
+    LD A,'+'
+    CALL DFOUT_APPEND_CHAR
+_dfout_exp_have_sign:
+    XOR A
+    LD (WK_FINDIGIT),A
+_dfout_exp_tens_loop:
+    LD A,(WK_DFOUT_LOOP)
+    CP 10
+    JP C,_dfout_exp_tens_done
+    SUB 10
+    LD (WK_DFOUT_LOOP),A
+    LD A,(WK_FINDIGIT)
+    INC A
+    LD (WK_FINDIGIT),A
+    JP _dfout_exp_tens_loop
+_dfout_exp_tens_done:
+    LD A,(WK_FINDIGIT)
+    ADD A,'0'
+    CALL DFOUT_APPEND_CHAR
+    LD A,(WK_DFOUT_LOOP)
+    ADD A,'0'
+    CALL DFOUT_APPEND_CHAR
+
+_dfout_done:
+    RET
+
+; --- DFOUT補助ルーチン --------------------------------------------------
+
+DFOUT_APPEND_CHAR:
+    PUSH AF
+    LD HL,DFOUT_BUF
+    LD A,(DFOUT_LEN)
+    LD D,0
+    LD E,A
+    ADD HL,DE
+    POP AF
+    LD (HL),A
+    LD A,(DFOUT_LEN)
+    INC A
+    LD (DFOUT_LEN),A
+    RET
+
+DFOUT_APPEND_RANGE:
+    LD A,(DFOUT_R_COUNT)
+    OR A
+    RET Z
+    LD A,(DFOUT_R_START)
+    LD D,0
+    LD E,A
+    LD HL,DFOUT_DIGITS
+    ADD HL,DE
+    LD A,(HL)
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_R_START)
+    INC A
+    LD (DFOUT_R_START),A
+    LD A,(DFOUT_R_COUNT)
+    DEC A
+    LD (DFOUT_R_COUNT),A
+    JP DFOUT_APPEND_RANGE
+
+DFOUT_APPEND_REPEAT:
+    LD A,(DFOUT_R_COUNT)
+    OR A
+    RET Z
+    LD A,(DFOUT_R_CHAR)
+    CALL DFOUT_APPEND_CHAR
+    LD A,(DFOUT_R_COUNT)
+    DEC A
+    LD (DFOUT_R_COUNT),A
+    JP DFOUT_APPEND_REPEAT
+
+; DFOUT_INT(7byte,56bit) /= 10。商は同じ場所へ、余りはWK_DFOUT_REM10へ。
+DFOUT_INT_DIVMOD10:
+    XOR A
+    LD (WK_DFOUT_REM10),A
+    LD B,56
+_dfoutd10_loop:
+    XOR A
+    LD A,(DFOUT_INT)
+    SLA A
+    LD (DFOUT_INT),A
+    LD A,(DFOUT_INT+1)
+    RLA
+    LD (DFOUT_INT+1),A
+    LD A,(DFOUT_INT+2)
+    RLA
+    LD (DFOUT_INT+2),A
+    LD A,(DFOUT_INT+3)
+    RLA
+    LD (DFOUT_INT+3),A
+    LD A,(DFOUT_INT+4)
+    RLA
+    LD (DFOUT_INT+4),A
+    LD A,(DFOUT_INT+5)
+    RLA
+    LD (DFOUT_INT+5),A
+    LD A,(DFOUT_INT+6)
+    RLA
+    LD (DFOUT_INT+6),A
+    LD A,(WK_DFOUT_REM10)
+    RLA
+    LD (WK_DFOUT_REM10),A
+    LD A,(WK_DFOUT_REM10)
+    CP 10
+    JP C,_dfoutd10_skip
+    SUB 10
+    LD (WK_DFOUT_REM10),A
+    LD A,(DFOUT_INT)
+    OR 1
+    LD (DFOUT_INT),A
+_dfoutd10_skip:
+    DEC B
+    JP NZ,_dfoutd10_loop
+    RET
+
+; DFOUT_INT(7byte) *= 10。X*10=(X<<3)+(X<<1)。桁下限割れの防御的補正専用
+; (呼び出し前に10^15未満であることを確認済みなので、10倍しても10^16は
+; 超えず7byteに収まる)。
+DFOUT_INT_MUL10:
+    LD A,(DFOUT_INT)
+    LD (WK_DFOUT_M10_T),A
+    LD A,(DFOUT_INT+1)
+    LD (WK_DFOUT_M10_T+1),A
+    LD A,(DFOUT_INT+2)
+    LD (WK_DFOUT_M10_T+2),A
+    LD A,(DFOUT_INT+3)
+    LD (WK_DFOUT_M10_T+3),A
+    LD A,(DFOUT_INT+4)
+    LD (WK_DFOUT_M10_T+4),A
+    LD A,(DFOUT_INT+5)
+    LD (WK_DFOUT_M10_T+5),A
+    LD A,(DFOUT_INT+6)
+    LD (WK_DFOUT_M10_T+6),A
+    ; WK_DFOUT_M10_T *= 2 (X*2)
+    XOR A
+    LD A,(WK_DFOUT_M10_T)
+    SLA A
+    LD (WK_DFOUT_M10_T),A
+    LD A,(WK_DFOUT_M10_T+1)
+    RLA
+    LD (WK_DFOUT_M10_T+1),A
+    LD A,(WK_DFOUT_M10_T+2)
+    RLA
+    LD (WK_DFOUT_M10_T+2),A
+    LD A,(WK_DFOUT_M10_T+3)
+    RLA
+    LD (WK_DFOUT_M10_T+3),A
+    LD A,(WK_DFOUT_M10_T+4)
+    RLA
+    LD (WK_DFOUT_M10_T+4),A
+    LD A,(WK_DFOUT_M10_T+5)
+    RLA
+    LD (WK_DFOUT_M10_T+5),A
+    LD A,(WK_DFOUT_M10_T+6)
+    RLA
+    LD (WK_DFOUT_M10_T+6),A
+    ; DFOUT_INT <<= 3 (X*8)
+    LD B,3
+_dfoutm10_shift3:
+    XOR A
+    LD A,(DFOUT_INT)
+    SLA A
+    LD (DFOUT_INT),A
+    LD A,(DFOUT_INT+1)
+    RLA
+    LD (DFOUT_INT+1),A
+    LD A,(DFOUT_INT+2)
+    RLA
+    LD (DFOUT_INT+2),A
+    LD A,(DFOUT_INT+3)
+    RLA
+    LD (DFOUT_INT+3),A
+    LD A,(DFOUT_INT+4)
+    RLA
+    LD (DFOUT_INT+4),A
+    LD A,(DFOUT_INT+5)
+    RLA
+    LD (DFOUT_INT+5),A
+    LD A,(DFOUT_INT+6)
+    RLA
+    LD (DFOUT_INT+6),A
+    DEC B
+    JP NZ,_dfoutm10_shift3
+    ; DFOUT_INT(X*8) += WK_DFOUT_M10_T(X*2) => X*10
+    LD A,(DFOUT_INT)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T)
+    ADD A,B
+    LD (DFOUT_INT),A
+    LD A,(DFOUT_INT+1)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+1)
+    ADC A,B
+    LD (DFOUT_INT+1),A
+    LD A,(DFOUT_INT+2)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+2)
+    ADC A,B
+    LD (DFOUT_INT+2),A
+    LD A,(DFOUT_INT+3)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+3)
+    ADC A,B
+    LD (DFOUT_INT+3),A
+    LD A,(DFOUT_INT+4)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+4)
+    ADC A,B
+    LD (DFOUT_INT+4),A
+    LD A,(DFOUT_INT+5)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+5)
+    ADC A,B
+    LD (DFOUT_INT+5),A
+    LD A,(DFOUT_INT+6)
+    LD B,A
+    LD A,(WK_DFOUT_M10_T+6)
+    ADC A,B
+    LD (DFOUT_INT+6),A
+    RET
+
+; DFOUT_INT >= 10^16(7byte定数比較、MSBから)か判定。WK_DFOUT_K=1/0。
+DFOUT_INT_GE_1E16:
+    LD A,(DFOUT_INT+6)
+    CP 0x23
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT+5)
+    CP 0x86
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT+4)
+    CP 0xF2
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT+3)
+    CP 0x6F
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT+2)
+    CP 0xC1
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT+1)
+    CP 0x00
+    JP C,_dfoutge_no
+    JP NZ,_dfoutge_yes
+    LD A,(DFOUT_INT)
+    CP 0x00
+    JP C,_dfoutge_no
+_dfoutge_yes:
+    LD A,1
+    LD (WK_DFOUT_K),A
+    RET
+_dfoutge_no:
+    XOR A
+    LD (WK_DFOUT_K),A
+    RET
+
+; DFOUT_INT < 10^15か判定。WK_DFOUT_K=1/0。
+DFOUT_INT_LT_1E15:
+    LD A,(DFOUT_INT+6)
+    CP 0x03
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT+5)
+    CP 0x8D
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT+4)
+    CP 0x7E
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT+3)
+    CP 0xA4
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT+2)
+    CP 0xC6
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT+1)
+    CP 0x80
+    JP C,_dfoutlt_yes
+    JP NZ,_dfoutlt_no
+    LD A,(DFOUT_INT)
+    CP 0x00
+    JP C,_dfoutlt_yes
+_dfoutlt_no:
+    XOR A
+    LD (WK_DFOUT_K),A
+    RET
+_dfoutlt_yes:
+    LD A,1
+    LD (WK_DFOUT_K),A
     RET

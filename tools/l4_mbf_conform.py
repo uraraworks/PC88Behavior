@@ -103,6 +103,21 @@ def rand_double(rng: random.Random, spread=True) -> "oracle.GwNum":
     return oracle.GwNum("double", sign=sign, exp=exp, mant=mant)
 
 
+def rand_double_fout(rng: random.Random) -> "oracle.GwNum":
+    """rand_single_foutの倍精度版。予測器側の10^39以上スケール未対応
+    (expected_dfout_or_none参照)を避けるため、指数を安全域(概ね
+    10^-27〜10^27相当)に絞る(仕様書に無い判断)。境界(MIN_POS_D/
+    MAX_POS_D等)はBOUNDARY_DOUBLESで別途「オーバーフローせず動くか」
+    だけを確認する。"""
+    sign = rng.randint(0, 1)
+    if rng.random() < 0.15:
+        exp = rng.choice([40, 41, 42, 126, 127, 128, 129, 130, 213, 214, 215])
+    else:
+        exp = rng.randint(40, 215)
+    mant = rng.randint(1 << 55, (1 << 56) - 1)
+    return oracle.GwNum("double", sign=sign, exp=exp, mant=mant)
+
+
 ZERO_D = oracle.GwNum("double", sign=0, exp=0, mant=0)
 MAX_POS_D = oracle.GwNum("double", sign=0, exp=255, mant=(1 << 56) - 1)
 MAX_NEG_D = oracle.GwNum("double", sign=1, exp=255, mant=(1 << 56) - 1)
@@ -484,6 +499,17 @@ def gen_vectors(op: str, n: int, seed: int):
             vecs.append((a,))
         while len(vecs) < n:
             vecs.append((rand_single_fout(rng),))
+    elif op == "dfout":
+        for f in DFOUT_BOUNDARY_FRACTIONS:
+            vecs.append((oracle.GwNum.from_fraction(f, "double"),))
+        # fout(単精度)と同じ理由でMAX_POS_D/MAX_NEG_Dは境界値集合に含め、
+        # MIN_POS_D/MIN_NEG_Dは予測器側の既知の限界(expected_dfout_or_none)
+        # によりNone分岐で「オーバーフローせず動くか」だけ確認する。
+        for a in (ZERO_D, ONE_D, TWO_D, HALF_D, NEG_ONE_D, NEAR_POW2_D,
+                  MAX_POS_D, MAX_NEG_D, MIN_POS_D, MIN_NEG_D):
+            vecs.append((a,))
+        while len(vecs) < n:
+            vecs.append((rand_double_fout(rng),))
     else:
         raise ValueError(op)
     return vecs[:max(n, len(vecs))]
@@ -585,6 +611,25 @@ def expected_fout_or_none(a: "oracle.GwNum"):
         return None
 
 
+def expected_dfout(a: "oracle.GwNum") -> str:
+    """M7段階4b-2: 倍精度FOUTの正解役。n88=True(oracle.fout_format)で
+    倍精度=16桁・rstar則・大きい側しきい値16を一括指定し、
+    fout_algo="gw"(単精度MBF_FOUTと同じ$FOTNV+「0.5を足して切り捨て」)
+    を使う。"""
+    body, _approx = oracle.fout_format(a, n88=True, fout_algo="gw")
+    return body
+
+
+def expected_dfout_or_none(a: "oracle.GwNum"):
+    """expected_dfoutのラッパ。expected_fout_or_noneと同じ理由
+    (MIN_POS_D/MAX_POS_D近傍で予測器側の10^39以上スケール未対応の
+    OverflowErrorが起きうる)でNoneを返すことがある。"""
+    try:
+        return expected_dfout(a)
+    except OverflowError:
+        return None
+
+
 # docs/spec/l4-basic.md 第5節(第3.1版、単精度の規則は不変)の観測例。
 FOUT_BOUNDARY_FRACTIONS = [
     Fraction(999999), Fraction(9999999), Fraction(1234567),
@@ -596,6 +641,24 @@ FOUT_BOUNDARY_FRACTIONS = [
     Fraction(-1, 10 ** 7), Fraction(1, 3000), Fraction(1, 10 ** 9),
     Fraction(15, 10 ** 8), Fraction(123, 10 ** 8), Fraction(123456, 10 ** 8),
     Fraction(-15, 10 ** 8), Fraction(1, 300000), Fraction(0),
+]
+
+# M7段階4b-2: docs/spec/l4-basic.md 5.3〜5.5節(倍精度)の観測例のうち
+# 値そのもの(打鍵文字列ではなくFraction)を境界に使う。DFOUTはFIN経由
+# ではなくGwNumを直接渡すため、5.1.2節の定数読み取りとは独立に検査できる。
+DFOUT_BOUNDARY_FRACTIONS = [
+    Fraction(1, 3), Fraction(0),
+    Fraction(1234567890123456), Fraction(1234567890123456) * 10,
+    Fraction(123456789012345), Fraction("123456789012345.6"),
+    Fraction(12345678901234567), Fraction(10 ** 15), Fraction(10 ** 16),
+    Fraction(1, 70), Fraction(1, 700), Fraction(1, 3000),
+    Fraction("1.2345678901234e-3"), Fraction("1.5e-14"),
+    Fraction(1, 10 ** 15), Fraction("1.5e-15"), Fraction(2, 10 ** 16),
+    Fraction("1.5e-16"), Fraction("1.23e-15"),
+    Fraction("1.234567890123456e-2"),
+    Fraction("1234567890123456.5"), Fraction("2000000000000000.5"),
+    Fraction("9007199254740992.5"), Fraction("-1234567890123456.5"),
+    Fraction("1e-38"), Fraction("1.5e-38"), Fraction("1e38"), Fraction("-1e38"),
 ]
 
 
@@ -676,9 +739,12 @@ DRIVER_TEMPLATES = {
     # M7段階4b-2: 倍精度FIN(DREP10A)。入力はfinと同じ1byte長+24byte ASCII、
     # 出力はdadd等と同じ8byte倍精度+status。
     "dfin": (25, 9, "MBF_DFIN", False),
+    # M7段階4b-2: 倍精度FOUT。入力8byte倍精度、出力=1byte長+24byte ASCII。
+    "dfout": (8, 25, "MBF_DFOUT", False),
 }
 FIN_BUF_MAX = 24
 FOUT_BUF_MAX = 16
+DFOUT_BUF_MAX = 24  # M7段階4b-2: 指数表記(桁.仮数15桁D+nn)の最大長に余裕を見た
 
 
 def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
@@ -720,7 +786,7 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
             lines.append("    LD A,(HL)")
             lines.append(f"    LD (MBF_OPA+{i}),A")
             lines.append("    INC HL")
-    elif op in ("dtos", "dneg"):
+    elif op in ("dtos", "dneg", "dfout"):
         # 倍精度8byteをMBF_DOPAへ。
         for i in range(8):
             lines.append("    LD A,(HL)")
@@ -765,6 +831,14 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
         lines.append("    INC DE")
         for i in range(FOUT_BUF_MAX):
             lines.append(f"    LD A,(FOUT_BUF+{i})")
+            lines.append("    LD (DE),A")
+            lines.append("    INC DE")
+    elif op == "dfout":
+        lines.append("    LD A,(DFOUT_LEN)")
+        lines.append("    LD (DE),A")
+        lines.append("    INC DE")
+        for i in range(DFOUT_BUF_MAX):
+            lines.append(f"    LD A,(DFOUT_BUF+{i})")
             lines.append("    LD (DE),A")
             lines.append("    INC DE")
     elif op == "dtos":
@@ -817,7 +891,7 @@ def encode_vectors(op: str, vecs) -> bytes:
             out.append((val >> 8) & 0xFF)
         elif op == "neg" or op == "fout" or op == "stod":
             out += gwnum_bytes(v[0])
-        elif op == "dneg" or op == "dtos":
+        elif op == "dneg" or op == "dtos" or op == "dfout":
             out += gwnum8_bytes(v[0])
         elif op == "fin" or op == "dfin":
             text = v[0].upper()
@@ -1112,6 +1186,38 @@ FAULT_DFIN_DIV_AS_MUL_NEW = (
     "    CALL MBF_DMUL_AWAY\n"
 )
 
+# M7段階4b-2: 倍精度FOUTの陰性対照。
+FAULT_DFOUT_ROUND_EVEN_OLD = (
+    "    LD A,(WK_DFOUT_GUARD)\n"
+    "    OR A\n"
+    "    JP Z,_dfout_round_done\n"
+    "    LD A,(DFOUT_INT)\n"
+    "    INC A\n"
+    "    LD (DFOUT_INT),A\n"
+)
+FAULT_DFOUT_ROUND_EVEN_NEW = (
+    "    LD A,(WK_DFOUT_GUARD)\n"
+    "    OR A\n"
+    "    JP Z,_dfout_round_done\n"
+    "    LD A,(DFOUT_INT)\n"
+    "    BIT 0,A  ; 故障注入: 偶数丸め(LSBが奇数の時だけ切り上げ)\n"
+    "    JP Z,_dfout_round_done\n"
+    "    LD A,(DFOUT_INT)\n"
+    "    INC A\n"
+    "    LD (DFOUT_INT),A\n"
+)
+
+FAULT_DFOUT_K14_OLD = (
+    "    LD A,(WK_DFOUT_K)\n"
+    "    CP 15\n"
+    "    JP NC,_dfout_isfixed_no\n"
+    "_dfout_isfixed_yes:"
+)
+FAULT_DFOUT_K14_NEW = (
+    "    ; 故障注入: k<=14の条件を外す\n"
+    "_dfout_isfixed_yes:"
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
@@ -1130,6 +1236,8 @@ FAULTS = {
     "ddiv_sticky": (FAULT_DDIV_STICKY_OLD, FAULT_DDIV_STICKY_NEW),
     "dfin_round_even": (FAULT_DFIN_ROUND_EVEN_OLD, FAULT_DFIN_ROUND_EVEN_NEW),
     "dfin_div_as_mul": (FAULT_DFIN_DIV_AS_MUL_OLD, FAULT_DFIN_DIV_AS_MUL_NEW),
+    "dfout_round_even": (FAULT_DFOUT_ROUND_EVEN_OLD, FAULT_DFOUT_ROUND_EVEN_NEW),
+    "dfout_k14": (FAULT_DFOUT_K14_OLD, FAULT_DFOUT_K14_NEW),
 }
 
 
@@ -1224,6 +1332,16 @@ def compare(op: str, n: int, seed: int, frames: int, fault: str | None, workdir:
                     # 参照)。溢れずに何か出力したか(長さが16バイトの枠に収まり、
                     # 長さバイト自体が矛盾していないか)だけを確認する。
                     if missing or actual_len > 16:
+                        mismatches.append((i, v, None, actual))
+                    continue
+                raw = body.encode("ascii")
+                expected = bytes([len(raw)]) + raw
+            elif op == "dfout":
+                body = expected_dfout_or_none(v[0])
+                actual_len = actual[0]
+                actual = actual[:1 + actual_len]
+                if body is None:
+                    if missing or actual_len > DFOUT_BUF_MAX:
                         mismatches.append((i, v, None, actual))
                     continue
                 raw = body.encode("ascii")

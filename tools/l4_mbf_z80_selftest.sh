@@ -121,6 +121,9 @@ run_case "ddiv N=1200 seed2" ddiv -n 1200 --seed 2 --frames 5000
 # 単精度FINより重い)。
 run_case "dfin N=2000 seed1" dfin -n 2000 --seed 1 --frames 30000
 run_case "dfin N=2000 seed2" dfin -n 2000 --seed 2 --frames 30000
+# M7段階4b-2: 倍精度FOUT。
+run_case "dfout N=2000 seed1" dfout -n 2000 --seed 1 --frames 30000
+run_case "dfout N=2000 seed2" dfout -n 2000 --seed 2 --frames 30000
 
 echo "==> 倍精度 故障注入（陰性対照。不一致が出ることを正常系として扱う）"
 run_case "dadd --fault dsticky"          dadd -n 800 --frames 90   --fault dsticky          --expect-ng
@@ -131,6 +134,8 @@ run_case "dmul --fault dmul_sticky"      dmul -n 400 --frames 3000 --fault dmul_
 run_case "ddiv --fault ddiv_sticky"      ddiv -n 400 --frames 5000 --fault ddiv_sticky       --expect-ng
 run_case "dfin --fault dfin_round_even"  dfin -n 200 --frames 30000 --fault dfin_round_even  --expect-ng
 run_case "dfin --fault dfin_div_as_mul"  dfin -n 200 --frames 30000 --fault dfin_div_as_mul  --expect-ng
+run_case "dfout --fault dfout_round_even" dfout -n 300 --frames 30000 --fault dfout_round_even --expect-ng
+run_case "dfout --fault dfout_k14"        dfout -n 300 --frames 30000 --fault dfout_k14        --expect-ng
 
 if [ "$overall" -eq 0 ]; then
   echo "l4_mbf_z80_selftest: OK"
