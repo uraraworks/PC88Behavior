@@ -24,6 +24,23 @@
 # 使わない設計（--rom-dirは呼び出し側が用意したROMディレクトリをそのまま
 # 使うだけで、本スクリプト自身はROMを組み立てない）。
 #
+# 2026-09-16 二度目の改定（追補4、`RUN_WAIT_FRAMES`）: 自作ROMでP2
+# （`p02_primes.bas`）が`ok_row_not_found`になったのは実装の誤りでは
+# なく、自作のインタプリタが公式より遅く`run`の後の待ち（旧`+300`
+# フレーム）の中に実行が終わらなかったためだった。判定で比べるのは
+# 実行が終わった後の画面であって速さではないため、`run`（P8はさらに
+# 入力値）の後の待ちを`tools/l4_program_typeplan.py`の
+# `RUN_WAIT_FRAMES`（全腕一律`3000`フレーム）へ延ばした。**公式・自作
+# で同じ値を使う**（一方だけ延ばさない）。値の変更は`RUN_WAIT_FRAMES`
+# 定数1か所で行う（本スクリプトは`type_plan.py`が返すフレーム番号を
+# そのまま使うだけで、待ちの長さそのものはここにハードコードしない）。
+#
+# 併せて、`run`（P8は入力値）を打ってから最終確認までの待ちの中に、
+# 判定とは別の**観察**用サンプル写し（`observation_frames`）を追加した。
+# 実行にかかったおおよそのフレーム数（`approx_ok_frame`）を標準出力へ
+# 出す（見つからなければ`unknown`）。画面の文字は一切出さない
+# （CLAUDE.md禁止事項7）。判定（G8等）には使わない。
+#
 # 使い方:
 #   tools/l4_program_run.sh --bas tests/programs/p01_kuku.bas \
 #       --rom-dir "$PC88_REF_ROM_DIR" --out-prefix /path/to/out/p01
@@ -35,10 +52,13 @@
 #           <prefix>.before.f<NNNNNN>.bin（cls_dump_frame、clsのOk後）・
 #           <prefix>.after.f<NNNNNN>.bin（dump_after_frame）
 #   P8:     上記に加え <prefix>.prompt.f<NNNNNN>.bin（dump_prompt_frame）
-#   共通:   <prefix>.stdout.txt・<prefix>.stderr.txt・<prefix>.plan.json
+#   共通:   <prefix>.obs.f<NNNNNN>.bin（observation_frames、0件以上。
+#           観察用、判定には使わない）・<prefix>.stdout.txt・
+#           <prefix>.stderr.txt・<prefix>.plan.json
 #
 # 標準出力には、G2（打てない文字の警告0）の判定と、書き出した写しの
-# パスだけを出す（画面本文は一切出さない。CLAUDE.md禁止事項7）。
+# パス、観察用の`approx_ok_frame`・`observed_frames`だけを出す
+# （画面本文は一切出さない。CLAUDE.md禁止事項7）。
 
 set -uo pipefail
 
@@ -120,6 +140,17 @@ if [ "$NUM_SEGMENTS" -ge 3 ]; then
   SEG3_TXT="$(python3 -c "import json,sys; sys.stdout.write(json.load(open(sys.argv[1]))['type_segments'][2][1])" "$PLAN_JSON"; printf 'X')"; SEG3_TXT="${SEG3_TXT%X}"
 fi
 
+# 観察用(observation_frames、判定には使わない)のサンプルフレーム。
+# 同じベース名を使い回すと、フロントエンドが拡張子の直前へフレーム番号
+# を差し込んで別ファイルにする(vram_out_path()と同じ規約。既存の
+# g9/before/after/promptと同じ扱い)。
+OBS_FRAMES="$(python3 -c "import json,sys; print(' '.join(str(x) for x in json.load(open(sys.argv[1])).get('observation_frames', [])))" "$PLAN_JSON")"
+OBS_BASE="${OUT_PREFIX}.obs.bin"
+OBS_ARGS=()
+for f in $OBS_FRAMES; do
+  OBS_ARGS+=(--vram-dump "$OBS_BASE" --vram-dump-at "$f")
+done
+
 if [ -n "$INPUT_VALUE" ]; then
   DUMP_PROMPT="$(read_plan dump_prompt_frame)"
   DUMP_AFTER="$(read_plan dump_final_frame)"
@@ -139,6 +170,7 @@ if [ -n "$INPUT_VALUE" ]; then
       --vram-dump "$BEFORE_BASE" --vram-dump-at "$DUMP_BEFORE" \
       --vram-dump "$PROMPT_BASE" --vram-dump-at "$DUMP_PROMPT" \
       --vram-dump "$AFTER_BASE" --vram-dump-at "$DUMP_AFTER" \
+      "${OBS_ARGS[@]+"${OBS_ARGS[@]}"}" \
       >"$STDOUT" 2>"$STDERR"
 else
   DUMP_AFTER="$(read_plan dump_after_frame)"
@@ -155,6 +187,7 @@ else
       --vram-dump "$G9_BASE" --vram-dump-at "$DUMP_G9" \
       --vram-dump "$BEFORE_BASE" --vram-dump-at "$DUMP_BEFORE" \
       --vram-dump "$AFTER_BASE" --vram-dump-at "$DUMP_AFTER" \
+      "${OBS_ARGS[@]+"${OBS_ARGS[@]}"}" \
       >"$STDOUT" 2>"$STDERR"
 fi
 
@@ -178,6 +211,37 @@ if [ -n "$INPUT_VALUE" ]; then
   echo "prompt=$PROMPT_OUT"
 fi
 echo "plan=$PLAN_JSON"
+
+# 観察用: run(P8は入力値)を打ってからdump_final(最終確認)までの待ちの
+# 中で、最初に「写し(前)との差分がstatus=okになった」観察用サンプルの
+# フレーム番号をapprox_ok_frameとして出す（判定には使わない。見つから
+# なければunknown。画面の文字は一切出さない。CLAUDE.md禁止事項7）。
+OBS_COUNT=0
+for f in $OBS_FRAMES; do OBS_COUNT=$((OBS_COUNT + 1)); done
+APPROX_OK_FRAME="unknown"
+if [ "$RC" -eq 0 ] && [ "$UNTYPABLE" -eq 0 ] && [ "$OBS_COUNT" -gt 0 ]; then
+  APPROX_OK_FRAME="$(OBS_FRAMES_ENV="$OBS_FRAMES" python3 -c "
+import os, sys
+sys.path.insert(0, '$REPO/tools')
+import l4_program_conform_record as pcr
+before = '$BEFORE_OUT'
+obs_prefix = '${OUT_PREFIX}.obs'
+found = 'unknown'
+for tok in os.environ['OBS_FRAMES_ENV'].split():
+    f = int(tok)
+    path = '%s.f%06d.bin' % (obs_prefix, f)
+    if not os.path.exists(path):
+        continue
+    result = pcr.build_record(before, path, {19})
+    if result.get('status') == 'ok':
+        found = str(f)
+        break
+print(found)
+" 2>/dev/null)"
+  [ -n "$APPROX_OK_FRAME" ] || APPROX_OK_FRAME="unknown"
+fi
+echo "approx_ok_frame=$APPROX_OK_FRAME"
+echo "observed_frames=$OBS_COUNT"
 
 if [ "$RC" -ne 0 ] || [ "$UNTYPABLE" -eq 1 ]; then
   exit 1

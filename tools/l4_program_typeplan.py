@@ -84,12 +84,47 @@ record.py`が`ok_row_not_found`と正しく判別した）ことが分かった�
   「写し(前)」として`tools/l4_program_conform_record.py`に渡す）
 - `segment2` = `"run\n"`。`--type-at cls_dump_frame`で区間1とは別に打つ
 - `line_end2` = `cls_dump_frame + 8 * len(segment2)`
-- `dump_final` = `line_end2 + 300`
+- `dump_final` = `line_end2 + RUN_WAIT_FRAMES`
 - `run_total_frames` = `dump_final + 200`
 
 P8（`INPUT`を含む）は、`run\n`の後さらにプロンプト確認・入力値の区間が
 続く（`l4-s5e` のE1・E2と同じ考え方。事前登録の式の`n1`は本ノートの
 `segment1+segment2`の合計文字数に相当する）。
+
+## `run`（P8は入力値も）の後の待ち（2026-09-16 二度目の改定、追補4）
+
+自作ROMでP2（`p02_primes.bas`）が`ok_row_not_found`になった原因は
+実装の誤りではなく、**自作のインタプリタが公式より遅く、`run`の後の
+待ち（旧`+300`フレーム）の中に実行が終わらなかった**ことだった
+（別担当が観測、事前登録追補4で扱う予定）。適合で比べるのは実行が
+終わった後の画面であって速さではないため、`run`の後（P8はさらに
+入力値の後）の待ちを**`RUN_WAIT_FRAMES`（全腕一律`3000`フレーム）**
+へ延ばす。**公式・自作で同じ値を使う**（速さの違いを比較対象にしない
+ための延長であり、一方だけ延ばすと「遅いから通す」ことになり適合の
+意味が無くなる）。値は`RUN_WAIT_FRAMES`定数1か所で管理する。
+
+- 変わるのは`dump_final`（P1〜P7）・`dump_prompt`と`dump_final`
+  （P8。`run`の後＝プロンプト確認前の待ち、入力値の後＝最終確認前の
+  待ちの両方）だけ。`new`直後・プログラムの行の後の`cls`の待ち
+  （`cls_dump_frame`、`+300`）は変えない（`cls`の応答は元々速く、
+  今回の原因とは無関係なため）。
+- 判定（比べるもの）自体は変えない。`dump_final`時点で`Ok`が出て
+  いなければ引き続き`ok_row_not_found`等で`gate_failed`になる
+  （待ちを延ばすだけで、出なかったものを出たことにはしない）。
+
+### 観察用の追加の写し（`observation_frames`。判定とは別）
+
+`run`（P8は入力値）を打ってから`dump_final`までの待ちの中で、実際に
+何フレームで`Ok`が現れたか（＝実行にかかったおおよその時間）を、
+判定に使わない**観察**として別途出せるように、待ちの区間へ均等割りの
+サンプル点`observation_frames`（`OBSERVATION_SAMPLE_COUNT`個）を追加
+した。`tools/l4_program_run.sh`はこの各フレームでも`--vram-dump`を
+追加で取り、`tools/l4_program_conform_record.py`の記録器（写し(前)との
+差分）を使って「最初に`status=ok`になったサンプルのフレーム番号」を
+`approx_ok_frame`として標準出力へ出す（見つからなければ`unknown`）。
+出すのはフレーム番号（整数）だけで、画面の文字は一切出さない
+（CLAUDE.md禁止事項7）。サンプル間隔ぶんの誤差を含む近似値であり、
+判定（`conform`/`not_conform`/`gate_failed`）には一切使わない。
 
 ## 使い方
 
@@ -121,6 +156,32 @@ SETTLE_TYPE_AT = 300
 CLS_SEGMENT = "cls\n"
 RUN_SEGMENT = "run\n"
 
+# `run`（P8はさらに入力値）を打った後、判定に使う写しを取るまでの待ち。
+# 追補4: 自作ROMのインタプリタが公式より遅く、旧`+300`フレームでは
+# 実行が終わらない(=`Ok`が出る前に写しを取ってしまう)腕があったため、
+# 全腕一律でここを延ばす。**速さは比較対象にしない**——公式・自作の
+# 両方に同じ値を使う（tools/conform_l4.shのPROGRAM場面も本定数を
+# 唯一の出所として使う。書き換えるならここ1か所でよい）。
+RUN_WAIT_FRAMES = 3000
+
+# 観察用(observation_frames)のサンプル点の個数。判定には使わない。
+OBSERVATION_SAMPLE_COUNT = 6
+
+
+def compute_observation_frames(start: int, end: int, count: int = OBSERVATION_SAMPLE_COUNT) -> "list[int]":
+    """`start`(runまたは入力値を打ち終えた直後)から`end`(dump_final)の
+    間を`count`個に均等割りしたサンプルフレームを返す(端点は含めない)。
+    判定には使わない観察用——`Ok`がおおよそ何フレームで現れたかを、
+    tools/l4_program_run.shが写しを追加で取って近似するために使う。"""
+    if count <= 0 or end <= start + 1:
+        return []
+    frames = []
+    for i in range(1, count + 1):
+        f = start + (end - start) * i // (count + 1)
+        if start < f < end:
+            frames.append(f)
+    return sorted(set(frames))
+
 
 def read_program_lines(bas_path: str) -> "list[str]":
     """`.bas`ファイルを読み、空行を除いた各行(改行なし)を返す。"""
@@ -145,8 +206,9 @@ def frame_plan(lines: "list[str]") -> dict:
 
     segment2 = RUN_SEGMENT
     line_end2 = cls_dump_frame + FRAMES_PER_CHAR * len(segment2)
-    dump_final = line_end2 + 300
+    dump_final = line_end2 + RUN_WAIT_FRAMES
     run_total_frames = dump_final + 200
+    observation_frames = compute_observation_frames(line_end2, dump_final)
 
     return {
         "num_lines": len(lines),
@@ -161,8 +223,10 @@ def frame_plan(lines: "list[str]") -> dict:
         "segment2_type_at": cls_dump_frame,
         "segment2": segment2,
         "line_end2": line_end2,
+        "run_wait_frames": RUN_WAIT_FRAMES,
         "dump_after_frame": dump_final,
         "run_total_frames": run_total_frames,
+        "observation_frames": observation_frames,
         "type_segments": [[TYPE_AT_BASE, segment1], [cls_dump_frame, segment2]],
     }
 
@@ -180,14 +244,15 @@ def input_frame_plan(lines: "list[str]", input_value: str) -> dict:
 
     segment2 = RUN_SEGMENT
     line_end2 = cls_dump_frame + FRAMES_PER_CHAR * len(segment2)
-    dump_prompt = line_end2 + 300
+    dump_prompt = line_end2 + RUN_WAIT_FRAMES
 
     type_at3 = dump_prompt
     segment3 = input_value + "\n"
     n3 = len(segment3)
     line_end3 = type_at3 + FRAMES_PER_CHAR * n3
-    dump_final = line_end3 + 300
+    dump_final = line_end3 + RUN_WAIT_FRAMES
     run_total_frames = dump_final + 200
+    observation_frames = compute_observation_frames(line_end3, dump_final)
 
     return {
         "num_lines": len(lines),
@@ -209,8 +274,10 @@ def input_frame_plan(lines: "list[str]", input_value: str) -> dict:
         "input_type_string": segment3,
         "input_char_count": n3,
         "line_end3": line_end3,
+        "run_wait_frames": RUN_WAIT_FRAMES,
         "dump_final_frame": dump_final,
         "run_total_frames": run_total_frames,
+        "observation_frames": observation_frames,
         "type_segments": [
             [TYPE_AT_BASE, segment1],
             [cls_dump_frame, segment2],

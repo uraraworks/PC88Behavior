@@ -278,11 +278,18 @@ fi
 # --- 検査8: tools/l4_program_typeplan.py の打鍵計画・G9/G10ヘルパ -----
 # (2026-09-16改定・追補2: newの直後・runの前の両方にclsを挟む。
 # g9_check_frame=2回目のclsを打つ直前、cls_dump_frame=2回目のclsのOk後
-# =写し(前)として使うフレーム)
+# =写し(前)として使うフレーム。2026-09-16二度目の改定・追補4:
+# runの後の待ちをRUN_WAIT_FRAMES(全腕一律3000)へ延ばした——自作ROMの
+# インタプリタが公式より遅く、旧+300フレームでは実行が終わらない腕が
+# あったため。速さは比べない前提なので、ここでは"300"をハードコード
+# せず`tp.RUN_WAIT_FRAMES`を参照する。observation_frames〔判定に使わない
+# 観察用サンプル〕もここで検査する)
 PLAN="$(python3 "$TYPEPLAN" --bas "$SCRIPT_DIR/../tests/programs/p01_kuku.bas" 2>&1)"
 PLAN_OK=1
 printf '%s' "$PLAN" | python3 -c "
 import json, sys
+sys.path.insert(0, '$SCRIPT_DIR')
+import l4_program_typeplan as tp
 d = json.load(sys.stdin)
 assert d['num_lines'] == 6, d['num_lines']
 assert d['segment1'].startswith('new\ncls\n10 for'), d['segment1'][:24]
@@ -294,11 +301,15 @@ assert d['cls_dump_frame'] == d['cls_line_end'] + 300
 assert d['dump_before_frame'] == d['cls_dump_frame']
 assert d['segment2_type_at'] == d['cls_dump_frame']
 assert d['line_end2'] == d['cls_dump_frame'] + 8*4  # 'run\n' は4文字
-assert d['dump_after_frame'] == d['line_end2'] + 300
+assert d['run_wait_frames'] == tp.RUN_WAIT_FRAMES == 3000, d['run_wait_frames']
+assert d['dump_after_frame'] == d['line_end2'] + tp.RUN_WAIT_FRAMES
 assert d['type_segments'] == [[700, d['segment1']], [d['cls_dump_frame'], d['segment2']]]
+assert isinstance(d['observation_frames'], list) and len(d['observation_frames']) > 0, d['observation_frames']
+assert all(d['line_end2'] < f < d['dump_after_frame'] for f in d['observation_frames']), d['observation_frames']
+assert d['observation_frames'] == sorted(d['observation_frames']), d['observation_frames']
 " || PLAN_OK=0
 if [ "$PLAN_OK" = "1" ]; then
-  pass "検査8: l4_program_typeplan.py がp01の打鍵計画を正しく組み立てる(行数・打鍵文字列・cls挟み込み・各フレーム)"
+  pass "検査8: l4_program_typeplan.py がp01の打鍵計画を正しく組み立てる(行数・打鍵文字列・cls挟み込み・run待ち3000フレーム・観察用サンプル・各フレーム)"
 else
   fail "検査8: l4_program_typeplan.py の打鍵計画が期待と違う"
 fi
@@ -356,6 +367,27 @@ if [ $? -eq 0 ]; then
   pass "検査12: check_keystroke_arrival が「行番号で始まる行」の件数の一致/不一致を正しく判定し、最下行を除外する(G9)"
 else
   fail "検査12: check_keystroke_arrival の判定が期待と違う"
+fi
+
+# --- 検査13: P8(INPUT)側の打鍵計画でも run_wait_frames/observation_frames
+# が正しく反映される(追補4。run の後＝プロンプト待ち、入力値の後＝最終
+# 確認待ちの両方が RUN_WAIT_FRAMES になること) -----------------------
+PLAN8="$(python3 "$TYPEPLAN" --bas "$SCRIPT_DIR/../tests/programs/p08_input_calc.bas" --input 5,3 2>&1)"
+PLAN8_OK=1
+printf '%s' "$PLAN8" | python3 -c "
+import json, sys
+sys.path.insert(0, '$SCRIPT_DIR')
+import l4_program_typeplan as tp
+d = json.load(sys.stdin)
+assert d['dump_prompt_frame'] == d['line_end2'] + tp.RUN_WAIT_FRAMES
+assert d['dump_final_frame'] == d['line_end3'] + tp.RUN_WAIT_FRAMES
+assert isinstance(d['observation_frames'], list) and len(d['observation_frames']) > 0, d['observation_frames']
+assert all(d['line_end3'] < f < d['dump_final_frame'] for f in d['observation_frames']), d['observation_frames']
+" || PLAN8_OK=0
+if [ "$PLAN8_OK" = "1" ]; then
+  pass "検査13: P8(INPUT)側もrunの後・入力値の後の待ちがRUN_WAIT_FRAMES(3000)になり、観察用サンプルが入力値の後の待ちに入る"
+else
+  fail "検査13: P8(INPUT)側の打鍵計画が期待と違う"
 fi
 
 echo
