@@ -78,6 +78,12 @@ L4_ZONE_WIDTH_FAULT_NEW = "ZONE_WIDTH EQU 10"
 L4_TOKEN_FAULT_OLD = '    db 3, "ABS", 0x88'
 L4_TOKEN_FAULT_NEW = '    db 2, "ABS", 0x88'
 
+# 故障注入: Missing operand(22、l4-basic.md 第6.1.1節)の判定を外す。
+# _l4factor_bad_missingでのERROR_KIND=22の代入だけを削り、被演算子が
+# 無いまま式が終わった場合も既定のSyntax error(2)のまま出るようにする。
+L4_MISSING_OPERAND_FAULT_OLD = "_l4factor_bad_missing:\n    LD A,22\n    LD (ERROR_KIND),A\n_l4factor_bad_ret:"
+L4_MISSING_OPERAND_FAULT_NEW = "_l4factor_bad_missing:\n_l4factor_bad_ret:"
+
 # 挿入点の目印。render_asm() の出力に必ず1回だけ現れる
 # （make_ipl_rom.build_n88() の「IM2ベクタページをIへ積む」直前）。
 INSERT_MARK = "    LD A,VEC_TABLE>>8"
@@ -191,6 +197,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_l4_zone_width_fault: bool = False,
                         inject_l4_token_fault: bool = False,
                         inject_l3_space_fault: bool = False,
+                        inject_l4_missing_operand_fault: bool = False,
                         enable_l4_selftest: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -286,6 +293,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if interp_text.count(L4_ZONE_WIDTH_FAULT_OLD) != 1:
             raise SystemExit("ゾーン幅の故障注入の対象行が一意に見つからない（interp.asmが変わった？）")
         interp_text = interp_text.replace(L4_ZONE_WIDTH_FAULT_OLD, L4_ZONE_WIDTH_FAULT_NEW)
+    if inject_l4_missing_operand_fault:
+        if interp_text.count(L4_MISSING_OPERAND_FAULT_OLD) != 1:
+            raise SystemExit("Missing operand判定の対象行が一意に見つからない（interp.asmが変わった？）")
+        interp_text = interp_text.replace(L4_MISSING_OPERAND_FAULT_OLD, L4_MISSING_OPERAND_FAULT_NEW)
     interp_path = work / "l4_interp_gen.asm"
     interp_path.write_text(interp_text, encoding="utf-8")
 
@@ -360,6 +371,9 @@ def main():
     ap.add_argument("--inject-l3-space-fault", action="store_true",
                      help="故障注入: SPACE(09H:6)のエコー前進を無効化し、段階3bまでの"
                           "「書かない」変種へ戻す（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-l4-missing-operand-fault", action="store_true",
+                     help="故障注入: Missing operand(22)の判定を外し、常にSyntax error(2)の"
+                          "ままにする（自己検査の陰性対照専用）")
     ap.add_argument("--enable-l4-selftest", action="store_true",
                      help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
                           "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
@@ -393,6 +407,7 @@ def main():
                                        args.inject_l4_zone_width_fault,
                                        args.inject_l4_token_fault,
                                        inject_l3_space_fault=args.inject_l3_space_fault,
+                                       inject_l4_missing_operand_fault=args.inject_l4_missing_operand_fault,
                                        enable_l4_selftest=args.enable_l4_selftest)
         rom = assemble(combined, work)
 

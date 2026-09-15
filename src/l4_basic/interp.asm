@@ -9,7 +9,7 @@
 ;   文字列の前後に空白なし                              … l4-basic.md 第3節
 ;   区切り記号(;は素通し、,は14列ゾーン、行末での改行抑止) … l4-basic.md 第4節
 ;   構文の誤り(出力の行1行、Okの位置は変わらない)         … l4-basic.md 第5節
-;   構文の誤りの文言(Syntax error)                       … l4-basic.md 第6.1節
+;   誤りの形とメッセージの対応(Missing operand/Syntax error/Overflow) … l4-basic.md 第6.1.1節
 ;                                                            (errors.asm経由)
 ;   PRINTの語形とトークン                                … tokens.tsv
 ;                                                            (print_dispatch.asm経由)
@@ -43,6 +43,10 @@ PUD_VALUE   EQU 0E89Ah   ; 2バイト
 PUD_PLACE   EQU 0E89Ch   ; 2バイト
 PUD_DIGIT   EQU 0E89Eh
 PUD_STARTED EQU 0E89Fh
+ERROR_KIND  EQU 0E8A0h   ; 誤りの形の番号(2/6/22、既定2)。errors.asm生成の
+                         ; ERR_MSG_番号 を選ぶために BASIC_RUN_LINE が読む。
+                         ; 判定方針は 第6.1.1節 対応、この段階の選択は
+                         ; SELECT_ERROR_MSG の直前コメント参照。
 
 ; ゾーン幅(l4-basic.md 第4節zone_14)。故障注入(検査「ゾーンの幅を変えた
 ; 変種」)がこの1行だけを書き換える対象。
@@ -58,6 +62,10 @@ ZONE_WIDTH EQU 14
 BASIC_RUN_LINE:
     XOR A
     LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A    ; 既定はSyntax error(2)。誤りの検出箇所が
+                          ; 該当すれば22(Missing operand)/6(Overflow)に
+                          ; 上書きする(第6.1.1節)。
     LD HL,LINE_BUF
     LD A,(VAR_LINELEN)
     LD E,A
@@ -70,9 +78,31 @@ BASIC_RUN_LINE:
     LD A,(ERROR_FLAG)
     OR A
     RET Z
-    LD HL,SYNTAX_ERROR_MSG
+    CALL SELECT_ERROR_MSG
     CALL PRINT_STR
     CALL NEWLINE
+    RET
+
+; ---------------------------------------------------------------------
+; SELECT_ERROR_MSG — ERROR_KIND(2/6/22)から、errors.asm生成の
+;   ERR_MSG_番号 (l4-basic.md 第6.1節のマニュアル文言そのもの)を選ぶ。
+;   出力: HL=メッセージ文字列アドレス。未知の値はERR_MSG_2にフォール
+;   バックする(第6.1.1節の対応表に無い形は当面Syntax errorのまま、
+;   設計項目「仕様書に無い形」参照)。
+; ---------------------------------------------------------------------
+SELECT_ERROR_MSG:
+    LD A,(ERROR_KIND)
+    CP 6
+    JR Z,_l4sem_overflow
+    CP 22
+    JR Z,_l4sem_missing
+    LD HL,ERR_MSG_2
+    RET
+_l4sem_overflow:
+    LD HL,ERR_MSG_6
+    RET
+_l4sem_missing:
+    LD HL,ERR_MSG_22
     RET
 
 ; ---------------------------------------------------------------------
@@ -365,7 +395,11 @@ _l4expr_plus:
     JR NZ,_l4expr_err_pop
     EX DE,HL
     POP HL
-    ADD HL,DE
+    OR A            ; CF=0にしてからADCで加算(ADD HL,DEはP/Vを更新しない
+                     ; ため、符号付きオーバーフロー判定にADC HL,DEを使う。
+                     ; CF=0なのでADDと同じ結果になる)。
+    ADC HL,DE
+    JP PE,_l4expr_overflow  ; PE=P/Vフラグ1=符号付きオーバーフロー
     JP _l4expr_loop
 _l4expr_minus:
     CALL ADV_PTR
@@ -377,9 +411,17 @@ _l4expr_minus:
     POP HL
     OR A
     SBC HL,DE
+    JP PE,_l4expr_overflow
     JP _l4expr_loop
 _l4expr_err_pop:
     POP HL
+    RET
+_l4expr_overflow:
+    ; 式の計算結果が−32768〜32767を超えた(l4-basic.md 第6.1.1節、資ー14)。
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
     RET
 
 TERM:
@@ -461,23 +503,66 @@ _l4factor_num_loop:
     JR C,_l4factor_num_done
     CP '9'+1
     JR NC,_l4factor_num_done
+    ; 定数オーバーフロー(第6.1.1節、資ー14)の事前チェック: 現在値が
+    ; 3277以上なら、どんな桁が続いても*10した結果は32768を超える
+    ; (16bitレジスタの折り返しに入る前に検出する。仕様書に無いため
+    ; この段階で選んだ実装上のガード、報告のとおり)。
+    LD C,A                  ; 今回の桁の文字を退避
+    LD DE,3277
+    CALL CP_HL_DE
+    JR NC,_l4factor_overflow  ; HL>=3277
+    LD A,C
+    SUB '0'
+    LD E,A
+    LD D,0                    ; DE = 今回の桁(0-9)
+    PUSH DE
     ADD HL,HL
     PUSH HL
     ADD HL,HL
     ADD HL,HL
     POP DE
-    ADD HL,DE
-    SUB '0'
-    LD E,A
-    LD D,0
-    ADD HL,DE
+    ADD HL,DE                 ; HL = 旧HL*10
+    POP DE
+    ADD HL,DE                 ; HL = 旧HL*10 + 桁
+    LD DE,32769
+    CALL CP_HL_DE
+    JR NC,_l4factor_overflow  ; HL>=32769 → 32768を超えた
     CALL ADV_PTR
     JR _l4factor_num_loop
 _l4factor_num_done:
     RET
+_l4factor_overflow:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    RET
 _l4factor_bad:
     LD A,1
     LD (ERROR_FLAG),A
+    ; 被演算子を探した位置が行末、または続く文の区切り':'なら
+    ; Missing operand(22、第6.1.1節、資ー13)。それ以外(未知の語・記号)は
+    ; 既定のSyntax error(2)のまま。
+    CALL AT_END
+    JR Z,_l4factor_bad_missing
+    CALL PEEK_CHAR
+    CP ':'
+    JR NZ,_l4factor_bad_ret
+_l4factor_bad_missing:
+    LD A,22
+    LD (ERROR_KIND),A
+_l4factor_bad_ret:
+    RET
+
+; ---------------------------------------------------------------------
+; CP_HL_DE — HLとDEを符号なしで比較する(HL,DEとも変更しない)。
+;   フラグ: HL<DEならC、HL>=DEならNC(SBCの結果をそのまま使う)。
+; ---------------------------------------------------------------------
+CP_HL_DE:
+    PUSH HL
+    OR A
+    SBC HL,DE
+    POP HL
     RET
 
 ; ---------------------------------------------------------------------

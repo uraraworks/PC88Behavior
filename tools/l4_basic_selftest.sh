@@ -65,6 +65,14 @@ SYNTAX_ERROR_MSG="$(awk -F'\t' '$1=="2"{print $2}' "$ERRORS_TSV")"
 if [ -z "$SYNTAX_ERROR_MSG" ]; then
   echo "エラー: errors.tsvに番号2の項が無い" >&2; exit 1
 fi
+OVERFLOW_MSG="$(awk -F'\t' '$1=="6"{print $2}' "$ERRORS_TSV")"
+if [ -z "$OVERFLOW_MSG" ]; then
+  echo "エラー: errors.tsvに番号6の項が無い" >&2; exit 1
+fi
+MISSING_OPERAND_MSG="$(awk -F'\t' '$1=="22"{print $2}' "$ERRORS_TSV")"
+if [ -z "$MISSING_OPERAND_MSG" ]; then
+  echo "エラー: errors.tsvに番号22の項が無い" >&2; exit 1
+fi
 
 # -----------------------------------------------------------------------
 say "1. 通常ビルド（PRINT実行用。--enable-l4-selftestは付けない。"
@@ -195,6 +203,19 @@ check_row case_comma  'PRINT"a","b"\n' "a$(python3 -c "print(' '*$ZONE_PAD_AFTER
 check_row case_err    'XYZ\n'          "$SYNTAX_ERROR_MSG"
 
 # -----------------------------------------------------------------------
+say "3d. 誤りの形とメッセージの対応(第6.1.1節、errors.tsvの文言から機械的に)"
+# 演算子の後に被演算子が無い → Missing operand(22)
+check_row case_err_missing1 'PRINT 1+\n'  "$MISSING_OPERAND_MSG"
+check_row case_err_missing2 'PRINT 2*\n'  "$MISSING_OPERAND_MSG"
+# 閉じない括弧・知らない語 → Syntax error(2)(第6.1.1節の資料の記載どおり)
+check_row case_err_paren    'PRINT (1+2\n' "$SYNTAX_ERROR_MSG"
+check_row case_err_word     'PRINTX 1\n'   "$SYNTAX_ERROR_MSG"
+# 定数・式の結果が-32768〜32767を超える → Overflow(6)
+check_row case_err_ovfl_const 'PRINT 40000\n'        "$OVERFLOW_MSG"
+check_row case_err_ovfl_sum   'PRINT 30000+30000\n'  "$OVERFLOW_MSG"
+check_row case_err_ovfl_sub   'PRINT -32768-1\n'     "$OVERFLOW_MSG"
+
+# -----------------------------------------------------------------------
 say "3b. PRINT 1（実際にSPACEキーを打鍵）: エコーの1桁前進と実行結果"
 # docs/spec/l3-main.md 第9節末尾の追記＋keyboard.asmの選択（0x20を書いて
 # 進む・行バッファにも積む）により、打った行のエコーは"print 1"
@@ -315,6 +336,27 @@ if [ "$TF_TOTAL" != "$KEYWORDS_TOTAL" ] || [ "$TF_PASS" != "$KEYWORDS_TOTAL" ] |
 else
   fail "トークン表の故障注入の検出力不足(正常時と同じ結果のまま)"
 fi
+
+say "4d. Missing operandの判定を外した変種（'PRINT 1+'がSyntax errorに化けることを確かめる）"
+MISSINGOPFAULT_ROM="$WORK/rom_missingopfault"
+python3 "$BUILD" "$MISSINGOPFAULT_ROM" --inject-l4-missing-operand-fault >"$WORK/build_missingopfault.txt" 2>&1 || { fail "build_main_rom.py(missingopfault)が失敗"; cat "$WORK/build_missingopfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$MISSINGOPFAULT_ROM" --frames 600 --type 'PRINT 1+\n' --type-at 60 \
+    --vram-dump "$WORK/missingopfault.vram.bin" --vram-dump-at 560 \
+    >"$WORK/missingopfault.stdout.txt" 2>"$WORK/missingopfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(missingopfault)が失敗"; cat "$WORK/missingopfault.stderr.txt" >&2; fi
+python3 - "$WORK/missingopfault.vram.bin" "$STRIDE" "$ROW_OUTPUT" "$MISSING_OPERAND_MSG" << 'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+stride = int(sys.argv[2]); row = int(sys.argv[3])
+expect_normal = sys.argv[4]
+got = data[row*stride:row*stride+len(expect_normal)].decode("ascii", errors="replace")
+if got != expect_normal:
+    print(f"OK(検出力): Missing operandの判定を外した故障注入で出力行='{got}'(正常時'{expect_normal}'と不一致)になり区別できた")
+    sys.exit(0)
+print(f"NG(検出力不足): 故障注入しても出力行='{got}'のままで正常時と区別できない")
+sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "Missing operand判定の故障注入の検出力"
 
 # -----------------------------------------------------------------------
 say "5. 既存の自己検査が引き続きOKであること"
