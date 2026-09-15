@@ -99,9 +99,9 @@ read -r LEX_TOTAL LEX_PASS LEX_FAILIX <<< "$(read_lex_selftest "$SELFTEST_ROM" "
 echo "LEX_SELFTEST: total=$LEX_TOTAL pass=$LEX_PASS failix=$LEX_FAILIX"
 KEYWORDS_TOTAL="$(grep -vc '^#' "$REPO/src/l4_basic/keywords.tsv" | tr -d ' ')"
 if [ "$LEX_TOTAL" = "$KEYWORDS_TOTAL" ] && [ "$LEX_PASS" = "$KEYWORDS_TOTAL" ] && [ "$LEX_FAILIX" = "255" ]; then
-  echo "OK: 表の全語($KEYWORDS_TOTAL語)が正しいトークンに変換された(不一致0件)"
+  echo "OK: 表の全語(${KEYWORDS_TOTAL}語)が正しいトークンに変換された(不一致0件)"
 else
-  fail "LEX_SELFTEST: total=$LEX_TOTAL pass=$LEX_PASS failix=$LEX_FAILIX（期待 total=pass=$KEYWORDS_TOTAL, failix=255=無し）"
+  fail "LEX_SELFTEST: total=$LEX_TOTAL pass=$LEX_PASS failix=${LEX_FAILIX} (期待 total=pass=$KEYWORDS_TOTAL, failix=255=無し)"
 fi
 
 # -----------------------------------------------------------------------
