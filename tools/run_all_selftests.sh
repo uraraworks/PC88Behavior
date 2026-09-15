@@ -151,6 +151,9 @@ SCRIPTS_EXPECTED=(
   # M7段階3a（2026-09-15）。src/l4_basic/keywords.tsv（リポジトリに同梱、
   # 私物依存なし）だけを入力にするのでSKIPは無く、常にrc=0を期待する。
   "tools/l4_token_table_selftest.sh:0"
+  # M7段階3b（2026-09-15）。BASICの核(直接モードPRINT)。公式ROM不要、
+  # 自作main ROMだけで完結するのでSKIPは無く、常にrc=0を期待する。
+  "tools/l4_basic_selftest.sh:0"
 )
 
 overall=0
