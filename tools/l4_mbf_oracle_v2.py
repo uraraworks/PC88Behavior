@@ -787,6 +787,7 @@ def _small_side_fixed(
     small_rule: str,
     small_len: int,
     small_emin: int = 0,
+    raw_e: Optional[int] = None,
 ) -> bool:
     """|v|<1(e<=0)のときの固定小数点⇔指数表記の判定(候補規則、l4-s4c用)。
 
@@ -831,6 +832,31 @@ def _small_side_fixed(
         E = e - 1
         length = (-e) + nsig
         return (length <= small_len) and (E >= small_emin)
+    if small_rule == "gw":
+        # l4-s4e用。docs/notes/l4-gwbasic-fofmt-analysis.md(Codexが
+        # GW-BASICソースのみから命令単位で導出、PC88Behaviorの測定は
+        # 参照していない)の導出「0<v<1側は k+s<=N(k=-E-1, s=丸め後の
+        # 有効桁数)なら固定」をそのまま計算する。k=-e (E=e-1なので
+        # k=-E-1=-e)なので、式そのものは"len"のsmall_len=ndig相当と
+        # 数学的に同じになる(大きい側E<Nは$FOFMTの既定実装
+        # (e<=ndig)のままで変えていない、分析の「E>0はFFM15経由で
+        # 無条件指数、E<Nで固定」の帰結と一致する)。
+        k = -e
+        return k + nsig <= ndig
+    if small_rule == "rstar":
+        # l4-s4e用の候補。固定 iff k<=1 または (k+s<=ndig かつ k<=14)。
+        k = -e
+        return (k <= 1) or ((k + nsig <= ndig) and (k <= 14))
+    if small_rule == "rstar_b":
+        # l4-s4e用の候補。k'は「丸める前の2進の値そのもの」の10進指数
+        # E'=floor(log10|v|)から k'=-E'-1 として計算する(raw_eは
+        # fout_format側で丸め前のavから_decimal_exponent()を使って
+        # 求めた値、raw_e-1がE'に相当)。表示する有効桁数sは丸め後の値
+        # (nsig)のまま。固定 iff k'<=1 または k'+s<=ndig。
+        if raw_e is None:
+            raise ValueError("rstar_b requires raw_e")
+        k_prime = -raw_e
+        return (k_prime <= 1) or (k_prime + nsig <= ndig)
     raise ValueError(f"unknown small_rule {small_rule!r}")
 
 
@@ -873,7 +899,12 @@ def fout_format(
     if e > 0:
         use_fixed = e <= ndig  # 大きい側: 現行の規則のまま(候補によらず不変)
     else:
-        use_fixed = _small_side_fixed(e, nsig, ndig, small_rule, small_len, small_emin)
+        # rstar_bだけが必要とする「丸める前の2進の値そのもの」の10進指数
+        # (_decimal_exponent(av)は_significant_digitsの丸めを経ていない)。
+        raw_e = _decimal_exponent(av) if small_rule == "rstar_b" else None
+        use_fixed = _small_side_fixed(
+            e, nsig, ndig, small_rule, small_len, small_emin, raw_e
+        )
     # v1/v2と同じく、この判定自体は未解決の近似則の一種(approx=True)。
     # "len"候補も$FOFMTの命令単位の再現ではなく機械的な帰結として導入した
     # ものなので同様にapprox=Trueのまま返す。
@@ -943,7 +974,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--small-rule",
-        choices=("sym", "sym-def", "len", "lene"),
+        choices=("sym", "sym-def", "len", "lene", "gw", "rstar", "rstar_b"),
         default="sym",
         help="|v|<1側の固定⇔指数切替の候補規則(既定sym=現行の対称近似則)",
     )

@@ -557,6 +557,171 @@ else
   echo "SKIP - l4-s4d予測表がまだ無い(1本目のコミット時点では正常)"
 fi
 
+# --- 20. l4-s4e: --small-rule gw 追加後も既定は変わらない -----------------
+GW_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, m.MBF_SINGLE_DIGITS, "sym", 0, 0)
+    if a != b:
+        print(f"MISMATCH {expr}: default={a} explicit={b}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$GW_DEFAULT_CHECK" = "PASS" ]; then
+  pass "gw/rstar/rstar_b追加後も既定(sym/0/0)は32腕全件で変わらない"
+else
+  fail "gw追加後の既定値一致: $GW_DEFAULT_CHECK"
+fi
+
+# --- 21. l4-s4e: gwがdocs/notes/l4-gwbasic-fofmt-analysis.mdの49件と一致 ---
+GW_ANALYSIS_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+double_cases = [
+    ("1#/3", " .3333333333333333 "), ("1#/7", " .1428571428571429 "),
+    (".0001#", " .0001 "), ("1d-17", " 1D-17 "),
+    ("1d-15", " .000000000000001 "), ("1d-16", " .0000000000000001 "),
+    ("1.5d-15", " .0000000000000015 "), ("1.5d-16", " 1.5D-16 "),
+    (".1234567890123456#", " .1234567890123456 "),
+    ("1.234567890123456d-2", " 1.234567890123456D-02 "),
+    ("1#/3000", " 3.333333333333333D-04 "),
+    (".001234567890123456#", " 1.234567890123456D-03 "),
+    ("1.23456789012345d-3", " 1.23456789012345D-03 "),
+    ("1.23d-15", " 1.23D-15 "), ("1.234d-15", " 1.234D-15 "),
+    ("1.2345d-15", " 1.2345D-15 "), ("1#/300", " 3.333333333333333D-03 "),
+    ("1#/30", " 3.333333333333333D-02 "), ("1.5d-14", " .000000000000015 "),
+    ("1d16", " 1D+16 "), ("12345678901234567#", " 1.234567890123457D+16 "),
+]
+single7_cases = [
+    ("1e-7", " .0000001 "), ("1e-8", " 1E-08 "), ("1.5e-6", " .0000015 "),
+    ("1.5e-7", " 1.5E-07 "), ("1.23e-6", " 1.23E-06 "),
+    ("1.23456e-2", " .0123456 "), ("1.23456e-3", " 1.23456E-03 "),
+    ("1/3000", " 3.333333E-04 "), ("1.23456e-5", " 1.23456E-05 "),
+    (".0001", " .0001 "), ("9999999", " 9999999 "),
+    ("999999.5", " 999999.5 "), ("1234567", " 1234567 "), ("1/3", " .3333333 "),
+]
+single6_cases = [
+    ("1e-7", " 1E-07 "), ("1e-8", " 1E-08 "), ("1.5e-6", " 1.5E-06 "),
+    ("1.5e-7", " 1.5E-07 "), ("1.23e-6", " 1.23E-06 "),
+    ("1.23456e-2", " 1.23456E-02 "), ("1.23456e-3", " 1.23456E-03 "),
+    ("1/3000", " 3.33333E-04 "), ("1.23456e-5", " 1.23456E-05 "),
+    (".0001", " .0001 "), ("9999999", " 1E+07 "),
+    ("999999.5", " 1E+06 "), ("1234567", " 1.23457E+06 "), ("1/3", " .333333 "),
+]
+ok = True
+n = 0
+for expr, want in double_cases:
+    n += 1
+    _, pred, _ = m.predict(expr, 16, "gw")
+    if pred != want:
+        print(f"MISMATCH(double) {expr}: got {pred!r} want {want!r}")
+        ok = False
+for expr, want in single7_cases:
+    n += 1
+    _, pred, _ = m.predict(expr, 7, "gw")
+    if pred != want:
+        print(f"MISMATCH(single7) {expr}: got {pred!r} want {want!r}")
+        ok = False
+for expr, want in single6_cases:
+    n += 1
+    _, pred, _ = m.predict(expr, 6, "gw")
+    if pred != want:
+        print(f"MISMATCH(single6) {expr}: got {pred!r} want {want!r}")
+        ok = False
+print(f"PASS n={n}" if ok else "FAIL")
+EOF
+)"
+if [ "${GW_ANALYSIS_CHECK%% *}" = "PASS" ]; then
+  pass "gwがl4-gwbasic-fofmt-analysis.mdの49件(倍精度21+単精度(a)(b)各14)全て一致"
+else
+  fail "gwとanalysisの不一致: $GW_ANALYSIS_CHECK"
+fi
+
+# --- 22. l4-s4e: rstar/rstar_bがgwと食い違う代表例(k<=14の壁) ------------
+RSTAR_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+# 2d-16はk=15,s=1,k+s=16<=16なのでgw/rstar_bは固定、rstarはk<=14の壁で指数。
+_, gw, _ = m.predict("2d-16", 16, "gw")
+_, rstar, _ = m.predict("2d-16", 16, "rstar")
+_, rstar_b, _ = m.predict("2d-16", 16, "rstar_b")
+ok = gw == " .0000000000000002 " and rstar == " 2D-16 " and rstar_b == " .0000000000000002 "
+print("PASS" if ok else f"FAIL gw={gw!r} rstar={rstar!r} rstar_b={rstar_b!r}")
+EOF
+)"
+if [ "$RSTAR_CHECK" = "PASS" ]; then
+  pass "2d-16でrstarだけgw/rstar_bと食い違う(k=15>14の壁)ことを確認"
+else
+  fail "rstarの食い違い確認: $RSTAR_CHECK"
+fi
+
+# --- 23. 故障注入: rstarのk上限を1ずらすと2d-16の判定が変わること ---------
+RSTAR_FAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+def broken_small_side_fixed(e, nsig, ndig, small_rule, small_len, small_emin=0, raw_e=None):
+    if small_rule == "rstar":
+        k = -e
+        # 故障注入: k<=14をk<=15に緩める(1ずらす)
+        return (k <= 1) or ((k + nsig <= ndig) and (k <= 15))
+    return orig(e, nsig, ndig, small_rule, small_len, small_emin, raw_e)
+
+orig = m._small_side_fixed
+m._small_side_fixed = broken_small_side_fixed
+kind, pred, approx = m.predict("2d-16", 16, "rstar")
+m._small_side_fixed = orig
+print("FAULT_DETECTED" if pred != " 2D-16 " else "FAULT_NOT_DETECTED")
+EOF
+)"
+if [ "$RSTAR_FAULT_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(rstarのk上限を14→15に緩める)で2d-16の判定が変わることを確認"
+else
+  fail "rstar故障注入が検出されなかった: $RSTAR_FAULT_CHECK"
+fi
+
+# --- 24. l4-s4e予測表の再生成がデータ行一致すること ------------------------
+for pair in \
+  "docs/notes/l4-s4e-double-candidate-predictions.tsv:tools/gen_l4_s4e_double_candidate_predictions.py" \
+  "docs/notes/l4-s4e-posthoc-inputs.tsv:tools/gen_l4_s4e_posthoc_inputs.py"
+do
+  OUT="${pair%%:*}"
+  GEN="${pair##*:}"
+  TARGET="$REPO_ROOT/$OUT"
+  if [ -f "$TARGET" ]; then
+    TMP="$(mktemp)"
+    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>/tmp/l4_oracle_s4e_gen.err
+    if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$TARGET") >/dev/null 2>&1; then
+      pass "$OUT の再生成がデータ行一致"
+    else
+      fail "$OUT の再生成が既存ファイルとデータ行不一致(diff未一致)"
+    fi
+    rm -f "$TMP"
+  else
+    echo "SKIP - $OUT がまだ無い(1本目のコミット時点では正常)"
+  fi
+done
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"
