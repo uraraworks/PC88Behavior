@@ -1,0 +1,45 @@
+# l4-c5 代表プログラム集の適合場面（P1〜P8、8腕、1群"programs"）— 期待値
+# （tools/conform_l4.sh が読む）
+#
+# 値そのもの（文字コード・セル位置の並び）は一切含まない。件数と
+# ok_relative_row・SHA-256のみ（CLAUDE.md 禁止事項4、
+# tests/conformance/expected_l4_print.tsv・expected_l4_float.tsv と
+# 同じ作法）。事前登録:
+# docs/notes/l4-c5-representative-programs-conformance-scene-
+# preregistration.md（2837926）＋追補1（ebe29dc）＋追補2（89b503e）＋
+# 追補3（f0172d0）。
+#
+# 正規化の中身はexpected_l4_print.tsv・expected_l4_float.tsvと全く同じ
+# （tools/l4_program_conform_record.py、tools/l4_vram_probe.pyの
+# diff_vram_dumpsをimportして使う。二重実装しない）:
+#   - origin_row: 変化した行のうち最小row0（=cls後にrunを打った行）
+#   - ok_row: 変化した行のうち最大row0（=Okの行）
+#   - cells: origin_rowより大きくok_rowより小さい行(=出力行)の
+#     「前が空白だったセル」を(相対行,列,文字コード)に正規化した並び
+#   - ok_relative_row: ok_row - origin_row（Ok行の文字コードそのものは
+#     含めない）
+# 上記をJSON(sort_keys, 区切り無し)に直列化してSHA-256を取る。
+#
+# 腕の打鍵手順（追補1・追補2）: new→cls→プログラムの各行→G9確認→cls→
+# 前の写し→run→(P8のみ入力値5,3)→後の写し。フレームの決め方は
+# tools/l4_program_typeplan.pyの式（二重実装しない）。
+#
+# 群"programs"の自作main ROM側の実装状態（tools/conform_l4.sh が読む。
+# not_implemented_yet の間は8腕とも判定外(not_implemented_yet)として
+# 表示し、rcに含めない。実装担当がプログラムモードの実装を終えたら
+# implemented に書き換える）:
+# group programs selfmade=not_implemented_yet
+#
+# 生成: 公式ROM一式(PC88_REF_ROM_DIR)で各腕2走を実施し、2走の記録
+# (cell_count/ok_relative_row/sha256)が完全一致し、かつ関門
+# G1〜G5・G8〜G11（事前登録本体＋追補3）をすべて満たしたものを採用する
+# （決定論性G3・出力完了G8・打鍵到達G9・画面収まりG10の確認を兼ねる）。
+#
+# 腕の入力（tests/programs/*.bas）は、測定開始時点のコミット
+# （G11で期待値コミット時点と一致を確認する）とする。測定後に
+# tests/programs を変えたら、この期待値は測り直しが要る。
+#
+# 書式（TSV。1行1腕）:
+#   arm<TAB>cell_count<TAB>ok_relative_row<TAB>sha256
+#
+# arm    cell_count  ok_relative_row  sha256

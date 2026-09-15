@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 # tools/conform_l4.sh — l4-c1b「打鍵エコー適合の場面固定」・
 # l4-c2c「直接モードPRINT適合の場面固定」・
-# l4-c3「直接モードPRINT浮動小数点適合の場面固定」のランナー。
+# l4-c3「直接モードPRINT浮動小数点適合の場面固定」・
+# l4-c5「代表プログラム集の適合場面固定」のランナー。
 #
 # 事前登録: docs/notes/l4-c1b-echo-conformance-scene-preregistration.md
 # （打鍵エコー、11腕）・
 # docs/notes/l4-c2c-print-conformance-scene-preregistration.md
 # （直接モードPRINT、P1〜P5の16腕）・
 # docs/notes/l4-c3-float-print-conformance-scene-preregistration.md
-# （直接モードPRINT浮動小数点、FS単精度17腕・FD倍精度8腕、計25腕）。
+# （直接モードPRINT浮動小数点、FS単精度17腕・FD倍精度8腕、計25腕）・
+# docs/notes/l4-c5-representative-programs-conformance-scene-
+# preregistration.md（`2837926`）＋追補1（`ebe29dc`）＋追補2（`89b503e`）
+# ＋追補3（`f0172d0`）（代表プログラム集、P1〜P8の8腕。1群のみ）。
 # l4-c3は自作main ROM側の浮動小数点実装が段階4a/4bで進行中のため、群
 # (FS/FD)ごとにexpected_l4_float.tsvの見出しコメントで実装状態
 # (not_implemented_yet/implemented)を管理し、未実装の群は自作側の判定
-# から除外する(公式側の期待値固定は実装状況と独立に先に行う)。
+# から除外する(公式側の期待値固定は実装状況と独立に先に行う)。l4-c5も
+# 同じ作法で、expected_l4_programs.tsvの見出しコメント
+# (# group programs selfmade=<status>) 1本だけで群(1群)の実装状態を
+# 管理する。
 # tools/conform_l3.sh と同じ二層方針: 公式ROM(PC88_REF_ROM_DIR)が要る本体と、
 # 公式環境が無くても回る自作main ROM側の照合を分ける。ただし l4-c1 の結果
 # （相対座標・文字コード・属性域が公式/自作間で一致する）を踏まえ、
@@ -41,11 +48,14 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO/tools/lib_l3_measure.sh"
 RECORD="$REPO/tools/l4_echo_conform_record.py"
 PRINT_RECORD="$REPO/tools/l4_print_conform_record.py"
+PROGRAM_RECORD="$REPO/tools/l4_program_conform_record.py"
+PROGRAM_RUN="$REPO/tools/l4_program_run.sh"
 PROBE="$REPO/tools/l4_vram_probe.py"
 BUILD_MAIN="$REPO/src/build_main_rom.py"
 EXPECTED="$REPO/tests/conformance/expected_l4_echo.tsv"
 EXPECTED_PRINT="$REPO/tests/conformance/expected_l4_print.tsv"
 EXPECTED_FLOAT="$REPO/tests/conformance/expected_l4_float.tsv"
+EXPECTED_PROGRAMS="$REPO/tests/conformance/expected_l4_programs.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -62,6 +72,10 @@ if [ ! -f "$EXPECTED_PRINT" ]; then
 fi
 if [ ! -f "$EXPECTED_FLOAT" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED_FLOAT" >&2
+  exit 2
+fi
+if [ ! -f "$EXPECTED_PROGRAMS" ]; then
+  echo "エラー: 期待値ファイルが無い: $EXPECTED_PROGRAMS" >&2
   exit 2
 fi
 
@@ -92,6 +106,24 @@ float_arm_group() {
     FD*) echo "FD" ;;
     *) echo "" ;;
   esac
+}
+
+# -----------------------------------------------------------------------
+# l4-c5 代表プログラム集の適合場面: 群(1群のみ、"programs")の自作側の
+# 実装状態を expected_l4_programs.tsv の見出しコメント
+# (# group programs selfmade=<status>) から読む。float_group_status と
+# 同じ作法(値は出さない)。
+# -----------------------------------------------------------------------
+program_group_status() {
+  awk '
+    /^# group / {
+      if ($3 == "programs") {
+        split($4, kv, "=")
+        print kv[2]
+        exit
+      }
+    }
+  ' "$EXPECTED_PROGRAMS"
 }
 
 if [ -n "${PC88_CONFORM_WORK_DIR:-}" ]; then
@@ -290,6 +322,161 @@ float_arm_params() {
   PRINT_RUN=$(( PRINT_DUMP + 200 ))
   PRINT_BEFORE=690
   PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
+}
+
+# -----------------------------------------------------------------------
+# l4-c5 代表プログラム集の適合場面（P1〜P8の8腕、1群"programs"のみ）。
+# 事前登録 docs/notes/l4-c5-representative-programs-conformance-scene-
+# preregistration.md（`2837926`）「腕」節＋追補1〜3（`ebe29dc`・
+# `89b503e`・`f0172d0`）と完全に同一（変更しない）。
+#
+# 腕の入力は tools/l4_program_typeplan.py が組み立てる打鍵計画
+# （new→cls→各行→G9確認→cls→前の写し→run→(P8のみ入力値)→後の写し）を
+# tools/l4_program_run.sh がそのまま実行する。二重実装しない
+# （フレーム式の計算はtypeplan.py側にだけ存在する）。
+# -----------------------------------------------------------------------
+PROGRAM_ARM_NAMES=(P1 P2 P3 P4 P5 P6 P7 P8)
+
+# 腕idから tests/programs/*.bas のパスを返す。
+program_arm_bas() {
+  local arm="$1"
+  case "$arm" in
+    P1) echo "$REPO/tests/programs/p01_kuku.bas" ;;
+    P2) echo "$REPO/tests/programs/p02_primes.bas" ;;
+    P3) echo "$REPO/tests/programs/p03_bubble_sort.bas" ;;
+    P4) echo "$REPO/tests/programs/p04_fibonacci.bas" ;;
+    P5) echo "$REPO/tests/programs/p05_factorial.bas" ;;
+    P6) echo "$REPO/tests/programs/p06_strings.bas" ;;
+    P7) echo "$REPO/tests/programs/p07_gosub_subroutine.bas" ;;
+    P8) echo "$REPO/tests/programs/p08_input_calc.bas" ;;
+    *) return 2 ;;
+  esac
+}
+
+# 腕idからINPUTに打つ値を返す（P8のみ。tests/programs/README.md記載の
+# 固定値5,3）。P1〜P7は空文字列。
+program_arm_input() {
+  local arm="$1"
+  case "$arm" in
+    P8) echo "5,3" ;;
+    *) echo "" ;;
+  esac
+}
+
+# -----------------------------------------------------------------------
+# PROGRAM場面の1腕を1回走らせ、正規化した記録・関門G9/G10の判定を返す。
+# G2(打てない文字警告0)は tools/l4_program_run.sh 側で確認済み(rc!=0で
+# 検出)。q88measureの起動時クラッシュ(既知欠陥、tools/lib_l3_measure.sh
+# のrun_q88measure_retryと同じ理由)に備え、l4_program_run.sh自体を
+# 呼び出し単位で再試行する。
+#
+# $1 = ROMディレクトリ、$2 = 出力プレフィックス、$3 = .basパス、
+# $4 = INPUT値（無ければ空文字列）
+#
+# 出力(TSV、1行): status<TAB>cell_count<TAB>ok_relative_row<TAB>sha256<TAB>g9_ok<TAB>g10_ok
+# （g9_ok/g10_okは"1"(真)/"0"(偽)。cell_count等がstatus!=okならNA、
+# g10_okはstatus!=okならNA。値そのもの・画面本文は一切出さない）
+# -----------------------------------------------------------------------
+run_program_arm_once() {
+  local romdir="$1" prefix="$2" bas="$3" input="$4"
+  local attempt=1 run_out="" rc=1
+
+  while [ "$attempt" -le "$Q88_MEASURE_ATTEMPTS" ]; do
+    if [ -n "$input" ]; then
+      run_out="$(bash "$PROGRAM_RUN" --bas "$bas" --rom-dir "$romdir" --out-prefix "$prefix" --input "$input" 2>"$prefix.run.err.txt")"
+    else
+      run_out="$(bash "$PROGRAM_RUN" --bas "$bas" --rom-dir "$romdir" --out-prefix "$prefix" 2>"$prefix.run.err.txt")"
+    fi
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      if [ "$attempt" -gt 1 ]; then
+        echo "  [注記] ${prefix}: q88measureの起動時クラッシュのため${attempt}回目で成功した(既知欠陥。docs/notes/m7az-write-conformance.md)" >&2
+      fi
+      break
+    fi
+    echo "  [注記] ${prefix}: l4_program_run.shがrc=${rc}で失敗した(${attempt}/${Q88_MEASURE_ATTEMPTS}回目)" >&2
+    attempt=$((attempt + 1))
+  done
+
+  if [ "$rc" -ne 0 ]; then
+    echo "gate_failed	NA	NA	NA	NA	NA"
+    return 1
+  fi
+
+  local untyp g9_path before_path after_path plan_path
+  untyp="$(printf '%s\n' "$run_out" | sed -n '1s/.*untypable_warning=\([0-9]\).*/\1/p')"
+  g9_path="$(printf '%s\n' "$run_out" | awk -F= '/^g9=/{print $2}')"
+  before_path="$(printf '%s\n' "$run_out" | awk -F= '/^before=/{print $2}')"
+  after_path="$(printf '%s\n' "$run_out" | awk -F= '/^after=/{print $2}')"
+  plan_path="$(printf '%s\n' "$run_out" | awk -F= '/^plan=/{print $2}')"
+
+  if [ "$untyp" != "0" ] || [ -z "$g9_path" ] || [ -z "$before_path" ] || [ -z "$after_path" ] || [ -z "$plan_path" ]; then
+    echo "gate_failed	NA	NA	NA	NA	NA"
+    return 1
+  fi
+
+  local num_lines g9_ok
+  num_lines="$(python3 -c "import json; print(json.load(open('$plan_path'))['num_lines'])" 2>/dev/null)"
+  if [ -z "$num_lines" ]; then
+    echo "gate_failed	NA	NA	NA	NA	NA"
+    return 1
+  fi
+  g9_ok="$(python3 -c "
+import sys
+sys.path.insert(0, '$REPO/tools')
+import l4_program_typeplan as tp
+r = tp.check_keystroke_arrival('$g9_path', $num_lines)
+print('1' if r['arrived'] else '0')
+" 2>/dev/null)"
+  [ -n "$g9_ok" ] || g9_ok="0"
+
+  local rec status cell ok_rel sha g10_ok
+  rec="$(python3 "$PROGRAM_RECORD" --before "$before_path" --after "$after_path" 2>/dev/null)"
+  status="$(printf '%s' "$rec" | cut -f1)"
+  cell="$(printf '%s' "$rec" | cut -f2)"
+  ok_rel="$(printf '%s' "$rec" | cut -f3)"
+  sha="$(printf '%s' "$rec" | cut -f4)"
+
+  g10_ok="NA"
+  if [ "$status" = "ok" ]; then
+    g10_ok="$(python3 -c "
+import sys
+sys.path.insert(0, '$REPO/tools')
+import l4_program_typeplan as tp
+r = tp.check_output_fits_screen($ok_rel)
+print('1' if r['fits'] else '0')
+" 2>/dev/null)"
+    [ -n "$g10_ok" ] || g10_ok="0"
+  fi
+
+  echo "${status}	${cell}	${ok_rel}	${sha}	${g9_ok}	${g10_ok}"
+  [ "$status" = "ok" ]
+}
+
+# 記録(cell_count/ok_relative_row/sha256、PRINT場面と同一書式)を期待値
+# と照合する。PROGRAM場面の記録行は先頭に status 列が付くため、
+# check_print_record_against_expected をそのまま使わず専用関数にする。
+check_program_record_against_expected() {
+  local arm="$1" expected="$2" actual_line="$3"
+  local e_count e_ok e_sha a_count a_ok a_sha row
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$expected")"
+  if [ -z "$row" ]; then
+    echo "gate_failed"
+    return
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$actual_line" | cut -f2)"
+  a_ok="$(printf '%s' "$actual_line" | cut -f3)"
+  a_sha="$(printf '%s' "$actual_line" | cut -f4)"
+  if [ "$a_count" != "$e_count" ] || [ "$a_ok" != "$e_ok" ]; then
+    echo "not_conform(件数不一致)"
+  elif [ "$a_sha" != "$e_sha" ]; then
+    echo "not_conform(sha256不一致)"
+  else
+    echo "conform"
+  fi
 }
 
 # -----------------------------------------------------------------------
@@ -707,6 +894,110 @@ fi
 overall_rc=$(( overall_rc || float_selftest_rc ))
 
 # -----------------------------------------------------------------------
+# l4-c5 代表プログラム集用の検出力自己検査（公式環境不要）。
+# 記録の書式(status<TAB>cell_count<TAB>ok_relative_row<TAB>sha256)は
+# tools/l4_program_conform_record.py の陽性対照フィクスチャ
+# (tools/l4_program_conform_selftest.sh 検査1)と同じ形の合成VRAM写しを
+# 使う(row0=runのエコー・row1=出力"42"・row2="Ok!"・row19=最下行)。
+# -----------------------------------------------------------------------
+say "検出力の自己検査(PROGRAM場面。記録・期待値をわざと壊して検出できるか)"
+
+program_selftest_rc=0
+mkdir -p "$WORK/selftest_program"
+
+python3 - "$WORK/selftest_program" <<'PYEOF'
+import sys
+out = sys.argv[1]
+ROWS, STRIDE = 25, 120
+
+def blank():
+    b = bytearray(ROWS * STRIDE)
+    for r in range(ROWS):
+        for c in range(80):
+            b[r * STRIDE + c] = 0x20
+    return b
+
+before = blank()
+after = blank()
+for i, ch in enumerate("FKEYB"):
+    before[19 * STRIDE + i] = ord(ch)
+for i, ch in enumerate("FKEYA"):
+    after[19 * STRIDE + i] = ord(ch)
+for i, ch in enumerate("run"):
+    after[0 * STRIDE + i] = ord(ch)
+for i, ch in enumerate("42"):
+    after[1 * STRIDE + i] = ord(ch)
+for i, ch in enumerate("Ok!"):
+    after[2 * STRIDE + i] = ord(ch)
+with open(out + "/before.bin", "wb") as f:
+    f.write(bytes(before))
+with open(out + "/after.bin", "wb") as f:
+    f.write(bytes(after))
+after_bad = bytearray(after)
+after_bad[1 * STRIDE + 1] = ord('9')
+with open(out + "/after_bad.bin", "wb") as f:
+    f.write(bytes(after_bad))
+PYEOF
+
+good_line_pg="$(python3 "$PROGRAM_RECORD" --before "$WORK/selftest_program/before.bin" --after "$WORK/selftest_program/after.bin")"
+bad_line_pg="$(python3 "$PROGRAM_RECORD" --before "$WORK/selftest_program/before.bin" --after "$WORK/selftest_program/after_bad.bin")"
+good_sha_pg="$(printf '%s' "$good_line_pg" | cut -f4)"
+bad_sha_pg="$(printf '%s' "$bad_line_pg" | cut -f4)"
+if [ "$good_sha_pg" != "$bad_sha_pg" ]; then
+  ok "自己検査a(PROGRAM): 記録の出力セルを変えるとSHA-256が変わる(検出力あり)"
+else
+  ng "自己検査a(PROGRAM): 記録の出力セルを変えてもSHA-256が変わらなかった"
+  program_selftest_rc=1
+fi
+
+exp_good_pg="$WORK/selftest_program/expected_good.tsv"
+{
+  echo "# selftest"
+  a_count_pg="$(printf '%s' "$good_line_pg" | cut -f2)"
+  a_ok_pg="$(printf '%s' "$good_line_pg" | cut -f3)"
+  a_sha_pg="$(printf '%s' "$good_line_pg" | cut -f4)"
+  printf 'selftest_arm\t%s\t%s\t%s\n' "$a_count_pg" "$a_ok_pg" "$a_sha_pg"
+} > "$exp_good_pg"
+
+verdict_b_self_pg="$(check_program_record_against_expected selftest_arm "$exp_good_pg" "$good_line_pg")"
+verdict_b_bad_pg="$(check_program_record_against_expected selftest_arm "$exp_good_pg" "$bad_line_pg")"
+if [ "$verdict_b_self_pg" = "conform" ] && [ "${verdict_b_bad_pg#not_conform}" != "$verdict_b_bad_pg" ]; then
+  ok "自己検査b1(PROGRAM): 正しい記録は期待値と conform、壊した記録は not_conform"
+else
+  ng "自己検査b1(PROGRAM): 正しい記録(${verdict_b_self_pg})/壊した記録(${verdict_b_bad_pg})の判定がおかしい"
+  program_selftest_rc=1
+fi
+
+exp_bad_count_pg="$WORK/selftest_program/expected_bad_count.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next} {$2=$2+1; print}' "$exp_good_pg" > "$exp_bad_count_pg"
+verdict_c_pg="$(check_program_record_against_expected selftest_arm "$exp_bad_count_pg" "$good_line_pg")"
+if [ "${verdict_c_pg#not_conform}" != "$verdict_c_pg" ]; then
+  ok "自己検査c(PROGRAM): 期待値の件数を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査c(PROGRAM): 件数を壊した期待値が誤って conform になった"
+  program_selftest_rc=1
+fi
+
+exp_bad_sha_pg="$WORK/selftest_program/expected_bad_sha.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next}
+     {sha=$4; last=substr(sha,length(sha),1); $4=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print}' \
+    "$exp_good_pg" > "$exp_bad_sha_pg"
+verdict_d_pg="$(check_program_record_against_expected selftest_arm "$exp_bad_sha_pg" "$good_line_pg")"
+if [ "${verdict_d_pg#not_conform}" != "$verdict_d_pg" ]; then
+  ok "自己検査d(PROGRAM): 期待値のSHA-256を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査d(PROGRAM): SHA-256を壊した期待値が誤って conform になった"
+  program_selftest_rc=1
+fi
+
+if [ "$program_selftest_rc" -eq 0 ]; then
+  ok "検出力の自己検査(PROGRAM): 全項目OK"
+else
+  ng "検出力の自己検査(PROGRAM): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || program_selftest_rc ))
+
+# -----------------------------------------------------------------------
 # 自作main ROM側の照合（公式環境の有無に関わらず常に実行する）。
 # -----------------------------------------------------------------------
 say "自作main ROM側の照合（公式環境不要。11腕）"
@@ -937,6 +1228,78 @@ echo "  gate_failed: ${float_gate_failed_count} / 25"
 echo "  not_implemented_yet: ${float_notimpl_count} / 25 (判定外・rcに含めない)"
 
 # -----------------------------------------------------------------------
+# l4-c5 自作main ROM側の照合(PROGRAM場面。公式環境不要。8腕・1群)。
+# 群"programs"がnot_implemented_yetの間は判定外(na表示)としてrcに
+# 含めない(l4-c3のFS/FDと同じ作法)。
+# -----------------------------------------------------------------------
+say "自作main ROM側の照合(PROGRAM場面。公式環境不要。8腕)"
+
+program_conform_count=0
+program_not_conform_count=0
+program_gate_failed_count=0
+program_notimpl_count=0
+
+program_status_now="$(program_group_status)"
+if [ "$program_status_now" = "not_implemented_yet" ]; then
+  for arm in "${PROGRAM_ARM_NAMES[@]}"; do
+    na "[自作/PROGRAM] ${arm}: not_implemented_yet(群programsは自作側未実装のため判定外)"
+    program_notimpl_count=$((program_notimpl_count + 1))
+  done
+else
+  for arm in "${PROGRAM_ARM_NAMES[@]}"; do
+    bas="$(program_arm_bas "$arm")"
+    input="$(program_arm_input "$arm")"
+    prefix="$WORK/self_program_${arm}"
+    line1="$(run_program_arm_once "$SELF_ROMDIR" "$prefix" "$bas" "$input" 2>"$prefix.err.txt")"
+    status1="$(printf '%s' "$line1" | cut -f1)"
+    g9_1="$(printf '%s' "$line1" | cut -f5)"
+    g10_1="$(printf '%s' "$line1" | cut -f6)"
+    if [ "$status1" != "ok" ]; then
+      ng "[自作/PROGRAM] ${arm}: 出力完了の確認(G8)が偽(走行失敗または${status1}。gate_failed)"
+      sed 's/^/       /' "$prefix.err.txt" 2>/dev/null
+      program_gate_failed_count=$((program_gate_failed_count + 1))
+      overall_rc=1
+      continue
+    fi
+    if [ "$g9_1" != "1" ]; then
+      ng "[自作/PROGRAM] ${arm}: G9(打鍵到達確認)が偽(打鍵が抜けていた。gate_failed)"
+      program_gate_failed_count=$((program_gate_failed_count + 1))
+      overall_rc=1
+      continue
+    fi
+    if [ "$g10_1" != "1" ]; then
+      ng "[自作/PROGRAM] ${arm}: G10(画面に収まっていること)が偽(出力が画面に収まらなかった。gate_failed)"
+      program_gate_failed_count=$((program_gate_failed_count + 1))
+      overall_rc=1
+      continue
+    fi
+    verdict="$(check_program_record_against_expected "$arm" "$EXPECTED_PROGRAMS" "$line1")"
+    case "$verdict" in
+      conform)
+        ok "[自作/PROGRAM] ${arm}: conform(cell$(printf '%s' "$line1" | cut -f2)・ok行+$(printf '%s' "$line1" | cut -f3)・SHA-256一致)"
+        program_conform_count=$((program_conform_count + 1))
+        ;;
+      gate_failed)
+        ng "[自作/PROGRAM] ${arm}: 期待値に行が無い(gate_failed)"
+        program_gate_failed_count=$((program_gate_failed_count + 1))
+        overall_rc=1
+        ;;
+      *)
+        ng "[自作/PROGRAM] ${arm}: ${verdict}"
+        program_not_conform_count=$((program_not_conform_count + 1))
+        overall_rc=1
+        ;;
+    esac
+  done
+fi
+
+say "自作ROM側の集計(PROGRAM場面)"
+echo "  conform: ${program_conform_count} / 8"
+echo "  not_conform: ${program_not_conform_count} / 8"
+echo "  gate_failed: ${program_gate_failed_count} / 8"
+echo "  not_implemented_yet: ${program_notimpl_count} / 8 (判定外・rcに含めない)"
+
+# -----------------------------------------------------------------------
 # 自己検査e: 群の印をnot_implemented_yet→implementedへ書き換えると、
 # (a)not_implemented_yetの間は判定がスキップされること、
 # (b)implementedにすると実際に照合が走り、現在の自作ROM(浮動小数点PRINT
@@ -1013,6 +1376,67 @@ else
   ng "自己検査e(FLOAT): 失敗した項目がある"
 fi
 overall_rc=$(( overall_rc || selftest_e_rc ))
+
+# -----------------------------------------------------------------------
+# 自己検査e(PROGRAM): 群"programs"の印をnot_implemented_yet→implemented
+# へ書き換えると、(a)not_implemented_yetの間は判定がスキップされること、
+# (b)implementedにすると実際に照合が走り、現在の自作ROM(プログラム
+# モード未実装)ではNG(not_conform/gate_failed)になること——つまり
+# 判定外の扱いが「本物の判定を隠していない」ことを確認する。FLOATの
+# 自己検査eと同じ作法。実データ(expected_l4_programs.tsvの本番行)には
+# 依存せず、明らかに不一致になる合成の期待値行を使う。
+# -----------------------------------------------------------------------
+say "自己検査e(PROGRAM): 群の印をimplementedにすると判定が実際に走りNGになるか"
+
+program_selftest_e_rc=0
+PEG_ARM="P1"
+PEG_DIR="$WORK/selftest_program_group"
+mkdir -p "$PEG_DIR"
+
+PEG_NOTIMPL="$PEG_DIR/expected_notimpl.tsv"
+{
+  echo "# selftest(自己検査e専用、実データではない)"
+  echo "# group programs selfmade=not_implemented_yet"
+  printf '%s\t999\t2\t0000000000000000000000000000000000000000000000000000000000000000\n' "$PEG_ARM"
+} > "$PEG_NOTIMPL"
+
+PEG_IMPL="$PEG_DIR/expected_impl.tsv"
+sed 's/selfmade=not_implemented_yet/selfmade=implemented/' "$PEG_NOTIMPL" > "$PEG_IMPL"
+
+peg_status_before="$(EXPECTED_PROGRAMS="$PEG_NOTIMPL" program_group_status)"
+if [ "$peg_status_before" = "not_implemented_yet" ]; then
+  ok "自己検査e-1(PROGRAM): 書き換え前は not_implemented_yet と読める"
+else
+  ng "自己検査e-1(PROGRAM): 書き換え前の状態読み取りが期待どおりでない(${peg_status_before:-空})"
+  program_selftest_e_rc=1
+fi
+
+peg_status_after="$(EXPECTED_PROGRAMS="$PEG_IMPL" program_group_status)"
+if [ "$peg_status_after" = "implemented" ]; then
+  ok "自己検査e-2(PROGRAM): 書き換え後は implemented と読める"
+else
+  ng "自己検査e-2(PROGRAM): 書き換え後の状態読み取りが期待どおりでない(${peg_status_after:-空})"
+  program_selftest_e_rc=1
+fi
+
+peg_bas="$(program_arm_bas "$PEG_ARM")"
+peg_input="$(program_arm_input "$PEG_ARM")"
+peg_prefix="$PEG_DIR/self_${PEG_ARM}"
+peg_line="$(run_program_arm_once "$SELF_ROMDIR" "$peg_prefix" "$peg_bas" "$peg_input" 2>"$peg_prefix.err.txt")"
+peg_verdict="$(check_program_record_against_expected "$PEG_ARM" "$PEG_IMPL" "$peg_line")"
+if [ "$peg_verdict" = "conform" ]; then
+  ng "自己検査e-3(PROGRAM): 合成の(ありえない)期待値と偶然一致してしまった(自己検査のフィクスチャを見直すこと)"
+  program_selftest_e_rc=1
+else
+  ok "自己検査e-3(PROGRAM): implementedにすると実際に照合が走り、現在の自作ROMではNG(${peg_verdict})になった(判定外が本物の判定を隠していない)"
+fi
+
+if [ "$program_selftest_e_rc" -eq 0 ]; then
+  ok "自己検査e(PROGRAM): 全項目OK"
+else
+  ng "自己検査e(PROGRAM): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || program_selftest_e_rc ))
 
 # -----------------------------------------------------------------------
 # 公式ROM側（環境変数が無ければSKIP）。
@@ -1242,6 +1666,74 @@ say "公式ROM側の集計(FLOAT場面)"
 echo "  conform: ${official_float_conform} / 25"
 echo "  not_conform: ${official_float_not_conform} / 25"
 echo "  gate_failed: ${official_float_gate_failed} / 25"
+
+say "公式ROM側の再導出(PROGRAM場面。8腕)"
+
+official_program_conform=0
+official_program_not_conform=0
+official_program_gate_failed=0
+
+for arm in "${PROGRAM_ARM_NAMES[@]}"; do
+  bas="$(program_arm_bas "$arm")"
+  input="$(program_arm_input "$arm")"
+  prefix1="$WORK/official_program_${arm}_run1"
+  prefix2="$WORK/official_program_${arm}_run2"
+  line1="$(run_program_arm_once "$OFFICIAL_ROMDIR" "$prefix1" "$bas" "$input" 2>"$prefix1.err.txt")"
+  line2="$(run_program_arm_once "$OFFICIAL_ROMDIR" "$prefix2" "$bas" "$input" 2>"$prefix2.err.txt")"
+  status1="$(printf '%s' "$line1" | cut -f1)"
+  status2="$(printf '%s' "$line2" | cut -f1)"
+  g9_1="$(printf '%s' "$line1" | cut -f5)"
+  g9_2="$(printf '%s' "$line2" | cut -f5)"
+  g10_1="$(printf '%s' "$line1" | cut -f6)"
+  g10_2="$(printf '%s' "$line2" | cut -f6)"
+  if [ "$status1" != "ok" ] || [ "$status2" != "ok" ]; then
+    ng "[公式/PROGRAM] ${arm}: 出力完了の確認(G8)が偽(走行失敗または${status1}/${status2}。gate_failed)"
+    sed 's/^/       /' "$prefix1.err.txt" "$prefix2.err.txt" 2>/dev/null
+    official_program_gate_failed=$((official_program_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$g9_1" != "1" ] || [ "$g9_2" != "1" ]; then
+    ng "[公式/PROGRAM] ${arm}: G9(打鍵到達確認)が偽(打鍵が抜けていた。gate_failed)"
+    official_program_gate_failed=$((official_program_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$g10_1" != "1" ] || [ "$g10_2" != "1" ]; then
+    ng "[公式/PROGRAM] ${arm}: G10(画面に収まっていること)が偽(出力が画面に収まらなかった。gate_failed)"
+    official_program_gate_failed=$((official_program_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$line1" != "$line2" ]; then
+    ng "[公式/PROGRAM] ${arm}: G3決定論性が破れた(2走の記録が不一致。gate_failed)"
+    official_program_gate_failed=$((official_program_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  verdict="$(check_program_record_against_expected "$arm" "$EXPECTED_PROGRAMS" "$line1")"
+  case "$verdict" in
+    conform)
+      ok "[公式/PROGRAM] ${arm}: conform（2走一致・期待値とも一致）"
+      official_program_conform=$((official_program_conform + 1))
+      ;;
+    gate_failed)
+      ng "[公式/PROGRAM] ${arm}: 期待値に行が無い(gate_failed)"
+      official_program_gate_failed=$((official_program_gate_failed + 1))
+      overall_rc=1
+      ;;
+    *)
+      ng "[公式/PROGRAM] ${arm}: ${verdict}（再導出した記録が期待値と不一致）"
+      official_program_not_conform=$((official_program_not_conform + 1))
+      overall_rc=1
+      ;;
+  esac
+done
+
+say "公式ROM側の集計(PROGRAM場面)"
+echo "  conform: ${official_program_conform} / 8"
+echo "  not_conform: ${official_program_not_conform} / 8"
+echo "  gate_failed: ${official_program_gate_failed} / 8"
 
 if [ "$overall_rc" -eq 0 ]; then
   echo
