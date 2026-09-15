@@ -199,6 +199,196 @@ run("case_new_then_empty_list", "NEW\\nLIST\\n", [
 run("case_print_regress", "PRINT1\\n",
     [{"kind": "cmd", "out": 1, "texts": [" 1 "]}])
 
+# =======================================================================
+# M7段階5b: RUNとプログラムの実行(docs/spec/l4-program.md 第3版・cd6bc19
+# 第4節)。数値の書式は l4-basic.md 第2節(前置1桁+数字+後置空白1)を
+# そのまま使う(expect_num)。RUN自身も直接モードの行なので、出力は
+# 「run行のエコー→実行結果の出力→Ok」という直接モードの並びになる
+# (第4.1節)。
+# =======================================================================
+def expect_num(n):
+    if n < 0:
+        return "-" + str(-n) + " "
+    return " " + str(n) + " "
+
+
+# 4.1節: 行番号順の実行(B1)。
+run("case_b1_in_order", "NEW\\n10 print 1\\n20 print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), expect_num(2)]},
+])
+
+# 4.1節: GOTO(B6)。
+run("case_b6_goto", "NEW\\n10 goto 30\\n20 print 1\\n30 print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+
+# 4.1節: 空のプログラムのRUN(B12)は0行のまま。
+run("case_b12_empty_run", "NEW\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "cmd", "out": 0},
+])
+
+# 4.1節: RUNへの行番号指定(C9、starts_at_line)。
+run("case_c9_run_lineno", "NEW\\n10 print 1\\n20 print 2\\nRUN 20\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+
+# 4.2節: FORの回数(B2既定STEP+1・B3 STEP3)。
+run("case_b2_for_default_step", "NEW\\n10 for i=1 to 3\\n20 print i\\n30 next\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 3, "texts": [expect_num(1), expect_num(2), expect_num(3)]},
+])
+run("case_b3_for_step3", "NEW\\n10 for i=1 to 10 step 3\\n20 print i\\n30 next\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 4, "texts": [expect_num(1), expect_num(4), expect_num(7), expect_num(10)]},
+])
+
+# 4.2節: 開始が終了を最初から超えていれば本体を1回も実行しない(B4)。
+run("case_b4_for_skipped", "NEW\\n10 for i=3 to 1\\n20 print i\\n30 next i\\n40 print 9\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(9)]},
+])
+
+# 4.2節: ループ後の制御変数は終了値を1回超えた値のまま(C1、after_loop_4)。
+# ループ前の既存値はFORの初期化で上書きされる(C11)。
+run("case_c1_after_loop", "NEW\\n10 for i=1 to 3\\n20 next\\n30 print i\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(4)]},
+])
+run("case_c11_for_overwrites_existing", "NEW\\n10 i=10\\n20 for i=1 to 3\\n30 next\\n40 print i\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(4)]},
+])
+
+# 4.2a節: FORの入れ子とNEXTへの変数名(C2、nested_ok)。
+run("case_c2_nested_for", "NEW\\n10 for i=1 to 2\\n20 for j=1 to 2\\n30 print i*10+j;\\n40 next j\\n50 next i\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [
+        expect_num(11) + expect_num(12) + expect_num(21) + expect_num(22)
+    ]},
+])
+
+# 4.3節: GOSUB〜RETURN(B5、gosub_returns)。
+run("case_b5_gosub", "NEW\\n10 gosub 100\\n20 print 2\\n30 end\\n100 print 1\\n110 return\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), expect_num(2)]},
+])
+
+# 4.3節: GOSUBの入れ子(C10、nested_gosub_ok)。
+run("case_c10_nested_gosub", "NEW\\n10 gosub 30\\n20 end\\n30 gosub 50\\n40 return\\n50 print 5\\n60 return\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(5)]},
+])
+
+# 4.4節: 変数への代入・参照(B7・B8)。
+run("case_b7_var_assign", "NEW\\n10 a=5\\n20 print a*2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(10)]},
+])
+
+# 4.4a節: 変数名は少なくとも3文字目まで区別する(C3、more_significant)。
+run("case_c3_varname_distinct", "NEW\\n10 abc=1\\n20 abd=2\\n30 print abc\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(1)]},
+])
+
+# 4.4b節: 整数変数(%)への代入は半分を絶対値の大きい側へ丸める
+# (C4・C5・C12、rounds_half_away)。
+run("case_c4_percent_round", "NEW\\n10 a%=5/2\\n20 print a%\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(3)]},
+])
+run("case_c5_percent_round_neg", "NEW\\n10 a%=-5/2\\n20 print a%\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(-3)]},
+])
+run("case_c12_percent_round_half", "NEW\\n10 a=1\\n20 a%=a+0.5\\n30 print a%\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(2)]},
+])
+
+# 4.4d節: 文字列変数の基本動作(C8、string_ok)。
+run("case_c8_string_var", 'NEW\\n10 a$="12"\\n20 print a$\\nRUN\\n', [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": ["12"]},
+])
+
+# 4.5節: STOPはそこで止まり、以降の行は実行しない(B9)。文言は
+# errors.asmに無い独自の"Break"(仕様書に無い判断、run.asmヘッダ参照)
+# +" in "+行番号。
+run("case_b9_stop", "NEW\\n10 print 1\\n20 stop\\n30 print 2\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 2, "texts": [expect_num(1), "Break in 20"]},
+])
+
+# 4.5節: 実行中の構文の誤り(B10)。文言はl4-basic.md第7.1節(errors.asm)
+# +" in "+行番号(仕様書に無い判断、run.asmヘッダ参照)。
+run("case_b10_runtime_error", "NEW\\n10 print 1+\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": ["Missing operand in 10"]},
+])
+
 print()
 if FAILED:
     print("l4_program_selftest(python本体): NG")
