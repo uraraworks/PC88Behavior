@@ -635,11 +635,15 @@ run("case_g12_if_false_rest_skipped", "NEW\\n10 if 0 then print 1:print 2\\n20 p
 # INPUTがあれば続けて入力値)を流用する。1文字あたり8フレーム
 # (l4-s5a以来の前例)、余裕はいずれも既存の300フレームに合わせた。
 # =======================================================================
-def run_m7_5c2a(label, lines, checks, input_value=None):
+def run_m7_5c2a(label, lines, checks, input_value=None, attr_checks=None):
     """lines: プログラムの各行(行番号込み)。checks: [(絶対行, 期待文字列)]
     (絶対行0='Ok'〔1回目のcls〕・1='run'・2以降が出力、l4_program_
     typeplan.pyのsegment1/2と同じ並び)。input_valueがあればRUN後に
-    プロンプトを待たず追加で打鍵する(l4-s5eのE1/E2と同じ考え方)。"""
+    プロンプトを待たず追加で打鍵する(l4-s5eのE1/E2と同じ考え方)。
+    attr_checks: [(絶対行, 属性域内オフセット0-39, 期待バイト値)]
+    (l3-main.md第3節の(位置,値)組の生バイトを直接比べる。属性値は
+    ハードウェア設定値であって画面本文ではないため書いてよい、
+    docs/spec/l4-program.md第5節冒頭の注記どおり)。"""
     prog = "new\ncls\n" + "\n".join(lines) + "\ncls\n"
     type_at = 700
     seg1_end = type_at + 8 * len(prog)
@@ -677,6 +681,14 @@ def run_m7_5c2a(label, lines, checks, input_value=None):
         got = row_text(row, len(text))
         if got != text:
             fail(f"{label} row{row} got={got!r} exp={text!r}")
+
+    if attr_checks:
+        COLS = 80
+        for row, off, expect in attr_checks:
+            base = row * STRIDE + COLS + off
+            got = data[base]
+            if got != expect:
+                fail(f"{label} attr row{row} off{off} got=0x{got:02x} exp=0x{expect:02x}")
 
 
 # 4.13節E1: INPUT単一変数(21*2=42)。
@@ -730,6 +742,43 @@ run_m7_5c2a("case_h1_print_no_split_at_edge",
     (3, " 100 "),
     (4, "Ok"),
 ])
+
+# =======================================================================
+# M7段階5c-2b: LOCATE(第5.2節)・COLOR(第5.4節)。
+# =======================================================================
+
+# 5.2節F2: `locate 10,5:print 7`(絶対行5・絶対桁11=x+符号1桁)。
+run_m7_5c2a("case_f2_locate_xy", ["10 locate 10,5:print 7"], [
+    (0, "Ok"), (1, "run"),
+    (5, "          " + " 7 "),
+])
+
+# 5.2節F3: `locate 0,0:print 7`(原点、既存の'Ok'の上に上書き)。
+run_m7_5c2a("case_f3_locate_origin", ["10 locate 0,0:print 7"], [
+    (0, " 7 "),
+])
+
+# 5.2節F12: `print 1`/`print 2`/`locate 0,1:print 9`(既存の内容
+# 〔run行のエコー〕への上書き、3セルの変化)。LOCATEが最後の文で
+# カーソルを絶対行1へ戻すため、RUN完了時の'Ok'は(その位置から
+# NEWLINEした)絶対行2に出る——絶対行2/3のprint 1/print 2の痕跡は
+# 'Ok'に上書きされるため確かめない(仕様書は上書きそのものだけを
+# 観測しており、以後の行への影響は測定対象外)。
+run_m7_5c2a("case_f12_locate_overwrite",
+    ["10 print 1", "20 print 2", "30 locate 0,1:print 9"], [
+    (1, " 9 "),
+])
+
+# 5.4節F5/F6: `color 2`/`color 7`(属性域の値バイトに引数の値がそのまま
+# 入る)。値バイトは各(位置,値)組40バイト中の奇数オフセット(1バイト目
+# =位置0x80は不変、screen.asm COLOR_APPLY参照)。
+run_m7_5c2a("case_f5_color_2", ["10 color 2:print 7"], [
+    (0, "Ok"), (1, "run"), (2, " 7 "),
+], attr_checks=[(2, 0, 0x80), (2, 1, 0x02)])
+
+run_m7_5c2a("case_f6_color_7", ["10 color 7:print 7"], [
+    (0, "Ok"), (1, "run"), (2, " 7 "),
+], attr_checks=[(2, 0, 0x80), (2, 1, 0x07)])
 
 print()
 if FAILED:

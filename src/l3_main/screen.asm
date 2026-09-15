@@ -149,6 +149,68 @@ CLS_SCREEN:
     RET
 
 ; ---------------------------------------------------------------------
+; LOCATE_SET_CURSOR — M7段階5c-2b: `LOCATE`文の本体(docs/spec/
+;   l4-program.md 第5.2節「第1引数が桁(x)、第2引数が行(y)」)。
+;   入力: C=桁(x、0-255)・B=行(y、0-255)。範囲外は最大値へ丸める
+;   (仕様書に無い判断——第5.2節は原点と1点の座標しか確認しておらず、
+;   範囲外の扱いは未確定。既存のUSABLE_ROWS/COLSの境界に合わせて
+;   単純に丸める)。VAR_ROWBASEを引数の行から作り直し、既存行への
+;   上書き(F12「変化前のセルは空白ではなかった」)を再現する——
+;   本ルーチンは文字/属性を一切書き換えず、続くPRINTが上書きする。
+;   破壊: AF,BC,DE,HL。
+; ---------------------------------------------------------------------
+LOCATE_SET_CURSOR:
+    LD A,C
+    CP COLS
+    JR C,_lsc_col_ok
+    LD A,COLS-1
+_lsc_col_ok:
+    LD (VAR_COL),A
+    LD A,B
+    CP USABLE_ROWS
+    JR C,_lsc_row_ok
+    LD A,USABLE_ROWS-1
+_lsc_row_ok:
+    LD (VAR_ROW),A
+    LD DE,TEXT_BASE
+    OR A
+    JR Z,_lsc_rowbase_done
+    LD B,A
+_lsc_rowloop:
+    LD HL,STRIDE
+    ADD HL,DE
+    EX DE,HL
+    DJNZ _lsc_rowloop
+_lsc_rowbase_done:
+    LD (VAR_ROWBASE),DE
+    RET
+
+; ---------------------------------------------------------------------
+; COLOR_APPLY — M7段階5c-2b: `COLOR`文の本体(docs/spec/l4-program.md
+;   第5.4節「COLORの引数の値は、属性域の(位置,値)組の値バイトにそのまま
+;   入る」)。入力: A=属性値(0-255、下位1バイトだけを使う。引数の範囲・
+;   色の意味は未確定、第5.4節・第8節)。
+;   現在行(VAR_ROWBASE)の属性域(COLS〜COLS+ATTR_BYTES-1)を
+;   20組×(位置0x80,値=A)で塗り直す。仕様書に無い判断: 効果は呼び出し
+;   時点の「現在行」だけに限る(以後の行・スクロール・CLSの既定色を
+;   変える恒常状態は持たせない——第5.4節はCOLOR実行後に同じ行へ
+;   PRINTした結果しか確認しておらず、以後の行への影響は未測定)。
+;   破壊: AF,BC,DE,HL。
+; ---------------------------------------------------------------------
+COLOR_APPLY:
+    LD HL,(VAR_ROWBASE)
+    LD DE,COLS
+    ADD HL,DE
+    LD B,20
+_ca_loop:
+    LD (HL),080h
+    INC HL
+    LD (HL),A
+    INC HL
+    DJNZ _ca_loop
+    RET
+
+; ---------------------------------------------------------------------
 ; PRINT_STR — HL=0終端文字列の先頭。1文字ずつ PRINT_CHAR へ渡す
 ; ---------------------------------------------------------------------
 PRINT_STR:

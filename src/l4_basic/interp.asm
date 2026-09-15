@@ -278,6 +278,10 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_cont
     CP 5
     JR Z,_l4dl_call_cls
+    CP 6
+    JR Z,_l4dl_call_locate
+    CP 7
+    JR Z,_l4dl_call_color
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -294,6 +298,12 @@ _l4dl_call_cont:
     JR _l4dl_after_stmt
 _l4dl_call_cls:
     CALL CLS_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_locate:
+    CALL LOCATE_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_color:
+    CALL COLOR_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -373,8 +383,26 @@ _l4msk_try_cls:
     ; コマンドとしても文としても使える(CLS_STMTが本体、run.asm)。
     CALL TRY_MATCH_CLS
     OR A
-    RET Z
+    JR Z,_l4msk_try_locate
     LD A,5
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_locate:
+    ; M7段階5c-2b追記: LOCATE(第5.2節)・COLOR(第5.4節)も、CLSと同じく
+    ; 直接モードのコマンドとしても文としても使える。
+    CALL TRY_MATCH_LOCATE
+    OR A
+    JR Z,_l4msk_try_color
+    LD A,6
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_color:
+    CALL TRY_MATCH_COLOR
+    OR A
+    RET Z
+    LD A,7
     LD (STMT_KIND),A
     LD A,1
     RET

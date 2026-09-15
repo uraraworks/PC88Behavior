@@ -205,6 +205,11 @@ RUN_ARRAY_ASSIGN_ADDR EQU 0DEBDh ; 2B 左辺の配列要素アドレス(右辺�
                                  ; 参照)
 ; 終端 = DEBD+2 = DEBFh(まだ0xE800より十分手前)
 
+; ---- M7段階5c-2b: LOCATE文の第1引数(桁)の一時退避 ----
+RUN_LOCATE_COL        EQU 0DEBFh ; 1B LOCATE文の第1引数(桁)を、第2引数
+                                 ; (行)を評価する間退避しておく(第5.2節)。
+                                 ; 終端 = DEBF+1 = DEC0h
+
 ; =======================================================================
 ; LEX_IDENT_PEEK — CUR_PTR位置から識別子(英字1文字+英数字*、末尾に
 ;   任意で%/$/#を1つ)を読み取る(CUR_PTRは進めない)。
@@ -2231,6 +2236,53 @@ CLS_STMT:
     RET
 
 ; =======================================================================
+; M7段階5c-2b: LOCATE(第5.2節「第1引数が桁(x)、第2引数が行(y)」)。
+;   本体はl3_main/screen.asmのLOCATE_SET_CURSORへ委ねる(範囲外の丸め等は
+;   そちら参照)。CLSと同じく直接モード・プログラム中の文の両方から使う。
+; =======================================================================
+LOCATE_STMT:
+    CALL PARSE_INT_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,E
+    LD (RUN_LOCATE_COL),A
+    LD A,','
+    CALL EXPECT_CHAR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL PARSE_INT_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(RUN_LOCATE_COL)
+    LD C,A
+    LD A,E
+    LD B,A
+    CALL LOCATE_SET_CURSOR
+    XOR A
+    LD (ERROR_FLAG),A
+    LD (RUN_CTRL),A
+    RET
+
+; =======================================================================
+; M7段階5c-2b: COLOR(第5.4節「引数の値が属性域の値バイトにそのまま
+;   入る」)。本体はl3_main/screen.asmのCOLOR_APPLYへ委ねる。
+; =======================================================================
+COLOR_STMT:
+    CALL PARSE_INT_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,E
+    CALL COLOR_APPLY
+    XOR A
+    LD (ERROR_FLAG),A
+    LD (RUN_CTRL),A
+    RET
+
+; =======================================================================
 ; M7段階5c-2a: INPUT(第4.13節)。プロンプトを出し、打った1行を','で
 ;   区切って変数へ入れる。プロンプトの記号("? ")は仕様書が記録していない
 ;   ため仕様書に無い判断(禁止事項7、一般的なBASICの慣例を採用)。
@@ -2570,8 +2622,25 @@ _rmsk_try_cls:
 _rmsk_try_input:
     CALL TRY_MATCH_INPUT
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_locate
     LD A,16
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+; M7段階5c-2b追記: LOCATE(第5.2節)・COLOR(第5.4節)も、代入へ落ちる前に照合する。
+_rmsk_try_locate:
+    CALL TRY_MATCH_LOCATE
+    OR A
+    JR Z,_rmsk_try_color
+    LD A,17
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_color:
+    CALL TRY_MATCH_COLOR
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,18
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2655,6 +2724,10 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_cls
     CP 16
     JR Z,_reos_input
+    CP 17
+    JR Z,_reos_locate
+    CP 18
+    JR Z,_reos_color
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2694,6 +2767,10 @@ _reos_cls:
     JP CLS_STMT
 _reos_input:
     JP INPUT_STMT
+_reos_locate:
+    JP LOCATE_STMT
+_reos_color:
+    JP COLOR_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
@@ -3550,6 +3627,26 @@ STMT_INPUT_TEXT: DB "INPUT"
 STMT_INPUT_LEN EQU 5
 STMT_CONT_TEXT: DB "CONT"
 STMT_CONT_LEN EQU 4
+
+; M7段階5c-2b: LOCATE(第5.2節)・COLOR(第5.4節)。CLS/INPUTと同じく
+;   直接モードのコマンドとしても文としても使う。
+TRY_MATCH_LOCATE:
+    LD HL,STMT_LOCATE_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_LOCATE_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_LOCATE_TEXT: DB "LOCATE"
+STMT_LOCATE_LEN EQU 6
+
+TRY_MATCH_COLOR:
+    LD HL,STMT_COLOR_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_COLOR_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_COLOR_TEXT: DB "COLOR"
+STMT_COLOR_LEN EQU 5
 
 ; TRY_MATCH_REM_ANY — "REM"またはシングルクォート"'"(6.7節)。
 TRY_MATCH_REM_ANY:
