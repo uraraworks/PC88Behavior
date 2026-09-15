@@ -200,6 +200,45 @@ def _magnitude_drep10a(digits: str, net_exp: int) -> Fraction:
 
 
 # ---------------------------------------------------------------------------
+# l4-s4l v2訂正: 親の手検算で、l4-s4l候補表v1(23ad7ea)のDREP10E/DREP10A列が
+# 「式の左の定数だけ候補の読み方(even/away)を当て、右の長い整数はaway固定
+# (=DREP01/DEXACT/DGWと同じ、l4-s4k以来の既定)で読んでいた」ことが分かった
+# (_magnitude_drep10の数字積み上げが_round_even_frac固定だったため)。
+# 候補DREP10E/DREP10Aは「N88がすべての定数をどう読むか」の候補なので、
+# 式に出てくるどの定数(桁数の多い整数を含む)にも同じ読み方を一貫して
+# 当てる必要がある。_magnitude_drep10(v1)はtools/gen_l4_s4l_candidates.py/
+# tools/gen_l4_s4l_controls.py(v1)が使い続けるので変更しない
+# (v1のtsvを1バイトも変えないため)。v2はここに独立した関数を追加する。
+#
+# v2の定義: 数字の積み上げは常にround-half-away(DREP01/DEXACT/DGWと同じ
+# 既定、l4-s4hの仮定をそのまま踏襲)。指数適用の×10/真の÷10の反復だけが
+# DREP10E(even)/DREP10A(away)でわかれる(ここはv1と同じ)。
+# ---------------------------------------------------------------------------
+
+
+def _magnitude_drep10_v2(digits: str, net_exp: int, variant: str) -> Fraction:
+    acc = Fraction(0)
+    for ch in digits or "0":
+        acc = _round_away_frac(acc * 10)
+        acc = _round_away_frac(acc + int(ch))
+    if net_exp > 0:
+        for _ in range(net_exp):
+            acc = _round_variant_frac(acc * 10, variant)
+    elif net_exp < 0:
+        for _ in range(-net_exp):
+            acc = _round_variant_frac(acc / 10, variant)
+    return acc
+
+
+def _magnitude_drep10e_v2(digits: str, net_exp: int) -> Fraction:
+    return _magnitude_drep10_v2(digits, net_exp, "even")
+
+
+def _magnitude_drep10a_v2(digits: str, net_exp: int) -> Fraction:
+    return _magnitude_drep10_v2(digits, net_exp, "away")
+
+
+# ---------------------------------------------------------------------------
 # 定数の字句解析(倍精度専用の軽量版。符号・桁文字列・小数点以下の桁数・
 # 指数だけを取り出す。丸め方自体には関与しない)。
 # ---------------------------------------------------------------------------
@@ -264,6 +303,8 @@ _MODELS = {
     "drep01": _magnitude_drep01,
     "drep10e": _magnitude_drep10e,
     "drep10a": _magnitude_drep10a,
+    "drep10e_v2": _magnitude_drep10e_v2,
+    "drep10a_v2": _magnitude_drep10a_v2,
 }
 
 
