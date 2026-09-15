@@ -20,6 +20,7 @@
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
 | 第1版 | 2026-09-15 | 仕様セッション | 起草。`l4-s3a`（直接モードPRINTの出力の形）の測定結果から、直接モードの行の並び・PRINTの整数/文字列/区切り記号の書式・構文の誤りの節を作った |
+| 第1.1版 | 2026-09-15 | 開発者判断 | 構文の誤りのメッセージの文言は、測定（禁止事項7によりROM画面本文を扱わない）ではなく**マニュアルのエラーメッセージ一覧**（言語仕様の資料）から採ると判断し、第6節に一覧を追記。第9節の該当項を「未確定」から「資料の記載に置き換え、一致確認のみ未確定」に更新 |
 
 ---
 
@@ -31,6 +32,7 @@
 | 判定・記述（直接モードPRINTの書式） | `docs/notes/l4-s3a-print-format-results.md`（`497ff8c`。判定 Q1=`sign_space_before`／後置は`other`＋P3-semi-numでの間接確認、Q3=`no_suppress`/`suppresses_between`/`newline_not_suppressed`/`zone_14`、Q2・Q4・Q5は記述のみ） |
 | 事前登録（直接モードPRINTの書式） | `docs/notes/l4-s3a-print-format-preregistration.md`（`65ee97b`） |
 | 資料の記載（PRINT/LPRINTの言語仕様） | `refs/manual_squashed.txt` 2-183（PRINT/LPRINTの項の本文のみ。`l4-s3a-print-format-preregistration.md`「位置づけ」節に引用済み） |
+| 資料の記載（エラーメッセージ番号・文言） | `refs/manual.txt`（1125〜1161行目）・`refs/manual_squashed.txt`（同内容の突き合わせ）「資料6 エラーメッセージ」の項、頁 資ー6〜資ー18（抽出元PDF頁382〜393）。`docs/notes/refs-manual-error-messages.md` に読んだ範囲を記録 |
 | 画面出力・行入力・スクロール・キー入力・VRAM構造 | [l3-main.md](l3-main.md) 第3版（参照のみ、本書では書き写さない） |
 | 語の一覧・トークン番号の規則 | `docs/notes/l4-design.md`・`docs/notes/l4-token-design.md`（末尾2件の追記を含む）。語の一覧そのものは並行担当が抽出中の `src/l4_basic/keywords.tsv` に従う（本書では参照のみ、番号表そのものは書かない） |
 | 条件 | 公式ROM一式、ディスク無し、コア既定 N88 V2、既定DIP。表示行数20行（[l3-main.md](l3-main.md)踏襲） |
@@ -145,9 +147,79 @@ P1-0・P1-1・P1-7・P1-10・P1-32767の5腕で、出力行の相対列0が変�
 - 数値を出力した場合、その後ろには1文字の空白が挿入される。また、数値の前
   には符号のための桁を確保する（正の数のとき空白、負の数のとき`-`となる）。
 
-エラーメッセージの文言そのもの（第5節）については、この版ではマニュアルの
-エラーメッセージ一覧を資料として使うかどうかは実装段階の判断とする。本書の
-材料にはエラーメッセージの頁の記載が含まれていないため、頁番号は書かない。
+### 6.1 エラーメッセージの番号と文言（開発者判断、第1.1版で追記）
+
+**開発者判断（2026-09-15）**: 自作BASICが構文の誤り等で出すメッセージの文言は、
+測定（第5節。ROM画面本文にあたるため禁止事項7の対象で扱っていない）ではなく、
+以下のマニュアルのエラーメッセージ一覧（言語仕様の資料）から採る。
+根拠は `refs/manual.txt` 1125〜1161行目「資料6 エラーメッセージ」、頁
+資ー6〜資ー18（抽出元PDF頁382〜393）。**写したのは番号とメッセージ本体
+（英語表記）だけで、各エラーの意味・原因・解説の説明文は写していない。**
+読んだ範囲・OCR崩れの補正方針は `docs/notes/refs-manual-error-messages.md` に記録した。
+
+エラー番号を持たない特殊メッセージ2件（`?Redo from start`、
+`n copies of allocation bad on drive`）は、資料自身が「エラーメッセージでは
+ない（`ON ERROR GOTO`で捕まらない）」と明記しているため、この表には含めない。
+
+| 番号 | メッセージ |
+|---|---|
+| 1 | NEXT without FOR |
+| 2 | Syntax error |
+| 3 | RETURN without GOSUB |
+| 4 | Out of DATA |
+| 5 | Illegal function call |
+| 6 | Overflow |
+| 7 | Out of memory |
+| 8 | Undefined line number |
+| 9 | Subscript out of range |
+| 10 | Duplicate Definition |
+| 11 | Division by zero |
+| 12 | Illegal direct |
+| 13 | Type mismatch |
+| 14 | Out of string space |
+| 15 | String too long |
+| 16 | String formula too complex |
+| 17 | Can't continue |
+| 18 | Undefined user function |
+| 19 | No RESUME |
+| 20 | RESUME without error |
+| 21 | Unprintable error |
+| 22 | Missing operand |
+| 23 | Line buffer overflow |
+| 26 | FOR without NEXT |
+| 27 | Tape read ERROR |
+| 29 | WHILE without WEND |
+| 30 | WEND without WHILE |
+| 31 | Duplicate label |
+| 32 | Undefined label |
+| 33 | Feature not available |
+| 50 | FIELD overflow |
+| 51 | Internal error |
+| 52 | Bad file number |
+| 53 | File not found |
+| 54 | File already open |
+| 55 | Input past end |
+| 56 | Bad file name |
+| 57 | Direct statement in file |
+| 58 | Sequential after PUT |
+| 59 | Sequential I/O only |
+| 60? | File not OPEN（マニュアルの番号表記が`[GO]`と読め、数字か確信が持てない。`docs/notes/refs-manual-error-messages.md`参照） |
+| 61 | File write protected |
+| 62 | Disk offline |
+| 64 | Disk I/O error |
+| 65 | File already exists |
+| 68 | Disk full |
+| 69 | Bad allocation table |
+| 70 | Bad drive number |
+| 71 | Bad track/sector |
+| 72 | Deleted record |
+| 73 | Rename across disks |
+
+**この一覧の文言が実機・エミュレータの実際の画面表示と一致するかは、本版では
+確認していない（未確定、第9節）。** 第5節の測定（構文の誤りの出力の行数・
+セル件数・位置範囲）とこの一覧は独立の材料であり、測定は構文の誤りの外形
+だけを、この一覧は文言だけを扱う。実装はこの一覧の文言をそのまま使ってよいが、
+一致の確認は別途行う。
 
 ## 7. 参照 — 語の一覧・トークン番号の規則
 
@@ -184,9 +256,11 @@ PRINT以外の命令語・関数語の一覧および番号の割り当ては、
 1. 負の数の後ろの空白の有無（第2節）。
 2. 行末の`;`・`,`による改行の抑止効果そのもの（別々の直接モード文2つに
    分けた構成では、`Ok`の改行に隠れて直接確認できていない。第4節）。
-3. 構文の誤りのメッセージの文言（禁止事項7によりこの版では扱わない。資料
-   〔マニュアルのエラーメッセージ一覧〕を使うかどうかは実装段階の判断。
-   第5・6節）。
+3. 構文の誤りのメッセージの文言そのものは、開発者判断により第6.1節の
+   マニュアルのエラーメッセージ一覧から採ることに決めた（禁止事項7により
+   測定では扱わない、第5節）。**未確定として残るのは、この一覧の文言が
+   実機・エミュレータの実際の画面表示と一致するかどうかの確認だけ**
+   （本版では未実施）。
 4. 整数の範囲外の扱い、浮動小数点の`PRINT`（段階4、GW-BASIC数値部移植後の
    対象）。
 5. `PRINT`以外の命令（構文・書式とも本書の対象外）。
