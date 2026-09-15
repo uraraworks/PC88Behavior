@@ -847,3 +847,270 @@ _i2s_normed:
     XOR A
     LD (BIG_M0),A
     JP MBF_PACK_RES
+
+; =======================================================================
+; MBF_MUL — MBF_RES = MBF_OPA * MBF_OPB（単精度）。MBF_STATUS を設定する。
+;
+; $FMULS (MATH2.ASM 408-490) の再現。単精度乗算は加減算・除算と違って
+; 「厳密値を求めて1回偶数丸め」とは等価ではない——8086実装は24bit×24bitの
+; 厳密48bit積のうち下位16bitをスティッキーへ畳み込まずにそのまま捨てる
+; (MATH2.ASM 449-450 "MUL DX;MOV CX,DX"で最初の部分積の下位ワードを保存せず
+; 破棄している)。さらに丸め自体も $ROUNS/$ROUNM (MATH2.ASM 1764-1807) の
+; "AND AH,LOW 340"（ガードバイトの下位5bitを捨ててからタイ判定）により、
+; 加減算より粗い。この2点は tools/l4_mbf_oracle_v2.py
+; （_single_multiply_mantissa/_rouns_from_guard32、モジュール docstring
+; 1番）で命令単位の確認済み事項として記録されている。ここではその確認済みの
+; 挙動を、Z80の24bit×24bit shift-add乗算＋粗いROUNS丸めとして独自に
+; 組み直した（8086命令列の行単位の写経ではない）。
+;
+; 指数計算 $AEXPS (MATH1.ASM 2913-2970): final_exp = eA+eB-257
+; （8bit指数バイト同士の和を9bit精度(0-510)のまま扱う必要があるため、
+; Z80では16bit加算で行う=仕様書に無い判断。8086はAXレジスタで自然に
+; 9bit精度が出るが、Z80の8bit ADDでは桁あふれが検出できないため）。
+; =======================================================================
+MUL_R5 EQU 0xC040  ; 48bit積（MSB）。R5,R4,R3,R2が上位32bit(丸め対象)。
+MUL_R4 EQU 0xC041
+MUL_R3 EQU 0xC042
+MUL_R2 EQU 0xC043
+MUL_R1 EQU 0xC044
+MUL_R0 EQU 0xC045  ; LSB。丸めに一切使わず捨てる(8086実装の忠実な再現)。
+MUL_C5 EQU 0xC046  ; シフトしながら加算する被乗数(mf24を6byteに拡張)
+MUL_C4 EQU 0xC047
+MUL_C3 EQU 0xC048
+MUL_C2 EQU 0xC049
+MUL_C1 EQU 0xC04A
+MUL_C0 EQU 0xC04B
+WK_S   EQU 0xC04C  ; eA+eB (2バイト、0..510)
+
+MBF_MUL:
+    XOR A
+    LD (MBF_STATUS),A
+    CALL MBF_UNPACK_A
+    CALL MBF_UNPACK_B
+
+    LD A,(UA_EXP)
+    OR A
+    JR NZ,_mul_a_nonzero
+    JP _mul_zero
+_mul_a_nonzero:
+    LD A,(UB_EXP)
+    OR A
+    JR NZ,_mul_both_nonzero
+    JP _mul_zero
+
+_mul_both_nonzero:
+    ; 符号
+    LD A,(UA_SIGN)
+    LD B,A
+    LD A,(UB_SIGN)
+    XOR B
+    LD (RES_SIGN),A
+
+    ; S = eA+eB (0..510)
+    LD A,(UA_EXP)
+    LD H,0
+    LD L,A
+    LD A,(UB_EXP)
+    LD D,0
+    LD E,A
+    ADD HL,DE
+    LD (WK_S),HL
+
+    ; オーバーフロー判定: S>=385 (raw=S-257>=128)
+    LD DE,385
+    OR A
+    SBC HL,DE
+    JR C,_mul_no_overflow
+    JP MBF_PACK_OVERFLOW
+_mul_no_overflow:
+    ; ゼロ判定: S<129 (raw=S-257<-128)
+    LD HL,(WK_S)
+    LD DE,129
+    OR A
+    SBC HL,DE
+    JR NC,_mul_have_base_exp
+    JP _mul_zero
+_mul_have_base_exp:
+    ; HL = S-129 = final_exp_before_adj (0..255)
+    ; $AEXPS は raw=-128(S=129)ちょうどのとき通常どおり final_exp=0 を返すが、
+    ; $FMULS 側はここで即ゼロ扱いにして戻る(仮数の正規化・丸めによる
+    ; exp_adj/繰り上がりを一切見ない。tools/l4_mbf_oracle_v2.py
+    ; gw_mul_single の "if final_exp == 0: return ...Fraction(0)..." と同じ)。
+    ; 仮数側の丸めで指数が0から1以上へ動く余地を先に断つ必要がある。
+    LD A,L
+    OR A
+    JP Z,_mul_zero
+    LD (RES_EXP),A          ; 一時的にRES_EXPへ置く(下でexp_adj/carryを加算)
+
+    ; --- 24bit×24bit shift-add乗算 ---
+    XOR A
+    LD (MUL_R5),A
+    LD (MUL_R4),A
+    LD (MUL_R3),A
+    LD (MUL_R2),A
+    LD (MUL_R1),A
+    LD (MUL_R0),A
+    LD A,(UA_M0)
+    LD (MUL_C0),A
+    LD A,(UA_M1)
+    LD (MUL_C1),A
+    LD A,(UA_M2)
+    LD (MUL_C2),A
+    XOR A
+    LD (MUL_C3),A
+    LD (MUL_C4),A
+    LD (MUL_C5),A
+
+    LD B,24
+_mul_loop:
+    ; UB_M2:UB_M1:UB_M0 (24bit, M2=MSB) を右へ1、落ちたbit0をCFへ
+    LD A,(UB_M2)
+    SRL A                     ; 最初のシフトはbit7に強制的に0が入る(SRL)
+    LD (UB_M2),A
+    LD A,(UB_M1)
+    RRA
+    LD (UB_M1),A
+    LD A,(UB_M0)
+    RRA
+    LD (UB_M0),A
+    JR NC,_mul_no_add
+    ; MUL_R(6byte) += MUL_C(6byte)  (LSBから)
+    LD A,(MUL_R0)
+    LD C,A
+    LD A,(MUL_C0)
+    ADD A,C
+    LD (MUL_R0),A
+    LD A,(MUL_R1)
+    LD C,A
+    LD A,(MUL_C1)
+    ADC A,C
+    LD (MUL_R1),A
+    LD A,(MUL_R2)
+    LD C,A
+    LD A,(MUL_C2)
+    ADC A,C
+    LD (MUL_R2),A
+    LD A,(MUL_R3)
+    LD C,A
+    LD A,(MUL_C3)
+    ADC A,C
+    LD (MUL_R3),A
+    LD A,(MUL_R4)
+    LD C,A
+    LD A,(MUL_C4)
+    ADC A,C
+    LD (MUL_R4),A
+    LD A,(MUL_R5)
+    LD C,A
+    LD A,(MUL_C5)
+    ADC A,C
+    LD (MUL_R5),A
+_mul_no_add:
+    ; MUL_C(6byte) を左へ1 (LSBから)
+    XOR A
+    LD A,(MUL_C0)
+    SLA A
+    LD (MUL_C0),A
+    LD A,(MUL_C1)
+    RLA
+    LD (MUL_C1),A
+    LD A,(MUL_C2)
+    RLA
+    LD (MUL_C2),A
+    LD A,(MUL_C3)
+    RLA
+    LD (MUL_C3),A
+    LD A,(MUL_C4)
+    RLA
+    LD (MUL_C4),A
+    LD A,(MUL_C5)
+    RLA
+    LD (MUL_C5),A
+    DEC B
+    JP NZ,_mul_loop
+
+    ; 上位32bit(MUL_R5:R4:R3:R2)だけを見る。下位16bit(R1,R0)は完全に破棄
+    ; (スティッキーへも畳み込まない。$FMULSの忠実な再現)。
+    LD A,(MUL_R5)
+    BIT 7,A
+    JR NZ,_mul_p32_asis
+    ; bit31=0 -> 32bit左へ1 (BIG_M2,M1,M0,MGの並びに合わせてR2,R3,R4,R5を使う)
+    XOR A
+    LD A,(MUL_R2)
+    SLA A
+    LD (BIG_MG),A
+    LD A,(MUL_R3)
+    RLA
+    LD (BIG_M0),A
+    LD A,(MUL_R4)
+    RLA
+    LD (BIG_M1),A
+    LD A,(MUL_R5)
+    RLA
+    LD (BIG_M2),A
+    JR _mul_have_m32
+_mul_p32_asis:
+    LD A,(MUL_R2)
+    LD (BIG_MG),A
+    LD A,(MUL_R3)
+    LD (BIG_M0),A
+    LD A,(MUL_R4)
+    LD (BIG_M1),A
+    LD A,(MUL_R5)
+    LD (BIG_M2),A
+    ; exp_adjを+1（bit31が既に1だった=正規化で1桁シフト分の指数調整）
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JR NZ,_mul_have_m32
+    JP MBF_PACK_OVERFLOW     ; RES_EXPが256へ桁あふれ=オーバーフロー
+
+_mul_have_m32:
+    ; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0
+    LD A,(BIG_MG)
+    AND 0xE0
+    JR Z,_mul_round_down
+    CP 0x80
+    JR C,_mul_round_down     ; masked<0x80 -> 切り捨て
+    JR NZ,_mul_round_up      ; masked>0x80 -> 切り上げ
+    ; masked==0x80 ちょうど: 偶数丸め(候補仮数の最下位ビット=BIG_M0 bit0)
+    LD A,(BIG_M0)
+    BIT 0,A
+    JR Z,_mul_round_down
+_mul_round_up:
+    LD A,(BIG_M0)
+    INC A
+    LD (BIG_M0),A
+    JR NZ,_mul_round_down
+    LD A,(BIG_M1)
+    INC A
+    LD (BIG_M1),A
+    JR NZ,_mul_round_down
+    LD A,(BIG_M2)
+    INC A
+    LD (BIG_M2),A
+    JR NZ,_mul_round_down
+    LD A,0x80
+    LD (BIG_M2),A
+    XOR A
+    LD (BIG_M1),A
+    LD (BIG_M0),A
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JR Z,_mul_overflow_now
+_mul_round_down:
+    LD A,(RES_EXP)
+    OR A
+    JP NZ,MBF_PACK_RES
+    ; final_expがちょうど0まで落ちた(丸め・正規化のどちらでも加算されなかった)
+    ; -> ゼロ
+    JP _mul_zero
+_mul_overflow_now:
+    JP MBF_PACK_OVERFLOW
+
+_mul_zero:
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES

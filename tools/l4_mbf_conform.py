@@ -400,9 +400,21 @@ FAULT_STICKY_NEW = "_add_shift_nostick:"  # 整列シフトで落ちたbitをス
 FAULT_ROUND_TRUNCATE_OLD = "_add_round:\n    ; guard = BIG_MG。"
 FAULT_ROUND_TRUNCATE_NEW = "_add_round:\n    JP _add_round_down\n    ; guard = BIG_MG。"
 
+FAULT_MUL_COARSE_OLD = (
+    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0\n"
+    "    LD A,(BIG_MG)\n"
+    "    AND 0xE0"
+)
+FAULT_MUL_COARSE_NEW = (
+    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0\n"
+    "    LD A,(BIG_MG)\n"
+    "    AND 0xFF"  # 故障注入: 下位5bitをマスクしない(=粗いタイ判定を外す)
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
+    "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
 }
 
 
