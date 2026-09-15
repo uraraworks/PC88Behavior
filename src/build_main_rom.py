@@ -115,6 +115,28 @@ CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP\n    NOP\n    NO
 CURSOR_FAULT_OLD = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    OUT (50h),A"
 CURSOR_FAULT_NEW = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    INC A\n    OUT (50h),A"
 
+# M7段階3b追記2: 故障注入（SPACE(09H:6)のエコー前進を無効化し、段階3b
+# までの「SPACEは書かない」変種へ戻す。l3-main.md 第9節末尾の追記の
+# 検出力の陰性対照）。SPACE判定のビット比較先を存在しない値(7、
+# SPACE_BITは6)に変え、_kr_not_space側へ必ず抜けさせる(分岐そのものを
+# 削ると別の構造に化けるため、判定条件だけを外す)。抜けた後は通常の
+# コード表参照に進むが、port 0x09 は BASE_CODE_TAB 等どの表にも
+# エントリが無い(0x00=無視)ため、結果的に元の「無視する」挙動に戻る。
+KEYBOARD_SPACE_FAULT_OLD = (
+    "    LD A,C\n"
+    "    CP SPACE_PORT\n"
+    "    JR NZ,_kr_not_space\n"
+    "    LD A,B\n"
+    "    CP SPACE_BIT"
+)
+KEYBOARD_SPACE_FAULT_NEW = (
+    "    LD A,C\n"
+    "    CP SPACE_PORT\n"
+    "    JR NZ,_kr_not_space\n"
+    "    LD A,B\n"
+    "    CP 7"
+)
+
 # 故障注入（tools/l3_main_selftest.sh の陰性対照用）。BASE_CODE_TAB の
 # Q(04H:1、l3-main.md第9節)の1エントリだけを変える
 # （tools/gen_l3_key_table.py --check で検査済みの表を、生成後に
@@ -168,6 +190,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_l4_sign_space_fault: bool = False,
                         inject_l4_zone_width_fault: bool = False,
                         inject_l4_token_fault: bool = False,
+                        inject_l3_space_fault: bool = False,
                         enable_l4_selftest: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -214,6 +237,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if keyboard_text.count(CURSOR_FAULT_OLD) != 1:
             raise SystemExit("カーソル故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
         keyboard_text = keyboard_text.replace(CURSOR_FAULT_OLD, CURSOR_FAULT_NEW)
+    if inject_l3_space_fault:
+        if keyboard_text.count(KEYBOARD_SPACE_FAULT_OLD) != 1:
+            raise SystemExit("SPACE故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
+        keyboard_text = keyboard_text.replace(KEYBOARD_SPACE_FAULT_OLD, KEYBOARD_SPACE_FAULT_NEW)
 
     screen_path = work / "screen_gen.asm"
     screen_path.write_text(screen_text, encoding="utf-8")
@@ -330,6 +357,9 @@ def main():
                      help="故障注入: PRINTのゾーン幅を14から10へ変える（自己検査の陰性対照専用）")
     ap.add_argument("--inject-l4-token-fault", action="store_true",
                      help="故障注入: L4_TOKEN_TABLE(ABS)のトークン値を1つずらす（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-l3-space-fault", action="store_true",
+                     help="故障注入: SPACE(09H:6)のエコー前進を無効化し、段階3bまでの"
+                          "「書かない」変種へ戻す（自己検査の陰性対照専用）")
     ap.add_argument("--enable-l4-selftest", action="store_true",
                      help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
                           "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
@@ -362,7 +392,8 @@ def main():
                                        args.inject_l4_sign_space_fault,
                                        args.inject_l4_zone_width_fault,
                                        args.inject_l4_token_fault,
-                                       args.enable_l4_selftest)
+                                       inject_l3_space_fault=args.inject_l3_space_fault,
+                                       enable_l4_selftest=args.enable_l4_selftest)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)

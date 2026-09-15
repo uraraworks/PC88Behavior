@@ -35,6 +35,29 @@
 ;   - 内部行バッファ（LINE_BUF、80バイト）を超える入力は、画面には
 ;     エコーするが内部バッファには格納しない（BASICが無い現段階の最小実装。
 ;     RETURN時にオーバーフロー分はそのまま捨てる）。
+;
+; M7段階3b追記2 — SPACE(09H:6)の扱い。l3-main.md 第3.1版第9節末尾の
+; 追記により、打った行のエコーでSPACEを押すとカーソルが1桁進むという
+; 観測が加わった（段階3bまでの本実装はSPACEを「書かない」＝無視する
+; 選択で、この前進を実装していなかった）。ただし同節は「0x20を書いて
+; 進むのか、書かずに進むだけなのかは区別できない」とも明記している。
+;   - **この実装は「0x20を書いて進む」を選ぶ**（選択、仕様書に無い）。
+;     理由: 通常の文字キーと同じ LINE_PUTCHAR(エコー+行バッファ格納)を
+;     そのまま再利用でき、実装が単純になる。加えて interp.asm の
+;     SKIP_SPACES（l4_basic側、直接モードのPRINT解析）は既に行バッファ
+;     中の 0x20 をスキップする設計になっており、SPACEが行バッファへ
+;     0x20 を積む前提と自然に噛み合う。
+;   - **行バッファにも0x20を1文字として積む**（LINE_PUTCHARをそのまま
+;     通すため）。`PRINT 1` のように打った場合、行バッファは
+;     "PRINT 1"（0x20を含む8バイト）になり、DIRECT_LINE/PRINT_STMTの
+;     SKIP_SPACESがこの0x20を読み飛ばして"1"を数値として解釈する
+;     （BASICの字句解析が空白を意味の無い区切りとして扱うことと整合）。
+;   - SPACEと修飾(SHIFT等)の組は、l3-main.md 第9節・第10節のどちらの
+;     表にも 09:6 の行が無い（無修飾コード表(第9節)にも修飾表(第10節)
+;     にも含まれない）。この実装は指示どおり「表に無ければ無視」を
+;     採り、修飾キーの状態に関わらず常にこの既定の0x20前進を行う
+;     （後述のとおりモディファイア判定より前で分岐し、通常のコード表
+;     参照には進まない）。
 
 KEY_PORT_N   EQU 12        ; l1-ipl.md 第4b節・l3-main.md 第8節：00H-0BHの12個
 MOD_PORT     EQU 08h
@@ -46,6 +69,8 @@ CAPS_PORT    EQU 0Ah
 CAPS_BIT     EQU 7
 RETURN_PORT  EQU 01h
 RETURN_BIT   EQU 7
+SPACE_PORT   EQU 09h    ; l3-main.md 第9節末尾の追記（M7段階3b追記2）
+SPACE_BIT    EQU 6
 
 ; ---- RAM変数（screen.asmのVAR_ROW等と重ならない番地）----
 KEY_OLD      EQU 0E810h    ; 直前スキャン12バイト（bit=1が「離されている」）
@@ -131,6 +156,19 @@ _kr_bit_found:
     LD A,2                   ; RETURN
     RET
 _kr_not_return:
+    LD A,C
+    CP SPACE_PORT
+    JR NZ,_kr_not_space
+    LD A,B
+    CP SPACE_BIT
+    JR NZ,_kr_not_space
+    ; SPACE(09H:6) — 冒頭注記(M7段階3b追記2)のとおり、修飾の有無に
+    ; 関わらず常に0x20を書いて1桁進める(通常の文字と同じLINE_PUTCHAR
+    ; 経路をそのまま使うため、A=1・E=0x20をそのまま返す)。
+    LD E,020h
+    LD A,1
+    RET
+_kr_not_space:
     ; index = port*8 + bit
     LD A,C
     ADD A,A

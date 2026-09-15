@@ -13,20 +13,24 @@
 #      一切出さない自己完結の検査）。
 #   2. 直接モードのPRINT: 整数(正・負・0・式)・文字列・区切り記号(;と,)・
 #      複数文(:)・?略記の出力が、docs/spec/l4-basic.md の書式規則から
-#      機械的に作った期待値と一致する。
-#      **スペースキーは打てない**（docs/spec/l3-main.md 第9節、`09:6`が
-#      no_write。空白を書くのか書かないのか測定の差分方式では区別できず、
-#      既存のkey_table_gen.asmは無効(0x00)としている——L3側の既存実装で
-#      あり本段階では変更しない）。そのため課題文の `PRINT 1` 等は
-#      スペース無しの `PRINT1` 等で打鍵する（文法上スペースは必須では
-#      ないため意味は変わらない）。
+#      機械的に作った期待値と一致する。大半は `PRINT1` 等スペース無しで
+#      打鍵する（文法上スペースは必須ではないため意味は変わらず、
+#      検査対象を絞れる）。
+#   2b. M7段階3b追記2（docs/spec/l3-main.md 第9節末尾の追記）: SPACEキーの
+#      エコー前進が実装されたため、`PRINT 1`のようにSPACEを挟んだ実際の
+#      打鍵も検査する。エコー行では`1`がPRINTの直後ではなく1桁空けた
+#      位置に出て（第9節の観測どおり）、行バッファにも0x20が積まれる
+#      設計（interp.asmのSKIP_SPACESが読み飛ばす）により、実行結果
+#      （出力行のPRINT書式）はスペース無しの場合と変わらないことを
+#      確かめる。
 #   3. 構文の誤り: 未認識の語(XYZ)で、出力の行が1行だけ・文言が
 #      errors.tsv(l4-basic.md第6.1節から生成)の番号2と一致し、その次に
 #      Okが出る。
 #   4. 故障注入: (a)数値前置空白を消した変種、(b)ゾーン幅を変えた変種、
-#      (c)トークン表の1エントリの語長を壊した変種、それぞれが正常時と
-#      異なる結果になることを確かめる。
-#   5. 既存の tools/l3_main_selftest.sh(検査1〜16)・tools/conform_l4.sh
+#      (c)トークン表の1エントリの語長を壊した変種、(d)SPACEのエコー
+#      前進を無効化した変種(3c)、それぞれが正常時と異なる結果になる
+#      ことを確かめる。
+#   5. 既存の tools/l3_main_selftest.sh(検査1〜18)・tools/conform_l4.sh
 #      (自作ROM側の照合)が引き続きOKであること(打鍵エコーを壊していない)。
 #
 # 使い方: tools/l4_basic_selftest.sh
@@ -191,6 +195,72 @@ check_row case_comma  'PRINT"a","b"\n' "a$(python3 -c "print(' '*$ZONE_PAD_AFTER
 check_row case_err    'XYZ\n'          "$SYNTAX_ERROR_MSG"
 
 # -----------------------------------------------------------------------
+say "3b. PRINT 1（実際にSPACEキーを打鍵）: エコーの1桁前進と実行結果"
+# docs/spec/l3-main.md 第9節末尾の追記＋keyboard.asmの選択（0x20を書いて
+# 進む・行バッファにも積む）により、打った行のエコーは"print 1"
+# （printの直後に0x20、その次に"1"。英字は第7節の既定どおり小文字の
+# ままエコーされる）になる一方、interp.asmのSKIP_SPACESがその0x20を
+# 読み飛ばすため、実行結果(出力行)はスペース無しのcase_p1と変わらない
+# はず。
+check_row_with_echo() {
+  # $1=label $2=typed $3=期待するエコー行(row2)の文字列 $4=期待する出力行(row3)
+  local label="$1" typed="$2" expected_echo="$3" expected_out="$4"
+  local dump="$WORK/${label}.vram.bin"
+  "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 600 --type "$typed" --type-at 60 \
+      --vram-dump "$dump" --vram-dump-at 560 \
+      >"$WORK/${label}.stdout.txt" 2>"$WORK/${label}.stderr.txt"
+  if [ $? -ne 0 ]; then fail "q88measure($label)が失敗"; cat "$WORK/${label}.stderr.txt" >&2; return; fi
+  python3 - "$dump" "$expected_echo" "$expected_out" "$label" "$STRIDE" << 'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+expected_echo = sys.argv[2]
+expected_out = sys.argv[3]
+label = sys.argv[4]
+stride = int(sys.argv[5])
+
+def row_text(row, n):
+    base = row * stride
+    return data[base:base + n].decode("ascii", errors="replace")
+
+ROW_ECHO = 2  # 打った行のエコー(l4_basic_selftest.sh冒頭コメント参照)
+got_echo = row_text(ROW_ECHO, len(expected_echo))
+got_out = row_text(3, len(expected_out))
+if got_echo == expected_echo and got_out == expected_out:
+    print(f"OK: {label} エコー行='{got_echo}' 出力行='{got_out}'")
+else:
+    print(f"NG: {label} エコー行='{got_echo}'(期待'{expected_echo}') 出力行='{got_out}'(期待'{expected_out}')")
+    sys.exit(1)
+PYEOF
+  [ $? -ne 0 ] && fail "PRINT書式+エコー($label)"
+}
+# l3-main.md 第7節: 無修飾の英字キーは既定で小文字になる（--typeは
+# シフト無しでASCIIを送る）。TRY_MATCH_PRINT側は大文字小文字を区別せず
+# 照合するため実行結果には影響しないが、エコー行はそのまま打った小文字
+# "print"になる。
+check_row_with_echo case_p1_space 'print 1\n' "print 1" "$(expect_num 1)"
+
+say "3c. 故障注入（SPACEのエコー前進を無効化。検査3bのエコーが変わることを確かめる）"
+L3SPACEFAULT_ROM="$WORK/rom_l3spacefault"
+python3 "$BUILD" "$L3SPACEFAULT_ROM" --inject-l3-space-fault >"$WORK/build_l3spacefault.txt" 2>&1 || { fail "build_main_rom.py(l3spacefault)が失敗"; cat "$WORK/build_l3spacefault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$L3SPACEFAULT_ROM" --frames 600 --type 'print 1\n' --type-at 60 \
+    --vram-dump "$WORK/l3spacefault.vram.bin" --vram-dump-at 560 \
+    >"$WORK/l3spacefault.stdout.txt" 2>"$WORK/l3spacefault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(l3spacefault)が失敗"; cat "$WORK/l3spacefault.stderr.txt" >&2; fi
+python3 - "$WORK/l3spacefault.vram.bin" "$STRIDE" << 'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+stride = int(sys.argv[2])
+got_echo = data[2*stride:2*stride+7].decode("ascii", errors="replace")
+expect_normal = "print 1"
+if got_echo != expect_normal:
+    print(f"OK(検出力): SPACE故障注入がかかるとエコー行='{got_echo}'(期待'{expect_normal}'と不一致)になり、検査3bと区別できた")
+    sys.exit(0)
+print(f"NG(検出力不足): 故障注入してもエコー行='{got_echo}'のままで検査3bと区別できない")
+sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "SPACE故障注入(l4)の検出力"
+
+# -----------------------------------------------------------------------
 say "4. 故障注入"
 
 say "4a. 数値の前置空白を消した変種（正常時と出力行が変わることを確かめる）"
@@ -249,7 +319,7 @@ fi
 # -----------------------------------------------------------------------
 say "5. 既存の自己検査が引き続きOKであること"
 
-say "5a. tools/l3_main_selftest.sh（検査1〜16）"
+say "5a. tools/l3_main_selftest.sh（検査1〜18）"
 if bash "$REPO/tools/l3_main_selftest.sh" >"$WORK/l3_main_selftest.txt" 2>&1; then
   echo "OK: tools/l3_main_selftest.sh はrc=0"
 else

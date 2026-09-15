@@ -94,6 +94,17 @@
 #      （--inject-shift-fault）で検査7のSHIFT直押しの結果が期待とずれる
 #      ことを確かめる（検出力の陰性対照）。
 #
+# 検査（M7段階3b追記2。docs/spec/l3-main.md 第9節末尾の追記、SPACEの
+# エコー前進）:
+#  17. --key-matrix でA→SPACE→Bの順に直押しし、Bのエコーがcol0のAから
+#      2桁先（SPACE1文字ぶん）に出ることを確かめる。合わせて、SPACEの
+#      位置(col1)に0x20が書かれていること（この実装の選択「0x20を書いて
+#      進む」）も確認する。
+#  18. 故障注入: SPACEのエコー前進を無効化した変種
+#      （--inject-l3-space-fault、段階3bまでの「書かない」変種に戻す）で
+#      検査17と同じ打鍵列を打つと、Bがcol1（1桁先）に現れ、検査17の
+#      期待（col2）と一致しなくなることを確かめる（検出力の陰性対照）。
+#
 # 使い方: tools/l3_main_selftest.sh
 set -uo pipefail
 
@@ -537,6 +548,52 @@ else:
     print("NG(検出力不足): SHIFT表を故障注入しても検査7と区別できない"); sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "SHIFT表の故障注入の検出力"
+
+# -----------------------------------------------------------------------
+say "17. キー直押し（--key-matrix）: A→SPACE→B の順で、Bがcol0のAから2桁先に出る"
+# A(02H:1、無修飾0x61)→SPACE(09H:6)→B(02H:2、無修飾0x62)の順に単独で押す。
+# 重ならないよう開始フレームを離す(各キー10フレーム押す、次のキーは
+# 前のキーが離れた後に始める)。row2(バナー・Ok後の行)のcol0=A,col1=SPACE
+# の0x20,col2=Bという並びを期待する(l3-main.md第9節末尾の追記、
+# 「打った1がPRINTの直後ではなく1桁先に出る」という観測と同型)。
+"$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 \
+    --key-matrix 0x02:1:60:10 --key-matrix 0x09:6:90:10 --key-matrix 0x02:2:120:10 \
+    --vram-dump "$WORK/km_space.vram.bin" --vram-dump-at 250 \
+    >"$WORK/km_space.stdout.txt" 2>"$WORK/km_space.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(key:space)が失敗"; cat "$WORK/km_space.stderr.txt" >&2; fi
+python3 - "$WORK/km_space.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+row2 = data[2*120:2*120+3]
+expect = bytes([0x61, 0x20, 0x62])  # A, SPACE(0x20を書く選択), B
+if row2 == expect:
+    print(f"OK: A→SPACE→B row2[0:3]={row2!r}（期待どおり、Bはcol0から2桁先=col2）")
+else:
+    print(f"NG: A→SPACE→B row2[0:3]={row2!r}（期待{expect!r}）"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "SPACEのエコー前進の検査"
+
+# -----------------------------------------------------------------------
+say "18. 故障注入（SPACEのエコー前進を無効化する。検査17が期待とずれることを確かめる）"
+SPACEFAULT_ROM="$WORK/rom_spacefault"
+python3 "$BUILD" "$SPACEFAULT_ROM" --inject-l3-space-fault >"$WORK/build_spacefault.txt" 2>&1 || { fail "build_main_rom.py(spacefault)が失敗"; cat "$WORK/build_spacefault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$SPACEFAULT_ROM" --frames 300 \
+    --key-matrix 0x02:1:60:10 --key-matrix 0x09:6:90:10 --key-matrix 0x02:2:120:10 \
+    --vram-dump "$WORK/spacefault.vram.bin" --vram-dump-at 250 \
+    >"$WORK/spacefault.stdout.txt" 2>"$WORK/spacefault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(spacefault)が失敗"; cat "$WORK/spacefault.stderr.txt" >&2; fi
+python3 - "$WORK/spacefault.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+row2 = data[2*120:2*120+3]
+expect_normal = bytes([0x61, 0x20, 0x62])
+if row2 != expect_normal:
+    print(f"OK(検出力): SPACE故障注入がかかると row2[0:3]={row2!r}(期待{expect_normal!r}と不一致)になり、検査17と区別できた")
+    sys.exit(0)
+else:
+    print("NG(検出力不足): SPACEを故障注入しても検査17と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "SPACE故障注入の検出力"
 
 # -----------------------------------------------------------------------
 echo
