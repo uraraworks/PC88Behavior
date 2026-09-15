@@ -47,10 +47,13 @@ import l4_mbf_oracle_v2 as oracle  # noqa: E402
 import z80text  # noqa: E402
 
 MBF_SINGLE_ASM = REPO / "src" / "l4_basic" / "mbf_single.asm"
+MBF_DOUBLE_ASM = REPO / "src" / "l4_basic" / "mbf_double.asm"
 FRONTEND = REPO / "tools" / "harness" / "frontend" / "q88measure"
 VENDOR = REPO.parent / "vendor" / "quasi88-libretro"
 
-VEC_TABLE_ADDR = 0x2000     # ROM内、入力ベクタ表の先頭番地
+VEC_TABLE_ADDR = 0x5000     # ROM内、入力ベクタ表の先頭番地
+                             # (M7段階4b-1: mbf_double.asm連結でコード本体が
+                             # 0x2000を超えたため0x5000へ引き上げた)
 OUT_BASE = 0x9000           # RAM、出力領域の先頭番地
 STACK_TOP = 0xFFF0          # 出力領域(OUT_BASE以降)はこれより手前で収める
 WORKSPACE_START = 0xC000    # mbf_single.asm のワークエリア先頭
@@ -80,6 +83,75 @@ def find_core() -> pathlib.Path:
 def gwnum_bytes(n: "oracle.GwNum") -> bytes:
     s, e, m = n.as_single_or_double_pair()
     return oracle.mbf4_bytes(s, e, m)
+
+
+def gwnum8_bytes(n: "oracle.GwNum") -> bytes:
+    s, e, m = n.as_single_or_double_pair()
+    return oracle.mbf8_bytes(s, e, m)
+
+
+def rand_double(rng: random.Random, spread=True) -> "oracle.GwNum":
+    """M7段階4b-1: rand_singleの倍精度版。指数バイトは単精度と同じ8bit・
+    同じバイアスを共有する(mbf_double.asmヘッダコメント参照)ので範囲は同じ、
+    仮数だけ56bitへ広げる。"""
+    sign = rng.randint(0, 1)
+    if spread and rng.random() < 0.15:
+        exp = rng.choice([1, 2, 3, 126, 127, 128, 129, 130, 253, 254, 255])
+    else:
+        exp = rng.randint(1, 255)
+    mant = rng.randint(1 << 55, (1 << 56) - 1)
+    return oracle.GwNum("double", sign=sign, exp=exp, mant=mant)
+
+
+ZERO_D = oracle.GwNum("double", sign=0, exp=0, mant=0)
+MAX_POS_D = oracle.GwNum("double", sign=0, exp=255, mant=(1 << 56) - 1)
+MAX_NEG_D = oracle.GwNum("double", sign=1, exp=255, mant=(1 << 56) - 1)
+MIN_POS_D = oracle.GwNum("double", sign=0, exp=1, mant=1 << 55)
+MIN_NEG_D = oracle.GwNum("double", sign=1, exp=1, mant=1 << 55)
+ONE_D = oracle.GwNum.from_fraction(Fraction(1), "double")
+TWO_D = oracle.GwNum.from_fraction(Fraction(2), "double")
+HALF_D = oracle.GwNum.from_fraction(Fraction(1, 2), "double")
+NEG_ONE_D = oracle.GwNum.from_fraction(Fraction(-1), "double")
+NEAR_POW2_D = oracle.GwNum("double", sign=0, exp=150, mant=(1 << 56) - 1)
+
+BOUNDARY_DOUBLES = [
+    ZERO_D, MAX_POS_D, MAX_NEG_D, MIN_POS_D, MIN_NEG_D, ONE_D, TWO_D, HALF_D,
+    NEG_ONE_D, NEAR_POW2_D,
+]
+
+
+def tie_construction_pairs_d(rng: random.Random, count: int):
+    """tie_construction_pairsの倍精度版(56bit仮数)。"""
+    out = []
+    for _ in range(count):
+        exp_b = rng.randint(2, 250)
+        exp_a = exp_b + 1
+        sign = rng.randint(0, 1)
+        a_mant = rng.randint(1 << 55, (1 << 56) - 1)
+        b_mant_tie = rng.randint(1 << 55, (1 << 56) - 1) | 1
+        a = oracle.GwNum("double", sign=sign, exp=exp_a, mant=a_mant)
+        b_tie = oracle.GwNum("double", sign=sign, exp=exp_b, mant=b_mant_tie)
+        out.append((a, b_tie))
+        b_mant_down = rng.randint(1 << 55, (1 << 56) - 1) & ~1
+        b_down = oracle.GwNum("double", sign=sign, exp=exp_b, mant=b_mant_down)
+        out.append((a, b_down))
+    return out
+
+
+def sticky_loss_pairs_d(rng: random.Random, count: int):
+    """sticky_loss_pairsの倍精度版(56bit仮数、整列シフト量56)。"""
+    out = []
+    for _ in range(count):
+        exp_a = rng.randint(60, 240)
+        sign = rng.randint(0, 1)
+        mant_a = rng.choice([1 << 55, (1 << 55) + 2, (1 << 56) - 2])
+        a = oracle.GwNum("double", sign=sign, exp=exp_a, mant=mant_a)
+        ulp = Fraction(2) ** (exp_a - 128 - 56)
+        value_b = ulp * Fraction(1, 2) + ulp * Fraction(1, 2 ** 55)
+        b = oracle.GwNum.from_fraction(value_b, "double")
+        b = oracle.GwNum("double", sign=sign, exp=b.exp, mant=b.mant)
+        out.append((a, b))
+    return out
 
 
 def rand_single(rng: random.Random, spread=True) -> "oracle.GwNum":
@@ -292,6 +364,35 @@ def gen_vectors(op: str, n: int, seed: int):
             vecs.append((t,))
         while len(vecs) < n:
             vecs.append((rand_fin_text(rng),))
+    elif op in ("dadd", "dsub", "dmul", "ddiv", "dcmp"):
+        for a in BOUNDARY_DOUBLES:
+            for b in BOUNDARY_DOUBLES:
+                vecs.append((a, b))
+        if op in ("dadd", "dsub"):
+            vecs.extend(tie_construction_pairs_d(rng, 40))
+            vecs.extend(sticky_loss_pairs_d(rng, 20))
+        while len(vecs) < n:
+            vecs.append((rand_double(rng), rand_double(rng)))
+    elif op == "dneg":
+        for a in BOUNDARY_DOUBLES:
+            vecs.append((a,))
+        while len(vecs) < n:
+            vecs.append((rand_double(rng),))
+    elif op == "itod":
+        for v in (0, 1, -1, 32767, -32768, 32768 - 1, -32767, 100, -100, 12345, -12345):
+            vecs.append((v,))
+        while len(vecs) < n:
+            vecs.append((rng.randint(-32768, 32767),))
+    elif op == "stod":
+        for a in BOUNDARY_SINGLES:
+            vecs.append((a,))
+        while len(vecs) < n:
+            vecs.append((rand_single(rng),))
+    elif op == "dtos":
+        for a in BOUNDARY_DOUBLES:
+            vecs.append((a,))
+        while len(vecs) < n:
+            vecs.append((rand_double(rng),))
     elif op == "fout":
         for f in FOUT_BOUNDARY_FRACTIONS:
             vecs.append((oracle.GwNum.from_fraction(f, "single"),))
@@ -338,6 +439,46 @@ def expected_neg(a: "oracle.GwNum"):
 def expected_itos(v: int):
     r = oracle.GwNum.from_fraction(Fraction(v), "single") if v != 0 else oracle.GwNum.from_fraction(Fraction(0), "single")
     return gwnum_bytes(r)
+
+
+def expected_dbinop(op: str, a: "oracle.GwNum", b: "oracle.GwNum"):
+    sym = {"dadd": "+", "dsub": "-", "dmul": "*", "ddiv": "/"}[op]
+    try:
+        r = oracle.gw_binop(a, b, sym)
+        return gwnum8_bytes(r), 0
+    except oracle.GwError as e:
+        status = 2 if "zero" in e.kind.lower() else 1
+        return gwnum8_bytes(e.residual), status
+
+
+def expected_dcmp(a: "oracle.GwNum", b: "oracle.GwNum") -> int:
+    av, bv = a.exact(), b.exact()
+    if av == bv:
+        return 0
+    return 1 if av > bv else 0xFF
+
+
+def expected_dneg(a: "oracle.GwNum"):
+    r = oracle.gw_neg(a)
+    return gwnum8_bytes(r)
+
+
+def expected_itod(v: int):
+    r = oracle.GwNum.from_fraction(Fraction(v), "double") if v != 0 else oracle.GwNum.from_fraction(Fraction(0), "double")
+    return gwnum8_bytes(r)
+
+
+def expected_stod(a: "oracle.GwNum"):
+    r = oracle.force_to_double(a)
+    return gwnum8_bytes(r)
+
+
+def expected_dtos(a: "oracle.GwNum"):
+    try:
+        r = oracle.force_to_single(a)
+        return gwnum_bytes(r), 0
+    except oracle.GwError as e:
+        return gwnum_bytes(e.residual), 1
 
 
 def expected_fout(a: "oracle.GwNum") -> str:
@@ -429,6 +570,16 @@ DRIVER_TEMPLATES = {
     "itos": (2, 5, "MBF_INT_TO_SINGLE", False),
     "fin": (25, 5, "MBF_FIN", False),  # 1byte長 + 24byte ASCII(パディング0)
     "fout": (4, 17, "MBF_FOUT", False),  # 出力=1byte長+16byte ASCII(パディング0)
+    # M7段階4b-1: 倍精度(以下、in/outとも8byte倍精度+statusを基本とする)。
+    "dadd": (16, 9, "MBF_DADD", True),
+    "dsub": (16, 9, "MBF_DSUB", True),
+    "dmul": (16, 9, "MBF_DMUL", True),
+    "ddiv": (16, 9, "MBF_DDIV", True),
+    "dcmp": (16, 1, "MBF_DCMP", False),
+    "dneg": (8, 9, "MBF_DNEG", False),
+    "itod": (2, 9, "MBF_ITOD", False),
+    "stod": (4, 9, "MBF_STOD", False),
+    "dtos": (8, 5, "MBF_DTOS", False),
 }
 FIN_BUF_MAX = 24
 FOUT_BUF_MAX = 16
@@ -459,6 +610,35 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
             lines.append("    LD A,(HL)")
             lines.append(f"    LD (FIN_BUF+{i}),A")
             lines.append("    INC HL")
+    elif op == "itod":
+        # M7段階4b-1: MBF_ITODの入力もMBF_IN_INT(mbf_single.asmと共有)を使う。
+        lines.append("    LD A,(HL)")
+        lines.append("    LD (MBF_IN_INT),A")
+        lines.append("    INC HL")
+        lines.append("    LD A,(HL)")
+        lines.append("    LD (MBF_IN_INT+1),A")
+        lines.append("    INC HL")
+    elif op == "stod":
+        # 単精度4byteをMBF_OPA(mbf_single.asmと共有)へ。
+        for i in range(4):
+            lines.append("    LD A,(HL)")
+            lines.append(f"    LD (MBF_OPA+{i}),A")
+            lines.append("    INC HL")
+    elif op in ("dtos", "dneg"):
+        # 倍精度8byteをMBF_DOPAへ。
+        for i in range(8):
+            lines.append("    LD A,(HL)")
+            lines.append(f"    LD (MBF_DOPA+{i}),A")
+            lines.append("    INC HL")
+    elif op in ("dadd", "dsub", "dmul", "ddiv", "dcmp"):
+        for i in range(8):
+            lines.append("    LD A,(HL)")
+            lines.append(f"    LD (MBF_DOPA+{i}),A")
+            lines.append("    INC HL")
+        for i in range(8):
+            lines.append("    LD A,(HL)")
+            lines.append(f"    LD (MBF_DOPB+{i}),A")
+            lines.append("    INC HL")
     else:
         for i in range(4):
             lines.append("    LD A,(HL)")
@@ -479,6 +659,10 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
         lines.append("    LD A,(MBF_OUT_CMP)")
         lines.append("    LD (DE),A")
         lines.append("    INC DE")
+    elif op == "dcmp":
+        lines.append("    LD A,(MBF_DOUT_CMP)")
+        lines.append("    LD (DE),A")
+        lines.append("    INC DE")
     elif op == "fout":
         lines.append("    LD A,(FOUT_LEN)")
         lines.append("    LD (DE),A")
@@ -487,6 +671,24 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
             lines.append(f"    LD A,(FOUT_BUF+{i})")
             lines.append("    LD (DE),A")
             lines.append("    INC DE")
+    elif op == "dtos":
+        # 結果は単精度4byte(MBF_RES、mbf_single.asmと共有)+status。
+        for i in range(4):
+            lines.append(f"    LD A,(MBF_RES+{i})")
+            lines.append("    LD (DE),A")
+            lines.append("    INC DE")
+        lines.append("    LD A,(MBF_STATUS)")
+        lines.append("    LD (DE),A")
+        lines.append("    INC DE")
+    elif op in ("dadd", "dsub", "dmul", "ddiv", "dneg", "itod", "stod"):
+        # 結果は倍精度8byte(MBF_DRES)+status。
+        for i in range(8):
+            lines.append(f"    LD A,(MBF_DRES+{i})")
+            lines.append("    LD (DE),A")
+            lines.append("    INC DE")
+        lines.append("    LD A,(MBF_STATUS)")
+        lines.append("    LD (DE),A")
+        lines.append("    INC DE")
     else:
         for i in range(4):
             lines.append(f"    LD A,(MBF_RES+{i})")
@@ -513,12 +715,14 @@ def build_driver_asm(op: str, n_vectors: int, mbf_src: str) -> str:
 def encode_vectors(op: str, vecs) -> bytes:
     out = bytearray()
     for v in vecs:
-        if op == "itos":
+        if op == "itos" or op == "itod":
             val = v[0] & 0xFFFF
             out.append(val & 0xFF)
             out.append((val >> 8) & 0xFF)
-        elif op == "neg" or op == "fout":
+        elif op == "neg" or op == "fout" or op == "stod":
             out += gwnum_bytes(v[0])
+        elif op == "dneg" or op == "dtos":
+            out += gwnum8_bytes(v[0])
         elif op == "fin":
             text = v[0].upper()
             raw = text.encode("ascii")
@@ -527,6 +731,9 @@ def encode_vectors(op: str, vecs) -> bytes:
             out.append(len(raw))
             out += raw
             out += bytes(FIN_BUF_MAX - len(raw))
+        elif op in ("dadd", "dsub", "dmul", "ddiv", "dcmp"):
+            out += gwnum8_bytes(v[0])
+            out += gwnum8_bytes(v[1])
         else:
             out += gwnum_bytes(v[0])
             out += gwnum_bytes(v[1])
@@ -727,6 +934,56 @@ FAULT_FOUT_LEN7_NEW = "_fout_small:\n    LD A,(FOUT_E)\n    NEG\n    LD B,A\n   
 FAULT_FOUT_6DIG_OLD = "_fout_large:\n    CP 7\n    JP C,_fout_isfixed_yes"
 FAULT_FOUT_6DIG_NEW = "_fout_large:\n    CP 8  ; 故障注入: 6桁境目を7桁境目にする\n    JP C,_fout_isfixed_yes"
 
+# M7段階4b-1: 倍精度(mbf_double.asm)の陰性対照。
+FAULT_DSTICKY_OLD = (
+    "    JP NC,_dadd_shift_nostick\n"
+    "    LD A,1\n"
+    "    LD (DWK_STICKY),A\n"
+    "_dadd_shift_nostick:"
+)
+FAULT_DSTICKY_NEW = "_dadd_shift_nostick:"  # 整列シフトで落ちたbitをスティッキーへ反映しない
+
+FAULT_DROUND_TRUNCATE_OLD = "_dadd_round:\n    ; guard = DBIG_MG。"
+FAULT_DROUND_TRUNCATE_NEW = "_dadd_round:\n    JP _dadd_round_down\n    ; guard = DBIG_MG。"
+
+FAULT_DMUL_STICKY_OLD = (
+    "    LD A,(DPR5)\n"
+    "    OR C\n"
+    "    LD C,A\n"
+    "    LD A,(DPR4)\n"
+    "    OR C\n"
+    "    LD C,A\n"
+    "    LD A,(DPR3)\n"
+    "    OR C\n"
+    "    LD C,A\n"
+    "    LD A,(DPR2)\n"
+    "    OR C\n"
+    "    LD C,A\n"
+    "    LD A,(DPR1)\n"
+    "    OR C\n"
+    "    LD C,A\n"
+    "    LD A,(DPR0)\n"
+    "    OR C\n"
+    "    JP NZ,_dmulc_round_up"
+)
+FAULT_DMUL_STICKY_NEW = (
+    "    XOR A  ; 故障注入: DPR5..DPR0のstickyを捨てる\n"
+    "           ; (LD A,0はZ80のフラグを変えないためNZ判定に効かず、\n"
+    "           ; 無故障とほぼ同じ挙動になってしまう。XOR Aでなければ\n"
+    "           ; ならない——最初XOR Aと書かず0件不一致になり気づいた)\n"
+    "    JP NZ,_dmulc_round_up"
+)
+
+FAULT_DDIV_STICKY_OLD = (
+    "    LD A,(WK_DREMZERO)\n"
+    "    OR C\n"
+    "    JP NZ,_ddiv_round_up"
+)
+FAULT_DDIV_STICKY_NEW = (
+    "    LD A,C  ; 故障注入: 真の剰余(WK_DREMZERO)を無視する\n"
+    "    JP NZ,_ddiv_round_up"
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
@@ -739,11 +996,19 @@ FAULTS = {
     "fout_round_even": (FAULT_FOUT_ROUND_EVEN_OLD, FAULT_FOUT_ROUND_EVEN_NEW),
     "fout_len7": (FAULT_FOUT_LEN7_OLD, FAULT_FOUT_LEN7_NEW),
     "fout_6dig": (FAULT_FOUT_6DIG_OLD, FAULT_FOUT_6DIG_NEW),
+    "dsticky": (FAULT_DSTICKY_OLD, FAULT_DSTICKY_NEW),
+    "dround_truncate": (FAULT_DROUND_TRUNCATE_OLD, FAULT_DROUND_TRUNCATE_NEW),
+    "dmul_sticky": (FAULT_DMUL_STICKY_OLD, FAULT_DMUL_STICKY_NEW),
+    "ddiv_sticky": (FAULT_DDIV_STICKY_OLD, FAULT_DDIV_STICKY_NEW),
 }
 
 
 def load_mbf_src(fault: str | None) -> str:
-    text = MBF_SINGLE_ASM.read_text()
+    # M7段階4b-1: mbf_double.asmはDA_*/DB_*・DBL_MUL/DBL_DIV・
+    # DBL_TO_SINGLE_CSD・SINGLE_TO_DOUBLE・MBF_UNPACK_A・MBF_STATUS等、
+    # mbf_single.asmのシンボルを直接呼ぶ前提なので、連結して1つのアセンブル
+    # 単位として渡す(mbf_double.asmヘッダコメント参照)。
+    text = MBF_SINGLE_ASM.read_text() + "\n" + MBF_DOUBLE_ASM.read_text()
     if fault:
         old, new = FAULTS[fault]
         if old not in text:
@@ -786,12 +1051,29 @@ def compare(op: str, n: int, seed: int, frames: int, fault: str | None, workdir:
             missing = any((base + k) not in mem for k in range(out_len))
             if op == "cmp":
                 expected = bytes([expected_cmp(v[0], v[1]) & 0xFF])
+            elif op == "dcmp":
+                expected = bytes([expected_dcmp(v[0], v[1]) & 0xFF])
             elif op == "neg":
                 expected = expected_neg(v[0])
+                expected += bytes([0])
+            elif op == "dneg":
+                expected = expected_dneg(v[0])
                 expected += bytes([0])
             elif op == "itos":
                 expected = expected_itos(v[0])
                 expected += bytes([0])
+            elif op == "itod":
+                expected = expected_itod(v[0])
+                expected += bytes([0])
+            elif op == "stod":
+                expected = expected_stod(v[0])
+                expected += bytes([0])
+            elif op == "dtos":
+                eb, status = expected_dtos(v[0])
+                expected = eb + bytes([status])
+            elif op in ("dadd", "dsub", "dmul", "ddiv"):
+                eb, status = expected_dbinop(op, v[0], v[1])
+                expected = eb + bytes([status])
             elif op == "fin":
                 eb, status = expected_fin(v[0])
                 if status == 3:

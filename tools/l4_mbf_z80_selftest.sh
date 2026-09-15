@@ -94,6 +94,37 @@ run_case "fout --fault fout_round_even"  fout -n 200 --frames 20000 --fault fout
 run_case "fout --fault fout_len7"        fout -n 200 --frames 20000 --fault fout_len7        --expect-ng
 run_case "fout --fault fout_6dig"        fout -n 200 --frames 20000 --fault fout_6dig        --expect-ng
 
+# M7段階4b-1: 倍精度MBF(8B)の四則・変換（src/l4_basic/mbf_double.asm）。
+# インタプリタへの組み込み・定数の読み取り(DFIN)・出力(FOUT倍精度経路)は
+# 4b-2/4b-3で別に行うため、ここでは演算・変換ルーチン単体の照合のみ。
+echo "==> 倍精度（境界値＋乱数、演算・変換ごと、複数シード）"
+run_case "dadd N=1200 seed1" dadd -n 1200 --seed 1 --frames 90
+run_case "dadd N=1200 seed2" dadd -n 1200 --seed 2 --frames 90
+run_case "dsub N=1200 seed1" dsub -n 1200 --seed 1 --frames 90
+run_case "dsub N=1200 seed2" dsub -n 1200 --seed 2 --frames 90
+run_case "dneg N=1000 seed1" dneg -n 1000 --seed 1 --frames 60
+run_case "dneg N=1000 seed2" dneg -n 1000 --seed 2 --frames 60
+run_case "dcmp N=1000 seed1" dcmp -n 1000 --seed 1 --frames 60
+run_case "dcmp N=1000 seed2" dcmp -n 1000 --seed 2 --frames 60
+run_case "itod N=1000 seed1" itod -n 1000 --seed 1 --frames 60
+run_case "itod N=1000 seed2" itod -n 1000 --seed 2 --frames 60
+run_case "stod N=1000 seed1" stod -n 1000 --seed 1 --frames 60
+run_case "stod N=1000 seed2" stod -n 1000 --seed 2 --frames 60
+run_case "dtos N=1000 seed1" dtos -n 1000 --seed 1 --frames 300
+run_case "dtos N=1000 seed2" dtos -n 1000 --seed 2 --frames 300
+run_case "dmul N=1200 seed1" dmul -n 1200 --seed 1 --frames 3000
+run_case "dmul N=1200 seed2" dmul -n 1200 --seed 2 --frames 3000
+run_case "ddiv N=1200 seed1" ddiv -n 1200 --seed 1 --frames 5000
+run_case "ddiv N=1200 seed2" ddiv -n 1200 --seed 2 --frames 5000
+
+echo "==> 倍精度 故障注入（陰性対照。不一致が出ることを正常系として扱う）"
+run_case "dadd --fault dsticky"          dadd -n 800 --frames 90   --fault dsticky          --expect-ng
+run_case "dsub --fault dsticky"          dsub -n 800 --frames 90   --fault dsticky          --expect-ng
+run_case "dadd --fault dround_truncate"  dadd -n 400 --frames 90   --fault dround_truncate  --expect-ng
+run_case "dsub --fault dround_truncate"  dsub -n 400 --frames 90   --fault dround_truncate  --expect-ng
+run_case "dmul --fault dmul_sticky"      dmul -n 400 --frames 3000 --fault dmul_sticky       --expect-ng
+run_case "ddiv --fault ddiv_sticky"      ddiv -n 400 --frames 5000 --fault ddiv_sticky       --expect-ng
+
 if [ "$overall" -eq 0 ]; then
   echo "l4_mbf_z80_selftest: OK"
 else
