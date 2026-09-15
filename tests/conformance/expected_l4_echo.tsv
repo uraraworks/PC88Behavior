@@ -1,0 +1,35 @@
+# l4-c1b 打鍵エコー適合の場面 — 期待値（tools/conform_l4.sh が読む）
+#
+# 値そのもの（文字コード・属性域の並び）は一切含まない。件数と
+# SHA-256のみ（CLAUDE.md 禁止事項4、tests/conformance/expected.tsv と
+# 同じ作法）。事前登録:
+# docs/notes/l4-c1b-echo-conformance-scene-preregistration.md。
+#
+# 正規化の中身（tools/l4_echo_conform_record.py、原点は絶対値を含まない）:
+#   - cells: 「前が空白だったセル」を原点(row0昇順・col0昇順の先頭)基準の
+#     (相対行,相対桁,文字コード)に変換した並び（記録項目1・2）
+#   - nonblank_count: 「前が空白でなかったセル」の件数（記録項目5）
+#   - attr_rows: エコー行(row19を除く)ごとの、原点基準の相対行と属性域
+#     40バイト(前後とも)（記録項目3）
+# 上記をJSON(sort_keys, 区切り無し)に直列化してSHA-256を取る。
+#
+# 生成: 公式ROM一式(PC88_REF_ROM_DIR)で各腕2走を実施し、2走の記録
+# (cell_count/nonblank_count/attr_row_count/sha256)が完全一致したものを
+# 採用した（決定論性G3の確認を兼ねる）。作業ディレクトリ
+# _emulator/PC88/tmp/l4-c1b-work/（結果ノート作成後に削除）。
+#
+# 書式（TSV。1行1腕）:
+#   arm<TAB>cell_count<TAB>nonblank_count<TAB>attr_row_count<TAB>sha256
+#
+# arm            cell_count  nonblank_count  attr_row_count  sha256
+E1	4	0	1	cf625d43dca7d07b1154485f6bc719cf6c29b67695c308f8aa39e8df70ca06a4
+E2	7	0	1	13123dbc1ae59f69873fc73ff79eea6b3d5919b3d02cbff48669bbad32658eaa
+E3_shift_Q	1	0	1	efc778b8b88684936a04d2dbb681602a3bb0ebf6e47f522a775f8be54b0a34f5
+E3_shift_A	1	0	1	c49d63b10d6f1fb13477e36b4a79b37364497cc8d32aa551d0262e2481bd1656
+E3_caps_Q	1	0	1	efc778b8b88684936a04d2dbb681602a3bb0ebf6e47f522a775f8be54b0a34f5
+E3_caps_A	1	0	1	c49d63b10d6f1fb13477e36b4a79b37364497cc8d32aa551d0262e2481bd1656
+E3_kana_Q	1	0	1	dbc16bec1fae1efc584901ffd1c9199203d2cea54f41e68999597d4eda6cb3f7
+E3_kana_A	1	0	1	4e122791c531514e678f209eeabe0f3c962251565e2da2e28f848cb4c959c767
+E3_grph_Q	1	0	1	59fc0a2ad9afb623babbe8a1c4610b6e68fecac232b6a739fe1797e05dc69897
+E3_grph_A	1	0	1	d8294caf9bf6085dd4b9d2f6c07872393cc1c3fe91f4e9ec2b5e3b680f174fa5
+E4	85	0	2	6eabd8ee7d1f390f693380a0b5c0d16ad2a5eb07940a08c83f6054b8e6fffc86

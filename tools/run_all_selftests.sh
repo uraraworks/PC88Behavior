@@ -97,6 +97,12 @@ SCRIPTS_EXPECTED=(
   "tools/check_l3_entry_screen_selftest.sh:0"
   "tools/l3_entry_expected_fault_selftest.sh:0"
   "tools/conform_l3.sh:0"
+  # tools/conform_l4.sh(l4-c1b 打鍵エコー適合の場面固定)は conform_l3.sh と
+  # 違い、公式環境(PC88_REF_ROM_DIR)が無くても自作main ROM側の照合が
+  # tests/conformance/expected_l4_echo.tsv と照合して完走しrc=0を返す設計
+  # なので、SKIP判定の特別扱いは不要(conform_l3.shのSKIP注記のような分岐は
+  # 無く、常に期待rc=0)。
+  "tools/conform_l4.sh:0"
   "tools/diag_l3_mixed.sh:0"
   "tools/verify_l1.sh:0"
   "tools/verify_l2.sh:0"
