@@ -142,6 +142,9 @@ SCRIPTS_EXPECTED=(
   # 無い環境ではSKIPで即rc=0になる（tools/l4_extract_keywords_selftest.sh
   # 内のSKIPメッセージ参照）。
   "tools/l4_extract_keywords_selftest.sh:0"
+  # M7段階3a（2026-09-15）。src/l4_basic/keywords.tsv（リポジトリに同梱、
+  # 私物依存なし）だけを入力にするのでSKIPは無く、常にrc=0を期待する。
+  "tools/l4_token_table_selftest.sh:0"
 )
 
 overall=0
