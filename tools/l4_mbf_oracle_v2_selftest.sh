@@ -86,6 +86,89 @@ else
   echo "SKIP - 予測表v2(l4-s4a-gwbasic-predictions-v2.tsv)がまだ無い(1本目のコミット時点では正常)"
 fi
 
+# --- 3.5 --single-digits を足しても既定(7=GW-BASICどおり)は変わらないこと --
+# 仮説H6検証用に単精度の有効桁数を差し替え可能にしたが、既定7のときは
+# 従来のv2予測(l4-s4a-gwbasic-predictions-v2.tsv)とバイト一致する必要が
+# ある。predict()の引数省略とpredict(...,7)の一致、およびCLIの
+# --single-digits省略時の出力一致の両方を確認する。
+DEFAULT_MATCH_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, 7)
+    c = m.predict(expr, m.MBF_SINGLE_DIGITS)
+    if not (a == b == c):
+        print(f"MISMATCH {expr}: default={a} explicit7={b} const={c}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$DEFAULT_MATCH_CHECK" = "PASS" ]; then
+  pass "--single-digits 省略時(既定7)は明示的に7を渡した場合と一致(32腕全件)"
+else
+  fail "既定値の一致: $DEFAULT_MATCH_CHECK"
+fi
+
+CLI_DEFAULT_CHECK="$( (cd "$REPO_ROOT" && PY tools/l4_mbf_oracle_v2.py "1/3") )"
+CLI_EXPLICIT7_CHECK="$( (cd "$REPO_ROOT" && PY tools/l4_mbf_oracle_v2.py --single-digits 7 "1/3") )"
+if [ "$CLI_DEFAULT_CHECK" = "$CLI_EXPLICIT7_CHECK" ] && [ -n "$CLI_DEFAULT_CHECK" ]; then
+  pass "CLIの--single-digits省略時と--single-digits 7の出力が一致"
+else
+  fail "CLI既定値: default=[$CLI_DEFAULT_CHECK] explicit7=[$CLI_EXPLICIT7_CHECK]"
+fi
+
+# 倍精度は --single-digits の影響を受けないこと(W1: 1#/3 は常に16桁)
+DOUBLE_UNAFFECTED_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+k6, p6, a6 = m.predict("1#/3", 6)
+k7, p7, a7 = m.predict("1#/3", 7)
+print("PASS" if (k6, p6) == (k7, p7) else f"FAIL 6={p6!r} 7={p7!r}")
+EOF
+)"
+if [ "$DOUBLE_UNAFFECTED_CHECK" = "PASS" ]; then
+  pass "倍精度は --single-digits の影響を受けない(1#/3 がN=6でもN=7でも同じ)"
+else
+  fail "倍精度が影響を受けてしまっている: $DOUBLE_UNAFFECTED_CHECK"
+fi
+
+# --- 3.6 仮説H6予測表(単精度6桁)の再生成がバイト一致すること --------------
+for pair in \
+  "docs/notes/l4-s4b-h6-predictions.tsv:tools/gen_l4_s4b_h6_predictions.py" \
+  "docs/notes/l4-s4a-h6-posthoc.tsv:tools/gen_l4_s4a_h6_posthoc.py"
+do
+  OUT="${pair%%:*}"
+  GEN="${pair##*:}"
+  TARGET="$REPO_ROOT/$OUT"
+  if [ -f "$TARGET" ]; then
+    TMP="$(mktemp)"
+    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>/tmp/l4_oracle_h6_gen.err
+    if diff -q "$TMP" "$TARGET" >/dev/null 2>&1; then
+      pass "$OUT の再生成がバイト一致"
+    else
+      fail "$OUT の再生成が既存ファイルと不一致(diff未一致)"
+    fi
+    rm -f "$TMP"
+  else
+    echo "SKIP - $OUT がまだ無い(1本目のコミット時点では正常)"
+  fi
+done
+
 # --- 4. v1とv2の乖離例(9924.8*984025.0)を固定する -----------------------
 # 単精度乗算$FMULSは厳密48bit積の下位16bitをスティッキーなしで捨てる
 # (MATH2.ASM 449-450)。この腕は「厳密値を求めて1回偶数丸め」(v1)と

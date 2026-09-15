@@ -780,13 +780,20 @@ def _significant_digits(value: Fraction, ndig: int) -> Tuple[str, int]:
     return s, e
 
 
-def fout_format(num: GwNum) -> Tuple[str, bool]:
+def fout_format(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
-    経由したか=approx)"""
+    経由したか=approx)
+
+    single_digits: 単精度の有効桁数(既定7=GW-BASICどおり)。仮説H6検証用に
+    差し替え可能にした口(docs/notes/l4-mbf-oracle.md「H6で採った規則」
+    参照)。倍精度の桁数(MBF_DOUBLE_DIGITS=16)はこの引数の影響を受けない
+    ($FOFMTが単精度と倍精度で別々に有効桁数を持つ構造(MATH1.ASM
+    1338-1341)にならい、単精度側だけを差し替える)。
+    """
     if num.kind == "int":
         return str(abs(num.ivalue)), False
 
-    ndig = MBF_SINGLE_DIGITS if num.kind == "single" else MBF_DOUBLE_DIGITS
+    ndig = single_digits if num.kind == "single" else MBF_DOUBLE_DIGITS
     value = num.exact()
     if value == 0:
         return "0", False
@@ -818,27 +825,45 @@ def fout_format(num: GwNum) -> Tuple[str, bool]:
         return f"{mant}{marker}{sign_ch}{abs(exp_val):02d}", True
 
 
-def print_one(num: GwNum) -> Tuple[str, bool]:
-    body, approx = fout_format(num)
+def print_one(num: GwNum, single_digits: int = MBF_SINGLE_DIGITS) -> Tuple[str, bool]:
+    body, approx = fout_format(num, single_digits)
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
 
 
-def predict(typed_print_body: str) -> Tuple[str, str, bool]:
-    """戻り値: (kind, predicted, approx)"""
+def predict(
+    typed_print_body: str, single_digits: int = MBF_SINGLE_DIGITS
+) -> Tuple[str, str, bool]:
+    """戻り値: (kind, predicted, approx)
+
+    single_digits: fout_format() と同じ(既定7)。既定のままなら
+    従来のv2予測(有効桁数7)と完全に一致する
+    (tools/l4_mbf_oracle_v2_selftest.sh で確認)。
+    """
     try:
         num = eval_expr(typed_print_body)
     except GwError as e:
-        residual_line, approx = print_one(e.residual)
+        residual_line, approx = print_one(e.residual, single_digits)
         return "error", f"{e.kind};{residual_line}", approx
-    line, approx = print_one(num)
+    line, approx = print_one(num, single_digits)
     return "numeric", line, approx
 
 
 if __name__ == "__main__":
-    for arg in sys.argv[1:]:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--single-digits",
+        type=int,
+        default=MBF_SINGLE_DIGITS,
+        help="単精度の有効桁数(既定7=GW-BASICどおり。倍精度は常に16)",
+    )
+    ap.add_argument("exprs", nargs="+")
+    args = ap.parse_args()
+    for arg in args.exprs:
         body = arg
         if body.lower().startswith("print "):
             body = body[6:]
-        kind, pred, approx = predict(body)
+        kind, pred, approx = predict(body, args.single_digits)
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")
