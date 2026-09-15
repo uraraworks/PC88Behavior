@@ -154,6 +154,10 @@ SCRIPTS_EXPECTED=(
   # M7段階3b（2026-09-15）。BASICの核(直接モードPRINT)。公式ROM不要、
   # 自作main ROMだけで完結するのでSKIPは無く、常にrc=0を期待する。
   "tools/l4_basic_selftest.sh:0"
+  # M7段階4 事前登録（2026-09-15）。GW-BASIC(MIT公開ソース)数値部の予測器
+  # tools/l4_mbf_oracle.py。ROM・私物なしで完結するのでSKIPは無く、
+  # 常にrc=0を期待する。
+  "tools/l4_mbf_oracle_selftest.sh:0"
 )
 
 overall=0
