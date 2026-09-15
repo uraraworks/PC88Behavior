@@ -786,14 +786,31 @@ def _small_side_fixed(e: int, nsig: int, ndig: int, small_rule: str, small_len: 
     大きい側(e>0)はどの候補でも現行の規則(e<=ndig)のまま変えない
     (l4-s4c依頼「大きい側は現行の規則のまま変えない」)。
 
-    - "sym": 現行の対称近似則(v1/v2)。固定 iff e > -ndig。
+    - "sym": 現行の対称近似則(v1/v2、l4-s4c v1の実装そのまま)。
+      固定 iff e > -ndig。**注意:** ここでの `e` は
+      `_significant_digits()` が返す内部の10進指数で、
+      `v ≈ d1.d2d3…×10^(e-1)` の意味(標準的な「先頭桁の10のべき」
+      Eとは e=E+1 の関係でずれている)。l4-s4c事前登録の定義
+      「S0: -N<E で固定」はこの標準的なEを使っており、旧実装の
+      `e>-ndig` をそのままEに読み替えると `(E+1)>-N` すなわち
+      `E>-N-1` になっていて定義の `E>-N` と1ずれる
+      (docs/notes/l4-mbf-oracle.md「l4-s4c: S0列の食い違い」参照)。
+      **この食い違いを知った上で、l4-s4a/l4-s4b/l4-s4c v1の予測表との
+      後方互換のためsym"の挙動はそのまま変えていない。**
+    - "sym-def": l4-s4c事前登録の定義どおりに計算する版。
+      固定 iff E > -ndig、E=e-1 なので iff e > -ndig+1。
     - "len": 固定表記にしたときの小数点より右の文字数
       (先頭の0を含む = (-e)+nsig)が small_len(T)以下なら固定。
       leading_zeros=(-e)はfout_formatの固定表記の実際の組み立て
-      ("."+("0"*(-e))+trimmed)と同じ値。
+      ("."+("0"*(-e))+trimmed)と同じ値。この文字数はEを使わず
+      直接「先頭0の個数+有効桁数」で定義されているため、
+      e/Eのずれの影響を受けない(l4-s4c v1のLEN列は定義どおり
+      だったとの報告と整合する)。
     """
     if small_rule == "sym":
         return e > -ndig
+    if small_rule == "sym-def":
+        return e > -ndig + 1
     if small_rule == "len":
         return (-e) + nsig <= small_len
     raise ValueError(f"unknown small_rule {small_rule!r}")
@@ -905,7 +922,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--small-rule",
-        choices=("sym", "len"),
+        choices=("sym", "sym-def", "len"),
         default="sym",
         help="|v|<1側の固定⇔指数切替の候補規則(既定sym=現行の対称近似則)",
     )

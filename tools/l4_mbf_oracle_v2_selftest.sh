@@ -369,6 +369,99 @@ else
   fail "LEN故障注入の検出力: $LEN_FAULT_CHECK"
 fi
 
+# --- 12. l4-s4c v2: sym-def が事前登録の定義どおり(E>-N)であること --------
+# 2026-09-15、l4-s4c v1のS0列が定義と食い違っていた指摘を受けて追加。
+# 定義: v=d.ddd×10^E(E<0)、S0は -N<E で固定。K3(1.5e-6, 単精度6桁)は
+# E=-6, N=6 なので -6<-6 は偽 -> 指数表記が正しい。
+SYMDEF_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+cases = [
+    ("1.5e-6", 6, " 1.5E-06 "),
+    ("1.23e-6", 6, " 1.23E-06 "),
+    ("1.2e-6", 6, " 1.2E-06 "),
+    ("1/300000", 6, " 3.33333E-06 "),
+    ("1d-16", 16, " 1D-16 "),
+    ("1.5d-16", 16, " 1.5D-16 "),
+]
+ok = True
+for expr, ndig, want in cases:
+    _, pred, _ = m.predict(expr, ndig, "sym-def")
+    if pred != want:
+        print(f"MISMATCH {expr}: got {pred!r} want {want!r}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$SYMDEF_CHECK" = "PASS" ]; then
+  pass "sym-def が事前登録の定義(E>-Nで固定)どおり(K3/K5/K9/K13/L2/L4相当の6例)"
+else
+  fail "sym-defの定義一致: $SYMDEF_CHECK"
+fi
+
+# --- 13. l4-s4c v2: 旧sym(既定)はv1のS0列と完全一致(挙動を変えていない) ---
+SYM_UNCHANGED_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+# l4-s4c v1(0936808)のS0列を再現できるか(旧"sym"のまま)
+cases = [
+    ("1.5e-6", 6, " .0000015 "),
+    ("1d-16", 16, " .0000000000000001 "),
+]
+ok = True
+for expr, ndig, want in cases:
+    _, pred, _ = m.predict(expr, ndig, "sym")
+    if pred != want:
+        print(f"MISMATCH {expr}: got {pred!r} want {want!r}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$SYM_UNCHANGED_CHECK" = "PASS" ]; then
+  pass "旧sym(既定)はl4-s4c v1のS0列と一致(挙動未変更)"
+else
+  fail "旧symの後方互換: $SYM_UNCHANGED_CHECK"
+fi
+
+# --- 14. l4-s4c v2予測表: LEN列がv1と同一・S0列だけ変わること ------------
+S4C_V1="$REPO_ROOT/docs/notes/l4-s4c-candidate-predictions.tsv"
+S4C_V2="$REPO_ROOT/docs/notes/l4-s4c-candidate-predictions-v2.tsv"
+if [ -f "$S4C_V1" ] && [ -f "$S4C_V2" ]; then
+  # LEN7/LEN8/LEN9/LEN16列(5,6,7,8列目)はv1・v2で同一のはず
+  V1_LEN="$(grep -v '^#' "$S4C_V1" | cut -f1,2,3,5,6,7,8)"
+  V2_LEN="$(grep -v '^#' "$S4C_V2" | cut -f1,2,3,5,6,7,8)"
+  if [ "$V1_LEN" = "$V2_LEN" ]; then
+    pass "l4-s4c v2のLEN列(id/typed/type込み)はv1と完全一致"
+  else
+    fail "l4-s4c v2のLEN列がv1と食い違っている"
+  fi
+  # S0列(4列目)はK3/K5/K9/K13/L2/L4の6腕だけ違うはず
+  DIFF_IDS="$(paste <(grep -v '^#' "$S4C_V1" | cut -f1,4) <(grep -v '^#' "$S4C_V2" | cut -f1,4) | awk -F'\t' '$2!=$4{print $1}' | tr '\n' ',' )"
+  if [ "$DIFF_IDS" = "K3,K5,K9,K13,L2,L4," ]; then
+    pass "l4-s4c v2のS0列がv1と違う腕はK3/K5/K9/K13/L2/L4の6件だけ"
+  else
+    fail "S0列の差分腕が想定外: [$DIFF_IDS]"
+  fi
+else
+  echo "SKIP - l4-s4c v1/v2予測表のどちらかがまだ無い"
+fi
+
+# --- 15. l4-s4c v2予測表の再生成がデータ行一致すること --------------------
+if [ -f "$S4C_V2" ]; then
+  TMP="$(mktemp)"
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions_v2.py) > "$TMP" 2>/tmp/l4_oracle_s4c_v2_gen.err
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4C_V2") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4c-candidate-predictions-v2.tsv の再生成がデータ行一致"
+  else
+    fail "l4-s4c v2予測表の再生成が既存ファイルとデータ行不一致(diff未一致)"
+  fi
+  rm -f "$TMP"
+else
+  echo "SKIP - l4-s4c v2予測表がまだ無い(1本目のコミット時点では正常)"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"
