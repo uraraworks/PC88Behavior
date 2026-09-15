@@ -411,10 +411,21 @@ FAULT_MUL_COARSE_NEW = (
     "    AND 0xFF"  # 故障注入: 下位5bitをマスクしない(=粗いタイ判定を外す)
 )
 
+FAULT_DIV_STICKY_OLD = (
+    "    LD A,(WK_REMZERO)\n"
+    "    LD (WK_STICKY),A\n"
+    "    ; WK_BORROWは0のまま"
+)
+FAULT_DIV_STICKY_NEW = (
+    "    ; 故障注入: 真の剰余が非0でもWK_STICKYへ反映しない\n"
+    "    ; WK_BORROWは0のまま"
+)
+
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
     "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
+    "div_sticky": (FAULT_DIV_STICKY_OLD, FAULT_DIV_STICKY_NEW),
 }
 
 

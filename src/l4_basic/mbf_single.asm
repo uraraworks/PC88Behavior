@@ -1114,3 +1114,381 @@ _mul_zero:
     LD (RES_SIGN),A
     LD (RES_EXP),A
     JP MBF_PACK_RES
+
+; =======================================================================
+; MBF_DIV — MBF_RES = MBF_OPA / MBF_OPB（単精度）。MBF_STATUS を設定する
+; (0=正常 1=オーバーフロー 2=0除算)。
+;
+; $SDIV/$FDIVS (MATH1.ASM 3666-3825) の再現。除算は加減算と同じく
+; 「厳密値を求めて1回偶数丸め」と数学的に等価(tools/l4_mbf_oracle_v2.py
+; モジュールdocstring4番で確認済み)なので、MBF_ADDの丸め(guard1バイト+
+; スティッキー1bit、偶数丸め)をそのまま再利用できる。
+;
+; 商の求め方は「剰余を毎回2倍しながら引けるか試す」教科書的な復元法
+; （remainder doubling、8086のKnuth Algorithm Dの写経ではなく独自に
+; 組んだ）。この方法は剰余Rが常にmantB未満であることを前提にするが、
+; mantA/mantBは(0.5,2)の範囲なのでmantA>=mantB(比が1以上)のことも
+; 半分程度ある。そこで先にmantA,mantBを比較し、mantA>=mantBなら
+; 1回だけR-=mantBしておいて前提を満たしてから31回のループへ入り
+; （このR<mantB化と、その1ビットをQのbit31へ合成する構成は仕様書に
+; 無い判断。境界値照合(MAX_POS÷2.0のようなratio>=1のケース)で
+; 「前提を満たしていないと商が壊れる」ことを実際に見つけて追加した）、
+; 最終的にQ=floor(mantA*2^31/mantB)を得る。mantA/mantBが(0.5,2)の
+; 範囲であることから、Qの最上位ビットは必ずbit30かbit31のどちらかに
+; なり(31回という回数を選んだ理由=仕様書に無い判断)、MBF_MULの正規化
+; (bit31が立っているかどうかで0/1ビットシフト)と全く同じ形にできる。
+;
+; 指数の基準式(eA-eB+128、$SEXPS(MATH1.ASM 3691-3714)と同型)から、
+; N=31回のQに対する丸め前の指数を導出すると:
+;   bit31が既に立っている(シフト不要) -> final_exp = (eA-eB+128) + 1
+;   bit31が立っていない(1bit左シフトが要る) -> final_exp = (eA-eB+128)
+; （導出はコミットメッセージに残す。境界値・乱数照合で検算済み）。
+; =======================================================================
+DIV_Q3 EQU 0xC050   ; 商(32bit中、有効なのは31bitぶん)
+DIV_Q2 EQU 0xC051
+DIV_Q1 EQU 0xC052
+DIV_Q0 EQU 0xC053
+DIV_R3 EQU 0xC054   ; 剰余(復元法のワーキングレジスタ)
+DIV_R2 EQU 0xC055
+DIV_R1 EQU 0xC056
+DIV_R0 EQU 0xC057
+DIV_T3 EQU 0xC058   ; 試し引き算のスクラッチ
+DIV_T2 EQU 0xC059
+DIV_T1 EQU 0xC05A
+DIV_T0 EQU 0xC05B
+DIV_B3 EQU 0xC05C   ; 除数(mantB、24bitを32bitへゼロ拡張)
+DIV_B2 EQU 0xC05D
+DIV_B1 EQU 0xC05E
+DIV_B0 EQU 0xC05F
+WK_REMZERO EQU 0xC060  ; 真の剰余が最終的に0だったか(0=0だった)
+WK_DIVINIT EQU 0xC061  ; mantA>=mantBの事前正規化フラグ(下のコメント参照)
+
+MBF_DIV:
+    XOR A
+    LD (MBF_STATUS),A
+    LD (WK_STICKY),A
+    LD (WK_BORROW),A
+    CALL MBF_UNPACK_A
+    CALL MBF_UNPACK_B
+
+    LD A,(UB_EXP)
+    OR A
+    JR NZ,_div_b_nonzero
+    ; 0除算
+    LD A,(UA_EXP)
+    OR A
+    JR Z,_div_zerobyzero_sign
+    LD A,(UA_SIGN)
+    LD (RES_SIGN),A
+    JR _div_zerodivide_pack
+_div_zerobyzero_sign:
+    XOR A
+    LD (RES_SIGN),A
+_div_zerodivide_pack:
+    LD A,2
+    LD (MBF_STATUS),A
+    CALL MBF_PACK_OVERFLOW_KEEPSTATUS
+    RET
+
+_div_b_nonzero:
+    LD A,(UA_EXP)
+    OR A
+    JR NZ,_div_both_nonzero
+    ; 0/x = 0
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+
+_div_both_nonzero:
+    LD A,(UA_SIGN)
+    LD B,A
+    LD A,(UB_SIGN)
+    XOR B
+    LD (RES_SIGN),A
+
+    ; base_exp = eA-eB+128 (16bit符号つきで計算。Sフラグで判定するため
+    ; SBC HL,DE を使う)
+    LD A,(UA_EXP)
+    LD H,0
+    LD L,A
+    LD DE,128
+    ADD HL,DE            ; HL = eA+128
+    LD A,(UB_EXP)
+    LD D,0
+    LD E,A
+    OR A
+    SBC HL,DE             ; HL = eA+128-eB = base_exp (符号つき、-126..382)
+    LD (WK_S),HL          ; 一時保存(WK_Sを2バイトの汎用一時領域として流用)
+
+    ; --- 24bit÷24bit 復元法（31回） ---
+    XOR A
+    LD (DIV_Q3),A
+    LD (DIV_Q2),A
+    LD (DIV_Q1),A
+    LD (DIV_Q0),A
+    LD (DIV_R3),A
+    LD A,(UA_M2)
+    LD (DIV_R2),A
+    LD A,(UA_M1)
+    LD (DIV_R1),A
+    LD A,(UA_M0)
+    LD (DIV_R0),A
+    XOR A
+    LD (DIV_B3),A
+    LD A,(UB_M2)
+    LD (DIV_B2),A
+    LD A,(UB_M1)
+    LD (DIV_B1),A
+    LD A,(UB_M0)
+    LD (DIV_B0),A
+
+    ; 事前正規化: remainder-doubling法は「R<B」を前提にするが、
+    ; mantA/mantBは(0.5,2)の範囲なので mantA>=mantB（比が1以上）のことも
+    ; 半分程度ある。そのときは先に1回だけ R-=B しておき、その1ビットを
+    ; 後でQのbit31として合成する（仕様書に無い判断。標準的な復元法の
+    ; 前提を満たすための独自の前処理。境界値照合(MAX_POS/2のような
+    ; ratio>=1のケース)で見つけた）。
+    XOR A
+    LD (WK_DIVINIT),A
+    LD A,(DIV_R2)
+    LD B,A
+    LD A,(DIV_B2)
+    CP B
+    JR C,_div_a_ge_b
+    JR NZ,_div_pre_done
+    LD A,(DIV_R1)
+    LD B,A
+    LD A,(DIV_B1)
+    CP B
+    JR C,_div_a_ge_b
+    JR NZ,_div_pre_done
+    LD A,(DIV_R0)
+    LD B,A
+    LD A,(DIV_B0)
+    CP B
+    JR C,_div_a_ge_b
+    JR NZ,_div_pre_done
+_div_a_ge_b:
+    LD A,1
+    LD (WK_DIVINIT),A
+    LD A,(DIV_R0)
+    LD H,A
+    LD A,(DIV_B0)
+    LD L,A
+    LD A,H
+    SUB L
+    LD (DIV_R0),A
+    LD A,(DIV_R1)
+    LD H,A
+    LD A,(DIV_B1)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DIV_R1),A
+    LD A,(DIV_R2)
+    LD H,A
+    LD A,(DIV_B2)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DIV_R2),A
+_div_pre_done:
+
+    LD B,31
+_div_loop:
+    ; R = R<<1 (32bit、LSBから)
+    XOR A
+    LD A,(DIV_R0)
+    SLA A
+    LD (DIV_R0),A
+    LD A,(DIV_R1)
+    RLA
+    LD (DIV_R1),A
+    LD A,(DIV_R2)
+    RLA
+    LD (DIV_R2),A
+    LD A,(DIV_R3)
+    RLA
+    LD (DIV_R3),A
+    ; Q = Q<<1 (32bit、LSBから)
+    XOR A
+    LD A,(DIV_Q0)
+    SLA A
+    LD (DIV_Q0),A
+    LD A,(DIV_Q1)
+    RLA
+    LD (DIV_Q1),A
+    LD A,(DIV_Q2)
+    RLA
+    LD (DIV_Q2),A
+    LD A,(DIV_Q3)
+    RLA
+    LD (DIV_Q3),A
+
+    ; T = R - B (32bit、LSBから)。桁借りが無ければ R>=B。
+    LD A,(DIV_R0)
+    LD C,A
+    LD A,(DIV_B0)
+    LD E,A
+    LD A,C
+    SUB E
+    LD (DIV_T0),A
+    LD A,(DIV_R1)
+    LD C,A
+    LD A,(DIV_B1)
+    LD E,A
+    LD A,C
+    SBC A,E
+    LD (DIV_T1),A
+    LD A,(DIV_R2)
+    LD C,A
+    LD A,(DIV_B2)
+    LD E,A
+    LD A,C
+    SBC A,E
+    LD (DIV_T2),A
+    LD A,(DIV_R3)
+    LD C,A
+    LD A,(DIV_B3)
+    LD E,A
+    LD A,C
+    SBC A,E
+    LD (DIV_T3),A
+    JR C,_div_no_sub          ; 桁借りが出た(R<B) -> 引かない、商bitは0のまま
+    ; R>=B: T(=R-B)をRへ採用し、Qのbit0を立てる
+    LD A,(DIV_T0)
+    LD (DIV_R0),A
+    LD A,(DIV_T1)
+    LD (DIV_R1),A
+    LD A,(DIV_T2)
+    LD (DIV_R2),A
+    LD A,(DIV_T3)
+    LD (DIV_R3),A
+    LD A,(DIV_Q0)
+    OR 1
+    LD (DIV_Q0),A
+_div_no_sub:
+    DEC B
+    JP NZ,_div_loop
+
+    ; 真の剰余が0かどうか(スティッキーに使う)
+    XOR A
+    LD (WK_REMZERO),A
+    LD A,(DIV_R0)
+    OR A
+    JR NZ,_div_remnz
+    LD A,(DIV_R1)
+    OR A
+    JR NZ,_div_remnz
+    LD A,(DIV_R2)
+    OR A
+    JR NZ,_div_remnz
+    LD A,(DIV_R3)
+    OR A
+    JR NZ,_div_remnz
+    JR _div_remcheck_done
+_div_remnz:
+    LD A,1
+    LD (WK_REMZERO),A
+_div_remcheck_done:
+
+    ; 事前正規化フラグをQのbit31として合成する(31回のループはbit0-30ぶん
+    ; しか作らない。この合成後、bit31が立っている⇔事前正規化フラグが
+    ; 立っていた、が必ず一致する——mantA<mantBのときはQ(31bit)の最上位は
+    ; 必ずbit30までにしかならないため)。
+    LD A,(WK_DIVINIT)
+    OR A
+    JR Z,_div_no_initbit
+    LD A,(DIV_Q3)
+    OR 0x80
+    LD (DIV_Q3),A
+_div_no_initbit:
+
+    ; 正規化: DIV_Q3のbit7(=Qのbit31)が立っていれば追加シフト不要、
+    ; final_exp=base_exp+1。立っていなければ1bit左シフトしてfinal_exp=base_exp。
+    LD A,(DIV_Q3)
+    BIT 7,A
+    JR NZ,_div_noshift
+    ; 1bit左シフト(LSBから)
+    XOR A
+    LD A,(DIV_Q0)
+    SLA A
+    LD (DIV_Q0),A
+    LD A,(DIV_Q1)
+    RLA
+    LD (DIV_Q1),A
+    LD A,(DIV_Q2)
+    RLA
+    LD (DIV_Q2),A
+    LD A,(DIV_Q3)
+    RLA
+    LD (DIV_Q3),A
+    LD HL,(WK_S)
+    JR _div_have_finalexp
+_div_noshift:
+    LD HL,(WK_S)
+    LD DE,1
+    ADD HL,DE            ; final_exp = base_exp + 1
+_div_have_finalexp:
+    ; オーバーフロー判定: final_exp>255
+    PUSH HL
+    LD DE,256
+    OR A
+    SBC HL,DE
+    POP HL
+    JP P,_div_overflow    ; (final_exp-256)>=0 -> final_exp>=256
+    ; アンダーフロー判定: final_exp<1
+    PUSH HL
+    LD DE,1
+    OR A
+    SBC HL,DE
+    POP HL
+    JP M,_div_zero_result ; (final_exp-1)<0 -> final_exp<1
+
+    LD A,L
+    LD (RES_EXP),A
+
+    ; 候補仮数(BIG_M2,M1,M0)とガード(BIG_MG)にDIV_Q3,Q2,Q1,Q0を写す
+    LD A,(DIV_Q3)
+    LD (BIG_M2),A
+    LD A,(DIV_Q2)
+    LD (BIG_M1),A
+    LD A,(DIV_Q1)
+    LD (BIG_M0),A
+    LD A,(DIV_Q0)
+    LD (BIG_MG),A
+    LD A,(WK_REMZERO)
+    LD (WK_STICKY),A
+    ; WK_BORROWは0のまま(除算に桁借りの逆転規則は無い、通常のADD丸めと同じ扱い)
+    JP _add_round
+
+_div_overflow:
+    JP MBF_PACK_OVERFLOW
+_div_zero_result:
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+
+; MBF_PACK_OVERFLOW と同じだが MBF_STATUS を上書きしない版(0除算用)。
+MBF_PACK_OVERFLOW_KEEPSTATUS:
+    LD HL,MBF_RES
+    LD A,0xFF
+    LD (HL),A
+    INC HL
+    LD (HL),A
+    INC HL
+    LD A,(RES_SIGN)
+    OR A
+    JR Z,_pkok_pos
+    LD A,0xFF
+    JR _pkok_setb2
+_pkok_pos:
+    LD A,0x7F
+_pkok_setb2:
+    LD (HL),A
+    INC HL
+    LD A,0xFF
+    LD (HL),A
+    RET
