@@ -722,6 +722,98 @@ do
   fi
 done
 
+# --- 25. l4-s4f: --large-n 追加後も既定(0=ndigのまま)は32腕全件で変わらない
+LARGE_N_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, m.MBF_SINGLE_DIGITS, "sym", 0, 0, 0)
+    if a != b:
+        print(f"MISMATCH {expr}: default={a} explicit={b}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$LARGE_N_DEFAULT_CHECK" = "PASS" ]; then
+  pass "--large-n 追加後も既定(0=ndigのまま)は32腕全件で変わらない"
+else
+  fail "large-n追加後の既定値一致: $LARGE_N_DEFAULT_CHECK"
+fi
+
+# --- 26. l4-s4f: LG16/LG15がG3/G5相当で定義どおり食い違うこと -------------
+LG_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+cases = [
+    ("1234567890123456#", 16, " 1234567890123456 "),
+    ("1234567890123456#", 15, " 1.234567890123456D+15 "),
+    ("1d15", 16, " 1000000000000000 "),
+    ("1d15", 15, " 1D+15 "),
+]
+ok = True
+for expr, large_n, want in cases:
+    _, pred, _ = m.predict(expr, 16, "rstar", 0, 0, large_n)
+    if pred != want:
+        print(f"MISMATCH {expr} large_n={large_n}: got {pred!r} want {want!r}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$LG_CHECK" = "PASS" ]; then
+  pass "LG16/LG15がG3/G5相当の4例で定義どおり"
+else
+  fail "LG16/LG15定義一致: $LG_CHECK"
+fi
+
+# --- 27. 故障注入: 大きい側のしきい値を1ずらすと1d14の判定が変わること ------
+# 1d14はE=14。large_n=15ならE<15で固定(LG15相当)、large_n=14に1つ厳しく
+# ずらすとE<14が偽になり指数表記へ変わる。
+LARGE_N_FAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+_, p_ok, _ = m.predict("1d14", 16, "rstar", 0, 0, 15)
+_, p_shift, _ = m.predict("1d14", 16, "rstar", 0, 0, 14)
+ok = p_ok != p_shift and p_ok == " 100000000000000 " and p_shift == " 1D+14 "
+print("PASS" if ok else f"FAIL p_ok={p_ok!r} p_shift={p_shift!r}")
+EOF
+)"
+if [ "$LARGE_N_FAULT_CHECK" = "PASS" ]; then
+  pass "大きい側のしきい値を15から14へ1つずらすと1d14の判定が固定→指数に変わる(検出力の確認)"
+else
+  fail "large-n故障注入の検出力: $LARGE_N_FAULT_CHECK"
+fi
+
+# --- 28. l4-s4f予測表の再生成がデータ行一致すること ------------------------
+S4F="$REPO_ROOT/docs/notes/l4-s4f-double-large-candidate-predictions.tsv"
+if [ -f "$S4F" ]; then
+  TMP="$(mktemp)"
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4f_double_large_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4f_gen.err
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4F") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4f-double-large-candidate-predictions.tsv の再生成がデータ行一致"
+  else
+    fail "l4-s4f予測表の再生成が既存ファイルとデータ行不一致(diff未一致)"
+  fi
+  rm -f "$TMP"
+else
+  echo "SKIP - l4-s4f予測表がまだ無い(1本目のコミット時点では正常)"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"

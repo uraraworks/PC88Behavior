@@ -866,6 +866,7 @@ def fout_format(
     small_rule: str = "sym",
     small_len: int = 0,
     small_emin: int = 0,
+    large_n: int = 0,
 ) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
     経由したか=approx)
@@ -878,8 +879,12 @@ def fout_format(
     small_rule/small_len: |v|<1 の側の固定⇔指数切替を選ぶ候補規則
     (l4-s4c用)。既定は "sym"(現行の対称近似則)で、これまでの予測表
     (l4-s4a v1/v2・l4-s4b・s4a事後)と完全に一致する。"len"のときは
-    small_len(T)を使う(_small_side_fixed参照)。大きい側の規則は
-    どちらでも変えない。
+    small_len(T)を使う(_small_side_fixed参照)。
+    large_n: |v|>=1 側(大きい側)の固定⇔指数切替のしきい値(l4-s4f用)。
+    「値をd.ddd×10^Eの形にしたときのEがlarge_n未満なら固定」
+    (E=e-1なのでe<=large_nと同値)。既定0は「ndig(有効桁数)をそのまま
+    使う」という意味で、これは$FOFMTの既定の大きい側の規則
+    (docs/notes/l4-gwbasic-fofmt-analysis.md「E<N」)そのもの。
     """
     if num.kind == "int":
         return str(abs(num.ivalue)), False
@@ -897,7 +902,8 @@ def fout_format(
     nsig = len(trimmed)
 
     if e > 0:
-        use_fixed = e <= ndig  # 大きい側: 現行の規則のまま(候補によらず不変)
+        large_threshold = large_n if large_n else ndig
+        use_fixed = e <= large_threshold  # 大きい側: E<large_threshold と同値
     else:
         # rstar_bだけが必要とする「丸める前の2進の値そのもの」の10進指数
         # (_decimal_exponent(av)は_significant_digitsの丸めを経ていない)。
@@ -933,8 +939,9 @@ def print_one(
     small_rule: str = "sym",
     small_len: int = 0,
     small_emin: int = 0,
+    large_n: int = 0,
 ) -> Tuple[str, bool]:
-    body, approx = fout_format(num, single_digits, small_rule, small_len, small_emin)
+    body, approx = fout_format(num, single_digits, small_rule, small_len, small_emin, large_n)
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
 
@@ -945,6 +952,7 @@ def predict(
     small_rule: str = "sym",
     small_len: int = 0,
     small_emin: int = 0,
+    large_n: int = 0,
 ) -> Tuple[str, str, bool]:
     """戻り値: (kind, predicted, approx)
 
@@ -956,9 +964,9 @@ def predict(
     try:
         num = eval_expr(typed_print_body)
     except GwError as e:
-        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len, small_emin)
+        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len, small_emin, large_n)
         return "error", f"{e.kind};{residual_line}", approx
-    line, approx = print_one(num, single_digits, small_rule, small_len, small_emin)
+    line, approx = print_one(num, single_digits, small_rule, small_len, small_emin, large_n)
     return "numeric", line, approx
 
 
@@ -990,6 +998,13 @@ if __name__ == "__main__":
         default=0,
         help="--small-rule lene のときのEの下限(この値以上なら固定の対象)",
     )
+    ap.add_argument(
+        "--large-n",
+        type=int,
+        default=0,
+        help="|v|>=1側(大きい側)の固定⇔指数のしきい値(E<large_nなら固定)。"
+        "既定0はndig(有効桁数)をそのまま使う=$FOFMT本来の規則",
+    )
     ap.add_argument("exprs", nargs="+")
     args = ap.parse_args()
     for arg in args.exprs:
@@ -997,6 +1012,11 @@ if __name__ == "__main__":
         if body.lower().startswith("print "):
             body = body[6:]
         kind, pred, approx = predict(
-            body, args.single_digits, args.small_rule, args.small_len, args.small_emin
+            body,
+            args.single_digits,
+            args.small_rule,
+            args.small_len,
+            args.small_emin,
+            args.large_n,
         )
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")
