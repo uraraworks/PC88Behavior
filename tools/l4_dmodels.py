@@ -123,6 +123,83 @@ def _s01() -> Fraction:
 
 
 # ---------------------------------------------------------------------------
+# l4-s4l: DREP10(倍精度、負の正味指数を「丸め済み0.1との乗算」ではなく
+# 「真の÷10の反復」にした候補)の2変種。round-half-even(DREP10E、
+# $ROUND/DDIVがソースで確認されている丸め)とround-half-away(DREP10A、
+# l4-s4hの出力側の規則を読み取り側にも当てはめた場合)。
+# ---------------------------------------------------------------------------
+
+
+def _round_half_even_mag(x: Fraction) -> int:
+    n, d = x.numerator, x.denominator
+    q, r = divmod(n, d)
+    twice = 2 * r
+    if twice < d:
+        return q
+    if twice > d:
+        return q + 1
+    return q if (q % 2 == 0) else q + 1
+
+
+def _encode_double_even(value: Fraction) -> Tuple[int, int]:
+    """非負のFractionを倍精度(56bit仮数)へround-half-evenで丸める。"""
+    if value == 0:
+        return (0, 0)
+    k = _bracket(value)
+    mant_exact = value * Fraction(2) ** (MBF_DOUBLE_BITS - k)
+    m = _round_half_even_mag(mant_exact)
+    if m >= (1 << MBF_DOUBLE_BITS):
+        k += 1
+        m = 1 << (MBF_DOUBLE_BITS - 1)
+    exp_byte = k + 128
+    if exp_byte > 255:
+        raise OverflowError("dmodels double overflow")
+    if exp_byte < 1:
+        return (0, 0)
+    return (exp_byte, m)
+
+
+def _round_even_frac(value: Fraction) -> Fraction:
+    exp_byte, mant = _encode_double_even(value)
+    return _decode_double(exp_byte, mant)
+
+
+def _round_variant_frac(value: Fraction, variant: str) -> Fraction:
+    return _round_even_frac(value) if variant == "even" else _round_away_frac(value)
+
+
+def _magnitude_drep10(digits: str, net_exp: int, variant: str) -> Fraction:
+    """DREP10E(variant="even")/DREP10A(variant="away")共通の本体。
+    数字の積み上げは常にround-half-even、かつ$MUL10と$FADDDを別々に
+    呼ぶ($FIDIGの構造どおり)ため、桁ごとに「×10を丸める」→「+dを丸める」
+    の2回roundする(Codexのdfin_model_search.py accumulate_digits()と
+    同じ構造。1回にまとめてroundすると、候補式のx-c形で使う桁数の多い
+    定数cで丸め誤差が変わってしまうことを乱数突き合わせで確認したため、
+    2回roundに直した)。指数適用の×10/真の÷10だけがvariantで丸め方を
+    切り替える。
+    """
+    acc = Fraction(0)
+    for ch in digits or "0":
+        acc = _round_even_frac(acc * 10)
+        acc = _round_even_frac(acc + int(ch))
+    if net_exp > 0:
+        for _ in range(net_exp):
+            acc = _round_variant_frac(acc * 10, variant)
+    elif net_exp < 0:
+        for _ in range(-net_exp):
+            acc = _round_variant_frac(acc / 10, variant)
+    return acc
+
+
+def _magnitude_drep10e(digits: str, net_exp: int) -> Fraction:
+    return _magnitude_drep10(digits, net_exp, "even")
+
+
+def _magnitude_drep10a(digits: str, net_exp: int) -> Fraction:
+    return _magnitude_drep10(digits, net_exp, "away")
+
+
+# ---------------------------------------------------------------------------
 # 定数の字句解析(倍精度専用の軽量版。符号・桁文字列・小数点以下の桁数・
 # 指数だけを取り出す。丸め方自体には関与しない)。
 # ---------------------------------------------------------------------------
@@ -185,6 +262,8 @@ _MODELS = {
     "dexact": _magnitude_dexact,
     "dgw": _magnitude_dgw,
     "drep01": _magnitude_drep01,
+    "drep10e": _magnitude_drep10e,
+    "drep10a": _magnitude_drep10a,
 }
 
 
