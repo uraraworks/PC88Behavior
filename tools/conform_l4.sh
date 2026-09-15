@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# tools/conform_l4.sh — l4-c1b「打鍵エコー適合の場面固定」のランナー。
+# tools/conform_l4.sh — l4-c1b「打鍵エコー適合の場面固定」・
+# l4-c2c「直接モードPRINT適合の場面固定」のランナー。
 #
-# 事前登録: docs/notes/l4-c1b-echo-conformance-scene-preregistration.md。
+# 事前登録: docs/notes/l4-c1b-echo-conformance-scene-preregistration.md
+# （打鍵エコー、11腕）・
+# docs/notes/l4-c2c-print-conformance-scene-preregistration.md
+# （直接モードPRINT、P1〜P5の16腕）。
 # tools/conform_l3.sh と同じ二層方針: 公式ROM(PC88_REF_ROM_DIR)が要る本体と、
 # 公式環境が無くても回る自作main ROM側の照合を分ける。ただし l4-c1 の結果
 # （相対座標・文字コード・属性域が公式/自作間で一致する）を踏まえ、
 # **自作ROM側の照合は公式環境の有無に関わらず常に、コミット済みの
-# tests/conformance/expected_l4_echo.tsv とだけ照合して回る**設計にする
-# （公式環境が無い環境でも第三者がこのテストを回せる。M8）。
+# tests/conformance/expected_l4_echo.tsv・expected_l4_print.tsv とだけ
+# 照合して回る**設計にする（公式環境が無い環境でも第三者がこのテストを
+# 回せる。M8）。
 #
-# 期待値は tests/conformance/expected_l4_echo.tsv に置くが、値そのもの
-# （文字コード・属性の並び）は一切コミットしない。件数とSHA-256のみ
-# （CLAUDE.md禁止事項4）。正規化とハッシュ化は tools/l4_echo_conform_record.py
-# （tools/l4_vram_probe.py の diff_vram_dumps/attr_rows を import して使う。
-# 二重実装しない）。
+# 期待値は tests/conformance/expected_l4_echo.tsv・expected_l4_print.tsv に
+# 置くが、値そのもの（文字コード・属性・セル位置の並び）は一切コミット
+# しない。件数とSHA-256のみ（CLAUDE.md禁止事項4）。正規化とハッシュ化は
+# tools/l4_echo_conform_record.py（打鍵エコー用）・
+# tools/l4_print_conform_record.py（PRINT用）が
+# tools/l4_vram_probe.py の diff_vram_dumps/attr_rows を import して使う。
+# 二重実装しない。
 #
-# 判定名は事前登録どおり conform / not_conform / gate_failed の3つだけ。
+# 判定名は各事前登録どおり conform / not_conform / gate_failed の3つだけ。
 #
 # 使い方:
 #   tools/conform_l4.sh                       # 自作ROM側の照合のみ（SKIP注記つき）
@@ -26,9 +33,11 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO/tools/lib_l3_measure.sh"
 RECORD="$REPO/tools/l4_echo_conform_record.py"
+PRINT_RECORD="$REPO/tools/l4_print_conform_record.py"
 PROBE="$REPO/tools/l4_vram_probe.py"
 BUILD_MAIN="$REPO/src/build_main_rom.py"
 EXPECTED="$REPO/tests/conformance/expected_l4_echo.tsv"
+EXPECTED_PRINT="$REPO/tests/conformance/expected_l4_print.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -37,6 +46,10 @@ na()  { printf '  \033[33m--\033[0m   %s\n' "$1"; }
 
 if [ ! -f "$EXPECTED" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED" >&2
+  exit 2
+fi
+if [ ! -f "$EXPECTED_PRINT" ]; then
+  echo "エラー: 期待値ファイルが無い: $EXPECTED_PRINT" >&2
   exit 2
 fi
 
@@ -128,6 +141,89 @@ arm_params() {
       return 2
       ;;
   esac
+}
+
+# -----------------------------------------------------------------------
+# l4-c2c 直接モードPRINT適合の場面（16腕、P1〜P5）。
+# 事前登録: docs/notes/l4-c2c-print-conformance-scene-preregistration.md
+# 「腕」節・「条件・フレーム」節と完全に同一（変更しない）。
+#
+# フレーム式: line_end = 700 + 8*(打鍵文字列の長さ。末尾の\nを含む)、
+# dump = line_end + 20、run = dump + 200。打鍵前の写しは常に690
+# （--type-at 700 の10フレーム前、打鍵エコー場面と同じ間隔）。
+# -----------------------------------------------------------------------
+PRINT_ARM_NAMES=(
+  P1_1 P1_0 P1_m5 P1_32767 P1_m32768
+  P2_expr1 P2_expr2 P2_neg
+  P3_str P3_semi_num P3_semi_str P3_comma_str P3_comma_num
+  P4_semi P4_comma
+  P5_q
+)
+
+print_arm_params() {
+  local arm="$1" cmd
+  case "$arm" in
+    P1_1)         cmd='print 1' ;;
+    P1_0)         cmd='print 0' ;;
+    P1_m5)        cmd='print -5' ;;
+    P1_32767)     cmd='print 32767' ;;
+    P1_m32768)    cmd='print -32768' ;;
+    P2_expr1)     cmd='print 2*(3+4)' ;;
+    P2_expr2)     cmd='print 1+2*3' ;;
+    P2_neg)       cmd='print -(4)' ;;
+    P3_str)       cmd='print "q7z"' ;;
+    P3_semi_num)  cmd='print 1;2' ;;
+    P3_semi_str)  cmd='print "a";"b"' ;;
+    P3_comma_str) cmd='print "a","b"' ;;
+    P3_comma_num) cmd='print 1,2' ;;
+    P4_semi)      cmd='print "a";:print "b"' ;;
+    P4_comma)     cmd='print "a",:print "b"' ;;
+    P5_q)         cmd='? 7' ;;
+    *)
+      return 2
+      ;;
+  esac
+  # 末尾の\n(Enter)も1文字として数える(事前登録「条件・フレーム」節)。
+  local n=${#cmd}
+  local line_end=$(( 700 + 8 * (n + 1) ))
+  PRINT_DUMP=$(( line_end + 20 ))
+  PRINT_RUN=$(( PRINT_DUMP + 200 ))
+  PRINT_BEFORE=690
+  PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
+}
+
+# -----------------------------------------------------------------------
+# PRINT場面の1腕を1回走らせ、正規化した記録(TSV: cell_count/
+# ok_relative_row/sha256)を返す。G2(打てない文字警告0)もここで確認する。
+#
+# $1 = ROMディレクトリ、$2 = 出力プレフィックス、残りはARM_ARGS
+# -----------------------------------------------------------------------
+run_print_arm_once() {
+  local romdir="$1" prefix="$2"; shift 2
+  local core
+  core="$(find_l3_core)"
+  if [ -z "$core" ]; then
+    echo "エラー: コアが無い。tools/setup_harness.sh を先に実行すること" >&2
+    return 1
+  fi
+  local before_out after_out
+  before_out="$(vram_out_path "$prefix.before.bin" "$PRINT_BEFORE")"
+  after_out="$(vram_out_path "$prefix.after.bin" "$PRINT_DUMP")"
+  run_q88measure_retry "$prefix.iolog.txt" "$prefix.stdout.txt" "$prefix.stderr.txt" \
+      --core "$core" --rom-dir "$romdir" --frames "$PRINT_RUN" \
+      --vram-dump "$prefix.before.bin" --vram-dump-at "$PRINT_BEFORE" \
+      --vram-dump "$prefix.after.bin" --vram-dump-at "$PRINT_DUMP" \
+      "$@" || return 1
+  if grep -qi 'untypable\|打てない' "$prefix.stderr.txt" 2>/dev/null; then
+    echo "エラー: 打てない文字の警告が出た（G2違反）: $prefix" >&2
+    return 3
+  fi
+  if [ ! -f "$before_out" ] || [ ! -f "$after_out" ]; then
+    echo "エラー: VRAM写しが書き出されなかった: $before_out / $after_out" >&2
+    return 1
+  fi
+  python3 "$PRINT_RECORD" --before "$before_out" --after "$after_out" \
+      --count-only-rows 19
 }
 
 # -----------------------------------------------------------------------
@@ -302,6 +398,122 @@ fi
 overall_rc=$(( overall_rc || selftest_rc ))
 
 # -----------------------------------------------------------------------
+# PRINT場面用の検出力自己検査（公式環境が無くても常に実行する）。
+# 記録の形が異なる(cell_count/ok_relative_row/sha256の3列)ため、echo場面
+# の自己検査とは別に、専用の照合関数(check_print_record_against_expected)
+# で同じ4項目(a/b1/c/d)を確かめる。
+# -----------------------------------------------------------------------
+say "検出力の自己検査(PRINT場面。記録・期待値をわざと壊して検出できるか)"
+
+print_selftest_rc=0
+mkdir -p "$WORK/selftest_print"
+
+python3 - "$WORK/selftest_print" <<'PYEOF'
+import sys
+out = sys.argv[1]
+STRIDE = 120
+before = bytearray(25 * STRIDE)
+for r in range(25):
+    for c in range(80):
+        before[r * STRIDE + c] = 0x20
+after = bytearray(before)
+cmd = b"print 1"
+for i, ch in enumerate(cmd):
+    after[6 * STRIDE + i] = ch
+after[7 * STRIDE + 0] = ord('1')
+after[8 * STRIDE + 0] = ord('O')
+after[8 * STRIDE + 1] = ord('k')
+with open(out + "/before.bin", "wb") as f:
+    f.write(bytes(before))
+with open(out + "/after.bin", "wb") as f:
+    f.write(bytes(after))
+# 1バイトだけ違う対照(出力セルの文字コードを変える)
+after2 = bytearray(after)
+after2[7 * STRIDE + 0] = ord('2')
+with open(out + "/after_bad.bin", "wb") as f:
+    f.write(bytes(after2))
+PYEOF
+
+good_line_p="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_print/before.bin" --after "$WORK/selftest_print/after.bin" --count-only-rows 19)"
+bad_line_p="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_print/before.bin" --after "$WORK/selftest_print/after_bad.bin" --count-only-rows 19)"
+good_sha_p="$(printf '%s' "$good_line_p" | cut -f3)"
+bad_sha_p="$(printf '%s' "$bad_line_p" | cut -f3)"
+if [ "$good_sha_p" != "$bad_sha_p" ]; then
+  ok "自己検査a(PRINT): 記録の出力セルを変えるとSHA-256が変わる(検出力あり)"
+else
+  ng "自己検査a(PRINT): 記録の出力セルを変えてもSHA-256が変わらなかった"
+  print_selftest_rc=1
+fi
+
+exp_good_p="$WORK/selftest_print/expected_good.tsv"
+{
+  echo "# selftest"
+  printf 'selftest_arm\t%s\n' "$good_line_p"
+} > "$exp_good_p"
+
+check_print_record_against_expected() {
+  # $1=arm名 $2=期待値TSV $3=実測record行 -> echo conform/not_conform
+  local arm="$1" expected="$2" actual_line="$3"
+  local e_count e_ok e_sha a_count a_ok a_sha row
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$expected")"
+  if [ -z "$row" ]; then
+    echo "gate_failed"
+    return
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$actual_line" | cut -f1)"
+  a_ok="$(printf '%s' "$actual_line" | cut -f2)"
+  a_sha="$(printf '%s' "$actual_line" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$a_ok" != "$e_ok" ]; then
+    echo "not_conform(件数不一致)"
+  elif [ "$a_sha" != "$e_sha" ]; then
+    echo "not_conform(sha256不一致)"
+  else
+    echo "conform"
+  fi
+}
+
+verdict_b_self_p="$(check_print_record_against_expected selftest_arm "$exp_good_p" "$good_line_p")"
+verdict_b_bad_p="$(check_print_record_against_expected selftest_arm "$exp_good_p" "$bad_line_p")"
+if [ "$verdict_b_self_p" = "conform" ] && [ "${verdict_b_bad_p#not_conform}" != "$verdict_b_bad_p" ]; then
+  ok "自己検査b1(PRINT): 正しい記録は期待値と conform、壊した記録は not_conform"
+else
+  ng "自己検査b1(PRINT): 正しい記録(${verdict_b_self_p})/壊した記録(${verdict_b_bad_p})の判定がおかしい"
+  print_selftest_rc=1
+fi
+
+exp_bad_count_p="$WORK/selftest_print/expected_bad_count.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next} {$2=$2+1; print}' "$exp_good_p" > "$exp_bad_count_p"
+verdict_c_p="$(check_print_record_against_expected selftest_arm "$exp_bad_count_p" "$good_line_p")"
+if [ "${verdict_c_p#not_conform}" != "$verdict_c_p" ]; then
+  ok "自己検査c(PRINT): 期待値の件数を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査c(PRINT): 件数を壊した期待値が誤って conform になった"
+  print_selftest_rc=1
+fi
+
+exp_bad_sha_p="$WORK/selftest_print/expected_bad_sha.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next}
+     {sha=$4; last=substr(sha,length(sha),1); $4=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print}' \
+    "$exp_good_p" > "$exp_bad_sha_p"
+verdict_d_p="$(check_print_record_against_expected selftest_arm "$exp_bad_sha_p" "$good_line_p")"
+if [ "${verdict_d_p#not_conform}" != "$verdict_d_p" ]; then
+  ok "自己検査d(PRINT): 期待値のSHA-256を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査d(PRINT): SHA-256を壊した期待値が誤って conform になった"
+  print_selftest_rc=1
+fi
+
+if [ "$print_selftest_rc" -eq 0 ]; then
+  ok "検出力の自己検査(PRINT): 全項目OK"
+else
+  ng "検出力の自己検査(PRINT): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || print_selftest_rc ))
+
+# -----------------------------------------------------------------------
 # 自作main ROM側の照合（公式環境の有無に関わらず常に実行する）。
 # -----------------------------------------------------------------------
 say "自作main ROM側の照合（公式環境不要。11腕）"
@@ -407,6 +619,56 @@ say "自作ROM側の集計"
 echo "  conform: ${conform_count} / 11"
 echo "  not_conform: ${not_conform_count} / 11"
 echo "  gate_failed: ${gate_failed_count} / 11"
+
+say "自作main ROM側の照合(PRINT場面。公式環境不要。16腕)"
+
+print_conform_count=0
+print_not_conform_count=0
+print_gate_failed_count=0
+
+for arm in "${PRINT_ARM_NAMES[@]}"; do
+  print_arm_params "$arm"
+  prefix="$WORK/self_print_${arm}"
+  line1="$(run_print_arm_once "$SELF_ROMDIR" "$prefix" "${PRINT_ARM_ARGS[@]}" 2>"$prefix.err.txt")"
+  rc1=$?
+  if [ "$rc1" -ne 0 ] || [ -z "$line1" ]; then
+    ng "[自作/PRINT] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix.err.txt"
+    print_gate_failed_count=$((print_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_PRINT")"
+  if [ -z "$row" ]; then
+    ng "[自作/PRINT] ${arm}: 期待値に行が無い(gate_failed)"
+    print_gate_failed_count=$((print_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_ok="$(printf '%s' "$line1" | cut -f2)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$a_ok" != "$e_ok" ]; then
+    ng "[自作/PRINT] ${arm}: not_conform(件数不一致: cell ${a_count}/${e_count} ok_row ${a_ok}/${e_ok})"
+    print_not_conform_count=$((print_not_conform_count + 1))
+    overall_rc=1
+  elif [ "$a_sha" != "$e_sha" ]; then
+    ng "[自作/PRINT] ${arm}: not_conform(件数は一致するがSHA-256が不一致)"
+    print_not_conform_count=$((print_not_conform_count + 1))
+    overall_rc=1
+  else
+    ok "[自作/PRINT] ${arm}: conform(cell${a_count}・ok行+${a_ok}・SHA-256一致)"
+    print_conform_count=$((print_conform_count + 1))
+  fi
+done
+
+say "自作ROM側の集計(PRINT場面)"
+echo "  conform: ${print_conform_count} / 16"
+echo "  not_conform: ${print_not_conform_count} / 16"
+echo "  gate_failed: ${print_gate_failed_count} / 16"
 
 # -----------------------------------------------------------------------
 # 公式ROM側（環境変数が無ければSKIP）。
@@ -518,6 +780,62 @@ say "公式ROM側の集計"
 echo "  conform: ${official_conform} / 11"
 echo "  not_conform: ${official_not_conform} / 11"
 echo "  gate_failed: ${official_gate_failed} / 11"
+
+say "公式ROM側の再導出(PRINT場面。16腕)"
+
+official_print_conform=0
+official_print_not_conform=0
+official_print_gate_failed=0
+
+for arm in "${PRINT_ARM_NAMES[@]}"; do
+  print_arm_params "$arm"
+  prefix1="$WORK/official_print_${arm}_run1"
+  prefix2="$WORK/official_print_${arm}_run2"
+  line1="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix1" "${PRINT_ARM_ARGS[@]}" 2>"$prefix1.err.txt")"
+  rc1=$?
+  print_arm_params "$arm"
+  line2="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix2" "${PRINT_ARM_ARGS[@]}" 2>"$prefix2.err.txt")"
+  rc2=$?
+  if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ -z "$line1" ] || [ -z "$line2" ]; then
+    ng "[公式/PRINT] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix1.err.txt" "$prefix2.err.txt" 2>/dev/null
+    official_print_gate_failed=$((official_print_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$line1" != "$line2" ]; then
+    ng "[公式/PRINT] ${arm}: G3決定論性が破れた(2走の記録が不一致。gate_failed)"
+    official_print_gate_failed=$((official_print_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_PRINT")"
+  if [ -z "$row" ]; then
+    ng "[公式/PRINT] ${arm}: 期待値に行が無い(gate_failed)"
+    official_print_gate_failed=$((official_print_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_ok="$(printf '%s' "$line1" | cut -f2)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$a_ok" != "$e_ok" ] || [ "$a_sha" != "$e_sha" ]; then
+    ng "[公式/PRINT] ${arm}: not_conform（再導出した記録が期待値と不一致）"
+    official_print_not_conform=$((official_print_not_conform + 1))
+    overall_rc=1
+  else
+    ok "[公式/PRINT] ${arm}: conform（2走一致・期待値とも一致）"
+    official_print_conform=$((official_print_conform + 1))
+  fi
+done
+
+say "公式ROM側の集計(PRINT場面)"
+echo "  conform: ${official_print_conform} / 16"
+echo "  not_conform: ${official_print_not_conform} / 16"
+echo "  gate_failed: ${official_print_gate_failed} / 16"
 
 if [ "$overall_rc" -eq 0 ]; then
   echo

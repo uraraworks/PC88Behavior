@@ -1,0 +1,46 @@
+# l4-c2c 直接モードPRINT適合の場面（P1〜P5、16腕）— 期待値
+# （tools/conform_l4.sh が読む）
+#
+# 値そのもの（文字コード・セル位置の並び）は一切含まない。件数と
+# ok_relative_row・SHA-256のみ（CLAUDE.md 禁止事項4、
+# tests/conformance/expected_l4_echo.tsv と同じ作法）。事前登録:
+# docs/notes/l4-c2c-print-conformance-scene-preregistration.md。
+#
+# 正規化の中身（tools/l4_print_conform_record.py）:
+#   - origin_row: 変化した行のうち最小row0（=打った行。列は0固定）
+#   - ok_row: 変化した行のうち最大row0（=Okの行）
+#   - cells: origin_rowより大きくok_rowより小さい行(=出力行)の
+#     「前が空白だったセル」を(相対行,列,文字コード)に正規化した並び
+#   - ok_relative_row: ok_row - origin_row（Ok行の文字コードそのものは
+#     含めない）
+# 上記をJSON(sort_keys, 区切り無し)に直列化してSHA-256を取る。
+#
+# 生成: 公式ROM一式(PC88_REF_ROM_DIR)で各腕2走を実施し、2走の記録
+# (cell_count/ok_relative_row/sha256)が完全一致したものを採用した
+# （決定論性G3の確認を兼ねる）。自作ROM一式（測定時HEAD
+# 0a2117f0dabfdd09d3b10182debe7a5e171ac97e で
+# python3 src/build_main_rom.py により組み立て）でも同じ16腕を測定し、
+# 全腕で公式ROMの記録と完全一致することを確認した（l4-c2bの結果を
+# 本場面の器具で再確認）。作業ディレクトリ
+# _emulator/PC88/tmp/l4-c2c-work/（結果ノート作成後に削除）。
+#
+# 書式（TSV。1行1腕）:
+#   arm<TAB>cell_count<TAB>ok_relative_row<TAB>sha256
+#
+# arm            cell_count  ok_relative_row  sha256
+P1_1	1	2	b16640345dfa523ea4b2e8ad56e6b20e778c04b4cf35b14dcfdbf4b603122dcb
+P1_0	1	2	8696e0c0afc3231de377c1927b805d7d75547e4ed49cf878593e1d229d77f3f7
+P1_m5	2	2	33c67886f59fbad8c1bb61232a2f6b97c81806ad3d8c1500827994082ad8ffff
+P1_32767	5	2	6fb0da01d80d1c790d746be01775948573db72d3b2f573ad1ab2afc6a8e8a9db
+P1_m32768	6	2	d754601787dd42aee51d195b383991a8d0fd891e8977a2cc139689b490870c43
+P2_expr1	2	2	1091313ce397a4a671abdb50308cad8a39790fe28480815e6991fe70788ab4e0
+P2_expr2	1	2	15a47113abe34504e0765082f44581e3edf4ef65391aa596bf356da6f45b8e6d
+P2_neg	2	2	c2abe8c9ce7bfeb3cc8a36d8cd3f0e400acb438f72a3e07c0b35e528b360bea4
+P3_str	3	2	5a6b4fb2fffc5e4f969d05e53d8a526f104d233eef47d03bac93dfaf4d865fd1
+P3_semi_num	2	2	db54b50ee9d51025bff6bd9c6a7eb602860a07e2cd6b57f7285fed3c594320c4
+P3_semi_str	2	2	434592a45b0c4887f87ea3318629c78a6e8e6ee44809fb465535339984f1e3da
+P3_comma_str	2	2	b02fa714e00247522da5560be9ebfb5e2351248025aabf5d4dd6e653d82dd023
+P3_comma_num	2	2	19954c83ffc67744bfe4fb2e3c8702f1a6c9ae3d9816fdf11f98318e1a38b69d
+P4_semi	2	2	434592a45b0c4887f87ea3318629c78a6e8e6ee44809fb465535339984f1e3da
+P4_comma	2	2	b02fa714e00247522da5560be9ebfb5e2351248025aabf5d4dd6e653d82dd023
+P5_q	1	2	15a47113abe34504e0765082f44581e3edf4ef65391aa596bf356da6f45b8e6d
