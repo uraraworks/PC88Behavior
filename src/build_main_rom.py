@@ -53,6 +53,31 @@ SCREEN_ASM = REPO / "src" / "l3_main" / "screen.asm"
 KEYBOARD_ASM = REPO / "src" / "l3_main" / "keyboard.asm"
 KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
 
+# M7段階3b: BASIC核(直接モードPRINT)。src/l4_basic/*.asm・生成物。
+L4_TOKENS_ASM = REPO / "src" / "l4_basic" / "tokens.asm"
+L4_PRINT_DISPATCH_ASM = REPO / "src" / "l4_basic" / "print_dispatch.asm"
+L4_ERRORS_ASM = REPO / "src" / "l4_basic" / "errors.asm"
+L4_LEXER_ASM = REPO / "src" / "l4_basic" / "lexer.asm"
+L4_INTERP_ASM = REPO / "src" / "l4_basic" / "interp.asm"
+
+# 故障注入（tools/l4_basic_selftest.sh の陰性対照用）。
+# 数値の前置空白(正/0のとき)を出す2行(PUSH HLとLD A,' ')を削り、
+# 書式が崩れることを確かめる。
+L4_SIGN_SPACE_FAULT_OLD = "_l4pn_pos:\n    PUSH HL\n    LD A,' '\n    CALL PRINT_CHAR\n    POP HL"
+L4_SIGN_SPACE_FAULT_NEW = "_l4pn_pos:\n    NOP"
+
+# 故障注入: ゾーン幅(interp.asmのZONE_WIDTH EQU 14)を変える。
+L4_ZONE_WIDTH_FAULT_OLD = "ZONE_WIDTH EQU 14"
+L4_ZONE_WIDTH_FAULT_NEW = "ZONE_WIDTH EQU 10"
+
+# 故障注入: L4_TOKEN_TABLE(tokens.asm)のABSエントリの語長フィールドを
+# 3→2に壊す(トークン値自体を変えるだけでは、LEX_SELFTESTが「期待値」も
+# 同じ壊れた表から読むため自己参照的に一致してしまい検出できないと判明
+# した。語長を壊すと、自己一致に使う語の切り出し長・トークン位置の計算
+# 自体がずれるため、LEX_MATCH_WORDの独立な探索結果と食い違い、検出できる)。
+L4_TOKEN_FAULT_OLD = '    db 3, "ABS", 0x84'
+L4_TOKEN_FAULT_NEW = '    db 2, "ABS", 0x84'
+
 # 挿入点の目印。render_asm() の出力に必ず1回だけ現れる
 # （make_ipl_rom.build_n88() の「IM2ベクタページをIへ積む」直前）。
 INSERT_MARK = "    LD A,VEC_TABLE>>8"
@@ -139,7 +164,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_key_table_fault: bool = False,
                         inject_shift_fault: bool = False,
                         inject_default_attr_fault: bool = False,
-                        inject_scroll_range_fault: bool = False) -> str:
+                        inject_scroll_range_fault: bool = False,
+                        inject_l4_sign_space_fault: bool = False,
+                        inject_l4_zone_width_fault: bool = False,
+                        inject_l4_token_fault: bool = False,
+                        enable_l4_selftest: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -151,7 +180,14 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         raise SystemExit(f"挿入点が見つからない: {INSERT_MARK!r}")
     if ipl_text.count(INSERT_MARK) != 1:
         raise SystemExit(f"挿入点が一意でない: {INSERT_MARK!r}")
-    ipl_text = ipl_text.replace(INSERT_MARK, "    CALL SCREEN_MAIN\n" + INSERT_MARK)
+    # M7段階3b: LEX_SELFTEST(表の全語の照合自己検査)は、ここで無条件に
+    # 呼ぶとブート時のCPUサイクル数が増え、l3_main_selftest.shのL1適合
+    # 検査4a/4b（frames=60の枠内で350件のI/O列を数える、サイクル数に敏感な
+    # 検査）が壊れる（実測: 350件中343件しか出ない）。既定では呼ばず、
+    # tools/l4_basic_selftest.sh がこのフラグを立てたビルドでだけ呼ぶ。
+    l4_selftest_call = "    CALL LEX_SELFTEST\n" if enable_l4_selftest else ""
+    ipl_text = ipl_text.replace(
+        INSERT_MARK, "    CALL SCREEN_MAIN\n" + l4_selftest_call + INSERT_MARK)
 
     if CURSOR_OLD not in ipl_text:
         raise SystemExit(f"カーソル追従の置換点が見つからない: {CURSOR_OLD!r}")
@@ -195,6 +231,37 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     key_table_path = work / "key_table_gen.asm"
     key_table_path.write_text(key_table_text, encoding="utf-8")
 
+    # M7段階3b: BASIC核(直接モードPRINT)。tokens.asm/print_dispatch.asm/
+    # errors.asmは生成物(手で編集しない)、lexer.asm/interp.asmは新規実装。
+    tokens_text = L4_TOKENS_ASM.read_text(encoding="utf-8")
+    if inject_l4_token_fault:
+        if tokens_text.count(L4_TOKEN_FAULT_OLD) != 1:
+            raise SystemExit("トークン表の故障注入の対象行が一意に見つからない（tokens.asmが変わった？）")
+        tokens_text = tokens_text.replace(L4_TOKEN_FAULT_OLD, L4_TOKEN_FAULT_NEW)
+    tokens_path = work / "l4_tokens_gen.asm"
+    tokens_path.write_text(tokens_text, encoding="utf-8")
+
+    print_dispatch_path = work / "l4_print_dispatch_gen.asm"
+    print_dispatch_path.write_text(L4_PRINT_DISPATCH_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
+    errors_path = work / "l4_errors_gen.asm"
+    errors_path.write_text(L4_ERRORS_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
+    lexer_path = work / "l4_lexer_gen.asm"
+    lexer_path.write_text(L4_LEXER_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
+    interp_text = L4_INTERP_ASM.read_text(encoding="utf-8")
+    if inject_l4_sign_space_fault:
+        if interp_text.count(L4_SIGN_SPACE_FAULT_OLD) != 1:
+            raise SystemExit("符号前置空白の故障注入の対象行が一意に見つからない（interp.asmが変わった？）")
+        interp_text = interp_text.replace(L4_SIGN_SPACE_FAULT_OLD, L4_SIGN_SPACE_FAULT_NEW)
+    if inject_l4_zone_width_fault:
+        if interp_text.count(L4_ZONE_WIDTH_FAULT_OLD) != 1:
+            raise SystemExit("ゾーン幅の故障注入の対象行が一意に見つからない（interp.asmが変わった？）")
+        interp_text = interp_text.replace(L4_ZONE_WIDTH_FAULT_OLD, L4_ZONE_WIDTH_FAULT_NEW)
+    interp_path = work / "l4_interp_gen.asm"
+    interp_path.write_text(interp_text, encoding="utf-8")
+
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
         f"EXTRA_LINES EQU {extra_lines}\n"
@@ -202,6 +269,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{screen_path}"\n'
         + f'\nINCLUDE "{keyboard_path}"\n'
         + f'\nINCLUDE "{key_table_path}"\n'
+        + f'\nINCLUDE "{tokens_path}"\n'
+        + f'\nINCLUDE "{print_dispatch_path}"\n'
+        + f'\nINCLUDE "{errors_path}"\n'
+        + f'\nINCLUDE "{lexer_path}"\n'
+        + f'\nINCLUDE "{interp_path}"\n'
     )
     return combined
 
@@ -252,6 +324,15 @@ def main():
                      help="故障注入: 既定の属性域(DEFAULT_ATTR)の1バイトを変える（自己検査の陰性対照専用）")
     ap.add_argument("--inject-scroll-range-fault", action="store_true",
                      help="故障注入: スクロール範囲をファンクションキー行予約前(ROWS基準)へ戻す（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-l4-sign-space-fault", action="store_true",
+                     help="故障注入: PRINTの数値前置空白(正/0)を消す（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-l4-zone-width-fault", action="store_true",
+                     help="故障注入: PRINTのゾーン幅を14から10へ変える（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-l4-token-fault", action="store_true",
+                     help="故障注入: L4_TOKEN_TABLE(ABS)のトークン値を1つずらす（自己検査の陰性対照専用）")
+    ap.add_argument("--enable-l4-selftest", action="store_true",
+                     help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
+                          "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -277,7 +358,11 @@ def main():
         combined = build_combined_asm(work, args.extra_lines, args.inject_address_fault,
                                        args.inject_cursor_fault, args.inject_key_table_fault,
                                        args.inject_shift_fault, args.inject_default_attr_fault,
-                                       args.inject_scroll_range_fault)
+                                       args.inject_scroll_range_fault,
+                                       args.inject_l4_sign_space_fault,
+                                       args.inject_l4_zone_width_fault,
+                                       args.inject_l4_token_fault,
+                                       args.enable_l4_selftest)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)

@@ -221,11 +221,25 @@ _lp_skip_store:
 
 ; ---------------------------------------------------------------------
 ; LINE_FINISH — RETUNRの押下。行を確定し、改行してOkを出す。
+;
+; M7段階3b追記: 改行の直後（出力行の先頭、桁0）で BASIC_RUN_LINE
+; （l4_basic/interp.asm）を呼び、直接モードのPRINTを実行する。
+; Okの前に必ず桁0から始めるという統一規則(interp.asmの冒頭コメント参照、
+; 仕様書に無い選択)により、BASIC_RUN_LINE実行後にVAR_COLを見て桁0でなければ
+; 改行を1つ足す(通常完了・構文の誤りのいずれも既に桁0のため実際には
+; 効かない。行末の区切りで改行が抑止されたまま行が終わる未測定の場合に
+; だけ効く安全策)。
 ; ---------------------------------------------------------------------
 LINE_FINISH:
+    CALL NEWLINE
+    CALL BASIC_RUN_LINE
     XOR A
     LD (VAR_LINELEN),A
+    LD A,(VAR_COL)
+    OR A
+    JR Z,_lf_ok
     CALL NEWLINE
+_lf_ok:
     LD HL,OK_TXT
     CALL PRINT_STR
     CALL NEWLINE
