@@ -4075,18 +4075,36 @@ _ddiv_noshift:
     LD DE,1
     ADD HL,DE
 _ddiv_have_finalexp:
-    PUSH HL
-    LD DE,256
-    OR A
-    SBC HL,DE
-    POP HL
-    JP NC,_ddiv_overflow
+    ; 2026-09-15追記(M7段階4b-1): 元の実装は「HL>=256なら常にオーバー
+    ; フロー」を符号なし比較(SBC HL,256; JP NC)で先に判定していたが、HLは
+    ; -127..384程度の符号つき16bit値(eA-eB+128付近)であり、負の値
+    ; (2の補数で0xFF81-0xFFFFになる)は符号なし比較では巨大な正の数に
+    ; 見えるため、本来ゼロ(アンダーフロー)になるべきケースを誤って
+    ; オーバーフロー扱いしてしまうバグがあった。DBL_DIVはFOUTの10進
+    ; スケーリング(常に近い桁数どうしを割る)専用に使われていた間は
+    ; この範囲に達しなかったため露見しなかったが、段階4b-1でMBF_DDIV
+    ; (一般の倍精度どうしの除算)から呼ぶよう広げたところ、極端に小さい
+    ; 数を極端に大きい数で割る照合(MIN_POS/MAX_POS等の境界値の組)で
+    ; 「0が期待値なのにオーバーフロー残留値が返る」不一致として発覚した
+    ; (tools/l4_mbf_conform.py ddiv、境界値6件)。
+    ; 修正: 符号ビット(Hのbit7)でまず負(=1未満、ゼロ扱い)かどうかを見て
+    ; から、非負であることが確定した範囲でだけ256との符号なし比較を行う
+    ; ようにした(この並びなら符号なし比較が常に安全)。
+    LD A,H
+    BIT 7,A
+    JP NZ,_ddiv_zero
     PUSH HL
     LD DE,1
     OR A
     SBC HL,DE
     POP HL
     JP M,_ddiv_zero
+    PUSH HL
+    LD DE,256
+    OR A
+    SBC HL,DE
+    POP HL
+    JP NC,_ddiv_overflow
 
     LD A,L
     LD (RES_EXP),A
