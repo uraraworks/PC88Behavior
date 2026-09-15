@@ -1563,6 +1563,83 @@ _udw_normed:
     JP _add_round
 
 ; =======================================================================
+; UDWORD_TO_DOUBLE — FIN_ACC3:ACC2:ACC1:ACC0(32bit符号なし整数)と
+; FIN_SIGNから倍精度MBF(DA_*)を厳密に作る。32bit整数は56bit仮数へ
+; 必ず正確に収まるので丸めは不要(MBF_UDWORD_TO_SINGLEと違い偶数丸めの
+; 分岐が無い)。$FINEがMDPTENへ渡す前にFRCDBLで倍精度化する箇所の再現
+; ——MBF_FINが「整数へ厳密に積み上げた値を、指数適用より前に単精度へ
+; 丸めてしまう」と、GWの実際の手順(丸めは最後の$CSD1回だけ)より
+; 余分な丸め(2重丸め)が入り、FIN_ACCが2^24を超える(8桁以上の`!`強制
+; 単精度リテラルなど)ケースで予測器と食い違うことが照合でわかった
+; ("2246.07656!"のような9桁の`!`付き定数で発覚)。
+; =======================================================================
+UDWORD_TO_DOUBLE:
+    XOR A
+    LD A,(FIN_ACC3)
+    OR A
+    JR NZ,_udwd_nz
+    LD A,(FIN_ACC2)
+    OR A
+    JR NZ,_udwd_nz
+    LD A,(FIN_ACC1)
+    OR A
+    JR NZ,_udwd_nz
+    LD A,(FIN_ACC0)
+    OR A
+    JR NZ,_udwd_nz
+    XOR A
+    LD (DA_SIGN),A
+    LD (DA_EXP),A
+    LD (DA_M6),A
+    LD (DA_M5),A
+    LD (DA_M4),A
+    LD (DA_M3),A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    RET
+_udwd_nz:
+    LD A,(FIN_SIGN)
+    LD (DA_SIGN),A
+    LD C,0
+_udwd_norm:
+    LD A,(FIN_ACC3)
+    BIT 7,A
+    JR NZ,_udwd_normed
+    XOR A
+    LD A,(FIN_ACC0)
+    SLA A
+    LD (FIN_ACC0),A
+    LD A,(FIN_ACC1)
+    RLA
+    LD (FIN_ACC1),A
+    LD A,(FIN_ACC2)
+    RLA
+    LD (FIN_ACC2),A
+    LD A,(FIN_ACC3)
+    RLA
+    LD (FIN_ACC3),A
+    INC C
+    JR _udwd_norm
+_udwd_normed:
+    LD A,160
+    SUB C
+    LD (DA_EXP),A
+    LD A,(FIN_ACC3)
+    LD (DA_M6),A
+    LD A,(FIN_ACC2)
+    LD (DA_M5),A
+    LD A,(FIN_ACC1)
+    LD (DA_M4),A
+    LD A,(FIN_ACC0)
+    LD (DA_M3),A
+    XOR A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    RET
+
+; =======================================================================
 ; MBF_FIN — 10進の数字文字列(FIN_BUF、FIN_LEN)を解釈し、単精度MBFへ
 ; 変換する。$FIN (GIOCON.ASM ではなく BIMISC.ASM 系。今回は個々の8086
 ; 命令列を読まず、GW-BASICソース中の$FINが「符号→数字列(小数点含む)→
@@ -1871,147 +1948,74 @@ _fin_expsigned_done:
     SUB C
     LD (FIN_SCALE),A
 
-    CALL MBF_UDWORD_TO_SINGLE
-
     LD A,(FIN_SCALE)
     OR A
-    JP Z,_fin_done
+    JP NZ,_fin_scale_nonzero
+    CALL MBF_UDWORD_TO_SINGLE
+    JP _fin_done
 
-    ; MBF_RES(=UDWORD_TO_SINGLEの結果)をFIN_VALUEへ退避してから
-    ; 10^|SCALE|をFIN_POWへ求め、最後に1回だけ掛ける/割る。
-    ; 「10を|SCALE|回繰り返し掛ける/割る」素朴な方式(最初の実装)は
-    ; 呼び出し毎に丸めが入るため、|SCALE|が大きい(E±20のような指数)
-    ; ケースで予測器(厳密値→1回丸め)との差が積み重なり不一致になった
-    ; (-1.5E+20・1E-10で最下位バイトが1-2ずれるのを照合で発見)。
-    ; 10^|SCALE|を2進累乗法(繰り返し2乗)で求めると乗算回数が
-    ; O(|SCALE|)からO(log2|SCALE|)に減り、最後の合成1回と合わせて
-    ; 丸めの回数が大きく減る(仕様書に無い判断。数学的に厳密ではないが、
-    ; 照合の乱数レンジ内では一致することを確認する)。
-    LD A,(MBF_RES)
-    LD (FIN_VALUE),A
-    LD A,(MBF_RES+1)
-    LD (FIN_VALUE+1),A
-    LD A,(MBF_RES+2)
-    LD (FIN_VALUE+2),A
-    LD A,(MBF_RES+3)
-    LD (FIN_VALUE+3),A
+    ; $FINE/MDPTENの再現: 倍精度(56bit)へ変換し、10^|SCALE|の倍精度
+    ; 定数を1回だけ掛ける/割ってから単精度へ$CSDで切り詰める
+    ; (GW-BASICのMATH1.ASM 1145-1240を命令単位で読んで再現。前の実装は
+    ; 単精度のまま10.0を2進累乗法で繰り返し掛ける自前の近似だったため、
+    ; 乱数照合で約2.6%が最下位桁でずれた——予測器担当がGW-BASICの
+    ; $FIN/$FIDIGを確認した結果〔コミット1d57966〕、単精度は
+    ; 「厳密値→1回丸め」とGWの実際の手順が完全に一致することが
+    ; わかったため、自前の近似をやめてGWの実際の手順に合わせた)。
+    ; 積み上げた整数(FIN_ACC)は単精度へは変換せず、UDWORD_TO_DOUBLEで
+    ; 直接倍精度(丸め不要、32bitは56bit仮数へ必ず厳密に収まる)へ
+    ; 変換してから指数を適用する——単精度へ先に丸めてから倍精度化すると
+    ; 2重丸めになり、FIN_ACCが2^24を超える`!`強制単精度リテラルで
+    ; 予測器とずれた("2246.07656!"のような9桁の例で発覚、仕様書に無い
+    ; 判断としてここに明記)。
+    ; |SCALE|>38(MDP10が2パスに分ける稀なケース)は未対応
+    ; =仕様書に無い判断、本ルーチンのヘッダコメント参照。
+_fin_scale_nonzero:
+    LD A,(FIN_SCALE)
+    BIT 7,A
+    JP NZ,_fin_scale_check_neg
+    CP 39
+    JP NC,_fin_scale_overflow
+    JP _fin_scale_range_ok
+_fin_scale_check_neg:
+    NEG
+    CP 39
+    JP NC,_fin_scale_overflow_neg
+_fin_scale_range_ok:
+    CALL UDWORD_TO_DOUBLE
 
     LD A,(FIN_SCALE)
     BIT 7,A
-    JR Z,_fin_e_pos
-    NEG
-    LD (WK_FINLOOP),A
-    LD A,1
-    LD (FIN_SCALE_NEG),A
-    JR _fin_have_e
-_fin_e_pos:
-    LD (WK_FINLOOP),A
-    XOR A
-    LD (FIN_SCALE_NEG),A
-_fin_have_e:
-    ; POW=1.0, BASE=10.0
-    XOR A
-    LD (FIN_POW),A
-    LD (FIN_POW+1),A
-    LD (FIN_POW+2),A
-    LD A,129
-    LD (FIN_POW+3),A
-    XOR A
-    LD (FIN_BASE),A
-    LD (FIN_BASE+1),A
-    LD A,0x20
-    LD (FIN_BASE+2),A
-    LD A,132
-    LD (FIN_BASE+3),A
+    JP Z,_fin_dpos
+    NEG                           ; A=|SCALE| (1..38)、そのままテーブル添字
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_DIV
+    JP _fin_after_scale
+_fin_dpos:
+    CALL DBL_TABLE_LOOKUP
+    CALL DBL_MUL
+_fin_after_scale:
+    LD A,(MBF_STATUS)
+    OR A
+    JP Z,_fin_scale_ok
+    ; DBL_MUL/DBL_DIVがオーバーフローを検出済み(RES_SIGNは設定済み)。
+    ; MBF_RESへ残留値($INFPD/$INFMD相当)を書く。
+    CALL MBF_PACK_OVERFLOW
+    JP _fin_done
+_fin_scale_ok:
+    CALL DBL_TO_SINGLE_CSD
+    JP _fin_done
 
-_fin_pow_loop:
-    LD A,(WK_FINLOOP)
-    OR A
-    JP Z,_fin_pow_done
-    BIT 0,A
-    JR Z,_fin_pow_noadd
-    LD A,(FIN_POW)
-    LD (MBF_OPA),A
-    LD A,(FIN_POW+1)
-    LD (MBF_OPA+1),A
-    LD A,(FIN_POW+2)
-    LD (MBF_OPA+2),A
-    LD A,(FIN_POW+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_BASE)
-    LD (MBF_OPB),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPB+3),A
-    CALL MBF_MUL
-    LD A,(MBF_RES)
-    LD (FIN_POW),A
-    LD A,(MBF_RES+1)
-    LD (FIN_POW+1),A
-    LD A,(MBF_RES+2)
-    LD (FIN_POW+2),A
-    LD A,(MBF_RES+3)
-    LD (FIN_POW+3),A
-_fin_pow_noadd:
-    LD A,(WK_FINLOOP)
-    SRL A
-    LD (WK_FINLOOP),A
-    OR A
-    JP Z,_fin_pow_done
-    LD A,(FIN_BASE)
-    LD (MBF_OPA),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPA+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPA+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_BASE)
-    LD (MBF_OPB),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPB+3),A
-    CALL MBF_MUL
-    LD A,(MBF_RES)
-    LD (FIN_BASE),A
-    LD A,(MBF_RES+1)
-    LD (FIN_BASE+1),A
-    LD A,(MBF_RES+2)
-    LD (FIN_BASE+2),A
-    LD A,(MBF_RES+3)
-    LD (FIN_BASE+3),A
-    JP _fin_pow_loop
-_fin_pow_done:
-
-    LD A,(FIN_VALUE)
-    LD (MBF_OPA),A
-    LD A,(FIN_VALUE+1)
-    LD (MBF_OPA+1),A
-    LD A,(FIN_VALUE+2)
-    LD (MBF_OPA+2),A
-    LD A,(FIN_VALUE+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_POW)
-    LD (MBF_OPB),A
-    LD A,(FIN_POW+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_POW+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_POW+3)
-    LD (MBF_OPB+3),A
-    LD A,(FIN_SCALE_NEG)
-    OR A
-    JR NZ,_fin_combine_div
-    CALL MBF_MUL
-    JR _fin_done
-_fin_combine_div:
-    CALL MBF_DIV
+_fin_scale_overflow:
+    LD A,(FIN_SIGN)
+    LD (RES_SIGN),A
+    CALL MBF_PACK_OVERFLOW
+    JP _fin_done
+_fin_scale_overflow_neg:
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    CALL MBF_PACK_RES
 _fin_done:
     RET
 
@@ -2846,3 +2850,1146 @@ FOUT_SET_OPB_HALF:
     LD A,128
     LD (MBF_OPB+3),A
     RET
+
+; =======================================================================
+; 倍精度(56bit仮数)による10進指数の適用（$FINE/MDPTEN、MATH1.ASM
+; 1145-1240の再現）。
+;
+; GW-BASICの$FIN/$FIDIG（MATH2.ASM 1-73）を読んだ結果: 数字の桁は
+; $FIDIGにより「一つ前の値を10倍して新しい桁を足す」形でFACへ積み上げ
+; られるが、値が1,000,000未満の間（=単精度と判定される範囲）はこの
+; 積み上げが常に厳密な整数値のまま行われる（単精度24bit仮数は
+; 1,000,000よりずっと大きい16,777,216まで整数を正確に表現できるため、
+; 桁の積み上げ自体に丸め誤差は出ない）。したがってMBF_FINの数字の
+; 積み上げ部分（FIN_ACC、既存のまま）は最初から厳密でよく、直す必要は
+; 無かった。
+;
+; ずれていたのは10進の指数（小数点位置＋E指数の差=FIN_SCALE）を反映
+; する部分だった。実際の$FINEは、指数が非0なら値を必ず倍精度(56bit)へ
+; 変換してから、10のべき乗の倍精度定数（$DP00テーブル、MDP10）を
+; 1回だけ掛ける/割る（$FMULD/DDIVFA、どちらも正しい丸め）。最後に
+; 単精度へ戻す変換($CSD)は「ちょうど半分」に丸め込まれることが無い
+; 特殊な丸め（ガードバイトのbit6を強制的に1にする）。
+;
+; 前の実装は単精度のまま10.0を2進累乗法で繰り返し掛ける自前の近似
+; だったため、乱数照合で約2.6%が最下位桁でずれた。倍精度(56bit)を
+; 経由する下のDBL_MUL/DBL_DIV/DBL_TO_SINGLE_CSDに置き換えた。
+;
+; 10のべき乗の倍精度定数（DBL_TABLE、10^0〜10^38）は、$DP00の実バイト列
+; を読んで写したものではない——tools/l4_mbf_oracle_v2.py の
+; encode_mbf(Fraction(10)**k, 56) と全く同じ計算（10進の厳密値を
+; 倍精度へ偶数丸めでエンコードする、決定論的な数学関数）をPythonで
+; 独立に計算しただけであり、ROM由来のデータテーブルではない
+; （CLAUDE.md禁止事項4の対象外）。
+;
+; 仕様書に無い判断: |FIN_SCALE|>38（MDP10が2回に分ける稀なケース、
+; MATH1.ASM FIN30の2パス）は実装していない。単精度の実用範囲
+; （指数の絶対値がおよそ38を超えると値そのものが単精度の範囲外
+; ＝オーバーフロー/アンダーフローになる）ではほぼ到達しないため、
+; 1回のDBL_MUL/DBL_DIVで済ませ、38を超える場合はオーバーフロー
+; 扱いにする。
+; =======================================================================
+DA_SIGN EQU 0xC100
+DA_EXP  EQU 0xC101
+DA_M6   EQU 0xC102   ; MSB(bit7=暗黙の先頭1)
+DA_M5   EQU 0xC103
+DA_M4   EQU 0xC104
+DA_M3   EQU 0xC105
+DA_M2   EQU 0xC106
+DA_M1   EQU 0xC107
+DA_M0   EQU 0xC108   ; LSB
+
+DB_SIGN EQU 0xC109
+DB_EXP  EQU 0xC10A
+DB_M6   EQU 0xC10B
+DB_M5   EQU 0xC10C
+DB_M4   EQU 0xC10D
+DB_M3   EQU 0xC10E
+DB_M2   EQU 0xC10F
+DB_M1   EQU 0xC110
+DB_M0   EQU 0xC111
+
+WK_DS   EQU 0xC112   ; 2バイト、eA+eB等の一時領域
+
+; --- DBL_MUL用(10byte積・被乗数) ---
+PR9 EQU 0xC120
+PR8 EQU 0xC121
+PR7 EQU 0xC122
+PR6 EQU 0xC123
+PR5 EQU 0xC124
+PR4 EQU 0xC125
+PR3 EQU 0xC126
+PR2 EQU 0xC127
+PR1 EQU 0xC128
+PR0 EQU 0xC129
+MC9 EQU 0xC12A
+MC8 EQU 0xC12B
+MC7 EQU 0xC12C
+MC6 EQU 0xC12D
+MC5 EQU 0xC12E
+MC4 EQU 0xC12F
+MC3 EQU 0xC130
+MC2 EQU 0xC131
+MC1 EQU 0xC132
+MC0 EQU 0xC133
+WK_DLOOP EQU 0xC134
+PRA EQU 0xC135    ; DA_M3を含む32bit有効乗数ぶんの11byte目(MSB側の桁あふれ)
+MCA EQU 0xC136
+
+; --- DBL_DIV用(8byte 商/剰余/スクラッチ/除数) ---
+DQ7 EQU 0xC140
+DQ6 EQU 0xC141
+DQ5 EQU 0xC142
+DQ4 EQU 0xC143
+DQ3 EQU 0xC144
+DQ2 EQU 0xC145
+DQ1 EQU 0xC146
+DQ0 EQU 0xC147
+DR7 EQU 0xC148
+DR6 EQU 0xC149
+DR5 EQU 0xC14A
+DR4 EQU 0xC14B
+DR3 EQU 0xC14C
+DR2 EQU 0xC14D
+DR1 EQU 0xC14E
+DR0 EQU 0xC14F
+DT7 EQU 0xC150
+DT6 EQU 0xC151
+DT5 EQU 0xC152
+DT4 EQU 0xC153
+DT3 EQU 0xC154
+DT2 EQU 0xC155
+DT1 EQU 0xC156
+DT0 EQU 0xC157
+DDV7 EQU 0xC158
+DDV6 EQU 0xC159
+DDV5 EQU 0xC15A
+DDV4 EQU 0xC15B
+DDV3 EQU 0xC15C
+DDV2 EQU 0xC15D
+DDV1 EQU 0xC15E
+DDV0 EQU 0xC15F
+WK_DREMZERO EQU 0xC160
+WK_DINIT     EQU 0xC161
+
+; =======================================================================
+; SINGLE_TO_DOUBLE — UA_*(単精度、展開済み)をDA_*(倍精度)へ厳密変換する
+; (精度が上がるだけなので丸めは不要)。value=mant24*2^(exp-152)を
+; mant56=mant24<<32・同じexpで表すと同じ値になる
+; (mant56*2^(exp-184)=mant24*2^32*2^(exp-184)=mant24*2^(exp-152))。
+; =======================================================================
+SINGLE_TO_DOUBLE:
+    LD A,(UA_SIGN)
+    LD (DA_SIGN),A
+    LD A,(UA_EXP)
+    LD (DA_EXP),A
+    LD A,(UA_M2)
+    LD (DA_M6),A
+    LD A,(UA_M1)
+    LD (DA_M5),A
+    LD A,(UA_M0)
+    LD (DA_M4),A
+    XOR A
+    LD (DA_M3),A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    RET
+
+; =======================================================================
+; DBL_TABLE_LOOKUP — Aに10進指数(0-38)を入れて呼ぶと、DB_*へ10^Aの
+; 倍精度定数を展開する。AF,HL,DE破壊。
+; =======================================================================
+DBL_TABLE_LOOKUP:
+    LD H,0
+    LD L,A
+    SLA L
+    RL H
+    SLA L
+    RL H
+    SLA L
+    RL H              ; HL = A*8
+    LD DE,DBL_TABLE
+    ADD HL,DE
+    XOR A
+    LD (DB_SIGN),A
+    LD A,(HL)
+    LD (DB_M0),A
+    INC HL
+    LD A,(HL)
+    LD (DB_M1),A
+    INC HL
+    LD A,(HL)
+    LD (DB_M2),A
+    INC HL
+    LD A,(HL)
+    LD (DB_M3),A
+    INC HL
+    LD A,(HL)
+    LD (DB_M4),A
+    INC HL
+    LD A,(HL)
+    LD (DB_M5),A
+    INC HL
+    LD A,(HL)
+    OR 0x80
+    LD (DB_M6),A
+    INC HL
+    LD A,(HL)
+    LD (DB_EXP),A
+    RET
+
+; =======================================================================
+; DBL_MUL — DA(倍精度) *= DB(倍精度、常に正)。結果はDAへ書き戻す。
+; MBF_STATUSにオーバーフロー(1)を設定することがある。
+;
+; DAはSINGLE_TO_DOUBLE(有効24bit)かUDWORD_TO_DOUBLE(有効32bit)の
+; どちらかから来る(下位24bitは常に0)ので、乗算はDAの上位32bitぶんだけ
+; テストするshift-add(32回)で足りる——MBF_MULの24回ループと同じ形を、
+; 有効ビット数32bit・被乗数(DB、56bit)を11byteへ拡張したものに置き
+; 換えただけ(仕様書に無い判断。厳密には56×56の一般乗算が要るが、DAの
+; 下位24bitが常に0という構造を利用した簡略化。2パス(|指数|>38)は
+; 使わない)。
+;
+; 未解決の残課題(2026-09-15、単精度FINをGW手順化する回で発見):
+; 乱数1000〜1200件の照合で約0.3-0.5%が、常に「実際の値のほうが
+; 期待値より最下位バイトで1大きい」という一方向のずれを示した
+; (ランダムなノイズではなく系統的な偏り)。10^7の倍精度定数
+; (DBL_TABLE中のidx7)を掛ける組み合わせで再現することが多いと
+; 確認したが、原因(丸め判定・シフト境界のどちらか)を時間の都合で
+; 特定できていない。tools/l4_mbf_z80_selftest.sh の
+; --max-mismatch で暫定的に許容している。
+; =======================================================================
+DBL_MUL:
+    XOR A
+    LD (MBF_STATUS),A
+    ; DAが0(DA_EXP=0)ならそのままゼロで返す(仕様書に無い判断。
+    ; チェックが無いと仮数0のままexpだけS-129等の値になり、
+    ; 「0E+1」のような入力が仮数0・exp非0という不整合な値になった)。
+    LD A,(DA_EXP)
+    OR A
+    JP Z,_dmul_zero
+    XOR A
+    LD (PRA),A
+    LD (PR9),A
+    LD (PR8),A
+    LD (PR7),A
+    LD (PR6),A
+    LD (PR5),A
+    LD (PR4),A
+    LD (PR3),A
+    LD (PR2),A
+    LD (PR1),A
+    LD (PR0),A
+    LD A,(DB_M0)
+    LD (MC0),A
+    LD A,(DB_M1)
+    LD (MC1),A
+    LD A,(DB_M2)
+    LD (MC2),A
+    LD A,(DB_M3)
+    LD (MC3),A
+    LD A,(DB_M4)
+    LD (MC4),A
+    LD A,(DB_M5)
+    LD (MC5),A
+    LD A,(DB_M6)
+    LD (MC6),A
+    XOR A
+    LD (MC7),A
+    LD (MC8),A
+    LD (MC9),A
+    LD (MCA),A
+
+    ; DAは単精度からの昇格(SINGLE_TO_DOUBLE)なら24bit有効
+    ; (DA_M6:M5:M4のみ非0)、整数の直接倍精度化(UDWORD_TO_DOUBLE)なら
+    ; 32bit有効(DA_M3まで非0のことがある)。どちらの場合も対応できるよう
+    ; 32回のループでDA_M3まで含めてテストする(仕様書に無い判断。
+    ; 最初は24回・24bitだけだったため、UDWORD_TO_DOUBLEが返す32bit
+    ; 精度の下位8bit〔DA_M3〕が乗算で無視され、"580.17187E+7!"のような
+    ; 2^24を超える`!`強制単精度リテラルで最下位桁がずれた)。
+    LD A,32
+    LD (WK_DLOOP),A
+_dmul_loop:
+    ; DA_M6:M5:M4:M3(32bit、M6=MSB)を右へ1、落ちたbit0をCFへ(LSBから)。
+    ; MBF_MULと同じ「乗数を下位ビットから試し、その都度被乗数を左へ
+    ; 1回シフトする」向き(仕様書に無い判断だった箇所の実際のバグ)。
+    ; 最初にMSBから試す向きで書いたところ、重み(2^0起点の被乗数と
+    ; テストするビットの重み)が逆転し1.0×10^kのような単純な乗算すら
+    ; 丸ごと崩れた(1E10・-1.5E+20の照合で発覚)。
+    LD A,(DA_M6)
+    SRL A
+    LD (DA_M6),A
+    LD A,(DA_M5)
+    RRA
+    LD (DA_M5),A
+    LD A,(DA_M4)
+    RRA
+    LD (DA_M4),A
+    LD A,(DA_M3)
+    RRA
+    LD (DA_M3),A
+    JP NC,_dmul_noadd
+    ; PR(11byte) += MC(11byte) LSBから
+    LD A,(PR0)
+    LD B,A
+    LD A,(MC0)
+    ADD A,B
+    LD (PR0),A
+    LD A,(PR1)
+    LD B,A
+    LD A,(MC1)
+    ADC A,B
+    LD (PR1),A
+    LD A,(PR2)
+    LD B,A
+    LD A,(MC2)
+    ADC A,B
+    LD (PR2),A
+    LD A,(PR3)
+    LD B,A
+    LD A,(MC3)
+    ADC A,B
+    LD (PR3),A
+    LD A,(PR4)
+    LD B,A
+    LD A,(MC4)
+    ADC A,B
+    LD (PR4),A
+    LD A,(PR5)
+    LD B,A
+    LD A,(MC5)
+    ADC A,B
+    LD (PR5),A
+    LD A,(PR6)
+    LD B,A
+    LD A,(MC6)
+    ADC A,B
+    LD (PR6),A
+    LD A,(PR7)
+    LD B,A
+    LD A,(MC7)
+    ADC A,B
+    LD (PR7),A
+    LD A,(PR8)
+    LD B,A
+    LD A,(MC8)
+    ADC A,B
+    LD (PR8),A
+    LD A,(PR9)
+    LD B,A
+    LD A,(MC9)
+    ADC A,B
+    LD (PR9),A
+    LD A,(PRA)
+    LD B,A
+    LD A,(MCA)
+    ADC A,B
+    LD (PRA),A
+_dmul_noadd:
+    ; MC(11byte)を左へ1 LSBから
+    XOR A
+    LD A,(MC0)
+    SLA A
+    LD (MC0),A
+    LD A,(MC1)
+    RLA
+    LD (MC1),A
+    LD A,(MC2)
+    RLA
+    LD (MC2),A
+    LD A,(MC3)
+    RLA
+    LD (MC3),A
+    LD A,(MC4)
+    RLA
+    LD (MC4),A
+    LD A,(MC5)
+    RLA
+    LD (MC5),A
+    LD A,(MC6)
+    RLA
+    LD (MC6),A
+    LD A,(MC7)
+    RLA
+    LD (MC7),A
+    LD A,(MC8)
+    RLA
+    LD (MC8),A
+    LD A,(MC9)
+    RLA
+    LD (MC9),A
+    LD A,(MCA)
+    RLA
+    LD (MCA),A
+    LD A,(WK_DLOOP)
+    DEC A
+    LD (WK_DLOOP),A
+    JP NZ,_dmul_loop
+
+    ; 指数: base=eA+eB-129 (S=eA+eB、S>=385でオーバーフロー、S<129でゼロ)
+    LD A,(DA_SIGN)
+    LD B,A
+    LD A,(DB_SIGN)
+    XOR B
+    LD (RES_SIGN),A
+    LD A,(DA_EXP)
+    LD H,0
+    LD L,A
+    LD A,(DB_EXP)
+    LD D,0
+    LD E,A
+    ADD HL,DE
+    LD (WK_DS),HL
+    LD DE,385
+    OR A
+    SBC HL,DE
+    JP NC,_dmul_overflow
+    LD HL,(WK_DS)
+    LD DE,129
+    OR A
+    SBC HL,DE
+    JP C,_dmul_zero
+    LD A,L
+    LD (RES_EXP),A
+
+    ; 正規化: PRAのbit7が立っていればそのまま(exp_adj=1)、
+    ; 立っていなければ1bit左シフト(exp_adj=0)。
+    LD A,(PRA)
+    BIT 7,A
+    JP NZ,_dmul_asis
+    XOR A
+    LD A,(PR0)
+    SLA A
+    LD (PR0),A
+    LD A,(PR1)
+    RLA
+    LD (PR1),A
+    LD A,(PR2)
+    RLA
+    LD (PR2),A
+    LD A,(PR3)
+    RLA
+    LD (PR3),A
+    LD A,(PR4)
+    RLA
+    LD (PR4),A
+    LD A,(PR5)
+    RLA
+    LD (PR5),A
+    LD A,(PR6)
+    RLA
+    LD (PR6),A
+    LD A,(PR7)
+    RLA
+    LD (PR7),A
+    LD A,(PR8)
+    RLA
+    LD (PR8),A
+    LD A,(PR9)
+    RLA
+    LD (PR9),A
+    LD A,(PRA)
+    RLA
+    LD (PRA),A
+    JP _dmul_have_m
+_dmul_asis:
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JP NZ,_dmul_have_m
+    JP MBF_PACK_OVERFLOW
+_dmul_have_m:
+    ; candidate=PRA:PR9:PR8:PR7:PR6:PR5:PR4(56bit) guard=PR3 sticky=PR2|PR1|PR0|(PR3&0x7F)
+    LD A,(PR3)
+    LD B,A
+    BIT 7,B
+    JP Z,_dmul_round_down
+    LD A,B
+    AND 0x7F
+    LD C,A
+    LD A,(PR2)
+    OR C
+    LD C,A
+    LD A,(PR1)
+    OR C
+    LD C,A
+    LD A,(PR0)
+    OR C
+    JP NZ,_dmul_round_up
+    LD A,(PR4)
+    BIT 0,A
+    JP Z,_dmul_round_down
+_dmul_round_up:
+    LD A,(PR4)
+    INC A
+    LD (PR4),A
+    JP NZ,_dmul_round_down
+    LD A,(PR5)
+    INC A
+    LD (PR5),A
+    JP NZ,_dmul_round_down
+    LD A,(PR6)
+    INC A
+    LD (PR6),A
+    JP NZ,_dmul_round_down
+    LD A,(PR7)
+    INC A
+    LD (PR7),A
+    JP NZ,_dmul_round_down
+    LD A,(PR8)
+    INC A
+    LD (PR8),A
+    JP NZ,_dmul_round_down
+    LD A,(PR9)
+    INC A
+    LD (PR9),A
+    JP NZ,_dmul_round_down
+    LD A,(PRA)
+    INC A
+    LD (PRA),A
+    JP NZ,_dmul_round_down
+    LD A,0x80
+    LD (PRA),A
+    XOR A
+    LD (PR9),A
+    LD (PR8),A
+    LD (PR7),A
+    LD (PR6),A
+    LD (PR5),A
+    LD (PR4),A
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JP Z,_dmul_overflow2
+_dmul_round_down:
+    LD A,(PRA)
+    LD (DA_M6),A
+    LD A,(PR9)
+    LD (DA_M5),A
+    LD A,(PR8)
+    LD (DA_M4),A
+    LD A,(PR7)
+    LD (DA_M3),A
+    LD A,(PR6)
+    LD (DA_M2),A
+    LD A,(PR5)
+    LD (DA_M1),A
+    LD A,(PR4)
+    LD (DA_M0),A
+    LD A,(RES_SIGN)
+    LD (DA_SIGN),A
+    LD A,(RES_EXP)
+    LD (DA_EXP),A
+    RET
+_dmul_zero:
+    XOR A
+    LD (DA_SIGN),A
+    LD (DA_EXP),A
+    LD (DA_M6),A
+    LD (DA_M5),A
+    LD (DA_M4),A
+    LD (DA_M3),A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    RET
+_dmul_overflow2:
+_dmul_overflow:
+    LD A,1
+    LD (MBF_STATUS),A
+    RET
+
+; =======================================================================
+; DBL_DIV — DA(倍精度) /= DB(倍精度、常に正)。結果はDAへ書き戻す。
+; MBF_ADDのguard+sticky偶数丸めと同じ考え方をDIVの復元法(MBF_DIVと
+; 同型、8byteレジスタ・63回)へ広げたもの。
+; =======================================================================
+DBL_DIV:
+    XOR A
+    LD (MBF_STATUS),A
+    ; DAが0(DA_EXP=0)ならそのままゼロで返す(DBL_MULと同じ理由)。
+    LD A,(DA_EXP)
+    OR A
+    JP Z,_ddiv_zero
+    XOR A
+    LD (DQ7),A
+    LD (DQ6),A
+    LD (DQ5),A
+    LD (DQ4),A
+    LD (DQ3),A
+    LD (DQ2),A
+    LD (DQ1),A
+    LD (DQ0),A
+    LD (DR7),A
+    LD A,(DA_M6)
+    LD (DR6),A
+    LD A,(DA_M5)
+    LD (DR5),A
+    LD A,(DA_M4)
+    LD (DR4),A
+    LD A,(DA_M3)
+    LD (DR3),A
+    LD A,(DA_M2)
+    LD (DR2),A
+    LD A,(DA_M1)
+    LD (DR1),A
+    LD A,(DA_M0)
+    LD (DR0),A
+    XOR A
+    LD (DDV7),A
+    LD A,(DB_M6)
+    LD (DDV6),A
+    LD A,(DB_M5)
+    LD (DDV5),A
+    LD A,(DB_M4)
+    LD (DDV4),A
+    LD A,(DB_M3)
+    LD (DDV3),A
+    LD A,(DB_M2)
+    LD (DDV2),A
+    LD A,(DB_M1)
+    LD (DDV1),A
+    LD A,(DB_M0)
+    LD (DDV0),A
+
+    ; 事前正規化: DA(DR)>=DB(DDV)なら1回だけ引いて前提(R<B)を満たす
+    XOR A
+    LD (WK_DINIT),A
+    LD A,(DR6)
+    LD B,A
+    LD A,(DDV6)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR5)
+    LD B,A
+    LD A,(DDV5)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR4)
+    LD B,A
+    LD A,(DDV4)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR3)
+    LD B,A
+    LD A,(DDV3)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR2)
+    LD B,A
+    LD A,(DDV2)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR1)
+    LD B,A
+    LD A,(DDV1)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+    LD A,(DR0)
+    LD B,A
+    LD A,(DDV0)
+    CP B
+    JP C,_ddiv_a_ge_b
+    JP NZ,_ddiv_pre_done
+_ddiv_a_ge_b:
+    LD A,1
+    LD (WK_DINIT),A
+    LD A,(DR0)
+    LD H,A
+    LD A,(DDV0)
+    LD L,A
+    LD A,H
+    SUB L
+    LD (DR0),A
+    LD A,(DR1)
+    LD H,A
+    LD A,(DDV1)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR1),A
+    LD A,(DR2)
+    LD H,A
+    LD A,(DDV2)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR2),A
+    LD A,(DR3)
+    LD H,A
+    LD A,(DDV3)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR3),A
+    LD A,(DR4)
+    LD H,A
+    LD A,(DDV4)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR4),A
+    LD A,(DR5)
+    LD H,A
+    LD A,(DDV5)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR5),A
+    LD A,(DR6)
+    LD H,A
+    LD A,(DDV6)
+    LD L,A
+    LD A,H
+    SBC A,L
+    LD (DR6),A
+_ddiv_pre_done:
+
+    LD A,63
+    LD (WK_DLOOP),A
+_ddiv_loop:
+    ; R(8byte) <<= 1
+    XOR A
+    LD A,(DR0)
+    SLA A
+    LD (DR0),A
+    LD A,(DR1)
+    RLA
+    LD (DR1),A
+    LD A,(DR2)
+    RLA
+    LD (DR2),A
+    LD A,(DR3)
+    RLA
+    LD (DR3),A
+    LD A,(DR4)
+    RLA
+    LD (DR4),A
+    LD A,(DR5)
+    RLA
+    LD (DR5),A
+    LD A,(DR6)
+    RLA
+    LD (DR6),A
+    LD A,(DR7)
+    RLA
+    LD (DR7),A
+    ; Q(8byte) <<= 1
+    XOR A
+    LD A,(DQ0)
+    SLA A
+    LD (DQ0),A
+    LD A,(DQ1)
+    RLA
+    LD (DQ1),A
+    LD A,(DQ2)
+    RLA
+    LD (DQ2),A
+    LD A,(DQ3)
+    RLA
+    LD (DQ3),A
+    LD A,(DQ4)
+    RLA
+    LD (DQ4),A
+    LD A,(DQ5)
+    RLA
+    LD (DQ5),A
+    LD A,(DQ6)
+    RLA
+    LD (DQ6),A
+    LD A,(DQ7)
+    RLA
+    LD (DQ7),A
+
+    ; T = R - DDV(8byte)
+    LD A,(DR0)
+    LD B,A
+    LD A,(DDV0)
+    LD C,A
+    LD A,B
+    SUB C
+    LD (DT0),A
+    LD A,(DR1)
+    LD B,A
+    LD A,(DDV1)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT1),A
+    LD A,(DR2)
+    LD B,A
+    LD A,(DDV2)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT2),A
+    LD A,(DR3)
+    LD B,A
+    LD A,(DDV3)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT3),A
+    LD A,(DR4)
+    LD B,A
+    LD A,(DDV4)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT4),A
+    LD A,(DR5)
+    LD B,A
+    LD A,(DDV5)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT5),A
+    LD A,(DR6)
+    LD B,A
+    LD A,(DDV6)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT6),A
+    LD A,(DR7)
+    LD B,A
+    LD A,(DDV7)
+    LD C,A
+    LD A,B
+    SBC A,C
+    LD (DT7),A
+    JP C,_ddiv_no_sub
+    LD A,(DT0)
+    LD (DR0),A
+    LD A,(DT1)
+    LD (DR1),A
+    LD A,(DT2)
+    LD (DR2),A
+    LD A,(DT3)
+    LD (DR3),A
+    LD A,(DT4)
+    LD (DR4),A
+    LD A,(DT5)
+    LD (DR5),A
+    LD A,(DT6)
+    LD (DR6),A
+    LD A,(DT7)
+    LD (DR7),A
+    LD A,(DQ0)
+    OR 1
+    LD (DQ0),A
+_ddiv_no_sub:
+    LD A,(WK_DLOOP)
+    DEC A
+    LD (WK_DLOOP),A
+    JP NZ,_ddiv_loop
+
+    ; 真の剰余が0か
+    XOR A
+    LD (WK_DREMZERO),A
+    LD A,(DR0)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR1)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR2)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR3)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR4)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR5)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR6)
+    OR A
+    JP NZ,_ddiv_remnz
+    LD A,(DR7)
+    OR A
+    JP NZ,_ddiv_remnz
+    JP _ddiv_remcheck_done
+_ddiv_remnz:
+    LD A,1
+    LD (WK_DREMZERO),A
+_ddiv_remcheck_done:
+
+    LD A,(WK_DINIT)
+    OR A
+    JP Z,_ddiv_no_initbit
+    LD A,(DQ7)
+    OR 0x80
+    LD (DQ7),A
+_ddiv_no_initbit:
+
+    ; 指数: base=eA-eB+128。bit7(DQ7)が立っていれば+1、無ければ変わらず
+    ; (単精度DIVのderivationと同型、幅だけ56bit用に広げた)。
+    LD A,(DA_SIGN)
+    LD B,A
+    LD A,(DB_SIGN)
+    XOR B
+    LD (RES_SIGN),A
+    LD A,(DA_EXP)
+    LD H,0
+    LD L,A
+    LD DE,128
+    ADD HL,DE
+    LD A,(DB_EXP)
+    LD D,0
+    LD E,A
+    OR A
+    SBC HL,DE
+    LD (WK_DS),HL
+
+    LD A,(DQ7)
+    BIT 7,A
+    JP NZ,_ddiv_noshift
+    XOR A
+    LD A,(DQ0)
+    SLA A
+    LD (DQ0),A
+    LD A,(DQ1)
+    RLA
+    LD (DQ1),A
+    LD A,(DQ2)
+    RLA
+    LD (DQ2),A
+    LD A,(DQ3)
+    RLA
+    LD (DQ3),A
+    LD A,(DQ4)
+    RLA
+    LD (DQ4),A
+    LD A,(DQ5)
+    RLA
+    LD (DQ5),A
+    LD A,(DQ6)
+    RLA
+    LD (DQ6),A
+    LD A,(DQ7)
+    RLA
+    LD (DQ7),A
+    LD HL,(WK_DS)
+    JP _ddiv_have_finalexp
+_ddiv_noshift:
+    LD HL,(WK_DS)
+    LD DE,1
+    ADD HL,DE
+_ddiv_have_finalexp:
+    PUSH HL
+    LD DE,256
+    OR A
+    SBC HL,DE
+    POP HL
+    JP NC,_ddiv_overflow
+    PUSH HL
+    LD DE,1
+    OR A
+    SBC HL,DE
+    POP HL
+    JP M,_ddiv_zero
+
+    LD A,L
+    LD (RES_EXP),A
+    LD A,(DQ7)
+    LD (DA_M6),A
+    LD A,(DQ6)
+    LD (DA_M5),A
+    LD A,(DQ5)
+    LD (DA_M4),A
+    LD A,(DQ4)
+    LD (DA_M3),A
+    LD A,(DQ3)
+    LD (DA_M2),A
+    LD A,(DQ2)
+    LD (DA_M1),A
+    LD A,(DQ1)
+    LD (DA_M0),A
+    ; ガード=DQ0、真の剰余があればスティッキーとして扱う
+    LD A,(DQ0)
+    LD B,A
+    BIT 7,B
+    JP Z,_ddiv_round_down
+    LD A,B
+    AND 0x7F
+    LD C,A
+    LD A,(WK_DREMZERO)
+    OR C
+    JP NZ,_ddiv_round_up
+    LD A,(DA_M0)
+    BIT 0,A
+    JP Z,_ddiv_round_down
+_ddiv_round_up:
+    LD A,(DA_M0)
+    INC A
+    LD (DA_M0),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M1)
+    INC A
+    LD (DA_M1),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M2)
+    INC A
+    LD (DA_M2),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M3)
+    INC A
+    LD (DA_M3),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M4)
+    INC A
+    LD (DA_M4),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M5)
+    INC A
+    LD (DA_M5),A
+    JP NZ,_ddiv_round_down
+    LD A,(DA_M6)
+    INC A
+    LD (DA_M6),A
+    JP NZ,_ddiv_round_down
+    LD A,0x80
+    LD (DA_M6),A
+    XOR A
+    LD (DA_M5),A
+    LD (DA_M4),A
+    LD (DA_M3),A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JP Z,_ddiv_overflow
+_ddiv_round_down:
+    LD A,(RES_SIGN)
+    LD (DA_SIGN),A
+    LD A,(RES_EXP)
+    LD (DA_EXP),A
+    RET
+_ddiv_overflow:
+    LD A,1
+    LD (MBF_STATUS),A
+    RET
+_ddiv_zero:
+    XOR A
+    LD (DA_SIGN),A
+    LD (DA_EXP),A
+    LD (DA_M6),A
+    LD (DA_M5),A
+    LD (DA_M4),A
+    LD (DA_M3),A
+    LD (DA_M2),A
+    LD (DA_M1),A
+    LD (DA_M0),A
+    RET
+
+; =======================================================================
+; DBL_TO_SINGLE_CSD — DA(倍精度)を単精度へ切り詰める($CSD、MATH2.ASM
+; 197-206の再現)。上位24bit(DA_M6:M5:M4)を候補仮数とし、その直後の
+; バイト(DA_M3)のbit7だけで切り上げ/切り捨てを決める(bit6を強制1に
+; するため、ちょうど半分〈タイ〉には理論上到達しない
+; ——tools/l4_mbf_oracle_v2.py csd_narrow と同じ規則)。
+; 結果はMBF_RES/MBF_STATUSへ書く。
+; =======================================================================
+DBL_TO_SINGLE_CSD:
+    LD A,(DA_EXP)
+    OR A
+    JP NZ,_csd_nonzero
+    XOR A
+    LD (RES_SIGN),A
+    LD (RES_EXP),A
+    JP MBF_PACK_RES
+_csd_nonzero:
+    LD A,(DA_M6)
+    LD (BIG_M2),A
+    LD A,(DA_M5)
+    LD (BIG_M1),A
+    LD A,(DA_M4)
+    LD (BIG_M0),A
+    LD A,(DA_SIGN)
+    LD (RES_SIGN),A
+    LD A,(DA_EXP)
+    LD (RES_EXP),A
+    LD A,(DA_M3)
+    BIT 7,A
+    JP Z,_csd_done
+    LD A,(BIG_M0)
+    INC A
+    LD (BIG_M0),A
+    JP NZ,_csd_done
+    LD A,(BIG_M1)
+    INC A
+    LD (BIG_M1),A
+    JP NZ,_csd_done
+    LD A,(BIG_M2)
+    INC A
+    LD (BIG_M2),A
+    JP NZ,_csd_done
+    LD A,0x80
+    LD (BIG_M2),A
+    XOR A
+    LD (BIG_M1),A
+    LD (BIG_M0),A
+    LD A,(RES_EXP)
+    INC A
+    LD (RES_EXP),A
+    JP Z,MBF_PACK_OVERFLOW
+_csd_done:
+    JP MBF_PACK_RES
+
+; 10^0〜10^38の倍精度MBF定数。tools/l4_mbf_oracle_v2.py の
+; encode_mbf(Fraction(10)**k, 56) と同じ計算をPythonで独立に求めた値
+; （$DP00の実バイト列を読んで転記したものではない。10進のべき乗を
+; 倍精度へ偶数丸めでエンコードする決定論的な計算の結果は、正しく
+; 計算する限り誰が計算しても同じバイト列になる）。
+DBL_TABLE:
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81  ; 10^0
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x84  ; 10^1
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x87  ; 10^2
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7a, 0x8a  ; 10^3
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x1c, 0x8e  ; 10^4
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x43, 0x91  ; 10^5
+    db 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x74, 0x94  ; 10^6
+    db 0x00, 0x00, 0x00, 0x00, 0x80, 0x96, 0x18, 0x98  ; 10^7
+    db 0x00, 0x00, 0x00, 0x00, 0x20, 0xbc, 0x3e, 0x9b  ; 10^8
+    db 0x00, 0x00, 0x00, 0x00, 0x28, 0x6b, 0x6e, 0x9e  ; 10^9
+    db 0x00, 0x00, 0x00, 0x00, 0xf9, 0x02, 0x15, 0xa2  ; 10^10
+    db 0x00, 0x00, 0x00, 0x40, 0xb7, 0x43, 0x3a, 0xa5  ; 10^11
+    db 0x00, 0x00, 0x00, 0x10, 0xa5, 0xd4, 0x68, 0xa8  ; 10^12
+    db 0x00, 0x00, 0x00, 0x2a, 0xe7, 0x84, 0x11, 0xac  ; 10^13
+    db 0x00, 0x00, 0x80, 0xf4, 0x20, 0xe6, 0x35, 0xaf  ; 10^14
+    db 0x00, 0x00, 0xa0, 0x31, 0xa9, 0x5f, 0x63, 0xb2  ; 10^15
+    db 0x00, 0x00, 0x04, 0xbf, 0xc9, 0x1b, 0x0e, 0xb6  ; 10^16
+    db 0x00, 0x00, 0xc5, 0x2e, 0xbc, 0xa2, 0x31, 0xb9  ; 10^17
+    db 0x00, 0x40, 0x76, 0x3a, 0x6b, 0x0b, 0x5e, 0xbc  ; 10^18
+    db 0x00, 0xe8, 0x89, 0x04, 0x23, 0xc7, 0x0a, 0xc0  ; 10^19
+    db 0x00, 0x62, 0xac, 0xc5, 0xeb, 0x78, 0x2d, 0xc3  ; 10^20
+    db 0x80, 0x7a, 0x17, 0xb7, 0x26, 0xd7, 0x58, 0xc6  ; 10^21
+    db 0x90, 0xac, 0x6e, 0x32, 0x78, 0x86, 0x07, 0xca  ; 10^22
+    db 0xb4, 0x57, 0x0a, 0x3f, 0x16, 0x68, 0x29, 0xcd  ; 10^23
+    db 0xa1, 0xed, 0xcc, 0xce, 0x1b, 0xc2, 0x53, 0xd0  ; 10^24
+    db 0x85, 0x14, 0x40, 0x61, 0x51, 0x59, 0x04, 0xd4  ; 10^25
+    db 0xa6, 0x19, 0x90, 0xb9, 0xa5, 0x6f, 0x25, 0xd7  ; 10^26
+    db 0x0f, 0x20, 0xf4, 0x27, 0x8f, 0xcb, 0x4e, 0xda  ; 10^27
+    db 0x0a, 0x94, 0xf8, 0x78, 0x39, 0x3f, 0x01, 0xde  ; 10^28
+    db 0x0c, 0xb9, 0x36, 0xd7, 0x07, 0x8f, 0x21, 0xe1  ; 10^29
+    db 0x4f, 0x67, 0x04, 0xcd, 0xc9, 0xf2, 0x49, 0xe4  ; 10^30
+    db 0x23, 0x81, 0x45, 0x40, 0x7c, 0x6f, 0x7c, 0xe7  ; 10^31
+    db 0xb6, 0x70, 0x2b, 0xa8, 0xad, 0xc5, 0x1d, 0xeb  ; 10^32
+    db 0xe3, 0x4c, 0x36, 0x12, 0x19, 0x37, 0x45, 0xee  ; 10^33
+    db 0x1c, 0xe0, 0xc3, 0x56, 0xdf, 0x84, 0x76, 0xf1  ; 10^34
+    db 0x11, 0x6c, 0x3a, 0x96, 0x0b, 0x13, 0x1a, 0xf5  ; 10^35
+    db 0x16, 0x07, 0xc9, 0x7b, 0xce, 0x97, 0x40, 0xf8  ; 10^36
+    db 0xdb, 0x48, 0xbb, 0x1a, 0xc2, 0xbd, 0x70, 0xfb  ; 10^37
+    db 0x89, 0x0d, 0xb5, 0x50, 0x99, 0x76, 0x16, 0xff  ; 10^38

@@ -59,7 +59,13 @@ run_case "div  N=400"  div  -n 400 --frames 900
 # (厳密値→1回丸め)と数学的に完全一致する保証はない(モジュール
 # docstring参照)。--max-mismatchは乱数1000件超の照合で実測した
 # 既知の不一致率を踏まえた許容件数(仕様書に無い判断)。
-run_case "fin  N=300"  fin  -n 300 --frames 400  --max-mismatch 5
+# fin: GW-BASICの$FIN/$FINE/MDPTENの手順(倍精度56bit経由)に作り直し
+# 済みだが、10^7の倍精度定数を掛ける乗算で約0.3-0.5%が最下位バイトで
+# 系統的に+1(常に高い側へ)ずれる未解決の残課題がある(原因は倍精度
+# 乗算のどこかに特定できていない。mbf_single.asm DBL_MULのヘッダ
+# コメント参照)。1000件超の乱数照合で実測した件数を踏まえた暫定の
+# 許容件数(仕様書に無い判断、0件にできていない)。
+run_case "fin  N=300"  fin  -n 300 --frames 400  --max-mismatch 2
 run_case "fout N=200"  fout -n 200 --frames 2000 --max-mismatch 5
 
 echo "==> 故障注入（陰性対照。不一致が出ることを正常系として扱う）"
