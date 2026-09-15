@@ -276,15 +276,16 @@ else
 fi
 
 # --- 検査8: tools/l4_program_typeplan.py の打鍵計画・G9/G10ヘルパ -----
-# (2026-09-16改定: runの前にclsを挟む。g9_check_frame=clsを打つ直前、
-# cls_dump_frame=clsのOk後=写し(前)として使うフレーム)
+# (2026-09-16改定・追補2: newの直後・runの前の両方にclsを挟む。
+# g9_check_frame=2回目のclsを打つ直前、cls_dump_frame=2回目のclsのOk後
+# =写し(前)として使うフレーム)
 PLAN="$(python3 "$TYPEPLAN" --bas "$SCRIPT_DIR/../tests/programs/p01_kuku.bas" 2>&1)"
 PLAN_OK=1
 printf '%s' "$PLAN" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 assert d['num_lines'] == 6, d['num_lines']
-assert d['segment1'].startswith('new\n10 for'), d['segment1'][:20]
+assert d['segment1'].startswith('new\ncls\n10 for'), d['segment1'][:24]
 assert d['segment1'].endswith('cls\n'), d['segment1'][-4:]
 assert d['segment2'] == 'run\n', d['segment2']
 assert d['g9_check_frame'] == 700 + 8*d['prefix_char_count']
@@ -318,7 +319,11 @@ else
   fail "検査11: check_output_fits_screen の境界判定が期待と違う"
 fi
 
-# G9のnonblank行数確認(合成写し)。row6-13(new+Ok+6行)が非空白、それ以外0。
+# G9(追補2): 「行番号で始まる行」の件数確認(合成写し)。
+# 1回目のclsでバナーを消した後を想定し、row0=Ok(clsの、行番号で始まら
+# ない)・row1-3=プログラムの3行(行番号で始まる)・row19=最下行
+# (ファンクションキー、除外対象。行番号で始まる形にしてもなお除外
+# されることを確認する)。
 python3 - "$WORK" <<'PYEOF'
 import sys
 ROWS, STRIDE = 25, 120
@@ -329,10 +334,10 @@ def poke_str(buf, row, col, s):
         buf[row*STRIDE+col+i] = ord(ch)
 work = sys.argv[1]
 d = blank_dump()
-poke_str(d, 6, 0, "new")
-poke_str(d, 7, 0, "Ok")
-for i, line in enumerate(["10 x=1", "20 x=2", "30 x=3", "40 x=4", "50 x=5", "60 x=6"]):
-    poke_str(d, 8+i, 0, line)
+poke_str(d, 0, 0, "Ok")
+for i, line in enumerate(["10 x=1", "20 x=2", "30 x=3"]):
+    poke_str(d, 1+i, 0, line)
+poke_str(d, 19, 0, "99 fkey-like")  # 行番号で始まる形でも除外されること
 with open(f"{work}/g9_before.bin", "wb") as f:
     f.write(bytes(d))
 PYEOF
@@ -340,15 +345,15 @@ python3 -c "
 import sys
 sys.path.insert(0, '$SCRIPT_DIR')
 import l4_program_typeplan as tp
-r = tp.check_keystroke_arrival('$WORK/g9_before.bin', 6)
+r = tp.check_keystroke_arrival('$WORK/g9_before.bin', 3)
 assert r['arrived'] is True, r
-assert r['expected_nonblank_row_count'] == 8, r
-r2 = tp.check_keystroke_arrival('$WORK/g9_before.bin', 7)
+assert r['actual_line_count'] == 3, r
+r2 = tp.check_keystroke_arrival('$WORK/g9_before.bin', 4)
 assert r2['arrived'] is False, r2
 print('OK')
 " >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-  pass "検査12: check_keystroke_arrival が非空白行数の一致/不一致を正しく判定する(G9)"
+  pass "検査12: check_keystroke_arrival が「行番号で始まる行」の件数の一致/不一致を正しく判定し、最下行を除外する(G9)"
 else
   fail "検査12: check_keystroke_arrival の判定が期待と違う"
 fi

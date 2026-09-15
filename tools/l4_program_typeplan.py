@@ -6,52 +6,78 @@ preregistration.md`（`2837926`）「腕」節・「P8（INPUT）の打鍵タイ
 節・G9（打鍵到達確認）節どおりに `tests/programs/*.bas` の1本を読み、
 打鍵文字列と`--vram-dump`を置くべきフレーム番号を組み立てる。
 
-## 手順（2026-09-16改定: `run`の前に`cls`を挟む）
+## 手順（2026-09-16改定・追補2: `new`の直後にも`cls`を挟む）
 
 試走で、行数の多いプログラム（`p02`・`p03`・`p06`）は、プログラムの
 入力そのもの（`new`〜各行の打鍵）だけで画面が下へ流れ（スクロール）、
 `run`を打った行の位置が一意に定まらない（`tools/l4_program_conform_
 record.py`が`ok_row_not_found`と正しく判別した）ことが分かった。
 
-対策として、プログラムを打ち終えた直後に`cls`を打ち、その`Ok`が出た
-後の写しを「写し(前)」として使う手順に変える。`cls`は画面を消して
-カーソルを先頭（絶対行0）へ戻すため（`l4-s5f`のF1・F10で確認済み）、
-以後`run`を打った行・出力・`Ok`はいずれも先頭付近の低い絶対行に収まり、
-プログラムの行数に左右されなくなる。
+対策その1（1回目の改定）: プログラムを打ち終えた直後に`cls`を打ち、
+その`Ok`が出た後の写しを「写し(前)」として使う手順に変えた。`cls`は
+画面を消してカーソルを先頭（絶対行0）へ戻すため（`l4-s5f`のF1・F10で
+確認済み）、以後`run`を打った行・出力・`Ok`はいずれも先頭付近の低い
+絶対行に収まり、プログラムの行数に左右されなくなった。
 
-**`run`の打鍵は、`cls`の`Ok`が出たことを確認した時点（`cls_dump_frame`）
-より後にしか始めない。** 最初の実装は`new`〜`cls`〜`run`を1つの
-`--type`文字列として連続で打鍵し、`cls_dump_frame`はその内部の任意の
-フレームへの単なる写し取得点として扱っていたが、それでは`run`の打鍵が
-`cls`の直後（`cls`の`Ok`を待たずに）始まってしまい、`cls_dump_frame`
-時点の写しに`run`の打鍵・出力までもが写り込み、`cls`前後の差分が
-「変化なし」になってしまう不具合が公式ROMでの試走で見つかった
-（`tools/l4_program_conform_record.py`が`no_changes`と正しく検出した）。
-そこで`l4-s5d`のD12・`l4-s5e`のE1/E2と同じやり方——`--type-at`で区切った
-別々の`--type`区間にする——に直し、`run`（P8はさらに入力値）の区間の
-`--type-at`を`cls_dump_frame`（またはP8のプロンプト確認フレーム）に
-明示的に合わせる。
+対策その2（追補2）: 1回目の改定後も、G9（打鍵到達確認）自体は`new`〜
+プログラムの行の打鍵を、起動時のバナーが残る絶対行6以降を前提に数え
+ていた。行数の多いプログラム（特に`p03`、19行）では、プログラムの
+入力そのものが`cls`（1回目の）より前に画面をスクロールさせ、初めの
+方の行が除外対象の絶対行0-5へ押し出されてしまい、G9が正しく数えられ
+ない場合があった（`p03`で実際に不一致が起きた。`ok_row_not_found`とは
+別の問題として報告済み）。
+
+対策として、**`new`の直後にも`cls`を打ち、バナーを消してから
+プログラムの行を打ち始める**。バナーが最初から画面に無ければ、
+プログラムの行の入力そのもので画面がスクロールする前に、行番号で
+始まる行の数を（バナーの影響を受けずに）正しく数えられる。G9の数え方
+も、`最下行(19、ファンクションキー表示行)を除く画面全体`で「行番号で
+始まる行」（`tools/l4_list_classify.py`の`_classify_row`と同じ判定基準
+——先頭の空白を除いた最初の文字が数字で、全セルが表示可能ASCII）の件数
+を数える形に変えた（旧版の「非空白行数がexpected_line_count+2」という
+数え方は、`Ok`行の数・位置に関する前提を含んでいたため、より頑丈な
+「行番号で始まる行」基準に置き換えた）。
+
+**`run`の打鍵は、2回目の`cls`（プログラムの行の後）の`Ok`が出たことを
+確認した時点（`cls_dump_frame`）より後にしか始めない。** 最初の実装は
+`new`〜`cls`〜`run`を1つの`--type`文字列として連続で打鍵し、
+`cls_dump_frame`はその内部の任意のフレームへの単なる写し取得点として
+扱っていたが、それでは`run`の打鍵が`cls`の直後（`cls`の`Ok`を待たずに）
+始まってしまい、`cls_dump_frame`時点の写しに`run`の打鍵・出力までもが
+写り込み、`cls`前後の差分が「変化なし」になってしまう不具合が公式ROM
+での試走で見つかった（`tools/l4_program_conform_record.py`が
+`no_changes`と正しく検出した）。そこで`l4-s5d`のD12・`l4-s5e`のE1/E2と
+同じやり方——`--type-at`で区切った別々の`--type`区間にする——に直し、
+`run`（P8はさらに入力値）の区間の`--type-at`を`cls_dump_frame`
+（またはP8のプロンプト確認フレーム）に明示的に合わせる。1回目の`cls`
+（`new`の直後）は、G9の写しを取る前の同じ区間内で続けて打つため
+（`run`のときのような「待ってから続ける」必要は無い——`new`の`Ok`も
+1回目の`cls`自身も、G9のサンプリング時点までに十分な時間があるため）、
+専用の区間分けは不要。
 
 ## 打鍵の区間（P1〜P7、2区間）
 
 ```
-区間1 (type_at=700):  new\n<プログラムの各行>\ncls\n
+区間1 (type_at=700):  new\ncls\n<プログラムの各行>\ncls\n
 区間2 (type_at=cls_dump_frame): run\n
 ```
+
+（G9の写しは区間1の途中、`<プログラムの各行>`を打ち終えた時点
+`g9_check_frame`で取る。`cls\n`〔2回目〕はその後に続けて打つ）
 
 ## フレームの決め方
 
 1文字あたり `hold+gap=8` フレーム（`l4-s5a` 以来の段階5の前例どおり）。
 `type_at` の基準は `700`（起動settle `--type-at 300 --type '\n'` の後）。
 
-- `prefix` = `"new\n"` + プログラムの各行を `\n` 区切りで連結したもの +
-  `"\n"`（＝`cls` を打つ直前までの打鍵文字列）
+- `prefix` = `"new\ncls\n"` + プログラムの各行を `\n` 区切りで連結した
+  もの + `"\n"`（＝2回目の`cls` を打つ直前までの打鍵文字列）
 - `g9_check_frame` = `700 + 8 * len(prefix)`
-  （プログラムを打ち終えた瞬間。事前登録のG9〔打鍵到達確認〕は、
-  ここで取った写しに対して行う——`cls`より前、`run`より前）
-- `segment1` = `prefix` + `"cls\n"`
+  （プログラムを打ち終えた瞬間。G9〔打鍵到達確認〕は、ここで取った
+  写しに対して行う——2回目の`cls`より前、`run`より前）
+- `segment1` = `prefix` + `"cls\n"`（2回目の`cls`）
 - `cls_line_end` = `700 + 8 * len(segment1)`
-  （`cls\n`の最後の文字が打鍵される瞬間）
+  （2回目の`cls\n`の最後の文字が打鍵される瞬間）
 - `cls_dump_frame` = `cls_line_end + 300`
   （`cls`の`Ok`が出るまでの余裕。既存の前例——`l4-s5a`以来の
   `dump(k)=line_end(k)+300`——をそのまま流用する。この写しを
@@ -109,8 +135,8 @@ def read_program_lines(bas_path: str) -> "list[str]":
 
 
 def frame_plan(lines: "list[str]") -> dict:
-    """INPUTを含まない腕(P1〜P7)の打鍵計画。2区間(new〜cls / run)。"""
-    prefix = "new\n" + "\n".join(lines) + "\n"
+    """INPUTを含まない腕(P1〜P7)の打鍵計画。2区間(new〜cls〜行〜cls / run)。"""
+    prefix = "new\n" + CLS_SEGMENT + "\n".join(lines) + "\n"
     g9_check_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
 
     segment1 = prefix + CLS_SEGMENT
@@ -142,10 +168,10 @@ def frame_plan(lines: "list[str]") -> dict:
 
 
 def input_frame_plan(lines: "list[str]", input_value: str) -> dict:
-    """INPUTを含む腕(P8)の打鍵計画。3区間(new〜cls / run / 入力値)。
+    """INPUTを含む腕(P8)の打鍵計画。3区間(new〜cls〜行〜cls / run / 入力値)。
     `run`の後のプロンプト確認は`l4-s5e`のE1・E2と同じ考え方
     (`+300`フレームの余裕を`--nonblank-summary-rows`で確認)。"""
-    prefix = "new\n" + "\n".join(lines) + "\n"
+    prefix = "new\n" + CLS_SEGMENT + "\n".join(lines) + "\n"
     g9_check_frame = TYPE_AT_BASE + FRAMES_PER_CHAR * len(prefix)
 
     segment1 = prefix + CLS_SEGMENT
@@ -193,36 +219,38 @@ def input_frame_plan(lines: "list[str]", input_value: str) -> dict:
     }
 
 
-def check_keystroke_arrival(
-    dump_path: str, expected_line_count: int, exclude_rows: "set[int] | None" = None
-) -> dict:
-    """G9(打鍵の到達確認)。プログラムを打ち終えた直後（`cls`より前）の
-    写し(`g9_check_frame`)を`--nonblank-summary-rows`で調べ、非空白
-    セルを含む行数を数える。事前登録どおり、比較するのは「行数」だけ
-    (文字コードは見ない)。
+def check_keystroke_arrival(dump_path: str, expected_line_count: int, exclude_rows: "set[int] | None" = None) -> dict:
+    """G9(打鍵の到達確認、追補2で改定)。`new`の直後に`cls`を打ってバナー
+    を消した後、プログラムの行を打ち終えた時点の写し(`g9_check_frame`)
+    を、最下行(19、ファンクションキー表示行)を除く画面全体について、
+    「行番号で始まる行」（`tools/l4_list_classify.py`の`_classify_row`
+    と同じ判定基準——先頭の空白を除いた最初の文字が数字0-9で、行の
+    全80セルが表示可能ASCII——`d330dd2`。二重実装せずそのままimportして
+    使う）の件数で数える。文字コードそのものは一切出さない（真偽判定
+    にしか使わない）。
 
-    非空白行数の期待値は `expected_line_count + 2`
-    （`new`自身の行1つ + `new`直後の`Ok`行1つ + プログラムの行数ぶん）。
-    この+2は、l4-s5a〜l4-s5gの公式ROM測定で一貫して観測された「`new`の
-    直後に`Ok`が現れ、以後の行入力は追加のOk無しで受け付けられる」という
-    構造に基づく前提であり、想定が崩れていれば不一致として検出される
-    （黙って一致扱いにはしない）。
-
-    この時点では`cls`をまだ打っていないため、`new`~プログラムの行は
-    l4-s5a以来の慣行どおり絶対行6から積み上がる。バナー行(0-5)・
-    最下行(19、ファンクションキー表示行)は除く。
+    1回目の`cls`（`new`の直後）でバナーを消してあるため、この時点で
+    「行番号で始まる行」に分類されるのはプログラムの各行の入力エコー
+    だけのはずで、その件数がプログラムの行数と一致するかを見る
+    （`Ok`行・`new`/`cls`自身の入力エコーは行番号で始まらないため、
+    自然に数えから除かれる）。
     """
     if exclude_rows is None:
-        exclude_rows = {0, 1, 2, 3, 4, 5, 19}
-    rows = [r for r in range(l4_vram_probe.ROWS) if r not in exclude_rows]
-    summary = l4_vram_probe.nonblank_char_summary(dump_path, rows)
-    nonblank_rows = [e for e in summary["nonblank_summary"] if e["nonblank_count"] > 0]
-    actual = len(nonblank_rows)
-    expected = expected_line_count + 2
+        exclude_rows = {19}
+    import l4_list_classify
+
+    data = l4_vram_probe.load_vram_dump(dump_path)
+    char_rows = l4_vram_probe.char_rows(data)
+    actual = 0
+    for r in range(l4_vram_probe.ROWS):
+        if r in exclude_rows:
+            continue
+        if l4_list_classify._classify_row(char_rows[r]):
+            actual += 1
     return {
-        "expected_nonblank_row_count": expected,
-        "actual_nonblank_row_count": actual,
-        "arrived": actual == expected,
+        "expected_line_count": expected_line_count,
+        "actual_line_count": actual,
+        "arrived": actual == expected_line_count,
     }
 
 
