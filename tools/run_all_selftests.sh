@@ -162,6 +162,11 @@ SCRIPTS_EXPECTED=(
   # tools/l4_mbf_oracle_v2.py。ROM・私物なしで完結するのでSKIPは無く、
   # 常にrc=0を期待する。
   "tools/l4_mbf_oracle_v2_selftest.sh:0"
+  # M7段階4a-1（2026-09-15）。単精度MBF四則演算・符号反転・比較・整数変換
+  # (src/l4_basic/mbf_single.asm)を実際にZ80として実行し、予測器v2と
+  # バイト単位で突き合わせる。自作の空ROMをq88measureで走らせるだけで
+  # 公式ROM・私物は不要なのでSKIPは無く、常にrc=0を期待する。
+  "tools/l4_mbf_z80_selftest.sh:0"
 )
 
 overall=0
