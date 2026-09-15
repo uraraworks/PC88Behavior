@@ -171,6 +171,11 @@ SCRIPTS_EXPECTED=(
   # tools/l4_list_classify.py。合成VRAM写しだけで完結するので公式ROM・
   # 私物は不要、SKIPは無く常にrc=0を期待する。
   "tools/l4_list_classify_selftest.sh:0"
+  # M7段階5a（2026-09-15）。プログラムモード(行の入力・保存・LIST・NEW、
+  # src/l4_basic/program.asm)。docs/spec/l4-program.md 第1版の観測例を
+  # そのまま期待値にした自作ROM単体の検査。公式ROM・私物は不要なので
+  # SKIPは無く、常にrc=0を期待する。
+  "tools/l4_program_selftest.sh:0"
 )
 
 overall=0
