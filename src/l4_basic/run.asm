@@ -195,6 +195,16 @@ RUN_INPUT_RAW_BUF    EQU 0DE95h ; 40B(仕様書に無い上限、keyboard.asmの
                                 ; LINE_BUF80Bより短くした簡略化)
 ; 終端 = DE95+40 = DEBDh(まだ0xE800より十分手前)
 
+; ---- M7段階5c-2b: 配列代入(ARRAY_ASSIGN_STMT)の左辺アドレス退避 ----
+RUN_ARRAY_ASSIGN_ADDR EQU 0DEBDh ; 2B 左辺の配列要素アドレス(右辺式の
+                                 ; 評価より前に確定させ、ここへ退避する。
+                                 ; 右辺式が同じ配列を読む場合(a(1)=a(2)等)
+                                 ; ARRAY_READがRUN_ARRAY_IDX/RUN_ARRAY_NAME
+                                 ; を上書きするため、右辺評価後までこれらを
+                                 ; 当てにできない(不具合、下記ARRAY_ASSIGN_STMT
+                                 ; 参照)
+; 終端 = DEBD+2 = DEBFh(まだ0xE800より十分手前)
+
 ; =======================================================================
 ; LEX_IDENT_PEEK — CUR_PTR位置から識別子(英字1文字+英数字*、末尾に
 ;   任意で%/$/#を1つ)を読み取る(CUR_PTRは進めない)。
@@ -4424,6 +4434,19 @@ _ar_range:
 
 ; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
 ;   RUN_MATCH_STMT_KEYWORDが設定済み、CUR_PTRは'('の位置。
+;
+;   M7段階5c-2b修正: 従来は'='の右辺式(LOGIC_OR_EXPR)を評価してから
+;   左辺の配列要素アドレスを求めていたが、右辺式が同じ配列を読む形
+;   (例: `a(1)=a(2)`)だと、右辺のARRAY_READがRUN_ARRAY_IDX/
+;   RUN_ARRAY_NAME(左辺の添字・配列名の退避場所と同じグローバル領域)
+;   を上書きしてしまい、左辺の添字が右辺の添字に化けて誤った要素へ
+;   書き込む不具合があった(tests/programs/p03_bubble_sort.bas の
+;   `t=a(j):a(j)=a(j+1):a(j+1)=t` で顕在化。実測: `a(j)=a(j+1)`単体で
+;   左辺が変化しなかった)。対策として、右辺式を評価する**前**に左辺の
+;   配列要素アドレスを確定させ、RUN_ARRAY_IDX/RUN_ARRAY_NAMEに依存しない
+;   RUN_ARRAY_ASSIGN_ADDRへ退避してから右辺を評価し、右辺の値(CUR_TYPE)
+;   をその退避アドレスへ直接書き込む(仕様書に無い判断: 実装上のバグ修正、
+;   代入そのものの規則はASSIGN_STMTと同じ)。
 ARRAY_ASSIGN_STMT:
     LD A,(RUN_ASSIGN_KIND)
     CP 3
@@ -4450,14 +4473,6 @@ ARRAY_ASSIGN_STMT:
     CP '='
     JR NZ,_aas_syntax
     CALL ADV_PTR
-    CALL LOGIC_OR_EXPR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,CUR_TYPE
-    LD DE,RUN_VAL_SAVE9
-    LD BC,9
-    LDIR
     LD HL,RUN_ARRAY_NAME
     LD DE,IDENT_BUF
     LD BC,8
@@ -4467,8 +4482,13 @@ ARRAY_ASSIGN_STMT:
     JR Z,_aas_oom
     CALL ARRAY_ELEM_ADDR
     JR C,_aas_range
-    EX DE,HL
-    LD HL,RUN_VAL_SAVE9
+    LD (RUN_ARRAY_ASSIGN_ADDR),HL
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,CUR_TYPE
+    LD DE,(RUN_ARRAY_ASSIGN_ADDR)
     LD BC,9
     LDIR
     XOR A
