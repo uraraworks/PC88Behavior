@@ -17,12 +17,14 @@
 ; docs/spec/l3-main.md 第9・10節から生成した key_table_gen.asm にある
 ; （手で打ち込んでいない）。
 ;
+; M7段階2c追記: SHIFTは第10節SHIFT列（`e915172`実測）が埋まったため、
+; SHIFT_CODE_TAB（key_table_gen.asm、生成器で作成）で通常のキーと同様に
+; 引く。無視する選択はやめた。
+;
 ; 仕様書に無いため、この版で明示的に選んだ既定（推測で埋めず、選択として
 ; 記録する。報告の「仕様書に無いこと」参照）:
-;   - SHIFT修飾は実コードが未確定（第15節-6）なので、SHIFT保持中は
-;     押下を無視する（書かない扱い）。
 ;   - 複数の修飾を同時に押した場合の優先順位は仕様書に無い。この実装は
-;     CTRL > GRPH > カナ > SHIFT(無視) > CAPS > 無修飾 の順で1つだけ適用する。
+;     CTRL > GRPH > カナ > SHIFT > CAPS > 無修飾 の順で1つだけ適用する。
 ;   - RETURN（01H:7）は第9節の文字コード表に無い（未判定）ため、文字コード
 ;     としては生成しない。だがこの段階の目的（行入力の実装）のためRETURNの
 ;     押下そのものは検出し、「行を確定する」という専用の合図として特別扱い
@@ -159,8 +161,8 @@ _kr_try_shift:
     LD A,(KEY_NEW+MOD_PORT)
     BIT SHIFT_BIT,A
     JR NZ,_kr_try_caps
-    XOR A                     ; SHIFT保持中は無視（このファイル冒頭の注記）
-    RET
+    LD HL,SHIFT_CODE_TAB
+    JR _kr_lookup
 _kr_try_caps:
     LD A,(KEY_NEW+CAPS_PORT)
     BIT CAPS_BIT,A
