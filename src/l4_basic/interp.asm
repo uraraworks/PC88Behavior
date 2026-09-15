@@ -102,21 +102,37 @@ ERROR_KIND  EQU 0E8A0h   ; 誤りの形の番号(2/6/11/22、既定2)。errors.a
 ERROR_IS_RUNTIME EQU 0E8A1h  ; 1=範囲外/0除算(第5.6節、出力2行)、
                          ; 0=構文の誤り(出力1行)。BASIC_RUN_LINEが読む。
 
-; ---- M7段階4a-2: 値の型付き表現(整数/単精度)。ヘッダコメント参照 ----
-CUR_TYPE   EQU 0E8A2h        ; 0=整数16bit 1=単精度MBF
-CUR_DATA   EQU 0E8A3h        ; 4バイト(整数は下位2バイトだけ意味を持つ)
-RHS_TYPE   EQU 0E8A7h
-RHS_DATA   EQU 0E8A8h        ; 4バイト
-VAL_STACK       EQU 0E8ACh   ; 32slot * 5byte(型1+データ4) = 160バイト
-VAL_STACK_DEPTH EQU 32
-VAL_SP          EQU 0E94Ch   ; 1バイト(次に積む位置、0..32)
+; ---- M7段階4a-2: 値の型付き表現(整数/単精度)。M7段階4b-3で倍精度
+;   (CUR_TYPE=2)を追加。ヘッダコメント参照 ----
+CUR_TYPE   EQU 0E8A2h        ; 0=整数16bit 1=単精度MBF 2=倍精度MBF
+CUR_DATA   EQU 0E8A3h        ; 8バイト(整数は下位2バイト、単精度は下位4
+                              ; バイトだけ意味を持つ。段階4b-3で4→8へ拡張)
+RHS_TYPE   EQU 0E8ABh
+RHS_DATA   EQU 0E8ACh        ; 8バイト(同上)
 
-; ---- 数値リテラルの生バイト列(MBF_FINへ渡す前の字句、LEX_NUMBER) ----
-LIT_BUF       EQU 0E94Dh     ; 24バイト(FIN_BUFと同じ上限)
-LIT_LEN       EQU 0E965h
-LIT_HASDOT    EQU 0E966h
-LIT_HASEXP    EQU 0E967h
-LIT_HASSUFFIX EQU 0E968h
+; 段階4b-3: VAL_STACK(32slot*9byte=288B)・LIT_*はここ(E8xx、program.asmの
+; STMT_KIND=E980以降と隣接)に収まらなくなった(CUR_DATA/RHS_DATAを4→8Bへ
+; 広げた上でVAL_STACKも5→9B/slotへ広げると計160B超過)ため、mbf_double.asm
+; のワークエリア(0xC200-0xC2AB、172B)の直後・実行エンジン(run.asm、
+; 0xD000-0xD059)より手前の空き番地(0xC2C0以降)へ再配置した。
+; 仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
+INTERP_EXT_RAM_BASE EQU 0C2C0h
+VAL_STACK       EQU INTERP_EXT_RAM_BASE          ; 32slot*9byte(型1+データ8) = 288バイト
+VAL_STACK_DEPTH EQU 32
+VAL_SP          EQU INTERP_EXT_RAM_BASE+0120h    ; 1バイト(次に積む位置、0..32) = C3E0
+
+; ---- 数値リテラルの生バイト列(MBF_FIN/MBF_DFINへ渡す前の字句、LEX_NUMBER) ----
+LIT_BUF       EQU INTERP_EXT_RAM_BASE+0121h      ; 24バイト(FIN_BUFと同じ上限) = C3E1
+LIT_LEN       EQU INTERP_EXT_RAM_BASE+0139h      ; C3F9
+LIT_HASDOT    EQU INTERP_EXT_RAM_BASE+013Ah      ; C3FA
+LIT_HASEXP    EQU INTERP_EXT_RAM_BASE+013Bh      ; C3FB
+LIT_HASSUFFIX EQU INTERP_EXT_RAM_BASE+013Ch      ; C3FC
+
+; ---- 段階4b-3: 整数どうしの乗算の範囲内判定(VAL_MUL_INT16)の作業領域 ----
+MULI_SIGN  EQU INTERP_EXT_RAM_BASE+013Dh   ; C3FD 1バイト(結果の符号 0/1)
+MULI_A     EQU INTERP_EXT_RAM_BASE+013Eh   ; C3FE 2バイト(|CUR|)
+MULI_B     EQU INTERP_EXT_RAM_BASE+0140h   ; C400 2バイト(|RHS|)
+MULI_COUNT EQU INTERP_EXT_RAM_BASE+0142h   ; C402 1バイト(シフト加算ループの残り回数)
 
 ; ゾーン幅(l4-basic.md 第4節zone_14)。故障注入(検査「ゾーンの幅を変えた
 ; 変種」)がこの1行だけを書き換える対象。
@@ -499,13 +515,12 @@ _l4ps_loop:
     CP '"'
     JR Z,_l4ps_string_item
     ; M7段階5b追記: 文字列変数(run.asm、接尾辞'$')は数値式ではなく
-    ; その文字列をそのまま出す。'#'(倍精度未実装)はType mismatch。
-    ; それ以外(kind=0/1/2)は従来どおり数値式(EXPR)。
+    ; その文字列をそのまま出す。M7段階4b-3で倍精度('#'、kind=4)を
+    ; 組み込んだため、Type mismatchにしていたのを取りやめ、他の数値
+    ; (kind=0/1/2)と同じくEXPR(FACTORのVAR_READ_NUMERIC経由)へ流す。
     CALL LEX_IDENT_PEEK
     CP 3
     JR Z,_l4ps_strvar_item
-    CP 4
-    JR Z,_l4ps_strvar_typeerr
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -856,13 +871,25 @@ _l4factor_num_general:
     CALL VAL_SET_SINGLE_FROM_RES
     RET
 _l4factor_num_double:
-    ; 倍精度定数(8桁以上・#・D/d指数)。段階4bまで未実装のため、暫定的に
-    ; Syntax errorとして扱う(mbf_single.asmヘッダおよびこのファイル
-    ; 冒頭コメントのとおり、仕様書に無い判断)。
+    ; 倍精度定数(8桁以上・#・D/d指数、docs/spec/l4-basic.md 第5.1節)。
+    ; M7段階4b-3: mbf_double.asm MBF_DFIN(推定DREP10A、第5.1.2節)へ渡す。
+    ; MBF_FINは既にMBF_STATUS=3(倍精度と判定)を返しFIN_BUF/FIN_LENへ
+    ; 生の数字列を残した状態のまま(mbf_double.asmヘッダコメント参照、
+    ; MBF_DFIN自身が字句をFIN_BUFから読み直す)。
+    CALL MBF_DFIN
+    LD A,(MBF_STATUS)
+    OR A
+    JR NZ,_l4factor_num_dovfl
+    CALL VAL_SET_DOUBLE_FROM_DRES
+    RET
+_l4factor_num_dovfl:
+    ; 倍精度の表現範囲を超えるオーバーフロー(単精度と同じ第5.6節の扱い)。
     LD A,1
     LD (ERROR_FLAG),A
-    LD A,2
+    LD A,6
     LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_IS_RUNTIME),A
     RET
 _l4factor_num_ovfl:
     ; MBF自体のオーバーフロー(単精度の表現範囲を超える、第5.6節)。
@@ -874,16 +901,15 @@ _l4factor_num_ovfl:
     LD (ERROR_IS_RUNTIME),A
     RET
 ; M7段階5b追記: 数値定数の形でなければ、変数名(run.asmのIDENT_BUF/
-; VAR_READ_NUMERIC)として解釈を試みる。$・#接尾辞は数値の文脈では
-; Type mismatch(13、run.asmヘッダの仕様書に無い判断)。識別子ですら
-; なければ(kind=0)従来どおり_l4factor_badへ落ちる。
+; VAR_READ_NUMERIC)として解釈を試みる。$接尾辞(文字列)は数値の文脈では
+; Type mismatch(13、run.asmヘッダの仕様書に無い判断)。M7段階4b-3で
+; #(倍精度、kind=4)はVAR_READ_NUMERIC(CUR_TYPE=2として読む)を通す
+; ようにした。識別子ですらなければ(kind=0)従来どおり_l4factor_badへ落ちる。
 _l4factor_try_ident:
     CALL LEX_IDENT_CONSUME
     OR A
     JR Z,_l4factor_bad
     CP 3
-    JR Z,_l4factor_ident_typeerr
-    CP 4
     JR Z,_l4factor_ident_typeerr
     CALL VAR_READ_NUMERIC
     RET
@@ -1108,6 +1134,10 @@ VAL_SET_INT:
     LD (CUR_TYPE),A
     LD (CUR_DATA+2),A
     LD (CUR_DATA+3),A
+    LD (CUR_DATA+4),A
+    LD (CUR_DATA+5),A
+    LD (CUR_DATA+6),A
+    LD (CUR_DATA+7),A
     RET
 
 ; VAL_SET_SINGLE_FROM_RES — MBF_RES(4バイト)をCUR_TYPE=1の単精度値として
@@ -1123,25 +1153,70 @@ VAL_SET_SINGLE_FROM_RES:
     LD (CUR_DATA+2),A
     LD A,(MBF_RES+3)
     LD (CUR_DATA+3),A
+    XOR A
+    LD (CUR_DATA+4),A
+    LD (CUR_DATA+5),A
+    LD (CUR_DATA+6),A
+    LD (CUR_DATA+7),A
+    RET
+
+; VAL_SET_DOUBLE_FROM_DRES — M7段階4b-3: MBF_DRES(8バイト)をCUR_TYPE=2の
+;   倍精度値として設定する。破壊: AF,HL。
+VAL_SET_DOUBLE_FROM_DRES:
+    LD A,2
+    LD (CUR_TYPE),A
+    LD HL,MBF_DRES
+    LD DE,CUR_DATA
+    LD B,8
+_vsdfd_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vsdfd_loop
+    RET
+
+; VAL_PROMOTE_CUR_TO_DOUBLE — M7段階4b-3新設。CUR_TYPE/CUR_DATAの値を、
+;   型を問わず倍精度(CUR_TYPE=2)へ厳密に揃える(整数はMBF_ITOD、単精度
+;   はMBF_STOD、倍精度なら何もしない)。run.asm ASSIGN_STMTの#変数への
+;   代入(l4-program.md 第4.4c節「単精度の値を#変数へ代入すると単精度の
+;   値がそのまま倍精度になる、変換自体は正確」)が使う。破壊: AF,HL,DE,B。
+VAL_PROMOTE_CUR_TO_DOUBLE:
+    LD A,(CUR_TYPE)
+    CP 2
+    RET Z
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    LD HL,MBF_DOPA
+    LD DE,MBF_DRES
+    LD B,8
+_vpctd_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vpctd_loop
+    CALL VAL_SET_DOUBLE_FROM_DRES
     RET
 
 ; VAL_STACK_ADDR — A=インデックス(0..VAL_STACK_DEPTH-1)。
-;   HL=VAL_STACK+インデックス*5(1組=型1+データ4バイト)を返す。破壊: DE。
+;   HL=VAL_STACK+インデックス*9(1組=型1+データ8バイト、段階4b-3で
+;   5バイトから拡張)を返す。破壊: DE。
 VAL_STACK_ADDR:
     LD E,A
     LD D,0
     LD H,D
     LD L,E
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,DE
+    ADD HL,HL   ; *2
+    ADD HL,HL   ; *4
+    ADD HL,HL   ; *8
+    ADD HL,DE   ; *9
     LD DE,VAL_STACK
     ADD HL,DE
     RET
 
-; VAL_PUSH — CUR_TYPE/CUR_DATA(5バイト)をVAL_STACKへ退避しVAL_SPを進める
-;   (Z80のPUSH HLと同じくCUR_TYPE/CUR_DATA自体は書き換えない)。
-;   破壊: AF,HL,DE。
+; VAL_PUSH — CUR_TYPE/CUR_DATA(9バイト、段階4b-3で5→9に拡張)をVAL_STACK
+;   へ退避しVAL_SPを進める(Z80のPUSH HLと同じくCUR_TYPE/CUR_DATA自体は
+;   書き換えない)。破壊: AF,HL,DE,B。
 VAL_PUSH:
     LD A,(VAL_SP)
     CALL VAL_STACK_ADDR
@@ -1149,24 +1224,21 @@ VAL_PUSH:
     LD A,(CUR_TYPE)
     LD (DE),A
     INC DE
-    LD A,(CUR_DATA)
+    LD HL,CUR_DATA
+    LD B,8
+_vpush_loop:
+    LD A,(HL)
     LD (DE),A
+    INC HL
     INC DE
-    LD A,(CUR_DATA+1)
-    LD (DE),A
-    INC DE
-    LD A,(CUR_DATA+2)
-    LD (DE),A
-    INC DE
-    LD A,(CUR_DATA+3)
-    LD (DE),A
+    DJNZ _vpush_loop
     LD A,(VAL_SP)
     INC A
     LD (VAL_SP),A
     RET
 
-; VAL_POP — VAL_SPを1つ戻し、その位置の5バイトをCUR_TYPE/CUR_DATAへ
-;   書き戻す(Z80のPOP HLに相当)。破壊: AF,HL。
+; VAL_POP — VAL_SPを1つ戻し、その位置の9バイトをCUR_TYPE/CUR_DATAへ
+;   書き戻す(Z80のPOP HLに相当)。破壊: AF,HL,DE,B。
 VAL_POP:
     LD A,(VAL_SP)
     DEC A
@@ -1175,17 +1247,14 @@ VAL_POP:
     LD A,(HL)
     LD (CUR_TYPE),A
     INC HL
+    LD DE,CUR_DATA
+    LD B,8
+_vpop_loop:
     LD A,(HL)
-    LD (CUR_DATA),A
+    LD (DE),A
     INC HL
-    LD A,(HL)
-    LD (CUR_DATA+1),A
-    INC HL
-    LD A,(HL)
-    LD (CUR_DATA+2),A
-    INC HL
-    LD A,(HL)
-    LD (CUR_DATA+3),A
+    INC DE
+    DJNZ _vpop_loop
     RET
 
 ; VAL_POP_DISCARD — VAL_SPを1つ戻すだけ(中身は読まない)。誤り処理での
@@ -1197,26 +1266,37 @@ VAL_POP_DISCARD:
     LD (VAL_SP),A
     RET
 
-; VAL_MOVE_CUR_TO_RHS — CUR_TYPE/CUR_DATAをRHS_TYPE/RHS_DATAへ複写する。
-;   破壊: AF。
+; VAL_MOVE_CUR_TO_RHS — CUR_TYPE/CUR_DATA(9バイト)をRHS_TYPE/RHS_DATAへ
+;   複写する。破壊: AF,HL,DE,B。
 VAL_MOVE_CUR_TO_RHS:
     LD A,(CUR_TYPE)
     LD (RHS_TYPE),A
-    LD A,(CUR_DATA)
-    LD (RHS_DATA),A
-    LD A,(CUR_DATA+1)
-    LD (RHS_DATA+1),A
-    LD A,(CUR_DATA+2)
-    LD (RHS_DATA+2),A
-    LD A,(CUR_DATA+3)
-    LD (RHS_DATA+3),A
+    LD HL,CUR_DATA
+    LD DE,RHS_DATA
+    LD B,8
+_vmctr_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vmctr_loop
     RET
 
 ; VAL_LOAD_CUR_TO_OPA — CUR_TYPE/CUR_DATAの値をMBF_OPAへ用意する
 ;   (整数は MBF_INT_TO_SINGLE で厳密に単精度化してから複写、単精度は
-;   そのまま複写)。破壊: AF,HL。
+;   そのまま複写)。
+;   M7段階4b-3追記: CUR_TYPE=2(倍精度)は MBF_DTOS で単精度へ丸めてから
+;   渡す。**仕様書に無い判断**——この入口(VAL_LOAD_CUR_TO_OPA)は元々
+;   「整数/単精度」だけを前提にした消費者(IFの比較VAL_COMPARE_CUR_RHS・
+;   %代入の丸めMBF_ROUND_TO_INT16、いずれも本段階の範囲外)が既に
+;   呼んでいるため、倍精度をそのまま4バイトとして読ませるとバイト列を
+;   誤読して暴走する。真の倍精度比較・丸めは本段階の範囲外のまま
+;   (精度が落ちるだけで、誤動作は防ぐ)。倍精度どうしの演算・PRINTは
+;   これを経由せずVAL_LOAD_CUR_TO_OPA_Dを使う。破壊: AF,HL。
 VAL_LOAD_CUR_TO_OPA:
     LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vlca_double
     OR A
     JR NZ,_vlca_single
     LD HL,(CUR_DATA)
@@ -1234,14 +1314,29 @@ _vlca_single:
     LD A,(CUR_DATA+3)
     LD (MBF_OPA+3),A
     RET
+_vlca_double:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DTOS
+    LD A,(MBF_RES)
+    LD (MBF_OPA),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPA+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPA+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPA+3),A
+    RET
 
 ; VAL_LOAD_RHS_TO_OPB — RHS_TYPE/RHS_DATAの値をMBF_OPBへ用意する
-;   (VAL_LOAD_CUR_TO_OPAと対の実装。MBF_INT_TO_SINGLEはMBF_OPA/OPBを
-;   一切読み書きしないため、先にOPAを設定していても壊れない
+;   (VAL_LOAD_CUR_TO_OPAと対の実装、倍精度の扱いも同じ「仕様書に無い
+;   判断」に従う)。MBF_INT_TO_SINGLE/MBF_DTOSはMBF_OPA/OPBを一切
+;   読み書きしないため、先にOPAを設定していても壊れない
 ;   =ヘッダ確認済み、mbf_single.asm MBF_INT_TO_SINGLE参照)。
 ;   破壊: AF,HL。
 VAL_LOAD_RHS_TO_OPB:
     LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vlrb_double
     OR A
     JR NZ,_vlrb_single
     LD HL,(RHS_DATA)
@@ -1266,15 +1361,137 @@ _vlrb_single:
     LD A,(RHS_DATA+3)
     LD (MBF_OPB+3),A
     RET
+_vlrb_double:
+    ; RHS_DATA(8バイト、必ず倍精度の生表現)をMBF_DOPAへ複写してMBF_DTOS
+    ; を呼ぶ(DTOSの入力はMBF_DOPA固定)。この時点でCUR側の単精度化は
+    ; VAL_LOAD_CUR_TO_OPAが既に完了しMBF_OPAへ結果を出し終えているため、
+    ; MBF_DOPAを再利用しても壊れない。破壊: AF,HL,DE,B。
+    LD HL,RHS_DATA
+    LD DE,MBF_DOPA
+    LD B,8
+_vlrb_dcopy:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vlrb_dcopy
+    CALL MBF_DTOS
+    LD A,(MBF_RES)
+    LD (MBF_OPB),A
+    LD A,(MBF_RES+1)
+    LD (MBF_OPB+1),A
+    LD A,(MBF_RES+2)
+    LD (MBF_OPB+2),A
+    LD A,(MBF_RES+3)
+    LD (MBF_OPB+3),A
+    RET
+
+; ---------------------------------------------------------------------
+; VAL_LOAD_CUR_TO_OPA_D / VAL_LOAD_RHS_TO_OPB_D — M7段階4b-3新設。
+;   CUR_TYPE/CUR_DATA・RHS_TYPE/RHS_DATAの値を、型を問わず**倍精度**へ
+;   厳密に揃えてMBF_DOPA/MBF_DOPBへ用意する(整数はMBF_ITOD、単精度は
+;   MBF_STOD、倍精度はそのまま複写。整数＜単精度＜倍精度の昇格順)。
+;   倍精度どうしの演算(VAL_ADD等の昇格後)・PRINT_VALUEの倍精度分岐が使う。
+;   破壊: AF,HL,DE,B。
+; ---------------------------------------------------------------------
+VAL_LOAD_CUR_TO_OPA_D:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vlcad_double
+    OR A
+    JR NZ,_vlcad_single
+    LD HL,(CUR_DATA)
+    LD (MBF_IN_INT),HL
+    CALL MBF_ITOD
+    JR _vlcad_copy_dres
+_vlcad_single:
+    LD A,(CUR_DATA)
+    LD (MBF_OPA),A
+    LD A,(CUR_DATA+1)
+    LD (MBF_OPA+1),A
+    LD A,(CUR_DATA+2)
+    LD (MBF_OPA+2),A
+    LD A,(CUR_DATA+3)
+    LD (MBF_OPA+3),A
+    CALL MBF_STOD
+_vlcad_copy_dres:
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPA
+    LD B,8
+_vlcad_copy_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vlcad_copy_loop
+    RET
+_vlcad_double:
+    LD HL,CUR_DATA
+    LD DE,MBF_DOPA
+    LD B,8
+_vlcad_direct_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vlcad_direct_loop
+    RET
+
+VAL_LOAD_RHS_TO_OPB_D:
+    LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vlrbd_double
+    OR A
+    JR NZ,_vlrbd_single
+    LD HL,(RHS_DATA)
+    LD (MBF_IN_INT),HL
+    CALL MBF_ITOD
+    JR _vlrbd_copy_dres
+_vlrbd_single:
+    LD A,(RHS_DATA)
+    LD (MBF_OPA),A
+    LD A,(RHS_DATA+1)
+    LD (MBF_OPA+1),A
+    LD A,(RHS_DATA+2)
+    LD (MBF_OPA+2),A
+    LD A,(RHS_DATA+3)
+    LD (MBF_OPA+3),A
+    CALL MBF_STOD
+_vlrbd_copy_dres:
+    LD HL,MBF_DRES
+    LD DE,MBF_DOPB
+    LD B,8
+_vlrbd_copy_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vlrbd_copy_loop
+    RET
+_vlrbd_double:
+    LD HL,RHS_DATA
+    LD DE,MBF_DOPB
+    LD B,8
+_vlrbd_direct_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _vlrbd_direct_loop
+    RET
 
 ; ---------------------------------------------------------------------
 ; VAL_NEG — CUR_TYPE/CUR_DATA = -CUR_TYPE/CUR_DATA。整数はそのまま
 ;   2の補数(既存の単項マイナスと同じ、-32768のオーバーフロー検出は
 ;   従来どおり対象外=段階3bからの既存の仕様書に無い既定を維持)、
 ;   単精度はMBF_NEG(符号ビット反転、ゼロは変えない)。
+;   M7段階4b-3追記: 倍精度はMBF_DNEG(符号ビット反転、ゼロは変えない、
+;   単精度と同型)。
 ; ---------------------------------------------------------------------
 VAL_NEG:
     LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vneg_double
     OR A
     JR NZ,_vneg_single
     LD HL,(CUR_DATA)
@@ -1291,17 +1508,35 @@ _vneg_single:
     CALL MBF_NEG
     CALL VAL_SET_SINGLE_FROM_RES
     RET
+_vneg_double:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DNEG
+    CALL VAL_SET_DOUBLE_FROM_DRES
+    RET
 
 ; ---------------------------------------------------------------------
 ; VAL_ADD/VAL_SUB/VAL_MUL/VAL_DIV — CUR = CUR (op) RHS。
 ;   l4-basic.md 第5.2節: 整数どうしの16bit加減算がオーバーフローしたら
-;   単精度へ昇格する。乗算・除算は常に単精度で計算する
-;   (ファイル冒頭コメント「仕様書に無い判断」参照)。
-;   MBF演算がMBF_STATUS!=0を返した場合(単精度表現範囲のオーバーフロー・
+;   単精度へ昇格する。除算は常に単精度以上で計算する(ファイル冒頭
+;   コメント「仕様書に無い判断」参照)。
+;   M7段階4b-3: 型の昇格順は 整数 ＜ 単精度 ＜ 倍精度（混在時は高い方へ
+;   揃える、docs/spec/l4-basic.md 第5節冒頭「型の昇格」）。CUR_TYPE・
+;   RHS_TYPEのどちらかが2(倍精度)なら常に倍精度で計算する(下記
+;   `_vXXX_dbl`)。段階4a-2の宿題(このコメント旧版が明記していた
+;   「整数どうしの乗算も単精度で計算する簡略化」)は本段階で解消し、
+;   整数どうしの乗算は16bit同士の符号付き乗算を試み、-32768..32767に
+;   収まれば整数のまま、溢れれば単精度へ昇格する(VAL_MUL_INT16)。
+;   MBF演算がMBF_STATUS!=0を返した場合(表現範囲のオーバーフロー・
 ;   0除算)はERROR_FLAG/ERROR_KIND/ERROR_IS_RUNTIMEを設定して戻る
 ;   (第5.6節、第7.1.1節)。
 ; ---------------------------------------------------------------------
 VAL_ADD:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vadd_dbl
+    LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vadd_dbl
     LD A,(CUR_TYPE)
     OR A
     JR NZ,_vadd_mbf
@@ -1313,18 +1548,26 @@ VAL_ADD:
     OR A
     ADC HL,DE
     JP PE,_vadd_mbf      ; 符号付きオーバーフロー -> 昇格
-    LD (CUR_DATA),HL
-    XOR A
-    LD (CUR_DATA+2),A
-    LD (CUR_DATA+3),A
+    CALL VAL_SET_INT
     RET
 _vadd_mbf:
     CALL VAL_LOAD_CUR_TO_OPA
     CALL VAL_LOAD_RHS_TO_OPB
     CALL MBF_ADD
     JP VAL_CHECK_MBF_STATUS
+_vadd_dbl:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL VAL_LOAD_RHS_TO_OPB_D
+    CALL MBF_DADD
+    JP VAL_CHECK_MBF_DSTATUS
 
 VAL_SUB:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vsub_dbl
+    LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vsub_dbl
     LD A,(CUR_TYPE)
     OR A
     JR NZ,_vsub_mbf
@@ -1336,30 +1579,171 @@ VAL_SUB:
     OR A
     SBC HL,DE
     JP PE,_vsub_mbf      ; 符号付きオーバーフロー -> 昇格
-    LD (CUR_DATA),HL
-    XOR A
-    LD (CUR_DATA+2),A
-    LD (CUR_DATA+3),A
+    CALL VAL_SET_INT
     RET
 _vsub_mbf:
     CALL VAL_LOAD_CUR_TO_OPA
     CALL VAL_LOAD_RHS_TO_OPB
     CALL MBF_SUB
     JP VAL_CHECK_MBF_STATUS
+_vsub_dbl:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL VAL_LOAD_RHS_TO_OPB_D
+    CALL MBF_DSUB
+    JP VAL_CHECK_MBF_DSTATUS
 
-; VAL_MUL — 整数どうしでも常に単精度(MBF_MUL)で計算する(ファイル冒頭の
-;   仕様書に無い判断参照。出力はMBF_FOUTが整数値と同じ桁で出すため
-;   既存の整数専用PRINT検査と視覚的に一致することを確認済み)。
+; VAL_MUL — 整数どうしは16bit符号付き乗算(VAL_MUL_INT16)を試み、範囲内
+;   (-32768..32767)なら整数のまま、溢れれば単精度へ昇格する(段階4a-2の
+;   宿題の解消、上のヘッダコメント参照)。どちらかが倍精度なら倍精度で、
+;   それ以外(整数×単精度・単精度どうし)は単精度(MBF_MUL)で計算する。
 VAL_MUL:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vmul_dbl
+    LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vmul_dbl
+    LD A,(CUR_TYPE)
+    OR A
+    JR NZ,_vmul_single
+    LD A,(RHS_TYPE)
+    OR A
+    JR NZ,_vmul_single
+    CALL VAL_MUL_INT16
+    JR C,_vmul_single    ; 範囲外(-32768..32767に収まらない) -> 単精度へ
+    RET
+_vmul_single:
     CALL VAL_LOAD_CUR_TO_OPA
     CALL VAL_LOAD_RHS_TO_OPB
     CALL MBF_MUL
     JP VAL_CHECK_MBF_STATUS
+_vmul_dbl:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL VAL_LOAD_RHS_TO_OPB_D
+    CALL MBF_DMUL
+    JP VAL_CHECK_MBF_DSTATUS
 
-; VAL_DIV — 常に単精度(MBF_DIV)。'/'は整数どうしでも常に実数
-;   (l4-basic.md 第5.2節「7/2=3.5」)。MBF_STATUS=2(0除算)は
+; VAL_MUL_INT16 — CUR_DATA・RHS_DATAの下位16bit(符号付き)を掛け、
+;   -32768..32767に収まればCUR_TYPE/CUR_DATAへ整数として書いて戻る
+;   (CF=0)。収まらなければCUR_TYPE/CUR_DATAは変更せずCF=1で戻る
+;   (呼び出し元が単精度経路へフォールバックする)。
+;   仕様書に無い判断: 32bit積の計算そのものは10進の丸めを一切伴わない
+;   厳密な整数演算であり、範囲判定だけがこのルーチンの役目
+;   (l4-basic.md 第5.2節「範囲外は単精度へ昇格」)。
+;   破壊: AF,HL,DE,BC,IX。
+VAL_MUL_INT16:
+    XOR A
+    LD (MULI_SIGN),A
+    LD HL,(CUR_DATA)
+    BIT 7,H
+    JR Z,_vmi_a_pos
+    LD A,1
+    LD (MULI_SIGN),A
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+_vmi_a_pos:
+    LD (MULI_A),HL
+    LD HL,(RHS_DATA)
+    BIT 7,H
+    JR Z,_vmi_b_pos
+    LD A,(MULI_SIGN)
+    XOR 1
+    LD (MULI_SIGN),A
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+_vmi_b_pos:
+    LD (MULI_B),HL
+    ; 符号なし16x16→32bit乗算(MSB-firstのシフト加算)。
+    ; BC:HL = 32bit積の累算器(BC=上位16bit、HL=下位16bit)、
+    ; DE = 乗数(MULI_A、1bitずつ左シフトしながらMSBから取り出す)。
+    ; ループ回数(16)はB(累算器の上位バイトと兼用できないため)ではなく
+    ; MULI_COUNT(RAM)に持つ。
+    LD BC,0
+    LD HL,0
+    LD DE,(MULI_A)
+    LD A,16
+    LD (MULI_COUNT),A
+_vmi_loop:
+    ; 累算器(BC:HL)を1bit左シフト
+    SLA L
+    RL H
+    RL C
+    RL B
+    ; 乗数(DE)の最上位ビットを1bit取り出す(左シフト、CFへ)
+    SLA E
+    RL D
+    JR NC,_vmi_noadd
+    ; 累算器(BC:HL) += MULI_B(16bit、上位16bitへは桁上げだけ伝播)
+    PUSH DE
+    LD DE,(MULI_B)
+    ADD HL,DE
+    JR NC,_vmi_nocarry
+    INC BC
+_vmi_nocarry:
+    POP DE
+_vmi_noadd:
+    LD A,(MULI_COUNT)
+    DEC A
+    LD (MULI_COUNT),A
+    JR NZ,_vmi_loop
+    ; BC:HL = |CUR|*|RHS| (32bit符号なし)。BC!=0なら16bitに収まらない
+    ; ので即オーバーフロー。
+    LD A,B
+    OR C
+    JR NZ,_vmi_overflow
+    LD A,(MULI_SIGN)
+    OR A
+    JR NZ,_vmi_applyneg
+    ; 正(0を含む): 0..32767だけ整数として表現できる
+    ; (32768は単項マイナス経由でしか打鍵できない値のため、正の積としては
+    ; 範囲外扱いにする)。
+    LD DE,32768
+    OR A
+    SBC HL,DE
+    JR NC,_vmi_overflow
+    ADD HL,DE            ; HLを積の値に戻す
+    CALL VAL_SET_INT
+    OR A
+    RET
+_vmi_applyneg:
+    ; 負: 0..32768が表現できる(-32768..0)。
+    LD DE,32769
+    OR A
+    SBC HL,DE
+    JR NC,_vmi_overflow
+    ADD HL,DE             ; HLを積の絶対値に戻す
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+    CALL VAL_SET_INT
+    OR A
+    RET
+_vmi_overflow:
+    SCF
+    RET
+
+; VAL_DIV — '/'は整数どうしでも常に実数になる(l4-basic.md 第5.2節
+;   「7/2=3.5」)。どちらかが倍精度なら倍精度(MBF_DDIV)、それ以外は
+;   単精度(MBF_DIV)で計算する。MBF_STATUS=2(0除算)は
 ;   Division by zero(11、第7.1節)として扱う。
 VAL_DIV:
+    LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_vdiv_dbl
+    LD A,(RHS_TYPE)
+    CP 2
+    JR Z,_vdiv_dbl
     CALL VAL_LOAD_CUR_TO_OPA
     CALL VAL_LOAD_RHS_TO_OPB
     CALL MBF_DIV
@@ -1367,6 +1751,14 @@ VAL_DIV:
     CP 2
     JR Z,_vdiv_zero
     JP VAL_CHECK_MBF_STATUS
+_vdiv_dbl:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL VAL_LOAD_RHS_TO_OPB_D
+    CALL MBF_DDIV
+    LD A,(MBF_STATUS)
+    CP 2
+    JR Z,_vdiv_zero
+    JP VAL_CHECK_MBF_DSTATUS
 _vdiv_zero:
     LD A,1
     LD (ERROR_FLAG),A
@@ -1376,8 +1768,8 @@ _vdiv_zero:
     LD (ERROR_IS_RUNTIME),A
     RET
 
-; VAL_CHECK_MBF_STATUS — MBF演算直後の共通後処理。MBF_STATUS=0なら
-;   MBF_RESをCUR_TYPE/CUR_DATAへ設定して戻る。MBF_STATUS!=0(0除算は
+; VAL_CHECK_MBF_STATUS — 単精度MBF演算直後の共通後処理。MBF_STATUS=0
+;   ならMBF_RESをCUR_TYPE/CUR_DATAへ設定して戻る。MBF_STATUS!=0(0除算は
 ;   呼び出し元で先に処理済みなので、ここに来るのはオーバーフロー=1の
 ;   はず)ならOverflow(6、第7.1節)としてERROR_FLAG等を設定する。
 VAL_CHECK_MBF_STATUS:
@@ -1395,6 +1787,25 @@ _vcms_overflow:
     LD (ERROR_IS_RUNTIME),A
     RET
 
+; VAL_CHECK_MBF_DSTATUS — M7段階4b-3新設。倍精度MBF演算直後の共通後処理
+;   (VAL_CHECK_MBF_STATUSの倍精度版)。MBF_STATUS=0ならMBF_DRESを
+;   CUR_TYPE/CUR_DATAへ設定して戻る。MBF_STATUS!=0(0除算は呼び出し元で
+;   先に処理済み)ならOverflow(6、第7.1節)。
+VAL_CHECK_MBF_DSTATUS:
+    LD A,(MBF_STATUS)
+    OR A
+    JR NZ,_vcmds_overflow
+    CALL VAL_SET_DOUBLE_FROM_DRES
+    RET
+_vcmds_overflow:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_IS_RUNTIME),A
+    RET
+
 ; ---------------------------------------------------------------------
 ; PRINT_VALUE — CUR_TYPE/CUR_DATAの値を出力する。整数(CUR_TYPE=0)は
 ;   既存のPRINT_NUMBER(l4-basic.md 第2節)をそのまま使う。単精度
@@ -1404,9 +1815,15 @@ _vcms_overflow:
 ;   FOUT_SIGNを設定しない(内部でUA_EXP=0の早期RETを通るため)ので、
 ;   UA_EXPで先にゼロ判定してから符号を決める(仕様書に無い判断:
 ;   整数のゼロと同じく常に空白側=正として扱う、第2節sign_space_before)。
+;   M7段階4b-3追記: 倍精度(CUR_TYPE=2)は、MBF_DFOUT/DFOUT_BUF/DFOUT_LEN
+;   に同じ設計を広げただけ(DA_EXP・DFOUT_SIGNがMBF_DFOUT呼び出し後も
+;   UA_EXP・FOUT_SIGNと同じ形で残る、mbf_double.asm MBF_DFOUT本体で確認
+;   済み)。
 ; ---------------------------------------------------------------------
 PRINT_VALUE:
     LD A,(CUR_TYPE)
+    CP 2
+    JR Z,_l4pv_double
     OR A
     JR NZ,_l4pv_single
     LD HL,(CUR_DATA)
@@ -1445,6 +1862,43 @@ _l4pv_loop:
     DEC B
     JR _l4pv_loop
 _l4pv_done:
+    LD A,' '
+    CALL PRINT_CHAR
+    RET
+_l4pv_double:
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DFOUT
+    LD A,(DA_EXP)
+    OR A
+    JR Z,_l4pvd_zero_sign
+    LD A,(DFOUT_SIGN)
+    OR A
+    JR NZ,_l4pvd_neg
+_l4pvd_zero_sign:
+    LD A,' '
+    CALL PRINT_CHAR
+    JR _l4pvd_digits
+_l4pvd_neg:
+    LD A,'-'
+    CALL PRINT_CHAR
+_l4pvd_digits:
+    LD A,(DFOUT_LEN)
+    LD B,A
+    LD C,0
+_l4pvd_loop:
+    LD A,B
+    OR A
+    JR Z,_l4pvd_done
+    LD HL,DFOUT_BUF
+    LD D,0
+    LD E,C
+    ADD HL,DE
+    LD A,(HL)
+    CALL PRINT_CHAR
+    INC C
+    DEC B
+    JR _l4pvd_loop
+_l4pvd_done:
     LD A,' '
     CALL PRINT_CHAR
     RET

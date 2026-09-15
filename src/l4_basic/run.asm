@@ -366,6 +366,10 @@ VAR_GET_OR_CREATE:
 
 ; VAR_READ_NUMERIC — IDENT_BUFの変数の値をCUR_TYPE/CUR_DATAへ読む
 ;   (無ければ0で自動生成)。失敗時ERROR_FLAG/ERROR_KIND=7を設定。
+;   M7段階4b-3: CUR_DATAが4→8バイトへ広がったのに合わせ、VALUEの
+;   データ部も8バイト読むようにした(VARREC_VALUEは32バイトの余裕が
+;   あり、型1+データ8=9バイトはこれまでどおり収まる。レコードサイズ
+;   自体は変えていない)。
 VAR_READ_NUMERIC:
     CALL VAR_GET_OR_CREATE
     OR A
@@ -376,17 +380,14 @@ VAR_READ_NUMERIC:
     LD A,(HL)
     LD (CUR_TYPE),A
     INC HL
+    LD DE,CUR_DATA
+    LD B,8
+_vrn_copy:
     LD A,(HL)
-    LD (CUR_DATA),A
+    LD (DE),A
     INC HL
-    LD A,(HL)
-    LD (CUR_DATA+1),A
-    INC HL
-    LD A,(HL)
-    LD (CUR_DATA+2),A
-    INC HL
-    LD A,(HL)
-    LD (CUR_DATA+3),A
+    INC DE
+    DJNZ _vrn_copy
     POP HL
     XOR A
     LD (ERROR_FLAG),A
@@ -399,6 +400,7 @@ _vrn_oom:
     RET
 
 ; VAR_WRITE_NUMERIC — IDENT_BUFの変数へCUR_TYPE/CUR_DATAを書く。
+;   M7段階4b-3: VAR_READ_NUMERICと対で8バイトのデータ部を書く。
 VAR_WRITE_NUMERIC:
     CALL VAR_GET_OR_CREATE
     OR A
@@ -411,17 +413,15 @@ VAR_WRITE_NUMERIC:
     LD A,(CUR_TYPE)
     LD (HL),A
     INC HL
-    LD A,(CUR_DATA)
-    LD (HL),A
+    EX DE,HL
+    LD HL,CUR_DATA
+    LD B,8
+_vwn_copy:
+    LD A,(HL)
+    LD (DE),A
     INC HL
-    LD A,(CUR_DATA+1)
-    LD (HL),A
-    INC HL
-    LD A,(CUR_DATA+2)
-    LD (HL),A
-    INC HL
-    LD A,(CUR_DATA+3)
-    LD (HL),A
+    INC DE
+    DJNZ _vwn_copy
     POP HL
     XOR A
     LD (ERROR_FLAG),A
@@ -598,19 +598,34 @@ _psr_syntax:
 ; ASSIGN_STMT — RUN_ASSIGN_KIND/RUN_ASSIGN_NAMEに設定済みの変数へ、
 ;   CUR_PTR位置の'='直後の式を評価して代入する。
 ; =======================================================================
+; M7段階4b-3: kind=4(#、倍精度)の代入を実装した(以前はType mismatchの
+; 暫定扱い、_as_double_unsup)。docs/spec/l4-program.md 第4.4c節「単精度の
+; 値を#変数へ代入すると単精度の値がそのまま倍精度になる(変換自体は正確)」
+; の観測どおり、右辺の型を問わずVAL_PROMOTE_CUR_TO_DOUBLE(interp.asm)で
+; 厳密に倍精度へ揃えてから書く。kind=2(%)側も、右辺が倍精度(CUR_TYPE=2)
+; のときは先に単精度へ変換してから既存の丸め経路(MBF_ROUND_TO_INT16、
+; 単精度専用)へ渡す(仕様書に無い判断: %への倍精度の丸めそのものは
+; 測定されていないため、単精度を経由する二段丸めで代用する)。
 ASSIGN_STMT:
     LD A,(RUN_ASSIGN_KIND)
     CP 3
     JP Z,_as_string
-    CP 4
-    JP Z,_as_double_unsup
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
     LD A,(RUN_ASSIGN_KIND)
+    CP 4
+    JR Z,_as_promote_double
     CP 2
     JR NZ,_as_store_plain
+    LD A,(CUR_TYPE)
+    CP 2
+    JR NZ,_as_pct_have_type
+    CALL VAL_LOAD_CUR_TO_OPA_D
+    CALL MBF_DTOS
+    CALL VAL_SET_SINGLE_FROM_RES
+_as_pct_have_type:
     LD A,(CUR_TYPE)
     OR A
     JR Z,_as_store_plain
@@ -618,11 +633,11 @@ ASSIGN_STMT:
     CALL MBF_ROUND_TO_INT16
     OR A
     JR Z,_as_overflow
-    LD (CUR_DATA),DE
-    XOR A
-    LD (CUR_TYPE),A
-    LD (CUR_DATA+2),A
-    LD (CUR_DATA+3),A
+    EX DE,HL
+    CALL VAL_SET_INT
+    JR _as_store_plain
+_as_promote_double:
+    CALL VAL_PROMOTE_CUR_TO_DOUBLE
 _as_store_plain:
     LD HL,RUN_ASSIGN_NAME
     LD DE,IDENT_BUF
@@ -655,12 +670,6 @@ _as_copyname2:
     INC DE
     DJNZ _as_copyname2
     JP VAR_WRITE_STRING
-_as_double_unsup:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,13
-    LD (ERROR_KIND),A
-    RET
 
 ; =======================================================================
 ; MBF_ROUND_TO_INT16 — MBF_OPA(単精度)を符号付き16bitへ、半分は絶対値の
