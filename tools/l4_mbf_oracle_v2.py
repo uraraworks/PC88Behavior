@@ -196,6 +196,85 @@ def decode_mbf(sign: int, exp_byte: int, mant: int, nbits: int) -> Fraction:
     return -val if sign else val
 
 
+# ---------------------------------------------------------------------------
+# REP01(l4-s4j、tools/l4_rep10.py・scratchpadのfin_model_searchで探索した
+# 3つ目の候補) — 10進定数の数字を先頭からacc=acc*10+dで積み上げ、
+# 正味の指数nについてn>0なら10を、n<0なら単精度に丸めた0.1(S01)を
+# 1回ずつ掛けて毎回単精度(24bit)へ丸め直す。丸めは「半分は絶対値の
+# 大きい側」(round_half_away、encode_mbfのround_half_evenとは丸り方が
+# 違う)。単精度の定数だけに効く(kind=="single"のときだけ呼ぶ)。
+# 出所: 親から渡されたscratchpadのfin-model-search.md/fin_model_search.py
+# (Codex gpt-5.6-solがGW-BASIC edf82c2のMATH1.ASM/MATH2.ASMとl4-s4i/
+# l4-s4jの実測値から事後で導出。詳細はdocs/notes/l4-fin-model-search.md)。
+# ---------------------------------------------------------------------------
+
+
+def _round_half_away_mag(x: Fraction) -> int:
+    """半分は絶対値の大きい側(xは常に非負なので常に切り上げ側)。"""
+    n, d = x.numerator, x.denominator
+    q, r = divmod(n, d)
+    return q if 2 * r < d else q + 1
+
+
+def _encode_single_away(value: Fraction) -> Tuple[int, int]:
+    """非負のFractionを単精度(24bit仮数)へround_half_awayで丸める。
+    戻り値: (exp_byte, mant)。exp_byte>255ならOverflowErrorを投げる。
+    """
+    if value == 0:
+        return (0, 0)
+    k = _pow2_bracket(value)
+    mant_exact = value * Fraction(2) ** (MBF_SINGLE_BITS - k)
+    m = _round_half_away_mag(mant_exact)
+    if m >= (1 << MBF_SINGLE_BITS):
+        k += 1
+        m = 1 << (MBF_SINGLE_BITS - 1)
+    exp_byte = k + 128
+    if exp_byte > 255:
+        raise OverflowError("rep01 single overflow")
+    if exp_byte < 1:
+        return (0, 0)
+    return (exp_byte, m)
+
+
+def _decode_single_frac(exp_byte: int, mant: int) -> Fraction:
+    if exp_byte == 0:
+        return Fraction(0)
+    k = exp_byte - 128
+    return Fraction(mant) * Fraction(2) ** (k - MBF_SINGLE_BITS)
+
+
+_REP01_S01: Optional[Tuple[int, int]] = None
+
+
+def _rep01_s01() -> Tuple[int, int]:
+    """単精度に丸めた0.1(round_half_away)。$MUL10/$DIV10がどちらも
+    $CSDで単精度化した倍精度定数10/0.1を$FMULSへ渡すこと
+    (fin-model-search.md「途中経過1」)に基づき、÷10の反復をこの
+    定数との乗算の反復に置き換える。"""
+    global _REP01_S01
+    if _REP01_S01 is None:
+        _REP01_S01 = _encode_single_away(Fraction(1, 10))
+    return _REP01_S01
+
+
+def _rep01_single_magnitude(acc: int, net_exp: int) -> Tuple[int, int]:
+    """REP01手順で非負の整数acc(桁の積み上げ、7桁以内なら厳密)に
+    正味指数net_expを適用し、単精度(exp_byte, mant)を返す。
+    """
+    exp_byte, mant = _encode_single_away(Fraction(acc))
+    if net_exp > 0:
+        for _ in range(net_exp):
+            val = _decode_single_frac(exp_byte, mant) * 10
+            exp_byte, mant = _encode_single_away(val)
+    elif net_exp < 0:
+        s01_exp, s01_mant = _rep01_s01()
+        s01 = _decode_single_frac(s01_exp, s01_mant)
+        for _ in range(-net_exp):
+            val = _decode_single_frac(exp_byte, mant) * s01
+            exp_byte, mant = _encode_single_away(val)
+    return exp_byte, mant
+
+
 def mbf4_bytes(sign: int, exp_byte: int, mant: int) -> bytes:
     frac = mant & 0x7FFFFF
     b0 = frac & 0xFF
@@ -643,7 +722,7 @@ def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
     net_exp = exponent - frac_digits
     if fin_algo == "gw":
         value = _scale_by_pow10_gw(Fraction(acc), net_exp)
-    elif fin_algo == "exact":
+    elif fin_algo in ("exact", "rep01"):
         value = Fraction(acc) * Fraction(10) ** net_exp
     else:
         raise ValueError(f"unknown fin_algo {fin_algo!r}")
@@ -673,6 +752,13 @@ def parse_literal(text: str, fin_algo: str = "exact") -> GwNum:
             # 切り捨ててしまっていた)。
             dbl = GwNum.from_fraction(value, "double")
             num = force_to_single(dbl)
+        elif fin_algo == "rep01" and kind == "single":
+            # REP01: 桁の積み上げ(acc、7桁以内なら厳密)に正味指数を
+            # 1回ずつ掛けて毎回単精度へ丸め直す(_rep01_single_magnitude
+            # 参照)。symbolのvalueは使わず、非負のaccから直接計算して
+            # 最後に符号を付ける(定義どおり「符号は最後」)。
+            exp_byte, mant = _rep01_single_magnitude(acc, net_exp)
+            num = GwNum("single", sign=(1 if neg else 0), exp=exp_byte, mant=mant)
         else:
             num = GwNum.from_fraction(value, kind)
     except OverflowError:

@@ -1034,6 +1034,167 @@ else
   echo "SKIP - l4-fout-exact-vs-gw-candidates.tsv がまだ無い(1本目のコミット時点では正常)"
 fi
 
+# --- 36. l4-s4j: fin_algo="rep01"追加後も既定("exact")は変わらない -------
+REP01_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+import inspect
+default = inspect.signature(m.parse_literal).parameters["fin_algo"].default
+lits = ["1.5", ".5", "-.5", "123.456", "1e10", "-1.5e+20", "1e-10", "5.1e+10", "-154904.5e-5"]
+ok = default == "exact"
+for t in lits:
+    a = m.parse_literal(t)  # 既定引数
+    b = m.parse_literal(t, "exact")
+    if a.exact() != b.exact() or a.kind != b.kind:
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$REP01_DEFAULT_CHECK" = "PASS" ]; then
+  pass "fin_algo=rep01追加後も既定はexactのまま(parse_literalのシグネチャ・代表例)"
+else
+  fail "rep01追加後の既定確認: $REP01_DEFAULT_CHECK"
+fi
+
+# --- 37. l4-s4j: REP01の単体検算(5.1e+10はREP10と同じ51000004608) ----------
+REP01_CHECKSUM_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+rep01 = m.parse_literal("5.1e+10", "rep01").exact()
+exact = m.parse_literal("5.1e+10", "exact").exact()
+gw = m.parse_literal("5.1e+10", "gw").exact()
+ok = (rep01 == 51000004608) and (exact == 51000000512) and (gw == 51000000512)
+print("PASS" if ok else f"FAIL rep01={rep01} exact={exact} gw={gw}")
+EOF
+)"
+if [ "$REP01_CHECKSUM_CHECK" = "PASS" ]; then
+  pass "5.1e+10: REP01=51000004608(REP10と同じ)、EXACT/GW=51000000512"
+else
+  fail "REP01の5.1e+10検算: $REP01_CHECKSUM_CHECK"
+fi
+
+# --- 38. l4-s4j: ÷側の例(-154904.5e-5)でREP01がEXACTと異なること ----------
+REP01_DIV_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+lit = "-154904.5e-5"
+a = m.parse_literal(lit, "exact").exact()
+b = m.parse_literal(lit, "rep01").exact()
+print("PASS" if a != b else f"FAIL a==b=={a}")
+EOF
+)"
+if [ "$REP01_DIV_CHECK" = "PASS" ]; then
+  pass "-154904.5e-5: REP01の読み取りがEXACTと異なる(÷側の例)"
+else
+  fail "REP01の÷側確認: $REP01_DIV_CHECK"
+fi
+
+# --- 39. 故障注入A: 1手ごとの丸めを最後の1回にまとめるとNG(EXACT相当に潰れる)
+REP01_FAULT_ONESHOT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from fractions import Fraction
+import tools.l4_mbf_oracle_v2 as m
+
+def one_shot_rep01(text):
+    # 「1手ごとに丸める」を「最後に1回だけ丸める」に壊した版
+    num = m.parse_literal(text, "exact")  # 桁の積み上げ・net_expの抽出だけ流用
+    return num
+
+# 5.1e+10を「厳密値×10^9を1回で丸める」相当(=exactと同値)で計算すると
+# 正しいREP01(51000004608)とは異なるはず
+broken = m.parse_literal("5.1e+10", "exact").exact()
+proper = m.parse_literal("5.1e+10", "rep01").exact()
+print("FAULT_DETECTED" if broken != proper else "NOT_DETECTED")
+EOF
+)"
+if [ "$REP01_FAULT_ONESHOT_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(1手ごとの丸めを最後の1回にまとめる=EXACT相当)でNGを検出"
+else
+  fail "故障注入(1手ごとの丸めをまとめる): $REP01_FAULT_ONESHOT_CHECK"
+fi
+
+# --- 40. 故障注入B: 0.1を掛ける代わりに10で割るとNG(REP10相当に潰れる) -----
+REP01_FAULT_DIV10_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+from tools import l4_rep10 as rep10
+
+lit = ".42e-16"
+rep01 = m.parse_literal(lit, "rep01").exact()
+s10, eb10, mant10 = rep10.rep10_single_value(lit)  # 0.1乗算の代わりに真の÷10(REP10)
+rep10_val = m.GwNum("single", sign=s10, exp=eb10, mant=mant10).exact()
+print("FAULT_DETECTED" if rep01 != rep10_val else "NOT_DETECTED")
+EOF
+)"
+if [ "$REP01_FAULT_DIV10_CHECK" = "FAULT_DETECTED" ]; then
+  pass "故障注入(0.1を掛ける代わりに10で割る=REP10相当)でNGを検出(.42e-16)"
+else
+  fail "故障注入(0.1乗算をREP10の÷10に差し替え): $REP01_FAULT_DIV10_CHECK"
+fi
+
+# --- 41. l4-s4j: 予測器のrep01とtools/l4_rep10.pyの独立実装が乱数1万件で一致
+REP01_CROSSCHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys, random
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+from tools import l4_rep10 as rep10
+
+def rand_lit(rng):
+    ndig = rng.randint(1, 7)
+    digs = [rng.choice("0123456789") for _ in range(ndig)]
+    if digs[0] == "0" and ndig > 1:
+        digs[0] = rng.choice("123456789")
+    dp = rng.randint(0, ndig)
+    if dp == 0:
+        s = "." + "".join(digs)
+    elif dp == ndig:
+        s = "".join(digs) + "."
+    else:
+        s = "".join(digs[:dp]) + "." + "".join(digs[dp:])
+    sign = rng.choice(["", "-"])
+    e = rng.randint(-25, 25)
+    return f"{sign}{s}e{e:+d}"
+
+rng = random.Random(2026)
+tried = 0
+mismatches = 0
+for _ in range(10000):
+    t = rand_lit(rng)
+    try:
+        oc = m.parse_literal(t, "exact")
+    except Exception:
+        continue
+    if oc.kind != "single":
+        continue
+    tried += 1
+    try:
+        o_num = m.parse_literal(t, "rep01")
+        o_res = ("ok", (o_num.sign, o_num.exp, o_num.mant))
+    except m.GwError as e:
+        o_res = ("err", e.kind)
+    try:
+        s, eb, mant = rep10.rep01_single_value(t)
+        mod_res = ("ok", (s, eb, mant))
+    except OverflowError:
+        mod_res = ("err", "Overflow")
+    if o_res != mod_res:
+        mismatches += 1
+
+print(f"PASS tried={tried} mismatches={mismatches}" if mismatches == 0 else f"FAIL tried={tried} mismatches={mismatches}")
+EOF
+)"
+if [ "${REP01_CROSSCHECK%% *}" = "PASS" ]; then
+  pass "予測器のfin_algo=rep01とtools/l4_rep10.pyのrep01_single_valueが乱数1万件でバイト一致($REP01_CROSSCHECK)"
+else
+  fail "rep01の独立実装との突合せ: $REP01_CROSSCHECK"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"

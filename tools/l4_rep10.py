@@ -315,6 +315,160 @@ def predict_rep10(
     return "numeric", line
 
 
+# ---------------------------------------------------------------------------
+# REP01(l4-s4j) — l4-s4jでもno_survivorとなったREP10に続き、親から指示
+# された3つ目の候補。正味の指数が負のとき、REP10のように真の÷10を
+# 反復するのではなく、単精度に丸めた0.1(S01)を1回ずつ掛けて毎回単精度へ
+# 丸め直す(正の指数側はREP10と同じ×10の反復)。出所は親から渡された
+# scratchpadのfin-model-search.md/fin_model_search.py(Codex gpt-5.6-sol
+# がGW-BASIC edf82c2のMATH1.ASM/MATH2.ASMとl4-s4i/l4-s4jの実測値から
+# 事後で導出。詳細はdocs/notes/l4-fin-model-search.md参照)。
+#
+# tools/l4_mbf_oracle_v2.py の parse_literal(fin_algo="rep01")とは別に、
+# ここでも_round_single_rep10(round_half_away、REP10と同じ丸め関数)を
+# 使って独立に実装し、tools/l4_mbf_oracle_v2_selftest.shで両者が乱数
+# 1万件でバイト一致することを検査する。
+# ---------------------------------------------------------------------------
+
+_REP01_S01_CACHE: Optional[Tuple[int, int]] = None
+
+
+def _rep01_s01() -> Tuple[int, int]:
+    global _REP01_S01_CACHE
+    if _REP01_S01_CACHE is None:
+        _REP01_S01_CACHE = _round_single_rep10(Fraction(1, 10))
+    return _REP01_S01_CACHE
+
+
+def rep01_single_value(text: str) -> Tuple[int, int, int]:
+    """REP01手順で単精度エンコード(sign, exp_byte, mant)を返す。
+    text は kind=="single" と分かっている定数のみを渡す前提。
+    """
+    sign_ch, digits, frac_digits, exponent, _exp_marker, _suffix, _has_dot = _lex_raw(text)
+    if digits == "":
+        digits = "0"
+    net_exp = exponent - frac_digits
+
+    val = Fraction(0)
+    exp_byte, mant = 0, 0
+    for ch in digits:
+        d = int(ch)
+        val = val * 10 + d
+        exp_byte, mant = _round_single_rep10(val)
+        val = _decode_single(exp_byte, mant)
+
+    if net_exp > 0:
+        for _ in range(net_exp):
+            val = val * 10
+            exp_byte, mant = _round_single_rep10(val)
+            val = _decode_single(exp_byte, mant)
+    elif net_exp < 0:
+        s01_exp, s01_mant = _rep01_s01()
+        s01 = _decode_single(s01_exp, s01_mant)
+        for _ in range(-net_exp):
+            val = val * s01
+            exp_byte, mant = _round_single_rep10(val)
+            val = _decode_single(exp_byte, mant)
+
+    sign_bit = 1 if sign_ch == "-" else 0
+    return sign_bit, exp_byte, mant
+
+
+def rep01_parse_literal(text: str) -> "oracle.GwNum":
+    sign_ch, digits, frac_digits, exponent, exp_marker, suffix, has_dot = _lex_raw(text)
+    kind = _classify_kind(digits, has_dot, exp_marker, suffix)
+    if kind != "single":
+        return oracle.parse_literal(text, "exact")
+    try:
+        sign_bit, exp_byte, mant = rep01_single_value(text)
+    except OverflowError:
+        sign_bit = 1 if sign_ch == "-" else 0
+        raise oracle.GwError("Overflow", oracle._max_value_num("single", sign_bit))
+    num = oracle.GwNum("single", sign=sign_bit, exp=exp_byte, mant=mant)
+    if sign_ch == "-" and num.exact() == -32768:
+        return oracle.GwNum.from_int(-32768)
+    return num
+
+
+def rep01_eval_expr(expr: str) -> "oracle.GwNum":
+    toks = oracle._tokenize(expr)
+    pos = [0]
+
+    def peek():
+        return toks[pos[0]] if pos[0] < len(toks) else None
+
+    def advance():
+        t = toks[pos[0]]
+        pos[0] += 1
+        return t
+
+    def parse_factor():
+        t = peek()
+        if t is None:
+            raise oracle.GwSyntaxError("unexpected end of expression")
+        if t == ("op", "-"):
+            advance()
+            return oracle.gw_neg(parse_factor())
+        if t == ("op", "+"):
+            advance()
+            return parse_factor()
+        if t[0] == "num":
+            advance()
+            return rep01_parse_literal(t[1])
+        raise oracle.GwSyntaxError(f"unexpected token {t!r}")
+
+    def parse_term():
+        v = parse_factor()
+        while True:
+            t = peek()
+            if t is not None and t[0] == "op" and t[1] in "*/":
+                advance()
+                rhs = parse_factor()
+                v = oracle.gw_binop(v, rhs, t[1])
+            else:
+                break
+        return v
+
+    def parse_add():
+        v = parse_term()
+        while True:
+            t = peek()
+            if t is not None and t[0] == "op" and t[1] in "+-":
+                advance()
+                rhs = parse_term()
+                v = oracle.gw_binop(v, rhs, t[1])
+            else:
+                break
+        return v
+
+    v = parse_add()
+    if pos[0] != len(toks):
+        raise oracle.GwSyntaxError("trailing tokens")
+    return v
+
+
+def predict_rep01(
+    typed_print_body: str,
+    single_digits: int = 6,
+    small_rule: str = "len",
+    small_len: int = 7,
+    small_emin: int = 0,
+    large_n: int = 0,
+    fout_algo: str = "gw",
+) -> Tuple[str, str]:
+    try:
+        num = rep01_eval_expr(typed_print_body)
+    except oracle.GwError as e:
+        line, _approx = oracle.print_one(
+            e.residual, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+        )
+        return "error", f"{e.kind};{line}"
+    line, _approx = oracle.print_one(
+        num, single_digits, small_rule, small_len, small_emin, large_n, fout_algo
+    )
+    return "numeric", line
+
+
 def predict_any(
     typed_print_body: str,
     fin_algo: str,
