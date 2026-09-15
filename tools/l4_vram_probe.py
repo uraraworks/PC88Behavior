@@ -79,17 +79,39 @@
     1. 指定行ごとの非空白セル件数(nonblank_count)
     2. 指定行ごとの非空白セルの位置範囲(min_col0, max_col0。0件ならnull)
 
+追加C（M7 段階3b。l4-c2 事前登録向け。エラーの行を件数とSHA-256だけで
+    署名する）:
+  --row-signature ROWS （--vram-dump と併用。ROWSは0始まりカンマ区切り
+      または 'all'）
+                         指定した行（単独の写し）の文字域80バイトについて、
+                         空白(0x20)でないセルの件数と、正規化した並びの
+                         SHA-256だけを出す。正規化は「行の文字域80バイトの
+                         末尾の空白(0x20)を除いた並び」（先頭の空白は位置
+                         情報として残すため除かない）。0バイトになる行
+                         （全て空白）は空バイト列のSHA-256になる。文字コード
+                         の並びそのもの・個別セルの値は一切出さない
+                         （l4-c2-print-conformance-preregistration.md
+                         「エラーの行の署名を作る器具」節）。
+
+  出してよいもの（これ以外は出さない）:
+    1. 指定行ごとの非空白セル件数(nonblank_count)
+    2. 指定行ごとの正規化後バイト長(normalized_length。末尾空白を除いた
+       長さそのものは位置情報を持たないため出してよい)
+    3. 指定行ごとの正規化後バイト列のSHA-256(row_sha256)
+
 自己検査: tools/screen_content_leak_selftest.sh に合成データでの検査を
-追加してある（本ツール分。差分モードも含む）。単体でも下記で素朴に
+追加してある（本ツール分。差分モード・追加Cも含む）。単体でも下記で素朴に
 確認できる:
     python3 tools/l4_vram_probe.py --vram-dump <dump> [--marker Q7Z] \\
         [--mem-write-log <log>] [--iolog <iolog>] [--json]
     python3 tools/l4_vram_probe.py --diff-before <before> --diff-after <after> [--json]
+    python3 tools/l4_vram_probe.py --vram-dump <dump> --row-signature 12 [--json]
 """
 from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -241,6 +263,62 @@ def nonblank_char_summary(path: str, rows: "list[int] | None") -> dict:
                 if b != 0x20:
                     debug.append({"row0": r, "col0": c, "char": f"{b:02X}"})
         result["_debug_nonblank_cells"] = debug
+
+    return result
+
+
+# ---- 1e. 追加C(l4-c2向け): エラーの行を件数とSHA-256だけで署名する -------
+
+
+def normalize_row_for_signature(row: bytes) -> bytes:
+    """行の文字域80バイトのうち、末尾の空白(0x20)を除いた並びを返す。
+    先頭の空白は位置情報として残すため除かない(l4-c2-print-conformance-
+    preregistration.md「エラーの行の署名を作る器具」節)。"""
+    return row.rstrip(b"\x20")
+
+
+def row_signature(path: str, rows: "list[int] | None") -> dict:
+    """指定した行(省略時は全行)について、文字域80バイトの非空白セル件数と、
+    正規化した並び(normalize_row_for_signature)のSHA-256だけを返す。
+    文字コードの並びそのもの・個別セルの値は一切出さない(l4-c2 追加C)。"""
+    data = load_vram_dump(path)
+    target_rows = rows if rows is not None else list(range(ROWS))
+    chars = char_rows(data)
+
+    entries = []
+    for r in target_rows:
+        if not (0 <= r < ROWS):
+            continue
+        row_bytes = chars[r]
+        nonblank_count = sum(1 for b in row_bytes if b != 0x20)
+        normalized = normalize_row_for_signature(row_bytes)
+        entries.append(
+            {
+                "row0": r,
+                "nonblank_count": nonblank_count,
+                "normalized_length": len(normalized),
+                "row_sha256": hashlib.sha256(normalized).hexdigest(),
+            }
+        )
+
+    result = {
+        "path": path,
+        "origin": 0,
+        "addr_formula": "addr = 0xF3C8 + row0*120 + col0 (col0=0-79)",
+        "normalize_note": "行の文字域80バイトのうち末尾の空白(0x20)を除いた"
+        "並び(先頭空白は残す)にSHA-256をとる。値そのものは出さない。",
+        "rows": target_rows,
+        "row_signatures": entries,
+    }
+
+    # screen_content_leak_selftest.sh 専用の故障注入(陰性対照用)。既定では
+    # 無効。設定すると各行の文字域を16進でそのまま混ぜる——検査器が
+    # 「追加Cが文字域を漏らしていないか」を実際に検出できるかを確かめる
+    # ための対照。analyze_dump() 等の同名フラグと役割を揃えてある。
+    if os.environ.get("Q88MEASURE_FAULT_LEAK_ROW_SIGNATURE"):
+        result["_debug_row_hex"] = [
+            chars[r].hex().upper() for r in target_rows if 0 <= r < ROWS
+        ]
 
     return result
 
@@ -703,6 +781,17 @@ def render_text(result: dict) -> str:
                 f"  row0={e['row0']} nonblank_count={e['nonblank_count']}"
                 f" min_col0={e['min_col0']} max_col0={e['max_col0']}"
             )
+    for rs in result.get("row_signature", []):
+        lines.append(
+            f"[row-signature] {rs['path']} origin=0 addr_formula={rs['addr_formula']} rows={rs['rows']}"
+        )
+        lines.append(f"  {rs['normalize_note']}")
+        for e in rs["row_signatures"]:
+            lines.append(
+                f"  row0={e['row0']} nonblank_count={e['nonblank_count']}"
+                f" normalized_length={e['normalized_length']}"
+                f" row_sha256={e['row_sha256']}"
+            )
     for io in result.get("iolog", []):
         lines.append(f"[iolog] {io['path']} dma/crtc OUT count={io['count']}")
         for ev in io["out_events"]:
@@ -744,6 +833,14 @@ def main() -> int:
         "空白(0x20)でないセルの件数と位置範囲(最小・最大col0)だけを"
         "出す。文字コードそのものは出さない。",
     )
+    ap.add_argument(
+        "--row-signature",
+        default=None,
+        metavar="ROWS",
+        help="追加C(l4-c2向け): --vram-dump の指定行(0始まり、カンマ区切り、"
+        "または 'all' で全行)について、文字域の非空白セル件数と、末尾空白を"
+        "除いた並びのSHA-256だけを出す。文字コードの並びそのものは出さない。",
+    )
     ap.add_argument("--json", action="store_true", help="JSONで出力する(既定は人が読む要約)")
     # 陰性対照専用の故障注入。既定では無効。screen_content_leak_selftest.sh
     # が「検査に検出力があるか」を確かめるためだけに使う。
@@ -763,8 +860,13 @@ def main() -> int:
             "--diff-before+--diff-after のいずれかが必要"
         )
 
-    if (args.attr_only_rows or args.nonblank_summary_rows) and not args.vram_dump:
-        ap.error("--attr-only-rows / --nonblank-summary-rows は --vram-dump と併用する")
+    if (
+        args.attr_only_rows or args.nonblank_summary_rows or args.row_signature
+    ) and not args.vram_dump:
+        ap.error(
+            "--attr-only-rows / --nonblank-summary-rows / --row-signature は "
+            "--vram-dump と併用する"
+        )
 
     marker = args.marker.encode("ascii")
 
@@ -782,6 +884,9 @@ def main() -> int:
         result["nonblank_summary"] = [
             nonblank_char_summary(p, rows) for p in args.vram_dump
         ]
+    if args.row_signature is not None:
+        rows = parse_row_list(args.row_signature)
+        result["row_signature"] = [row_signature(p, rows) for p in args.vram_dump]
     if args.diff_before and args.diff_after:
         count_only_rows = set()
         if args.count_only_rows:

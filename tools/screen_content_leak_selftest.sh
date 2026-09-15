@@ -766,4 +766,139 @@ else
   fail "r. --nonblank-summary-rows: 非空白セルが無い行の扱いが期待と異なる"
 fi
 
+# --- s. --row-signature (M7器具その7、l4-c2向け追加C) が本文を漏らさず、
+# 件数・SHA-256だけで一致/不一致を判定できること -----------------------
+# フィクスチャ: row0=6の文字域にエラー文言相当の秘密文字列を置いた写しを
+# 2つ用意する。s1は完全に同じ内容の複製(決定論性・一致確認用)、s2は
+# 1バイトだけ違える(不一致確認用)。row0=7には別の秘密を置き、対象外の
+# 行として現れないことを確認する。
+SECRET_S="SYNTAX ERRORXYZQ"
+SECRET_S_HEX_LOWER="$(printf '%s' "$SECRET_S" | xxd -p | tr -d '\n')"
+SECRET_S_HEX_UPPER="$(printf '%s' "$SECRET_S_HEX_LOWER" | tr 'a-f' 'A-F')"
+
+make_row_sig_dump() {
+  # $1=出力パス $2=row6に置く文字列 $3=row6末尾1バイトの16進(空なら変更なし)
+  python3 - "$1" "$2" "$3" "$SECRET_S" <<'PYEOF'
+import sys
+out_path, row6_text, row6_last_hex, secret_other = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].encode("ascii")
+ROWS, COLS, STRIDE, ATTR = 25, 80, 120, 40
+buf = bytearray(b" " * (ROWS * STRIDE))
+text = row6_text.encode("ascii")
+row = 6
+for i, b in enumerate(text):
+    buf[row * STRIDE + 2 + i] = b
+if row6_last_hex:
+    buf[row * STRIDE + 2 + len(text) - 1] = int(row6_last_hex, 16)
+# 対象外の行(row0=7)にも別の秘密を置く(範囲指定が効いているか確認用)
+for i, b in enumerate(secret_other):
+    buf[7 * STRIDE + i] = b
+with open(out_path, "wb") as f:
+    f.write(bytes(buf))
+PYEOF
+}
+
+L4_RS_A="$WORK/l4_rowsig_a.bin"
+L4_RS_A_COPY="$WORK/l4_rowsig_a_copy.bin"
+L4_RS_B="$WORK/l4_rowsig_b.bin"
+make_row_sig_dump "$L4_RS_A" "$SECRET_S" ""
+make_row_sig_dump "$L4_RS_A_COPY" "$SECRET_S" ""
+make_row_sig_dump "$L4_RS_B" "$SECRET_S" "5A"  # 末尾1バイトだけ 'Z'(0x5A)に差し替え
+
+python3 "$L4_PROBE" --vram-dump "$L4_RS_A" --row-signature 6 --json \
+  > "$WORK/s_a.out" 2> "$WORK/s_a.err"
+S_RC=$?
+python3 "$L4_PROBE" --vram-dump "$L4_RS_A_COPY" --row-signature 6 --json \
+  > "$WORK/s_a_copy.out" 2> "$WORK/s_a_copy.err"
+python3 "$L4_PROBE" --vram-dump "$L4_RS_B" --row-signature 6 --json \
+  > "$WORK/s_b.out" 2> "$WORK/s_b.err"
+
+if [[ $S_RC -ne 0 ]]; then
+  fail "s0. --row-signature の実行が失敗した (rc=$S_RC)"
+else
+  pass "s0. --row-signature は合成入力に対して正常終了する"
+fi
+
+# 本文漏れ検査: どの写しの出力にも秘密文字列(生・16進大小)が現れないこと
+S_LEAK_FOUND=0
+for f in "$WORK/s_a.out" "$WORK/s_a.err" "$WORK/s_a_copy.out" "$WORK/s_a_copy.err" \
+         "$WORK/s_b.out" "$WORK/s_b.err"; do
+  for needle in "$SECRET_S" "$SECRET_S_HEX_LOWER" "$SECRET_S_HEX_UPPER"; do
+    if grep -qF "$needle" "$f"; then
+      S_LEAK_FOUND=1
+    fi
+  done
+done
+if [[ $S_LEAK_FOUND -eq 0 ]]; then
+  pass "s1. --row-signature はどの表現でも秘密の文字列(=画面本文)を出さない"
+else
+  fail "s1. --row-signature の出力へ秘密の文字列が漏れた"
+fi
+
+# 決定論性(陽性対照): 完全に同じ内容の2つの写しは row_sha256 が一致する
+SHA_A="$(python3 -c "
+import json
+print(json.load(open('$WORK/s_a.out'))['row_signature'][0]['row_signatures'][0]['row_sha256'])
+")"
+SHA_A_COPY="$(python3 -c "
+import json
+print(json.load(open('$WORK/s_a_copy.out'))['row_signature'][0]['row_signatures'][0]['row_sha256'])
+")"
+SHA_B="$(python3 -c "
+import json
+print(json.load(open('$WORK/s_b.out'))['row_signature'][0]['row_signatures'][0]['row_sha256'])
+")"
+
+if [[ -n "$SHA_A" && "$SHA_A" == "$SHA_A_COPY" ]]; then
+  pass "s2. --row-signature(陽性対照): 同じ内容の2写しは row_sha256 が一致する"
+else
+  fail "s2. --row-signature: 同じ内容の2写しで row_sha256 が一致しない"
+fi
+
+# 1バイト違えば不一致になること
+if [[ -n "$SHA_B" && "$SHA_A" != "$SHA_B" ]]; then
+  pass "s3. --row-signature: 1バイト違う写しは row_sha256 が不一致になる"
+else
+  fail "s3. --row-signature: 1バイト違う写しで row_sha256 が一致してしまった"
+fi
+
+# 対象外の行(7)が row_signature セクションに現れないこと
+S_ROWS7="$(python3 -c "
+import json
+d = json.load(open('$WORK/s_a.out'))
+rows = [e['row0'] for e in d['row_signature'][0]['row_signatures']]
+print(7 in rows)
+")"
+if [[ "$S_ROWS7" == "False" ]]; then
+  pass "s4. --row-signature: 指定していない行(7)はrow_signatureセクションに現れない"
+else
+  fail "s4. --row-signature: 指定していない行(7)がrow_signatureセクションに現れた"
+fi
+
+# 件数(nonblank_count)が期待どおり出ること(SECRET_S のうち空白でない文字数分)
+EXPECT_NONBLANK="$(python3 -c "print(sum(1 for c in '$SECRET_S' if c != ' '))")"
+if grep -q "\"row0\": 6" "$WORK/s_a.out" && grep -q "\"nonblank_count\": $EXPECT_NONBLANK" "$WORK/s_a.out"; then
+  pass "s5. --row-signature(陽性対照): 指定行(6)の非空白セル件数($EXPECT_NONBLANK)を正しく返す"
+else
+  fail "s5. --row-signature: 指定行の非空白セル件数が期待と異なる"
+fi
+
+# --- t. 陰性対照: --row-signature の故障注入(文字域を混ぜる)で実際に
+# 秘密文字列が検出されること(検出力の確認)
+if Q88MEASURE_FAULT_LEAK_ROW_SIGNATURE=1 python3 "$L4_PROBE" \
+     --vram-dump "$L4_RS_A" --row-signature 6 --json \
+     > "$WORK/t_leak.out" 2> "$WORK/t_leak.err"; then
+  :
+fi
+T_LEAK_FOUND=0
+for needle in "$SECRET_S" "$SECRET_S_HEX_LOWER" "$SECRET_S_HEX_UPPER"; do
+  if grep -qF "$needle" "$WORK/t_leak.out" "$WORK/t_leak.err"; then
+    T_LEAK_FOUND=1
+  fi
+done
+if [[ $T_LEAK_FOUND -eq 1 ]]; then
+  pass "t. 陰性対照: --row-signature の故障注入版では実際に秘密文字列が検出される(検出力あり)"
+else
+  fail "t. 陰性対照: --row-signature の故障注入版でも秘密文字列が検出されなかった(検査に検出力が無い)"
+fi
+
 exit "$FAIL"
