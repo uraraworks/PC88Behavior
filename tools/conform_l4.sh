@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # tools/conform_l4.sh — l4-c1b「打鍵エコー適合の場面固定」・
-# l4-c2c「直接モードPRINT適合の場面固定」のランナー。
+# l4-c2c「直接モードPRINT適合の場面固定」・
+# l4-c3「直接モードPRINT浮動小数点適合の場面固定」のランナー。
 #
 # 事前登録: docs/notes/l4-c1b-echo-conformance-scene-preregistration.md
 # （打鍵エコー、11腕）・
 # docs/notes/l4-c2c-print-conformance-scene-preregistration.md
-# （直接モードPRINT、P1〜P5の16腕）。
+# （直接モードPRINT、P1〜P5の16腕）・
+# docs/notes/l4-c3-float-print-conformance-scene-preregistration.md
+# （直接モードPRINT浮動小数点、FS単精度17腕・FD倍精度8腕、計25腕）。
+# l4-c3は自作main ROM側の浮動小数点実装が段階4a/4bで進行中のため、群
+# (FS/FD)ごとにexpected_l4_float.tsvの見出しコメントで実装状態
+# (not_implemented_yet/implemented)を管理し、未実装の群は自作側の判定
+# から除外する(公式側の期待値固定は実装状況と独立に先に行う)。
 # tools/conform_l3.sh と同じ二層方針: 公式ROM(PC88_REF_ROM_DIR)が要る本体と、
 # 公式環境が無くても回る自作main ROM側の照合を分ける。ただし l4-c1 の結果
 # （相対座標・文字コード・属性域が公式/自作間で一致する）を踏まえ、
@@ -38,6 +45,7 @@ PROBE="$REPO/tools/l4_vram_probe.py"
 BUILD_MAIN="$REPO/src/build_main_rom.py"
 EXPECTED="$REPO/tests/conformance/expected_l4_echo.tsv"
 EXPECTED_PRINT="$REPO/tests/conformance/expected_l4_print.tsv"
+EXPECTED_FLOAT="$REPO/tests/conformance/expected_l4_float.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -52,6 +60,39 @@ if [ ! -f "$EXPECTED_PRINT" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED_PRINT" >&2
   exit 2
 fi
+if [ ! -f "$EXPECTED_FLOAT" ]; then
+  echo "エラー: 期待値ファイルが無い: $EXPECTED_FLOAT" >&2
+  exit 2
+fi
+
+# -----------------------------------------------------------------------
+# l4-c3 浮動小数点PRINT場面: 群(FS=単精度/FD=倍精度)ごとの自作側の実装
+# 状態を expected_l4_float.tsv の見出しコメント
+# (# group <NAME> selfmade=<status>) から読む。値は出さない。
+# status は not_implemented_yet | implemented の2値のみ扱う。
+# -----------------------------------------------------------------------
+float_group_status() {
+  local group="$1"
+  awk -v g="$group" '
+    /^# group / {
+      if ($3 == g) {
+        split($4, kv, "=")
+        print kv[2]
+        exit
+      }
+    }
+  ' "$EXPECTED_FLOAT"
+}
+
+# 腕id(例: FS3, FD1)からその群(FS/FD)を取り出す。
+float_arm_group() {
+  local arm="$1"
+  case "$arm" in
+    FS*) echo "FS" ;;
+    FD*) echo "FD" ;;
+    *) echo "" ;;
+  esac
+}
 
 if [ -n "${PC88_CONFORM_WORK_DIR:-}" ]; then
   WORK="$PC88_CONFORM_WORK_DIR"
@@ -187,6 +228,65 @@ print_arm_params() {
   local n=${#cmd}
   local line_end=$(( 700 + 8 * (n + 1) ))
   PRINT_DUMP=$(( line_end + 20 ))
+  PRINT_RUN=$(( PRINT_DUMP + 200 ))
+  PRINT_BEFORE=690
+  PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
+}
+
+# -----------------------------------------------------------------------
+# l4-c3 直接モードPRINT浮動小数点適合の場面（FS単精度17腕・FD倍精度8腕、
+# 計25腕）。事前登録: docs/notes/l4-c3-float-print-conformance-scene-
+# preregistration.md「腕」節・「条件・フレーム」節と完全に同一
+# （変更しない）。記録の正規化・書式はPRINT場面(print_arm_params/
+# run_print_arm_once/PRINT_RECORD)と全く同じため、専用のrunnerは作らず
+# print_arm_paramsと同じ変数(PRINT_DUMP/PRINT_RUN/PRINT_BEFORE/
+# PRINT_ARM_ARGS)を使い回す(float_arm_paramsを呼んだ直後に
+# run_print_arm_onceをそのまま呼べる)。
+#
+# フレーム式: line_end = 700 + 8*(打鍵文字列の長さ。末尾の\nを含む)、
+# dump = line_end + 300（l4-s4d追補以降の全腕一律延長を踏襲）、
+# run = dump + 200。打鍵前の写しは690。
+# -----------------------------------------------------------------------
+FLOAT_ARM_NAMES=(
+  FS1 FS2 FS3 FS4 FS5 FS6 FS7 FS8 FS9 FS10 FS11 FS12 FS13 FS14 FS15 FS16 FS17
+  FD1 FD2 FD3 FD4 FD5 FD6 FD7 FD8
+)
+
+float_arm_params() {
+  local arm="$1" cmd
+  case "$arm" in
+    FS1)  cmd='print 1.5' ;;
+    FS2)  cmd='print .5' ;;
+    FS3)  cmd='print -.5' ;;
+    FS4)  cmd='print 1/3' ;;
+    FS5)  cmd='print 2/3' ;;
+    FS6)  cmd='print 9999999' ;;
+    FS7)  cmd='print 1e10' ;;
+    FS8)  cmd='print -1.5e+20' ;;
+    FS9)  cmd='print .001' ;;
+    FS10) cmd='print 1e-7' ;;
+    FS11) cmd='print 1e-8' ;;
+    FS12) cmd='print 40000' ;;
+    FS13) cmd='print 30000+30000' ;;
+    FS14) cmd='print -32768-1' ;;
+    FS15) cmd='print 7/2' ;;
+    FS16) cmd='print 1234567' ;;
+    FS17) cmd='print 1.23456e-3' ;;
+    FD1)  cmd='print 1#/3' ;;
+    FD2)  cmd='print 1d16' ;;
+    FD3)  cmd='print 1234567890123456#' ;;
+    FD4)  cmd='print 1#/30' ;;
+    FD5)  cmd='print 1.23456789012345d-3' ;;
+    FD6)  cmd='print 1d-16' ;;
+    FD7)  cmd='print 1.5d-15' ;;
+    FD8)  cmd='print 12345678' ;;
+    *)
+      return 2
+      ;;
+  esac
+  local n=${#cmd}
+  local line_end=$(( 700 + 8 * (n + 1) ))
+  PRINT_DUMP=$(( line_end + 300 ))
   PRINT_RUN=$(( PRINT_DUMP + 200 ))
   PRINT_BEFORE=690
   PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
@@ -514,6 +614,99 @@ fi
 overall_rc=$(( overall_rc || print_selftest_rc ))
 
 # -----------------------------------------------------------------------
+# l4-c3 浮動小数点PRINT場面用の検出力自己検査（公式環境不要）。
+# 記録の書式はPRINT場面と全く同一(cell_count/ok_relative_row/sha256)
+# なので、既存のcheck_print_record_against_expectedをそのまま使い回す
+# (二重実装しない)。フィクスチャだけPRINT場面用と別に用意する。
+# -----------------------------------------------------------------------
+say "検出力の自己検査(FLOAT場面。記録・期待値をわざと壊して検出できるか)"
+
+float_selftest_rc=0
+mkdir -p "$WORK/selftest_float"
+
+python3 - "$WORK/selftest_float" <<'PYEOF'
+import sys
+out = sys.argv[1]
+STRIDE = 120
+before = bytearray(25 * STRIDE)
+for r in range(25):
+    for c in range(80):
+        before[r * STRIDE + c] = 0x20
+after = bytearray(before)
+cmd = b"print 1.5"
+for i, ch in enumerate(cmd):
+    after[6 * STRIDE + i] = ch
+for i, ch in enumerate(b"1.5"):
+    after[7 * STRIDE + 1 + i] = ch
+after[8 * STRIDE + 0] = ord('O')
+after[8 * STRIDE + 1] = ord('k')
+with open(out + "/before.bin", "wb") as f:
+    f.write(bytes(before))
+with open(out + "/after.bin", "wb") as f:
+    f.write(bytes(after))
+# 1バイトだけ違う対照(出力セルの文字コードを変える)
+after2 = bytearray(after)
+after2[7 * STRIDE + 1] = ord('2')
+with open(out + "/after_bad.bin", "wb") as f:
+    f.write(bytes(after2))
+PYEOF
+
+good_line_f="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_float/before.bin" --after "$WORK/selftest_float/after.bin" --count-only-rows 19)"
+bad_line_f="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_float/before.bin" --after "$WORK/selftest_float/after_bad.bin" --count-only-rows 19)"
+good_sha_f="$(printf '%s' "$good_line_f" | cut -f3)"
+bad_sha_f="$(printf '%s' "$bad_line_f" | cut -f3)"
+if [ "$good_sha_f" != "$bad_sha_f" ]; then
+  ok "自己検査a(FLOAT): 記録の出力セルを変えるとSHA-256が変わる(検出力あり)"
+else
+  ng "自己検査a(FLOAT): 記録の出力セルを変えてもSHA-256が変わらなかった"
+  float_selftest_rc=1
+fi
+
+exp_good_f="$WORK/selftest_float/expected_good.tsv"
+{
+  echo "# selftest"
+  printf 'selftest_arm\t%s\n' "$good_line_f"
+} > "$exp_good_f"
+
+verdict_b_self_f="$(check_print_record_against_expected selftest_arm "$exp_good_f" "$good_line_f")"
+verdict_b_bad_f="$(check_print_record_against_expected selftest_arm "$exp_good_f" "$bad_line_f")"
+if [ "$verdict_b_self_f" = "conform" ] && [ "${verdict_b_bad_f#not_conform}" != "$verdict_b_bad_f" ]; then
+  ok "自己検査b1(FLOAT): 正しい記録は期待値と conform、壊した記録は not_conform"
+else
+  ng "自己検査b1(FLOAT): 正しい記録(${verdict_b_self_f})/壊した記録(${verdict_b_bad_f})の判定がおかしい"
+  float_selftest_rc=1
+fi
+
+exp_bad_count_f="$WORK/selftest_float/expected_bad_count.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next} {$2=$2+1; print}' "$exp_good_f" > "$exp_bad_count_f"
+verdict_c_f="$(check_print_record_against_expected selftest_arm "$exp_bad_count_f" "$good_line_f")"
+if [ "${verdict_c_f#not_conform}" != "$verdict_c_f" ]; then
+  ok "自己検査c(FLOAT): 期待値の件数を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査c(FLOAT): 件数を壊した期待値が誤って conform になった"
+  float_selftest_rc=1
+fi
+
+exp_bad_sha_f="$WORK/selftest_float/expected_bad_sha.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next}
+     {sha=$4; last=substr(sha,length(sha),1); $4=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print}' \
+    "$exp_good_f" > "$exp_bad_sha_f"
+verdict_d_f="$(check_print_record_against_expected selftest_arm "$exp_bad_sha_f" "$good_line_f")"
+if [ "${verdict_d_f#not_conform}" != "$verdict_d_f" ]; then
+  ok "自己検査d(FLOAT): 期待値のSHA-256を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査d(FLOAT): SHA-256を壊した期待値が誤って conform になった"
+  float_selftest_rc=1
+fi
+
+if [ "$float_selftest_rc" -eq 0 ]; then
+  ok "検出力の自己検査(FLOAT): 全項目OK"
+else
+  ng "検出力の自己検査(FLOAT): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || float_selftest_rc ))
+
+# -----------------------------------------------------------------------
 # 自作main ROM側の照合（公式環境の有無に関わらず常に実行する）。
 # -----------------------------------------------------------------------
 say "自作main ROM側の照合（公式環境不要。11腕）"
@@ -669,6 +862,157 @@ say "自作ROM側の集計(PRINT場面)"
 echo "  conform: ${print_conform_count} / 16"
 echo "  not_conform: ${print_not_conform_count} / 16"
 echo "  gate_failed: ${print_gate_failed_count} / 16"
+
+# -----------------------------------------------------------------------
+# l4-c3 自作main ROM側の照合(FLOAT場面。公式環境不要。25腕)。
+#
+# 群(FS単精度/FD倍精度)ごとの実装状態をexpected_l4_float.tsvの見出し
+# コメントから読み、not_implemented_yetの群は判定外(not_implemented_yet)
+# として表示するだけでrcに含めない。SKIPの表示(catブロック)とは別の
+# 表示(na、黄色の"--")にして区別する。
+# -----------------------------------------------------------------------
+say "自作main ROM側の照合(FLOAT場面。公式環境不要。25腕)"
+
+float_conform_count=0
+float_not_conform_count=0
+float_gate_failed_count=0
+float_notimpl_count=0
+
+for arm in "${FLOAT_ARM_NAMES[@]}"; do
+  group="$(float_arm_group "$arm")"
+  status="$(float_group_status "$group")"
+  if [ "$status" = "not_implemented_yet" ]; then
+    na "[自作/FLOAT] ${arm}: not_implemented_yet(群${group}は自作側未実装のため判定外)"
+    float_notimpl_count=$((float_notimpl_count + 1))
+    continue
+  fi
+  float_arm_params "$arm"
+  prefix="$WORK/self_float_${arm}"
+  line1="$(run_print_arm_once "$SELF_ROMDIR" "$prefix" "${PRINT_ARM_ARGS[@]}" 2>"$prefix.err.txt")"
+  rc1=$?
+  if [ "$rc1" -ne 0 ] || [ -z "$line1" ]; then
+    ng "[自作/FLOAT] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix.err.txt"
+    float_gate_failed_count=$((float_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  ok_rel="$(printf '%s' "$line1" | cut -f2)"
+  if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+    ng "[自作/FLOAT] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+    float_gate_failed_count=$((float_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_FLOAT")"
+  if [ -z "$row" ]; then
+    ng "[自作/FLOAT] ${arm}: 期待値に行が無い(gate_failed)"
+    float_gate_failed_count=$((float_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$ok_rel" != "$e_ok" ]; then
+    ng "[自作/FLOAT] ${arm}: not_conform(件数不一致: cell ${a_count}/${e_count} ok_row ${ok_rel}/${e_ok})"
+    float_not_conform_count=$((float_not_conform_count + 1))
+    overall_rc=1
+  elif [ "$a_sha" != "$e_sha" ]; then
+    ng "[自作/FLOAT] ${arm}: not_conform(件数は一致するがSHA-256が不一致)"
+    float_not_conform_count=$((float_not_conform_count + 1))
+    overall_rc=1
+  else
+    ok "[自作/FLOAT] ${arm}: conform(cell${a_count}・ok行+${ok_rel}・SHA-256一致)"
+    float_conform_count=$((float_conform_count + 1))
+  fi
+done
+
+say "自作ROM側の集計(FLOAT場面)"
+echo "  conform: ${float_conform_count} / 25"
+echo "  not_conform: ${float_not_conform_count} / 25"
+echo "  gate_failed: ${float_gate_failed_count} / 25"
+echo "  not_implemented_yet: ${float_notimpl_count} / 25 (判定外・rcに含めない)"
+
+# -----------------------------------------------------------------------
+# 自己検査e: 群の印をnot_implemented_yet→implementedへ書き換えると、
+# (a)not_implemented_yetの間は判定がスキップされること、
+# (b)implementedにすると実際に照合が走り、現在の自作ROM(浮動小数点PRINT
+# 未実装)ではNG(not_conform、またはgate_failed)になること
+# ——つまり判定外の扱いが「本物の判定を隠していない」ことを確認する。
+# 実データ(expected_l4_float.tsvの本番行)には依存せず、明らかに不一致に
+# なる合成の期待値行を使う(自作ROMが偶然一致することを避けるため)。
+# -----------------------------------------------------------------------
+say "自己検査e(FLOAT): 群の印をimplementedにすると判定が実際に走りNGになるか"
+
+selftest_e_rc=0
+EG_ARM="FS1"
+EG_GROUP="$(float_arm_group "$EG_ARM")"
+EG_DIR="$WORK/selftest_group"
+mkdir -p "$EG_DIR"
+
+EG_NOTIMPL="$EG_DIR/expected_notimpl.tsv"
+{
+  echo "# selftest(自己検査e専用、実データではない)"
+  echo "# group ${EG_GROUP} selfmade=not_implemented_yet"
+  # わざと現実にありえない値にする(自作ROMが偶然一致しないように)
+  printf '%s\t999\t2\t0000000000000000000000000000000000000000000000000000000000000000\n' "$EG_ARM"
+} > "$EG_NOTIMPL"
+
+EG_IMPL="$EG_DIR/expected_impl.tsv"
+sed 's/selfmade=not_implemented_yet/selfmade=implemented/' "$EG_NOTIMPL" > "$EG_IMPL"
+
+# float_group_status は $EXPECTED_FLOAT をグローバル変数として参照する
+# ため、コマンド置換の中だけ一時的に差し替えて呼ぶ(本体スクリプトを
+# 再sourceすると全体が再実行されてしまうので避ける)。
+eg_status_before="$(EXPECTED_FLOAT="$EG_NOTIMPL" float_group_status "$EG_GROUP")"
+if [ "$eg_status_before" = "not_implemented_yet" ]; then
+  ok "自己検査e-1: 書き換え前は not_implemented_yet と読める"
+else
+  ng "自己検査e-1: 書き換え前の状態読み取りが期待どおりでない(${eg_status_before:-空})"
+  selftest_e_rc=1
+fi
+
+eg_status_after="$(EXPECTED_FLOAT="$EG_IMPL" float_group_status "$EG_GROUP")"
+if [ "$eg_status_after" = "implemented" ]; then
+  ok "自己検査e-2: 書き換え後は implemented と読める"
+else
+  ng "自己検査e-2: 書き換え後の状態読み取りが期待どおりでない(${eg_status_after:-空})"
+  selftest_e_rc=1
+fi
+
+# implemented状態で実際に自作ROMを走らせ、合成の(ありえない)期待値と
+# 照合するとNG(not_conform/gate_failed)になることを確認する。
+float_arm_params "$EG_ARM"
+eg_prefix="$EG_DIR/self_${EG_ARM}"
+eg_line="$(run_print_arm_once "$SELF_ROMDIR" "$eg_prefix" "${PRINT_ARM_ARGS[@]}" 2>"$eg_prefix.err.txt")"
+eg_rc=$?
+if [ "$eg_rc" -ne 0 ] || [ -z "$eg_line" ]; then
+  ok "自己検査e-3: implemented時に実際に走行し、現在の自作ROMでは失敗(gate_failed相当)した=NGを検出できた"
+else
+  eg_row="$(awk -F'\t' -v a="$EG_ARM" '$1==a{print;exit}' "$EG_IMPL")"
+  eg_e_count="$(printf '%s' "$eg_row" | cut -f2)"
+  eg_e_ok="$(printf '%s' "$eg_row" | cut -f3)"
+  eg_e_sha="$(printf '%s' "$eg_row" | cut -f4)"
+  eg_a_count="$(printf '%s' "$eg_line" | cut -f1)"
+  eg_a_ok="$(printf '%s' "$eg_line" | cut -f2)"
+  eg_a_sha="$(printf '%s' "$eg_line" | cut -f3)"
+  if [ "$eg_a_count" != "$eg_e_count" ] || [ "$eg_a_ok" != "$eg_e_ok" ] || [ "$eg_a_sha" != "$eg_e_sha" ]; then
+    ok "自己検査e-3: implementedにすると実際に照合が走り、現在の自作ROMではNG(not_conform)になった(判定外が本物の判定を隠していない)"
+  else
+    ng "自己検査e-3: 合成の(ありえない)期待値と偶然一致してしまった(自己検査のフィクスチャを見直すこと)"
+    selftest_e_rc=1
+  fi
+fi
+
+if [ "$selftest_e_rc" -eq 0 ]; then
+  ok "自己検査e(FLOAT): 全項目OK"
+else
+  ng "自己検査e(FLOAT): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || selftest_e_rc ))
 
 # -----------------------------------------------------------------------
 # 公式ROM側（環境変数が無ければSKIP）。
@@ -836,6 +1180,68 @@ say "公式ROM側の集計(PRINT場面)"
 echo "  conform: ${official_print_conform} / 16"
 echo "  not_conform: ${official_print_not_conform} / 16"
 echo "  gate_failed: ${official_print_gate_failed} / 16"
+
+say "公式ROM側の再導出(FLOAT場面。25腕)"
+
+official_float_conform=0
+official_float_not_conform=0
+official_float_gate_failed=0
+
+for arm in "${FLOAT_ARM_NAMES[@]}"; do
+  float_arm_params "$arm"
+  prefix1="$WORK/official_float_${arm}_run1"
+  prefix2="$WORK/official_float_${arm}_run2"
+  line1="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix1" "${PRINT_ARM_ARGS[@]}" 2>"$prefix1.err.txt")"
+  rc1=$?
+  float_arm_params "$arm"
+  line2="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix2" "${PRINT_ARM_ARGS[@]}" 2>"$prefix2.err.txt")"
+  rc2=$?
+  if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ -z "$line1" ] || [ -z "$line2" ]; then
+    ng "[公式/FLOAT] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix1.err.txt" "$prefix2.err.txt" 2>/dev/null
+    official_float_gate_failed=$((official_float_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$line1" != "$line2" ]; then
+    ng "[公式/FLOAT] ${arm}: G3決定論性が破れた(2走の記録が不一致。gate_failed)"
+    official_float_gate_failed=$((official_float_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  ok_rel="$(printf '%s' "$line1" | cut -f2)"
+  if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+    ng "[公式/FLOAT] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+    official_float_gate_failed=$((official_float_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_FLOAT")"
+  if [ -z "$row" ]; then
+    ng "[公式/FLOAT] ${arm}: 期待値に行が無い(gate_failed)"
+    official_float_gate_failed=$((official_float_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$ok_rel" != "$e_ok" ] || [ "$a_sha" != "$e_sha" ]; then
+    ng "[公式/FLOAT] ${arm}: not_conform（再導出した記録が期待値と不一致）"
+    official_float_not_conform=$((official_float_not_conform + 1))
+    overall_rc=1
+  else
+    ok "[公式/FLOAT] ${arm}: conform（2走一致・期待値とも一致）"
+    official_float_conform=$((official_float_conform + 1))
+  fi
+done
+
+say "公式ROM側の集計(FLOAT場面)"
+echo "  conform: ${official_float_conform} / 25"
+echo "  not_conform: ${official_float_not_conform} / 25"
+echo "  gate_failed: ${official_float_gate_failed} / 25"
 
 if [ "$overall_rc" -eq 0 ]; then
   echo
