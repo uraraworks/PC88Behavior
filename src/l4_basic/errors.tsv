@@ -1,0 +1,54 @@
+# 生成: src/l4_basic/make_error_table.py（手で編集しない）
+# 出所: docs/spec/l4-basic.md 第6.1節（開発者判断で採用したマニュアルのエラー一覧）
+# 番号に'?'が付く項（資料が確信を持てないと注記）は除外済み
+# 列: number<TAB>message
+1	NEXT without FOR
+2	Syntax error
+3	RETURN without GOSUB
+4	Out of DATA
+5	Illegal function call
+6	Overflow
+7	Out of memory
+8	Undefined line number
+9	Subscript out of range
+10	Duplicate Definition
+11	Division by zero
+12	Illegal direct
+13	Type mismatch
+14	Out of string space
+15	String too long
+16	String formula too complex
+17	Can't continue
+18	Undefined user function
+19	No RESUME
+20	RESUME without error
+21	Unprintable error
+22	Missing operand
+23	Line buffer overflow
+26	FOR without NEXT
+27	Tape read ERROR
+29	WHILE without WEND
+30	WEND without WHILE
+31	Duplicate label
+32	Undefined label
+33	Feature not available
+50	FIELD overflow
+51	Internal error
+52	Bad file number
+53	File not found
+54	File already open
+55	Input past end
+56	Bad file name
+57	Direct statement in file
+58	Sequential after PUT
+59	Sequential I/O only
+61	File write protected
+62	Disk offline
+64	Disk I/O error
+65	File already exists
+68	Disk full
+69	Bad allocation table
+70	Bad drive number
+71	Bad track/sector
+72	Deleted record
+73	Rename across disks
