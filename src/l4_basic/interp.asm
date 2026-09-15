@@ -2280,10 +2280,28 @@ PRINT_VALUE:
     OR A
     JR NZ,_l4pv_single
     LD HL,(CUR_DATA)
+    ; M7段階5c-2b追記: 印字前にフィールド幅(符号1+桁数+末尾空白1)を
+    ; 求め、行に収まらなければ折り返す(PRINT_FIELD_WRAP_CHECK、第5.3節)。
+    BIT 7,H
+    JR Z,_l4pvi_wrap_pos
+    XOR A
+    SUB L
+    LD L,A
+    LD A,0
+    SBC A,H
+    LD H,A
+_l4pvi_wrap_pos:
+    CALL DEC_DIGIT_COUNT
+    ADD A,2
+    CALL PRINT_FIELD_WRAP_CHECK
+    LD HL,(CUR_DATA)
     JP PRINT_NUMBER
 _l4pv_single:
     CALL VAL_LOAD_CUR_TO_OPA
     CALL MBF_FOUT
+    LD A,(FOUT_LEN)
+    ADD A,2
+    CALL PRINT_FIELD_WRAP_CHECK
     LD A,(UA_EXP)
     OR A
     JR Z,_l4pv_zero_sign
@@ -2321,6 +2339,9 @@ _l4pv_done:
 _l4pv_double:
     CALL VAL_LOAD_CUR_TO_OPA_D
     CALL MBF_DFOUT
+    LD A,(DFOUT_LEN)
+    ADD A,2
+    CALL PRINT_FIELD_WRAP_CHECK
     LD A,(DA_EXP)
     OR A
     JR Z,_l4pvd_zero_sign
@@ -2450,4 +2471,84 @@ _l4pud_advance:
     LD DE,2
     ADD IX,DE
     DJNZ _l4pud_place_loop
+    RET
+
+; ---------------------------------------------------------------------
+; DEC_DIGIT_COUNT — HL=0-65535(実運用0-32768)。PRINT_UDECと同じ前ゼロ
+;   抑制規則(値0は1桁)で、印字せずに桁数だけをAへ返す(PUD_VALUE等の
+;   スクラッチをPRINT_UDECと共用。呼び出しの入れ子はしない前提)。
+;   M7段階5c-2b追記: 折り返し判定(PRINT_FIELD_WRAP_CHECK)が、実際に
+;   印字する前に符号込みの幅を知るために使う。
+; ---------------------------------------------------------------------
+DEC_DIGIT_COUNT:
+    LD (PUD_VALUE),HL
+    XOR A
+    LD (PUD_STARTED),A
+    LD IX,PUD_PLACES
+    LD B,5
+    LD C,0
+_l4ddc_place_loop:
+    LD L,(IX+0)
+    LD H,(IX+1)
+    LD (PUD_PLACE),HL
+    XOR A
+    LD (PUD_DIGIT),A
+_l4ddc_sub_loop:
+    LD HL,(PUD_VALUE)
+    LD DE,(PUD_PLACE)
+    OR A
+    SBC HL,DE
+    JR C,_l4ddc_sub_done
+    LD (PUD_VALUE),HL
+    LD A,(PUD_DIGIT)
+    INC A
+    LD (PUD_DIGIT),A
+    JP _l4ddc_sub_loop
+_l4ddc_sub_done:
+    LD A,B
+    CP 1
+    JR NZ,_l4ddc_not_last
+    INC C
+    JR _l4ddc_advance
+_l4ddc_not_last:
+    LD A,(PUD_DIGIT)
+    OR A
+    JR NZ,_l4ddc_show
+    LD A,(PUD_STARTED)
+    OR A
+    JR Z,_l4ddc_advance
+_l4ddc_show:
+    LD A,1
+    LD (PUD_STARTED),A
+    INC C
+_l4ddc_advance:
+    LD DE,2
+    ADD IX,DE
+    DJNZ _l4ddc_place_loop
+    LD A,C
+    RET
+
+; ---------------------------------------------------------------------
+; PRINT_FIELD_WRAP_CHECK — A=これから印字するフィールドの全幅(符号1+
+;   数字+末尾空白1)。現在桁(VAR_COL)から書くとその行(COLS=80桁)へ
+;   収まらない場合、印字前にNEWLINEを呼んで次の行の先頭へ送る。
+;
+;   根拠: docs/spec/l4-program.md 第5.3節(l4-s5f、`locate 78,5:print 12`
+;   の観測)。行の右端に近い桁で数値PRINTを行うと、その行には変化が
+;   一切現れず、値全体が次の行へまとまって現れた——PRINT_CHARの1文字
+;   ごとの折り返し(COLSを超えたらNEWLINE、screen.asm)とは別に、L4の
+;   数値PRINTはフィールド全体を割らずに丸ごと次行へ送る規則を持つ、
+;   という観測に基づく実装(厳密な桁の判定式そのものは同節が「未確定」
+;   としているため、収まるかどうかの単純な比較のみを実装する)。
+; ---------------------------------------------------------------------
+PRINT_FIELD_WRAP_CHECK:
+    PUSH BC
+    LD B,A
+    LD A,(VAR_COL)
+    ADD A,B
+    CP 81
+    JR C,_l4pfwc_fit
+    CALL NEWLINE
+_l4pfwc_fit:
+    POP BC
     RET

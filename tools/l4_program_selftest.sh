@@ -494,6 +494,23 @@ run("case_d11_array_out_of_range", "NEW\\n10 a(11)=1\\n20 print 1\\nRUN\\n", [
     {"kind": "cmd", "out": 1},
 ])
 
+# M7段階5c-2b追記: 配列代入の右辺が同じ配列の別要素を読む形
+# (`a(j)=a(j+1)`)の回帰検査。tests/programs/p03_bubble_sort.bas の
+# swap文`t=a(j):a(j)=a(j+1):a(j+1)=t`で発覚した不具合(ARRAY_ASSIGN_STMTが
+# 右辺式の評価後に左辺アドレスを求めていたため、右辺のARRAY_READが
+# RUN_ARRAY_IDX/RUN_ARRAY_NAMEを上書きし、左辺の添字が右辺の添字に
+# 化けて誤った要素へ書いていた)。修正: 右辺を評価する前に左辺の
+# アドレスを確定させる(run.asm ARRAY_ASSIGN_STMT参照)。
+run("case_array_assign_rhs_reads_same_array", "NEW\\n10 dim a(2)\\n20 a(1)=5\\n30 a(2)=3\\n40 a(1)=a(2)\\n50 print a(1);a(2)\\nRUN\\n", [
+    {"kind": "cmd", "out": 0},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "num"},
+    {"kind": "cmd", "out": 1, "texts": [expect_num(3) + expect_num(3)]},
+])
+
 # 4.11節: CONT(D12、cont_resumes)。STOPで止まった次の行から再開する。
 run("case_d12_cont", "NEW\\n10 print 1\\n20 stop\\n30 print 2\\nRUN\\nCONT\\n", [
     {"kind": "cmd", "out": 0},
@@ -690,6 +707,28 @@ run_m7_5c2a("case_e3_e10_string_funcs", [
 # 値の代わりに'7'だけになる、消去後の絶対行0)。
 run_m7_5c2a("case_f10_program_cls", ["10 cls", "20 print 7"], [
     (0, expect_num(7)), (1, "Ok"),
+])
+
+# M7段階5c-2b追記: 数値PRINTの行端折り返し回避(第5.3節、l4-s5f
+# `locate 78,5:print 12`の観測「その行には変化が現れず、次の行に
+# まとまって現れた」を、`RUN`中のPRINTでも再現する回帰検査(`LOCATE`文
+# 自体はまだ未実装のため、`;`区切りの連続PRINTで桁78付近まで押し進める
+# 形で近づける)。tests/programs/p04_fibonacci.bas で、80桁境界をまたぐ
+# 数値が桁の途中で裂けて次の行へ続く不具合(PRINT_CHARの1文字ごとの
+# 折り返しをそのまま使っていたため)が見つかった。修正: PRINT_VALUEが
+# 印字前にフィールド全幅を求め、収まらなければ丸ごと次行へ送る
+# (PRINT_FIELD_WRAP_CHECK、interp.asm)。
+#
+# `print 1;`のフィールド幅は3(空白1+数字1+空白1)。26回続けると桁78まで
+# 進み(3*26=78、80桁ちょうどには収まる)、残りは桁78-79の2桁だけになる。
+# 続けて`print 100`(フィールド幅5)を打つと収まらないため、絶対行2の
+# 桁78-79は空白のまま、絶対行3の先頭からフィールド全体が現れるはず。
+run_m7_5c2a("case_h1_print_no_split_at_edge",
+    ["10 for i=1 to 26", "20 print 1;", "30 next i", "40 print 100"], [
+    (0, "Ok"), (1, "run"),
+    (2, (" 1 " * 26) + "  "),
+    (3, " 100 "),
+    (4, "Ok"),
 ])
 
 print()
