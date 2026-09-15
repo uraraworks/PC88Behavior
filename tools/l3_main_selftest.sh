@@ -17,14 +17,40 @@
 #   3. スクロール: 表示行数を超える出力（--extra-lines）で、120×19=2280バイトの
 #      書き写し＋末尾120バイトの再クリアが1つの連続書き込み(2400バイト)として
 #      F3C8起点で複数回観測される（docs/spec/l3-main.md 第5節）。
-#   4. L1適合（tools/verify_l1.sh と同じ判定、tools/cmp_io.py --init 350 --cycle 7）。
-#      **段階2bでカーソルを追従させた影響で、この検査はNGになる**
-#      （src/build_main_rom.py の CURSOR_OLD/CURSOR_NEW のコメント参照）。
-#      定常状態のCRTCカーソル位置(OUT 0x50の値)が、自作ROMでは実際の
-#      プロンプト位置（バナー・Ok表示後の行・桁）になり、公式測定の
-#      固定値(22,1)と一致しなくなるため。検査は緩めず、NGのまま報告する
-#      （tools/run_all_selftests.sh 側でこのスクリプトの期待rcを1に
-#      更新した。理由はそちらのコメント参照）。
+#   4. L1適合（tools/verify_l1.sh と同じ判定基盤、tools/cmp_io.py）。
+#      段階2bでカーソルを追従させた結果、CRTCカーソル位置パラメータ
+#      (OUT 0x50、周期内4・5番目のX/Y)は自作ROMでは実際のプロンプト位置
+#      （バナー・Ok表示後の行・桁）になり、公式測定の固定値(22,1)と
+#      一致しない——docs/spec/l1-ipl.md 第3節「毎フレーム、カーソルを
+#      (22,1)に置き直している」（アイドル状態の公式BASICプロンプトの
+#      位置）のとおり、この値は**画面の中身**で決まるので、別の画面を
+#      出す自作ROMで一致しないのは当然であり、検査を緩める理由には
+#      ならない。加えて実測すると、付録Aの初期化区間の末尾7件(344-350行)
+#      が②定常状態と同じ7件周期の1周分そのもの（350は周期7の倍数で、
+#      境目がちょうど1周の終わりに来る）であり、そこにも同じカーソル
+#      パラメータが現れる。そこで検査を2つに分ける（cmp_io.pyの
+#      --ignore-value-at 4,5 で、その2位置だけをvalue比較から外す。
+#      ポート・件数・周期・IN 40無しは従来どおり適合条件のまま）:
+#        4a. 初期化350件（①）: 末尾7件(344-350)のカーソルパラメータ
+#            2箇所だけがvalue比較の対象外（該当箇所はport一致のみ確認）。
+#            **それ以外(1-343件目)は従来どおり完全一致**——「7件に1件が
+#            たまたま同じ位相」というだけで①全体から除外するのではなく、
+#            l1-ipl.md 付録Aで特定した末尾1周分の窓だけに限定する
+#            （tools/cmp_io.py の report_mismatch の ignore_window_start
+#            引数。全体に位相条件をばらまくと無関係な位置が検出漏れに
+#            なるため）。
+#        4b. 定常状態（②③）: ポートの並び・件数・7件周期の一致は
+#            要求したまま、OUT 0x50のカーソル位置パラメータ(周期内
+#            4・5番目)だけをvalue比較から外す。それ以外の値（周期内
+#            1-3・6-7番目、および③のIN 40無し）は従来どおり比較する。
+#      以前はこの検査全体をNGのまま通し、tools/run_all_selftests.sh側で
+#      l3_main_selftest.sh全体の期待rcを0→1にしていたが、それでは
+#      他の検査(1-3,5-10)が今後壊れても「期待どおりの失敗」として
+#      素通りしてしまう欠陥があった。4a/4bへの分割で期待rcを0に戻せる
+#      （run_all_selftests.sh側のコメント・変更点も参照）。
+#      検査11-13でこの分割自体の検出力を故障注入により確かめる
+#      （$WORK/normal.iolog.txt をawkで直接改変し、cmp_io.pyへ渡す。
+#      ROMの再ビルドは不要）。
 #   5. 故障注入: 番地の式を1バイトずらした変種（--inject-address-fault）では
 #      検査1が確実に落ちることを確かめる（検出力の陰性対照）。
 #
@@ -41,6 +67,13 @@
 #  10. 故障注入: カーソル追従のROW出力を1ずらした変種
 #      （--inject-cursor-fault）で--typeのカーソルI/O列が期待とずれることを
 #      確かめる（検出力の陰性対照）。
+#  11. 故障注入: 定常状態の非カーソル値(位置1番目、port 0031)を書き換えた
+#      変種で4bがNGになることを確かめる（検出力の陰性対照）。
+#  12. 故障注入: 初期化区間の非カーソル値(1件目、port 0053)を書き換えた
+#      変種で4aがNGになることを確かめる（検出力の陰性対照）。
+#  13. 故障注入: 定常状態のカーソル値(位置4番目、port 0050)だけを書き換えて
+#      も4bはOKのままであることを確かめる（外した範囲がそこだけである
+#      ことの確認）。
 #
 # 使い方: tools/l3_main_selftest.sh
 set -uo pipefail
@@ -168,21 +201,31 @@ PYEOF
 [ $? -ne 0 ] && fail "スクロールの検査"
 
 # -----------------------------------------------------------------------
-say "4. L1適合の検査"
+say "4. L1適合の検査（4a初期化＝完全一致 ／ 4b定常状態＝カーソル位置以外）"
 "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 60 \
     --io-log "$WORK/normal.iolog.txt" \
     >"$WORK/normal_l1.stdout.txt" 2>"$WORK/normal_l1.stderr.txt"
 if [ $? -ne 0 ]; then
   fail "q88measure(L1用)が失敗"; cat "$WORK/normal_l1.stderr.txt" >&2
 fi
-python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/normal.iolog.txt" --init 350 --cycle 7
-if [ $? -ne 0 ]; then
-  fail "L1適合(cmp_io.py --init 350 --cycle 7)。段階2bでカーソルを追従させた既知の影響
-       （定常状態のOUT 0x50がプロンプトの実位置になり、公式測定の固定値(22,1)と
-       食い違う。src/build_main_rom.py のCURSOR_OLD/CURSOR_NEWのコメント参照。
-       検査は緩めていない——NGのまま報告している）"
+
+# 4a(①初期化350件の完全一致)・4b(②定常状態、カーソル位置(周期内4・5番目)
+# だけをvalue比較から外す)は、cmp_io.pyの--init/--cycleが①→②の順に
+# 判定して最初の不一致を報告する1回の呼び出しで両方見られる
+# （①は--ignore-value-atの対象外＝常に完全一致）。出力の「① 初期化区間」
+# 「② 定常状態」の文言で4a/4bどちらの不一致かを見分ける。
+python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/normal.iolog.txt" \
+    --init 350 --cycle 7 --ignore-value-at 4,5 >"$WORK/l1_conform.txt" 2>&1
+L1_RC=$?
+cat "$WORK/l1_conform.txt"
+if [ $L1_RC -ne 0 ]; then
+  if grep -q "① 初期化区間" "$WORK/l1_conform.txt"; then
+    fail "L1適合 4a(初期化350件の完全一致)。docs/spec/l1-ipl.md 付録Aの区間で食い違い"
+  else
+    fail "L1適合 4b(定常状態。カーソル位置(周期内4・5番目)以外での食い違い)"
+  fi
 else
-  echo "OK: L1適合を保っている"
+  echo "OK: L1適合 4a(初期化350件完全一致)・4b(定常状態、カーソル位置以外完全一致)"
 fi
 
 # -----------------------------------------------------------------------
@@ -331,6 +374,51 @@ else:
     print("NG(検出力不足): カーソルを故障注入しても検査8と区別できない"); sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "カーソル追従の故障注入の検出力"
+
+# -----------------------------------------------------------------------
+# 検査11-13: cmp_io.py --ignore-value-at 自体の検出力（4a/4bの分割が
+# 正しく効いていることの確認）。$WORK/normal.iolog.txt（検査4で作成済み）
+# をawkで直接改変し、ROMの再ビルド無しでcmp_io.pyへ渡す。
+CMP_ARGS=(--init 350 --cycle 7 --ignore-value-at 4,5)
+
+mutate_out_nth_value() {
+  # main節のN件目のOUT行のvalue列($7)をnewvalに書き換えた版を作る。
+  local infile="$1" outfile="$2" n="$3" newval="$4"
+  awk -v n="$n" -v newval="$newval" '
+    $4=="main" && $5=="OUT" { c++; if (c==n) $7=newval }
+    { print }
+  ' "$infile" > "$outfile"
+}
+
+say "11. cmp_io.pyの検出力（定常状態の非カーソル値(位置1番目, port 0031)を書き換え。4bがNGになることを確かめる）"
+mutate_out_nth_value "$WORK/normal.iolog.txt" "$WORK/mut_steady_noncursor.iolog.txt" 351 18
+python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/mut_steady_noncursor.iolog.txt" "${CMP_ARGS[@]}" >"$WORK/mut11.txt" 2>&1
+RC11=$?
+if [ $RC11 -ne 0 ] && grep -q "② 定常状態" "$WORK/mut11.txt"; then
+  echo "OK(検出力): 位置1番目(非カーソル)を変えると④b相当がNG(rc=${RC11}、②で不一致)になり区別できた"
+else
+  fail "検査11: 非カーソル値の改変が検出されない(rc=$RC11)"; cat "$WORK/mut11.txt"
+fi
+
+say "12. cmp_io.pyの検出力（初期化区間の非カーソル値(1件目, port 0053)を書き換え。4aがNGになることを確かめる）"
+mutate_out_nth_value "$WORK/normal.iolog.txt" "$WORK/mut_init_noncursor.iolog.txt" 1 EE
+python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/mut_init_noncursor.iolog.txt" "${CMP_ARGS[@]}" >"$WORK/mut12.txt" 2>&1
+RC12=$?
+if [ $RC12 -ne 0 ] && grep -q "① 初期化区間" "$WORK/mut12.txt"; then
+  echo "OK(検出力): 初期化区間1件目(非カーソル)を変えると④a相当がNG(rc=${RC12}、①で不一致)になり区別できた"
+else
+  fail "検査12: 初期化区間の改変が検出されない(rc=$RC12)"; cat "$WORK/mut12.txt"
+fi
+
+say "13. cmp_io.pyの検出力（定常状態のカーソル値(位置4番目, port 0050)だけを書き換え。4bはOKのままであることを確かめる）"
+mutate_out_nth_value "$WORK/normal.iolog.txt" "$WORK/mut_steady_cursor.iolog.txt" 354 FF
+python3 "$REPO/tools/cmp_io.py" "$BASE_IOLOG" "$WORK/mut_steady_cursor.iolog.txt" "${CMP_ARGS[@]}" >"$WORK/mut13.txt" 2>&1
+RC13=$?
+if [ $RC13 -eq 0 ]; then
+  echo "OK: カーソル位置(位置4番目)だけの改変ではrc=0のまま（外した範囲が本当にそこだけであることを確認）"
+else
+  fail "検査13: カーソル位置だけの改変でNGになった(rc=$RC13)。除外範囲が狭すぎる"; cat "$WORK/mut13.txt"
+fi
 
 # -----------------------------------------------------------------------
 echo

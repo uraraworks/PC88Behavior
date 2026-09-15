@@ -121,16 +121,23 @@ SCRIPTS_EXPECTED=(
   "tools/make_l3_testdisk_selftest.sh:0"
   "tools/asm/z80text_selftest.sh:0"
   "tools/asm/asm_selftest.sh:0"
-  # M7段階2b（2026-09-15）でカーソルをプロンプトの実位置に追従させた結果、
-  # tools/l3_main_selftest.sh の検査4（L1適合、cmp_io.py --init 350 --cycle 7）
-  # は既知の理由でNG(rc=1)に変わった。定常状態のCRTCカーソル位置(OUT 0x50)が
-  # 実際の入力位置になり、公式測定の固定値(22,1)と一致しなくなるため
-  # （src/build_main_rom.py のCURSOR_OLD/CURSOR_NEWのコメント、および
-  # tools/l3_main_selftest.sh 検査4のコメント参照）。検査そのものは緩めて
-  # いない——期待rcを「NGが今の正常」として明示的に宣言する
-  # （tools/verify_l3.sh で採ったのと同じ扱い。検査7-10（キー入力・行入力・
-  # 故障注入）はすべてOKのまま）。
-  "tools/l3_main_selftest.sh:1"
+  # M7段階2b（2026-09-15）でカーソルをプロンプトの実位置に追従させた直後、
+  # 一時的にこの行の期待rcを0→1にしていた（検査4のL1適合が、定常状態の
+  # CRTCカーソル位置(OUT 0x50)が実際の入力位置になり公式測定の固定値
+  # (22,1)と食い違ってNGになったため）。しかしこれでは
+  # l3_main_selftest.shの他の検査(1-3,5-10)が今後壊れても「期待どおりの
+  # 失敗」として素通りしてしまい、自己検査として機能しなくなる欠陥が
+  # あった。
+  #
+  # そこで検査4自体をtools/cmp_io.pyの--ignore-value-atで分割し
+  # （4a初期化350件=完全一致のまま、4b定常状態=カーソル位置パラメータ
+  # (周期内4・5番目)だけをvalue比較から外し、ポート・件数・周期は
+  # 従来どおり適合条件のまま比較する。docs/spec/l1-ipl.md 第3節の
+  # 「毎フレーム、カーソルを(22,1)に置き直している」＝画面の中身で
+  # 決まる値なので、別の画面を出す自作ROMで一致しないのは当然、
+  # それ以外はすべて公式測定と一致させる、という判断。
+  # tools/l3_main_selftest.sh 検査4のコメント参照）、期待rcを0に戻した。
+  "tools/l3_main_selftest.sh:0"
 )
 
 overall=0

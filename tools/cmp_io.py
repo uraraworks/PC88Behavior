@@ -225,11 +225,34 @@ def fmt_event(e: Event | None) -> str:
     return f"{e.kind:<3} port={e.port} value={e.value}  (seq={e.seq} frame={e.frame} pc={e.pc})"
 
 
-def report_mismatch(base: list[Event], target: list[Event], mode_label: str) -> int:
+def report_mismatch(base: list[Event], target: list[Event], mode_label: str,
+                    ignore_value_positions: frozenset[int] = frozenset(),
+                    cycle_len: int | None = None,
+                    ignore_window_start: int | None = None) -> int:
+    """base/target の前方一致を見る。
+
+    ignore_value_positions が指定されていれば（cycle_len も必須）、
+    index i (0-based) の周期内位置 (i % cycle_len + 1) がそこに含まれる
+    要素は port・kind の一致だけを見て value は比較しない。
+
+    ignore_window_start を指定すると、除外を i >= ignore_window_start の
+    範囲だけに限定する（それより前は位相が一致条件に合致しても常に
+    完全一致を要求する）。①初期化区間の**末尾の1周分だけ**が②定常状態と
+    同じ周期の一部（l1-ipl.md 付録Aの344-350行、実測で確認済み）である
+    場合に、その1周分の窓だけへ限定して使う——① 全体へ位相条件を
+    ばらまくと、無関係な位置がたまたま同じ位相(7件に1件)に当たっただけで
+    比較から外れてしまい、検出力が落ちる。
+    """
     n = min(len(base), len(target))
     first_diff = None
     for i in range(n):
         b, t = base[i], target[i]
+        in_window = ignore_window_start is None or i >= ignore_window_start
+        if ignore_value_positions and cycle_len and in_window and (i % cycle_len + 1) in ignore_value_positions:
+            if b.port != t.port or b.kind != t.kind:
+                first_diff = i
+                break
+            continue
         if b.port != t.port or b.value != t.value or b.kind != t.kind:
             first_diff = i
             break
@@ -314,12 +337,19 @@ def filter_before_seq(events: list[Event], limit: int | None) -> list[Event]:
 
 
 def check_cycle(seq: list[Event], n_init: int, cycle: list[tuple[str, str]],
-                side: str) -> tuple[str | None, int, int]:
+                side: str, ignore_value_positions: frozenset[int] = frozenset()
+                ) -> tuple[str | None, int, int]:
     """n_init 件目以降が cycle の繰り返しかを見る。
 
     末尾は周期の途中で切れてよい（測定はフレーム数で打ち切られるため）。
     ただし **1 周も回っていなければ不合格** にする。そうしないと
     「定常状態に入る前に落ちた記録」が黙って通ってしまう。
+
+    ignore_value_positions: 周期内の1-based位置の集合。ここに含まれる
+    位置は port の一致だけを見て、value は比較しない（例:
+    l3-main.md のカーソル追従で、定常状態のCRTCカーソル位置(OUT 0x50)は
+    画面の中身で決まる値になり、公式測定の固定値と一致しなくて当然の
+    ため。tools/l3_main_selftest.sh 検査4b参照）。
 
     返り値: (エラー文字列 or None, 周回数, 端数)
     """
@@ -330,9 +360,16 @@ def check_cycle(seq: list[Event], n_init: int, cycle: list[tuple[str, str]],
                 f"（{n_init} 件目以降が {len(tail)} 件、周期は {m} 件）", 0, len(tail))
     for i, e in enumerate(tail):
         want = cycle[i % m]
+        pos = i % m + 1
+        if pos in ignore_value_positions:
+            if e.port != want[0]:
+                return (f"{side}: {n_init + i + 1} 件目が周期から外れる"
+                        f"（周期の {pos} 番目: 期待 port={want[0]}（値は比較対象外） ／ "
+                        f"実際 port={e.port}）", 0, 0)
+            continue
         if (e.port, e.value) != want:
             return (f"{side}: {n_init + i + 1} 件目が周期から外れる"
-                    f"（周期の {i % m + 1} 番目: 期待 port={want[0]} value={want[1]} ／ "
+                    f"（周期の {pos} 番目: 期待 port={want[0]} value={want[1]} ／ "
                     f"実際 port={e.port} value={e.value}）", 0, 0)
     return None, len(tail) // m, len(tail) % m
 
@@ -376,14 +413,27 @@ def check_no_steady_in_port(events: list[Event], boundary: int, port: int,
 
 
 def run_two_stage(base_events: list[Event], target_events: list[Event],
-                  n_init: int, m_cycle: int) -> int:
+                  n_init: int, m_cycle: int,
+                  ignore_value_positions: frozenset[int] = frozenset()) -> int:
     """第6節の 3 段階の適合条件で判定する（① ② ③。③ は第3版で追加）。
 
     base_events / target_events は CPU 節の全イベント（IN + OUT、発生順）。
     ① ② は OUT だけを取り出した列で見る。③ は IN も見る必要があるので、
     全イベント列のほうを使う。
+
+    ignore_value_positions が指定されていれば、周期内のその位置（1-based、
+    (index % cycle_len)+1）は port の一致だけを見て value は比較しない
+    （check_cycle 参照）。① 初期化区間の末尾がちょうど周期の1周分に当たる
+    場合（n_init が m_cycle の倍数。l1-ipl.md 付録Aで、初期化区間の最後の
+    7件(344-350)が②と同じ形をしていることを実測で確認済み）は、その分
+    だけ① にも同じ位置の除外を適用する。**それ以外の値は① も従来どおり
+    完全一致を要求する**——除外するのは特定した2パラメータだけである。
     """
-    label = f"3段階（初期化 {n_init} 件の完全一致 ／ 以降 {m_cycle} 件周期 ／ ③IN40無し）"
+    ignore_note = ""
+    if ignore_value_positions:
+        pos_txt = "・".join(str(p) for p in sorted(ignore_value_positions))
+        ignore_note = f" ／ 位置{pos_txt}番目はvalue比較対象外（①②とも）"
+    label = f"3段階（初期化 {n_init} 件 ／ 以降 {m_cycle} 件周期 ／ ③IN40無し{ignore_note}）"
 
     base_seq = filter_out_only(base_events)
     target_seq = filter_out_only(target_events)
@@ -394,9 +444,21 @@ def run_two_stage(base_events: list[Event], target_events: list[Event],
               f"（{len(base_seq)} 件。周期を取り出すのに {need} 件必要）", file=sys.stderr)
         return 2
 
-    # ① 初期化区間
-    rc = report_mismatch(base_seq[:n_init], target_seq[:n_init],
-                         f"{label} ① 初期化区間")
+    if ignore_value_positions and n_init % m_cycle != 0:
+        print(f"[{label}] エラー: --ignore-value-at は n_init が cycle の倍数の"
+              f"ときだけ使える（①内の周期位相を②と揃えるため。"
+              f"n_init={n_init}, cycle={m_cycle}）", file=sys.stderr)
+        return 2
+
+    # ① 初期化区間（末尾の1周分(n_init-m_cycle .. n_init-1)だけに
+    # ignore_value_positions を適用。それより前は常に完全一致）
+    rc = report_mismatch(
+        base_seq[:n_init], target_seq[:n_init],
+        f"{label} ① 初期化区間",
+        ignore_value_positions,
+        m_cycle if ignore_value_positions else None,
+        (n_init - m_cycle) if ignore_value_positions else None,
+    )
     if rc != 0:
         return rc
 
@@ -404,8 +466,8 @@ def run_two_stage(base_events: list[Event], target_events: list[Event],
     cycle = [(e.port, e.value) for e in base_seq[n_init:need]]
     cycle_txt = " / ".join(f"{p}<-{v}" for p, v in cycle)
 
-    err_b, laps_b, rest_b = check_cycle(base_seq, n_init, cycle, "基準側")
-    err_t, laps_t, rest_t = check_cycle(target_seq, n_init, cycle, "対象側")
+    err_b, laps_b, rest_b = check_cycle(base_seq, n_init, cycle, "基準側", ignore_value_positions)
+    err_t, laps_t, rest_t = check_cycle(target_seq, n_init, cycle, "対象側", ignore_value_positions)
     if err_b or err_t:
         print(f"[{label}] 不一致: ② 定常状態が周期になっていない")
         print(f"  周期: {cycle_txt}")
@@ -430,8 +492,14 @@ def run_two_stage(base_events: list[Event], target_events: list[Event],
         return 1
 
     print(f"[{label}] 一致")
-    print(f"  ① 初期化区間 {n_init} 件が完全一致")
+    if ignore_value_positions:
+        print(f"  ① 初期化区間 {n_init} 件が一致（末尾の周期位置{'/'.join(str(p) for p in sorted(ignore_value_positions))}番目のvalueは比較対象外）")
+    else:
+        print(f"  ① 初期化区間 {n_init} 件が完全一致")
     print(f"  ② 定常状態の周期: {cycle_txt}")
+    if ignore_value_positions:
+        pos_txt = "・".join(str(p) for p in sorted(ignore_value_positions))
+        print(f"     位置{pos_txt}番目はport一致のみ確認（valueは比較対象外）")
     print(f"     基準側 {laps_b} 周（端数 {rest_b} 件） ／ "
           f"対象側 {laps_t} 周（端数 {rest_t} 件）")
     print("     周回数は適合条件ではない（第6節「比較しないもの」）")
@@ -472,6 +540,14 @@ def main() -> int:
                         help="2段階判定: 先頭 N 件を完全一致で比べる（L1 は 350）")
     parser.add_argument("--cycle", type=int, default=None, metavar="M",
                         help="2段階判定: N 件目以降を M 件の周期とみなす（L1 は 7）")
+    parser.add_argument("--ignore-value-at", type=str, default=None, metavar="POS[,POS...]",
+                        help="--init/--cycle専用: 周期内の1-based位置（カンマ区切りで"
+                             "複数可）は、portの一致だけを見てvalueを比較対象から外す。"
+                             "②定常状態の全周と、①初期化区間の末尾がちょうど周期の"
+                             "1周分に重なる場合はその1周分（n_initがcycleの倍数の"
+                             "ときだけ。それ以外の①は常に完全一致）に適用される。"
+                             "例: 画面の中身で決まるカーソル位置(l3-main.md)を除くため"
+                             "の '4,5'")
     parser.add_argument("--port", type=str, default=None, metavar="PORT",
                         help="特定ポート判定: 指定ポート(例 FD, 00FD)に絞り、"
                              "発生順のまま完全一致で比べる（--kind と併用必須）。"
@@ -493,6 +569,7 @@ def main() -> int:
     if (args.port is None) != (args.kind is None):
         print("エラー: --port と --kind は両方指定する", file=sys.stderr)
         return 2
+    ignore_value_positions: frozenset[int] = frozenset()
     if args.init is not None:
         if args.init < 0 or args.cycle < 1:
             print("エラー: --init は 0 以上、--cycle は 1 以上", file=sys.stderr)
@@ -503,6 +580,19 @@ def main() -> int:
         if args.port is not None:
             print("エラー: --init/--cycle と --port/--kind は併用しない", file=sys.stderr)
             return 2
+        if args.ignore_value_at is not None:
+            try:
+                positions = {int(x) for x in args.ignore_value_at.split(",") if x.strip()}
+            except ValueError:
+                print("エラー: --ignore-value-at は整数のカンマ区切り", file=sys.stderr)
+                return 2
+            if not positions or any(p < 1 or p > args.cycle for p in positions):
+                print(f"エラー: --ignore-value-at の位置は 1〜{args.cycle} の範囲", file=sys.stderr)
+                return 2
+            ignore_value_positions = frozenset(positions)
+    elif args.ignore_value_at is not None:
+        print("エラー: --ignore-value-at は --init/--cycle と併用する", file=sys.stderr)
+        return 2
     if args.port is not None and args.with_in:
         print("エラー: --with-in と --port/--kind は併用しない", file=sys.stderr)
         return 2
@@ -537,7 +627,8 @@ def main() -> int:
         if len(base_seq) == 0 and len(target_seq) == 0:
             print("エラー: 両側とも OUT が0件。比較になっていない。", file=sys.stderr)
             return 2
-        return run_two_stage(base_events, target_events, args.init, args.cycle)
+        return run_two_stage(base_events, target_events, args.init, args.cycle,
+                             ignore_value_positions)
 
     if args.port is not None:
         try:
