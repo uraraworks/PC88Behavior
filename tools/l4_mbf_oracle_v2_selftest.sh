@@ -462,6 +462,101 @@ else
   echo "SKIP - l4-s4c v2予測表がまだ無い(1本目のコミット時点では正常)"
 fi
 
+# --- 16. l4-s4d: lene(len上限+E下限)が既定を変えないこと --------------
+LENE_DEFAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+
+arms = [
+    "1.5", ".5", "-.5", "0.25", "123.456",
+    "1/3", "2/3", "10/3", "1234567.8", "12345678",
+    "999999", "9999999", "10000000", "1e10", "-1.5e+20",
+    ".1", ".01", ".001", "1e-10",
+    "40000", "30000+30000", "-32768-1", "200*200", "7/2",
+    "1#/3", "1d10", "12345678901234#", "1/3#",
+    ".1+.2", "1/3*3",
+    "1e38*10", "1/0",
+]
+ok = True
+for expr in arms:
+    a = m.predict(expr)
+    b = m.predict(expr, m.MBF_SINGLE_DIGITS, "sym", 0, 0)
+    if a != b:
+        print(f"MISMATCH {expr}: default={a} explicit={b}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$LENE_DEFAULT_CHECK" = "PASS" ]; then
+  pass "--small-rule lene 追加後も既定(sym/0/0)は32腕全件で変わらない"
+else
+  fail "lene追加後の既定値一致: $LENE_DEFAULT_CHECK"
+fi
+
+# --- 17. l4-s4d: LE17/LE18が定義どおり(len<=T かつ E>=-15)であること ------
+# M1(.001234567890123456#, E=-3, nsig=16, len=18)はLE17=指数・LE18=固定。
+# M4(1.234d-15, E=-15, nsig=4, len=18)も同型でLE17=指数・LE18=固定。
+LENE_DEF_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+cases = [
+    (".001234567890123456#", 17, " 1.234567890123456D-03 "),
+    (".001234567890123456#", 18, " .001234567890123456 "),
+    ("1.234d-15", 17, " 1.234D-15 "),
+    ("1.234d-15", 18, " .000000000000001234 "),
+]
+ok = True
+for expr, t, want in cases:
+    _, pred, _ = m.predict(expr, 16, "lene", t, -15)
+    if pred != want:
+        print(f"MISMATCH {expr} T={t}: got {pred!r} want {want!r}")
+        ok = False
+print("PASS" if ok else "FAIL")
+EOF
+)"
+if [ "$LENE_DEF_CHECK" = "PASS" ]; then
+  pass "lene(LE17/LE18)がM1/M4相当の4例で定義どおり"
+else
+  fail "lene定義一致: $LENE_DEF_CHECK"
+fi
+
+# --- 18. 故障注入: Eの下限を1ずらすと判定が変わること(検出力の確認) -------
+# "1d-15"はE=-15のちょうど境界例。Emin=-15ならE>=-15を満たし固定、
+# Eminを1つ厳しい-14へずらすと-15>=-14が偽になり指数表記へ変わる。
+LENE_EMIN_FAULT_CHECK="$(PY - "$REPO_ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import tools.l4_mbf_oracle_v2 as m
+expr = "1d-15"
+_, p_ok, _ = m.predict(expr, 16, "lene", 18, -15)
+_, p_shift, _ = m.predict(expr, 16, "lene", 18, -14)
+ok = p_ok != p_shift and p_ok == " .000000000000001 " and p_shift == " 1D-15 "
+print("PASS" if ok else f"FAIL p_ok={p_ok!r} p_shift={p_shift!r}")
+EOF
+)"
+if [ "$LENE_EMIN_FAULT_CHECK" = "PASS" ]; then
+  pass "Eの下限を-15から-14へ1つずらすと1d-15の判定が固定→指数に変わる(検出力の確認)"
+else
+  fail "lene Eの下限の故障注入検出力: $LENE_EMIN_FAULT_CHECK"
+fi
+
+# --- 19. l4-s4d予測表の再生成がデータ行一致すること ------------------------
+S4D="$REPO_ROOT/docs/notes/l4-s4d-double-candidate-predictions.tsv"
+if [ -f "$S4D" ]; then
+  TMP="$(mktemp)"
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4d_double_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4d_gen.err
+  if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4D") >/dev/null 2>&1; then
+    pass "docs/notes/l4-s4d-double-candidate-predictions.tsv の再生成がデータ行一致"
+  else
+    fail "l4-s4d予測表の再生成が既存ファイルとデータ行不一致(diff未一致)"
+  fi
+  rm -f "$TMP"
+else
+  echo "SKIP - l4-s4d予測表がまだ無い(1本目のコミット時点では正常)"
+fi
+
 echo
 if [ "$FAIL" = "0" ]; then
   echo "l4_mbf_oracle_v2_selftest: 全項目OK"

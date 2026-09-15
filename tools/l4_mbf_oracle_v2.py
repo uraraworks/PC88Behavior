@@ -780,7 +780,14 @@ def _significant_digits(value: Fraction, ndig: int) -> Tuple[str, int]:
     return s, e
 
 
-def _small_side_fixed(e: int, nsig: int, ndig: int, small_rule: str, small_len: int) -> bool:
+def _small_side_fixed(
+    e: int,
+    nsig: int,
+    ndig: int,
+    small_rule: str,
+    small_len: int,
+    small_emin: int = 0,
+) -> bool:
     """|v|<1(e<=0)のときの固定小数点⇔指数表記の判定(候補規則、l4-s4c用)。
 
     大きい側(e>0)はどの候補でも現行の規則(e<=ndig)のまま変えない
@@ -813,6 +820,17 @@ def _small_side_fixed(e: int, nsig: int, ndig: int, small_rule: str, small_len: 
         return e > -ndig + 1
     if small_rule == "len":
         return (-e) + nsig <= small_len
+    if small_rule == "lene":
+        # l4-s4d用。「E=d.ddd×10^Eの標準的なE(=e-1)」をそのまま使う
+        # (l4-s4cのS0食い違いの教訓 — docs/notes/l4-mbf-oracle.md
+        # 「l4-s4c: S0列の食い違いとその原因」参照 — を踏まえ、内部の
+        # eではなく毎回 E=e-1 に変換してから定義式どおりに比較する)。
+        # 固定 iff len<=small_len(T) かつ E>=small_emin。
+        # len=(-E-1)+nsig。E=e-1なので (-E-1)=(-(e-1)-1)=-e ("len"候補
+        # と同じ式になる。これはe/Eのずれの影響を受けない式だから)。
+        E = e - 1
+        length = (-e) + nsig
+        return (length <= small_len) and (E >= small_emin)
     raise ValueError(f"unknown small_rule {small_rule!r}")
 
 
@@ -821,6 +839,7 @@ def fout_format(
     single_digits: int = MBF_SINGLE_DIGITS,
     small_rule: str = "sym",
     small_len: int = 0,
+    small_emin: int = 0,
 ) -> Tuple[str, bool]:
     """戻り値: (本体文字列, この腕の固定/指数判定が未解決近似則を
     経由したか=approx)
@@ -854,7 +873,7 @@ def fout_format(
     if e > 0:
         use_fixed = e <= ndig  # 大きい側: 現行の規則のまま(候補によらず不変)
     else:
-        use_fixed = _small_side_fixed(e, nsig, ndig, small_rule, small_len)
+        use_fixed = _small_side_fixed(e, nsig, ndig, small_rule, small_len, small_emin)
     # v1/v2と同じく、この判定自体は未解決の近似則の一種(approx=True)。
     # "len"候補も$FOFMTの命令単位の再現ではなく機械的な帰結として導入した
     # ものなので同様にapprox=Trueのまま返す。
@@ -882,8 +901,9 @@ def print_one(
     single_digits: int = MBF_SINGLE_DIGITS,
     small_rule: str = "sym",
     small_len: int = 0,
+    small_emin: int = 0,
 ) -> Tuple[str, bool]:
-    body, approx = fout_format(num, single_digits, small_rule, small_len)
+    body, approx = fout_format(num, single_digits, small_rule, small_len, small_emin)
     sign = "-" if num.is_negative() else " "
     return f"{sign}{body} ", approx
 
@@ -893,6 +913,7 @@ def predict(
     single_digits: int = MBF_SINGLE_DIGITS,
     small_rule: str = "sym",
     small_len: int = 0,
+    small_emin: int = 0,
 ) -> Tuple[str, str, bool]:
     """戻り値: (kind, predicted, approx)
 
@@ -904,9 +925,9 @@ def predict(
     try:
         num = eval_expr(typed_print_body)
     except GwError as e:
-        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len)
+        residual_line, approx = print_one(e.residual, single_digits, small_rule, small_len, small_emin)
         return "error", f"{e.kind};{residual_line}", approx
-    line, approx = print_one(num, single_digits, small_rule, small_len)
+    line, approx = print_one(num, single_digits, small_rule, small_len, small_emin)
     return "numeric", line, approx
 
 
@@ -922,7 +943,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--small-rule",
-        choices=("sym", "sym-def", "len"),
+        choices=("sym", "sym-def", "len", "lene"),
         default="sym",
         help="|v|<1側の固定⇔指数切替の候補規則(既定sym=現行の対称近似則)",
     )
@@ -930,7 +951,13 @@ if __name__ == "__main__":
         "--small-len",
         type=int,
         default=0,
-        help="--small-rule len のときの小数点右の許容文字数T",
+        help="--small-rule len/lene のときの小数点右の許容文字数T",
+    )
+    ap.add_argument(
+        "--small-emin",
+        type=int,
+        default=0,
+        help="--small-rule lene のときのEの下限(この値以上なら固定の対象)",
     )
     ap.add_argument("exprs", nargs="+")
     args = ap.parse_args()
@@ -938,5 +965,7 @@ if __name__ == "__main__":
         body = arg
         if body.lower().startswith("print "):
             body = body[6:]
-        kind, pred, approx = predict(body, args.single_digits, args.small_rule, args.small_len)
+        kind, pred, approx = predict(
+            body, args.single_digits, args.small_rule, args.small_len, args.small_emin
+        )
         print(f"{arg!r}\t{kind}\t{pred!r}\tapprox={approx}")
