@@ -97,10 +97,49 @@ CURSOR_FAULT_NEW = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n   
 KEY_TABLE_FAULT_OLD = "    DB 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77"
 KEY_TABLE_FAULT_NEW = "    DB 0x70, 0x51, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77"
 
+# M7段階2c: 故障注入（SHIFT_CODE_TAB のQ(04H:1)エントリを変える）。
+# CAPS_CODE_TABとSHIFT_CODE_TABは04:1の行(0x50,0x51,...)が同一の内容
+# なので、直前のGRPH由来の行(0x7E始まり、SHIFT_CODE_TABにしか無い)を
+# 含めて3行まとめて置換対象にし、一意に絞る。
+KEY_TABLE_SHIFT_FAULT_OLD = (
+    "    DB 0x7E, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47\n"
+    "    DB 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F\n"
+    "    DB 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57"
+)
+KEY_TABLE_SHIFT_FAULT_NEW = (
+    "    DB 0x7E, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47\n"
+    "    DB 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F\n"
+    "    DB 0x50, 0x99, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57"
+)
+
+# M7段階2c: 故障注入（既定の属性域DEFAULT_ATTRの先頭バイトを変える。
+# l3-main.md 第14節nonzero_patternの検出力の陰性対照）。
+DEFAULT_ATTR_FAULT_OLD = (
+    "DEFAULT_ATTR:\n"
+    "    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h"
+)
+DEFAULT_ATTR_FAULT_NEW = (
+    "DEFAULT_ATTR:\n"
+    "    DB 081h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h"
+)
+
+# M7段階2c: 故障注入（スクロール範囲を第15節fkey_row_reservedの
+# USABLE_ROWS基準からやめ、予約行の1行先まで巻き込んでコピーする）。
+# STRIDE*(ROWS-1)ではLDIRの書き込み範囲(2280バイト)がたまたま正常時の
+# 連続書き込み長と同じ大きさになり検出力が無かった(クリア分の120バイトが
+# LDIR範囲に内包されて別ランに分かれるだけで、2280バイトのランは残る)ため、
+# ROWS(=20)そのものを使い2400バイトへずらす(初期化クリアと同じ大きさに
+# 重なるほうを選び、"2280バイトのランが無くなる"という明確な違いにする)。
+SCROLL_RANGE_FAULT_OLD = "    LD BC,STRIDE*(USABLE_ROWS-1)\n    LDIR"
+SCROLL_RANGE_FAULT_NEW = "    LD BC,STRIDE*ROWS\n    LDIR"
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
-                        inject_key_table_fault: bool = False) -> str:
+                        inject_key_table_fault: bool = False,
+                        inject_shift_fault: bool = False,
+                        inject_default_attr_fault: bool = False,
+                        inject_scroll_range_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -125,6 +164,14 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if screen_text.count(FAULT_OLD) != 1:
             raise SystemExit("故障注入の対象行が一意に見つからない（screen.asm が変わった？）")
         screen_text = screen_text.replace(FAULT_OLD, FAULT_NEW)
+    if inject_default_attr_fault:
+        if screen_text.count(DEFAULT_ATTR_FAULT_OLD) != 1:
+            raise SystemExit("既定属性の故障注入の対象行が一意に見つからない（screen.asm が変わった？）")
+        screen_text = screen_text.replace(DEFAULT_ATTR_FAULT_OLD, DEFAULT_ATTR_FAULT_NEW)
+    if inject_scroll_range_fault:
+        if screen_text.count(SCROLL_RANGE_FAULT_OLD) != 1:
+            raise SystemExit("スクロール範囲の故障注入の対象行が一意に見つからない（screen.asm が変わった？）")
+        screen_text = screen_text.replace(SCROLL_RANGE_FAULT_OLD, SCROLL_RANGE_FAULT_NEW)
 
     keyboard_text = KEYBOARD_ASM.read_text(encoding="utf-8")
     if inject_cursor_fault:
@@ -141,6 +188,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if key_table_text.count(KEY_TABLE_FAULT_OLD) != 1:
             raise SystemExit("表の故障注入の対象行が一意に見つからない（key_table_gen.asm が変わった？）")
         key_table_text = key_table_text.replace(KEY_TABLE_FAULT_OLD, KEY_TABLE_FAULT_NEW)
+    if inject_shift_fault:
+        if key_table_text.count(KEY_TABLE_SHIFT_FAULT_OLD) != 1:
+            raise SystemExit("SHIFT表の故障注入の対象行が一意に見つからない（key_table_gen.asm が変わった？）")
+        key_table_text = key_table_text.replace(KEY_TABLE_SHIFT_FAULT_OLD, KEY_TABLE_SHIFT_FAULT_NEW)
     key_table_path = work / "key_table_gen.asm"
     key_table_path.write_text(key_table_text, encoding="utf-8")
 
@@ -195,6 +246,12 @@ def main():
                      help="故障注入: カーソル追従(SET_CURSOR)のROW出力を1ずらす（自己検査の陰性対照専用）")
     ap.add_argument("--inject-key-table-fault", action="store_true",
                      help="故障注入: キーコード表(Q)の1エントリを変える（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-shift-fault", action="store_true",
+                     help="故障注入: SHIFT表(Q)の1エントリを変える（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-default-attr-fault", action="store_true",
+                     help="故障注入: 既定の属性域(DEFAULT_ATTR)の1バイトを変える（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-scroll-range-fault", action="store_true",
+                     help="故障注入: スクロール範囲をファンクションキー行予約前(ROWS基準)へ戻す（自己検査の陰性対照専用）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -218,7 +275,9 @@ def main():
 
     try:
         combined = build_combined_asm(work, args.extra_lines, args.inject_address_fault,
-                                       args.inject_cursor_fault, args.inject_key_table_fault)
+                                       args.inject_cursor_fault, args.inject_key_table_fault,
+                                       args.inject_shift_fault, args.inject_default_attr_fault,
+                                       args.inject_scroll_range_fault)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)

@@ -12,11 +12,16 @@
 #   1. バナー行・Ok行が期待の行・桁に出ている（docs/spec/l3-main.md 第2節の
 #      番地の式どおり）。自作ROMの画面内容なので本文を見てよい
 #      （CLAUDE.md 禁止事項7の対象は公式ROM/測定の画面本文）。
-#   2. 属性域が既定の並び（この実装が選んだ全ゼロ、src/l3_main/screen.asm
-#      冒頭コメント参照）になっている。
-#   3. スクロール: 表示行数を超える出力（--extra-lines）で、120×19=2280バイトの
-#      書き写し＋末尾120バイトの再クリアが1つの連続書き込み(2400バイト)として
-#      F3C8起点で複数回観測される（docs/spec/l3-main.md 第5節）。
+#   2. 属性域が既定の並び（第14節 nonzero_pattern、白黒の(位置,値)=
+#      (0x80,0x00)×20組。src/l3_main/screen.asm DEFAULT_ATTR参照）に
+#      なっている。
+#   3. スクロール: ファンクションキー表示あり(既定)・表示20行のとき、
+#      範囲は表示行数-1=19行（第15節 fkey_row_reserved）。表示行数を
+#      超える出力（--extra-lines）で、120×18=2160バイトの書き写し＋
+#      末尾120バイトの再クリアが1つの連続書き込み(2280バイト)として
+#      F3C8起点で複数回観測される。初期化時の全画面クリア(120×20=2400
+#      バイト、最下行＝ファンクションキー予約行も含む)は1回だけ別に
+#      観測される。
 #   4. L1適合（tools/verify_l1.sh と同じ判定基盤、tools/cmp_io.py）。
 #      段階2bでカーソルを追従させた結果、CRTCカーソル位置パラメータ
 #      (OUT 0x50、周期内4・5番目のX/Y)は自作ROMでは実際のプロンプト位置
@@ -56,9 +61,11 @@
 #
 # 検査（段階2b、6-10。docs/spec/l3-main.md 第8〜10節、キー入力・行入力）:
 #   6. tools/gen_l3_key_table.py --check — キーコード表が第10節の要約表
-#      （変化なし/別コード/書かない/未判定の件数）と一致すること。
+#      （変化なし/別コード/書かない/未判定の件数、SHIFTを含む）と一致すること。
 #   7. --key-matrix でのキー直押し: 無修飾(Q=0x71)・CAPS(Q→0x51)・
-#      GRPH(Q→0x9C)・RETURN(改行してOkのみ、文字は書かない)を確認する。
+#      GRPH(Q→0x9C)・SHIFT(Q→0x51、テンキー1=0x31→変化なし)・
+#      RETURN(改行してOkのみ、文字は書かない)を確認する
+#      （SHIFTはM7段階2cで第10節が埋まったため直押しを検査対象に追加）。
 #   8. --type での行入力: エコーの位置・文字、カーソル追従のI/O列
 #      （--io-log、OUT 0x50 が入力後の桁・行になる）を確認する。
 #   9. 故障注入: キーコード表のQのエントリを変えた変種
@@ -74,6 +81,18 @@
 #  13. 故障注入: 定常状態のカーソル値(位置4番目、port 0050)だけを書き換えて
 #      も4bはOKのままであることを確かめる（外した範囲がそこだけである
 #      ことの確認）。
+#
+# 検査（段階2c、14-16。第14・15節・第10節SHIFT列の反映分）:
+#  14. 故障注入: 既定の属性域(DEFAULT_ATTR)の先頭バイトを変えた変種
+#      （--inject-default-attr-fault）で検査2が落ちることを確かめる
+#      （検出力の陰性対照）。
+#  15. 故障注入: スクロール範囲をUSABLE_ROWS基準からROWS基準(段階2bの
+#      予約無し版)へ戻した変種（--inject-scroll-range-fault）で検査3の
+#      2160/2280バイトの連続書き込みが観測されなくなる(2280/2400のまま)
+#      ことを確かめる（検出力の陰性対照）。
+#  16. 故障注入: SHIFT_CODE_TABのQのエントリを変えた変種
+#      （--inject-shift-fault）で検査7のSHIFT直押しの結果が期待とずれる
+#      ことを確かめる（検出力の陰性対照）。
 #
 # 使い方: tools/l3_main_selftest.sh
 set -uo pipefail
@@ -146,13 +165,17 @@ if t1[0] == 0x20:
 if t1[OK_LEN] != 0x20:
     print("NG: Ok行の長さがOK_LENと合わない"); ok = False
 
+# l3-main.md 第14節(nonzero_pattern)の白黒既定: (位置,値)=(0x80,0x00)×20組
+# ＝40バイト。src/l3_main/screen.asm DEFAULT_ATTRと同じ値をここで
+# 独立に計算する(仕様書の値から計算。実装の定数をそのまま流用しない)。
+EXPECT_ATTR = bytes([0x80, 0x00] * 20)
 for row in (0, 1, 5, 19):
     a = row_attr(row)
-    if any(a):
-        print(f"NG: row{row}の属性域が既定の並び(全ゼロ)になっていない"); ok = False
+    if a != EXPECT_ATTR:
+        print(f"NG: row{row}の属性域が第14節の既定の並び(0x80,0x00)x20と一致しない: {a.hex()}"); ok = False
 
 if ok:
-    print("OK: バナー・Ok・属性域(既定の並び)")
+    print("OK: バナー・Ok・属性域(第14節の既定の並び)")
 else:
     sys.exit(1)
 PYEOF
@@ -190,13 +213,25 @@ for a in addrs:
 if start is not None:
     runs.append(prev - start + 1)
 
-# 120*(ROWS-1) + 120(最終行の再クリア) = 2400 バイトの連続書き込みが
-# 初期化(全画面クリア)1回 + スクロール回数ぶん、複数回現れるはず。
-big = [r for r in runs if r >= 2400]
-if len(big) < 2:
-    print(f"NG: 2400バイト以上の連続書き込みが{len(big)}回しか無い(初期化+スクロールで2回以上のはず)")
+# 初期化(全画面クリア、最下行のファンクションキー予約行も含む)は
+# 120*ROWS = 2400バイトの連続書き込みとして1回だけ観測されるはず。
+# スクロール(第15節fkey_row_reserved: 表示20行・fkey表示ありで範囲は
+# 19行)は 120*(USABLE_ROWS-1) + 120(最終使用可能行の再クリア) =
+# 120*USABLE_ROWS = 2280バイトの連続書き込みとして複数回観測されるはず。
+init_runs = [r for r in runs if r == 2400]
+scroll_runs = [r for r in runs if r == 2280]
+ok = True
+if len(init_runs) != 1:
+    print(f"NG: 初期化の2400バイト連続書き込みが{len(init_runs)}回(期待1回)")
+    ok = False
+if len(scroll_runs) < 1:
+    print(f"NG: スクロールの2280バイト連続書き込みが{len(scroll_runs)}回(期待1回以上)")
+    ok = False
+if ok:
+    print(f"OK: 初期化2400バイト×{len(init_runs)}回 ＋ スクロール2280バイト×{len(scroll_runs)}回"
+          "（第15節fkey_row_reserved: 範囲=表示行数-1）")
+else:
     sys.exit(1)
-print(f"OK: 2400バイト連続書き込み {len(big)} 回観測（初期化1回＋スクロール{len(big)-1}回）")
 PYEOF
 [ $? -ne 0 ] && fail "スクロールの検査"
 
@@ -260,7 +295,7 @@ python3 "$REPO/tools/gen_l3_key_table.py" --check
 [ $? -ne 0 ] && fail "gen_l3_key_table.py --check"
 
 # -----------------------------------------------------------------------
-say "7. キー直押し（--key-matrix）: 無修飾・CAPS・GRPH・RETURN"
+say "7. キー直押し（--key-matrix）: 無修飾・CAPS・GRPH・SHIFT・RETURN"
 # 待機後にバナー・Okの表示が終わっている前提で、行2(row0=2)のcol0を見る
 # (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=2,VAR_COL=0になる)。
 check_key() {
@@ -292,6 +327,10 @@ check_key "caps_Q" 0x51 --key-matrix 0x0A:7:50:40 --key-matrix 0x04:1:60:10
 check_key "grph_Q" 0x9C --key-matrix 0x08:4:50:40 --key-matrix 0x04:1:60:10
 # CTRL(08H:7)保持+Q→無視（第10節、Qは「無」＝書かない）。row2col0は空白のまま
 check_key "ctrl_Q_ignored" 0x20 --key-matrix 0x08:7:50:40 --key-matrix 0x04:1:60:10
+# SHIFT(08H:6)保持+Q→0x51（第10節SHIFT列、`e915172`実測。0x20のビットが落ちる）
+check_key "shift_Q" 0x51 --key-matrix 0x08:6:50:40 --key-matrix 0x04:1:60:10
+# SHIFT(08H:6)保持+テンキー1(00H:1)→0x31（第10節SHIFT列、数字キーは変化なし）
+check_key "shift_tenkey1" 0x31 --key-matrix 0x08:6:50:40 --key-matrix 0x00:1:60:10
 # RETURN(01H:7)単独→文字は書かない。改行してOkが出るのでrow3にOkが現れる
 "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 --key-matrix 0x01:7:60:10 \
     --vram-dump "$WORK/km_return.vram.bin" --vram-dump-at 250 \
@@ -419,6 +458,85 @@ if [ $RC13 -eq 0 ]; then
 else
   fail "検査13: カーソル位置だけの改変でNGになった(rc=$RC13)。除外範囲が狭すぎる"; cat "$WORK/mut13.txt"
 fi
+
+# -----------------------------------------------------------------------
+say "14. 故障注入（既定の属性域DEFAULT_ATTRの先頭バイトを変える。検査2が落ちることを確かめる）"
+ATTRFAULT_ROM="$WORK/rom_attrfault"
+python3 "$BUILD" "$ATTRFAULT_ROM" --inject-default-attr-fault >"$WORK/build_attrfault.txt" 2>&1 || { fail "build_main_rom.py(attrfault)が失敗"; cat "$WORK/build_attrfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$ATTRFAULT_ROM" --frames 90 \
+    --vram-dump "$WORK/attrfault.vram.bin" --vram-dump-at 89 \
+    >"$WORK/attrfault.stdout.txt" 2>"$WORK/attrfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(attrfault)が失敗"; cat "$WORK/attrfault.stderr.txt" >&2; fi
+python3 - "$WORK/attrfault.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+STRIDE = 120
+COLS = 80
+EXPECT_ATTR = bytes([0x80, 0x00] * 20)
+a0 = data[0*STRIDE+COLS:0*STRIDE+COLS+40]
+if a0 != EXPECT_ATTR:
+    print(f"OK(検出力): 既定属性の故障注入がかかるとrow0の属性域が第14節の並びと不一致になり区別できた")
+    sys.exit(0)
+else:
+    print("NG(検出力不足): 既定属性を故障注入しても検査2と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "既定属性の故障注入の検出力"
+
+# -----------------------------------------------------------------------
+say "15. 故障注入（スクロール範囲をUSABLE_ROWS基準からやめる。検査3の2280バイトのランが無くなることを確かめる）"
+SCROLLFAULT_ROM="$WORK/rom_scrollfault"
+python3 "$BUILD" "$SCROLLFAULT_ROM" --extra-lines 25 --inject-scroll-range-fault >"$WORK/build_scrollfault.txt" 2>&1 || { fail "build_main_rom.py(scrollfault)が失敗"; cat "$WORK/build_scrollfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$SCROLLFAULT_ROM" --frames 90 \
+    --mem-write-log "$WORK/scrollfault.memlog.txt" --mem-write-range F3C8-FF80 \
+    >"$WORK/scrollfault.stdout.txt" 2>"$WORK/scrollfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(scrollfault)が失敗"; cat "$WORK/scrollfault.stderr.txt" >&2; fi
+python3 - "$WORK/scrollfault.memlog.txt" <<'PYEOF'
+import re, sys
+pat = re.compile(r"^\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})\s*$")
+addrs = []
+for line in open(sys.argv[1]):
+    m = pat.match(line)
+    if m:
+        addrs.append(int(m.group(4), 16))
+runs = []
+start = prev = None
+for a in addrs:
+    if prev is None or a != prev + 1:
+        if start is not None:
+            runs.append(prev - start + 1)
+        start = a
+    prev = a
+if start is not None:
+    runs.append(prev - start + 1)
+scroll_runs = [r for r in runs if r == 2280]
+if len(scroll_runs) == 0:
+    print("OK(検出力): スクロール範囲の故障注入がかかると2280バイトのランが消え、検査3と区別できた")
+    sys.exit(0)
+else:
+    print(f"NG(検出力不足): 故障注入してもなお2280バイトのランが{len(scroll_runs)}回観測され、検査3と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "スクロール範囲の故障注入の検出力"
+
+# -----------------------------------------------------------------------
+say "16. 故障注入（SHIFT_CODE_TABのQのエントリを変える。検査7のSHIFT直押しが落ちることを確かめる）"
+SHIFTFAULT_ROM="$WORK/rom_shiftfault"
+python3 "$BUILD" "$SHIFTFAULT_ROM" --inject-shift-fault >"$WORK/build_shiftfault.txt" 2>&1 || { fail "build_main_rom.py(shiftfault)が失敗"; cat "$WORK/build_shiftfault.txt" >&2; }
+"$FRONTEND" --core "$CORE" --rom-dir "$SHIFTFAULT_ROM" --frames 300 \
+    --key-matrix 0x08:6:50:40 --key-matrix 0x04:1:60:10 \
+    --vram-dump "$WORK/shiftfault.vram.bin" --vram-dump-at 250 \
+    >"$WORK/shiftfault.stdout.txt" 2>"$WORK/shiftfault.stderr.txt"
+if [ $? -ne 0 ]; then fail "q88measure(shiftfault)が失敗"; cat "$WORK/shiftfault.stderr.txt" >&2; fi
+python3 - "$WORK/shiftfault.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+got = data[2*120]
+if got != 0x51:
+    print(f"OK(検出力): SHIFT表の故障注入がかかると row2col0=0x{got:02X}(期待0x51と不一致)になり区別できた")
+    sys.exit(0)
+else:
+    print("NG(検出力不足): SHIFT表を故障注入しても検査7と区別できない"); sys.exit(1)
+PYEOF
+[ $? -ne 0 ] && fail "SHIFT表の故障注入の検出力"
 
 # -----------------------------------------------------------------------
 echo
