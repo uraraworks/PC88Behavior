@@ -93,19 +93,25 @@ def rand_single(rng: random.Random, spread=True) -> "oracle.GwNum":
 
 
 def rand_single_fout(rng: random.Random) -> "oracle.GwNum":
-    """仕様書に無い判断: MBF_FOUTは桁合わせに10^|scale|を単精度の
-    中間値として計算する(2進累乗法)。値がMIN_POS/MAX_POS付近の極端な
-    指数だと、この中間値そのものが単精度の範囲(約3.4e38)を超えて
-    オーバーフローし、結果が丸ごと化ける既知の限界がある(境界値照合
-    MIN_POS/MAX_NEGで実際に確認した)。乱数照合はこの限界の外側を
-    避けた範囲(値が概ね10^-27〜10^26に収まるexp)に絞る。極端な値の
-    精度は今回のスコープ外として残す。"""
-    # 実測(300件)で確認: exp 40-216(scaleが±27程度まで)では約36%が
-    # 最終桁1ずれで不一致になったのに対し、exp 110-146(scaleが±10程度
-    # まで)では300件中7件(2.3%)まで下がった。中間値の丸め誤差が
-    # |scale|にほぼ比例して効くと確認したうえで、後者の範囲を採用する。
+    """M7追記(2026-09-15): MBF_FOUTを倍精度(DBL_TABLE、10^0-10^38を
+    DBL_MUL/DBL_DIVで適用、38を超える分は分割)経由のGW手順に作り直し、
+    旧実装(単精度の2進累乗法でオーバーフローしていた)の限界を解消した
+    ため、安全域への限定(旧:exp 110-146)をやめ、指数の全範囲(1-255、
+    rand_singleと同じ「15%の確率で極端な指数を選ぶ」構成)を使う。
+
+    ただし exp byte が概ね1-19(値が10^-33より小さい、6桁化に10^39以上
+    を掛ける必要がある領域)は、Z80側は倍精度の分割適用で溢れずに動く
+    ものの、予測器(tools/l4_mbf_oracle_v2.py)側が10^39以上を倍精度定数
+    として表現できずOverflowErrorになる別の既知の限界がある(報告済み、
+    予測器修正は担当外)。厳密一致で照合できるのはexp>=20からなので、
+    乱数照合の母集団はそちらを使う(exp 1-19はcompare()側で境界値
+    MIN_POS/MIN_NEGとして別途「オーバーフローせず動くか」だけ確認する)。
+    """
     sign = rng.randint(0, 1)
-    exp = rng.randint(110, 146)
+    if rng.random() < 0.15:
+        exp = rng.choice([20, 21, 22, 126, 127, 128, 129, 130, 253, 254, 255])
+    else:
+        exp = rng.randint(20, 255)
     mant = rng.randint(0x800000, 0xFFFFFF)
     return oracle.GwNum("single", sign=sign, exp=exp, mant=mant)
 
@@ -277,10 +283,16 @@ def gen_vectors(op: str, n: int, seed: int):
     elif op == "fout":
         for f in FOUT_BOUNDARY_FRACTIONS:
             vecs.append((oracle.GwNum.from_fraction(f, "single"),))
-        # MAX_POS/MAX_NEG/MIN_POS/MIN_NEGは中間値10^|scale|が単精度の
-        # 範囲を超える既知の限界に該当するため除く(rand_single_foutの
-        # docstring参照)。
-        for a in (ZERO, ONE, TWO, HALF, NEG_ONE, NEAR_POW2, MUL_STICKY_A, MUL_STICKY_B):
+        # M7追記(2026-09-15): MBF_FOUTを倍精度(DBL_TABLE)経由のGW手順に
+        # 作り直し、単精度の2進累乗法によるオーバーフローを解消したため、
+        # MAX_POS/MAX_NEGは境界値集合に戻す(コメントに残す=戻した根拠)。
+        # MIN_POS/MIN_NEGはZ80側はオーバーフローせず動くが、予測器側が
+        # OverflowErrorになる既知の限界が別に残っている
+        # (expected_fout_or_none参照、報告済み)。厳密一致は検査できない
+        # ものの「クラッシュ・オーバーフローせず何か返すか」は検査したい
+        # ので境界値集合に含め、compare側でNone分岐として扱う。
+        for a in (ZERO, ONE, TWO, HALF, NEG_ONE, NEAR_POW2, MUL_STICKY_A, MUL_STICKY_B,
+                  MAX_POS, MAX_NEG, MIN_POS, MIN_NEG):
             vecs.append((a,))
         while len(vecs) < n:
             vecs.append((rand_single_fout(rng),))
@@ -317,8 +329,32 @@ def expected_itos(v: int):
 
 
 def expected_fout(a: "oracle.GwNum") -> str:
-    body, _approx = oracle.fout_format(a, single_digits=6, small_rule="len", small_len=7)
+    # M7追記(2026-09-15): MBF_FOUTがGW手順($FOTNV+「0.5を足して切り捨て」)
+    # へ作り直された(mbf_single.asm該当コメント参照)ため、予測器も
+    # fout_algo="gw"(_significant_digits_gw、docs/spec/l4-basic.md 5.3節の
+    # タイの丸め方向と一致)に合わせる。single_digits/small_rule/small_len
+    # は従来どおり(6桁・LEN7則)。
+    body, _approx = oracle.fout_format(
+        a, single_digits=6, small_rule="len", small_len=7, fout_algo="gw"
+    )
     return body
+
+
+def expected_fout_or_none(a: "oracle.GwNum"):
+    """expected_foutのラッパ。MIN_POS/MIN_NEG近傍(単精度の指数byteが
+    概ね1-19、6桁化に10^39以上を掛ける必要がある領域)では
+    tools/l4_mbf_oracle_v2.py の_pow10_as_double/encode_mbf自体が
+    OverflowErrorになり予測値を計算できない(倍精度MBFの指数byteが
+    単精度と同じ8bit・bias+128を共有するため、10^39以上はそもそも
+    倍精度定数として表現できない=予測器側の既知の未対応領域。
+    報告済み、予測器修正は担当外のためここでは触らない)。
+    この領域はNoneを返し、呼び出し側は「オーバーフローせず何らかの
+    出力を返したか」だけを検査する(厳密な文字列一致は検査できない)。
+    """
+    try:
+        return expected_fout(a)
+    except OverflowError:
+        return None
 
 
 # docs/spec/l4-basic.md 第5節(第3.1版、単精度の規則は不変)の観測例。
@@ -590,17 +626,45 @@ FAULT_FIN_BANG_NEW = (
     "    ; 故障注入: `!`の単精度強制を外す\n"
 )
 
+# M7追記(2026-09-15): FOUTがGW手順(倍精度$FOTNV+ガードビットのみの
+# 「0.5を足して切り捨て」)へ作り直された(mbf_single.asm該当コメント
+# 参照)ため、丸め判定の位置がUA_M0のビットマスク方式からFOUT_DGUARD
+# (シフトで最後に落ちたビット1つだけ)方式に変わった。旧FAULT_FOUT_TRUNCの
+# OLD文字列(UA_M0を直接マスクする書き方)はもう存在しないので、新しい
+# 丸めコードを対象に書き直した。
 FAULT_FOUT_TRUNC_OLD = (
-    "    LD A,(UA_M0)\n"
-    "    AND C\n"
-    "    CP B\n"
-    "    JP C,_fout_round_done\n"
-    "    JP NZ,_fout_round_up"
+    "    LD A,(FOUT_DGUARD)\n"
+    "    OR A\n"
+    "    JP Z,_fout_round_done\n"
+    "    LD A,(FOUT_INT0)\n"
+    "    INC A"
 )
 FAULT_FOUT_TRUNC_NEW = (
-    "    LD A,(UA_M0)\n"
-    "    AND C\n"
-    "    JP _fout_round_done  ; 故障注入: 丸めを切り捨てに固定"
+    "    LD A,(FOUT_DGUARD)\n"
+    "    OR A\n"
+    "    JP _fout_round_done  ; 故障注入: 丸めを切り捨てに固定\n"
+    "    LD A,(FOUT_INT0)\n"
+    "    INC A"
+)
+
+# 故障注入: 「丸めるとちょうど半分になる値は絶対値の大きい側へ丸める」
+# (docs/spec/l4-basic.md 第5.3節、偶数丸めではない)という仕様に反し、
+# 偶数丸め(タイは結果の最下位ビットが奇数の時だけ切り上げる)にする
+# 陰性対照。正しい実装はガードビット(FOUT_DGUARD)1つだけで切り上げを
+# 決めるが、この故障注入はさらに結果のLSBの偶奇を見て、LSBが偶数に
+# なる側へ倒す(sticky情報が無いため「ちょうど半分」と「半分を超える」
+# を区別できない粗い偶数丸めだが、正しい実装とは系統的に異なる結果に
+# なるので陰性対照として機能する)。
+FAULT_FOUT_ROUND_EVEN_OLD = FAULT_FOUT_TRUNC_OLD
+FAULT_FOUT_ROUND_EVEN_NEW = (
+    "    LD A,(FOUT_DGUARD)\n"
+    "    OR A\n"
+    "    JP Z,_fout_round_done\n"
+    "    LD A,(FOUT_INT0)\n"
+    "    BIT 0,A  ; 故障注入: 偶数丸め(LSBが奇数の時だけ切り上げ)\n"
+    "    JP Z,_fout_round_done\n"
+    "    LD A,(FOUT_INT0)\n"
+    "    INC A"
 )
 
 FAULT_FOUT_LEN7_OLD = "_fout_small:\n    LD A,(FOUT_E)\n    NEG\n    LD B,A\n    LD A,(FOUT_NSIG)\n    ADD A,B\n    CP 8"
@@ -616,6 +680,7 @@ FAULTS = {
     "div_sticky": (FAULT_DIV_STICKY_OLD, FAULT_DIV_STICKY_NEW),
     "fin_bang": (FAULT_FIN_BANG_OLD, FAULT_FIN_BANG_NEW),
     "fout_trunc": (FAULT_FOUT_TRUNC_OLD, FAULT_FOUT_TRUNC_NEW),
+    "fout_round_even": (FAULT_FOUT_ROUND_EVEN_OLD, FAULT_FOUT_ROUND_EVEN_NEW),
     "fout_len7": (FAULT_FOUT_LEN7_OLD, FAULT_FOUT_LEN7_NEW),
     "fout_6dig": (FAULT_FOUT_6DIG_OLD, FAULT_FOUT_6DIG_NEW),
 }
@@ -680,11 +745,18 @@ def compare(op: str, n: int, seed: int, frames: int, fault: str | None, workdir:
                 else:
                     expected = eb + bytes([status])
             elif op == "fout":
-                body = expected_fout(v[0])
-                raw = body.encode("ascii")
-                expected = bytes([len(raw)]) + raw
+                body = expected_fout_or_none(v[0])
                 actual_len = actual[0]
                 actual = actual[:1 + actual_len]
+                if body is None:
+                    # MIN_POS/MIN_NEG近傍: 予測器が計算不能(expected_fout_or_none
+                    # 参照)。溢れずに何か出力したか(長さが16バイトの枠に収まり、
+                    # 長さバイト自体が矛盾していないか)だけを確認する。
+                    if missing or actual_len > 16:
+                        mismatches.append((i, v, None, actual))
+                    continue
+                raw = body.encode("ascii")
+                expected = bytes([len(raw)]) + raw
             else:
                 eb, status = expected_binop(op, v[0], v[1])
                 expected = eb + bytes([status])

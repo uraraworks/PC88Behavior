@@ -2172,17 +2172,44 @@ _fmul10_done:
 ;   （丸めた後の値で判定）。|v|<1側はLEN7則(固定表記にしたときの
 ;   小数点右の文字数が7以下なら固定)。
 ;
-; 仕様書に無い判断（アルゴリズムそのもの。8086の$FOUT/$FOFMTの写経では
-; ない）:
-;   - 値を[100000,1000000)へ収まるまで単精度の10.0で繰り返し
-;     掛ける/割る(FIN同様、繰り返し丸めが入る近似。MBF_FINのような
-;     2進累乗法は使っていない——ここでの繰り返し回数は|10進指数|程度
-;     で頭打ちなうえ、単精度の指数範囲全体(概ね±38)をカバーする必要が
-;     あり、実装の時間の都合で素朴な逐次乗除算のままにした)。
-;   - 0.5を足してから整数部を右シフトで取り出す(偶数丸めではなく
-;     「0.5を足して切り捨て」。真のタイでは常に切り上げになり、
-;     GW-BASICの偶数丸めとは異なりうる)。
-;   - 得た整数(最大32bit)を10で6回割って6桁を1の位から取り出す。
+; M7追記(2026-09-15、GW手順への組み直し): 桁合わせ(ブラケット)の判定
+; ループ自体は単精度のまま(下のSCALECNT探索、既存のまま変更なし——
+; 各ステップの比較(MBF_CMP)は常にその時点の値と1e5/1e6を正しく比較
+; するので、丸め誤差が蓄積してもブラケットの探索自体は破綻しない)。
+; 変えたのは決まったSCALECNTを実際に適用する場所と、最後の丸め方:
+;   - $FOTNV/MDPTENの再現: 元の値(FOUT_ORIGVAL)を倍精度(56bit、
+;     SINGLE_TO_DOUBLE)へ厳密変換してから、MBF_FINと同じDBL_TABLE
+;     (10^0-10^38)をDBL_MUL/DBL_DIVで適用する。単精度のまま2進累乗法
+;     (FIN_POW)で1回のべき乗を計算していた前の実装は、10^38を超える
+;     べき乗が単精度の範囲(最大約3.4E+38)はおろか倍精度の範囲(MBFは
+;     単精度・倍精度とも指数バイトが同じ8bit、biasも同じ+128——
+;     最大表現値は約1.7E+38で共通)にも収まらずオーバーフローしていた
+;     (tools/l4_mbf_oracle_v2.py encode_mbf でも同じ理由でOverflowError
+;     になることを確認済み)。単精度の指数範囲全体(MIN_POS〜MAX_POS)を
+;     カバーするため、|SCALECNT|が38を超える場合はDBL_TABLEの範囲
+;     (0-38)に収まるよう38ずつに分割して複数回DBL_MUL/DBL_DIVを呼ぶ
+;     (仕様書に無い判断。実機の$FOTNVも1回のテーブル参照は限られた
+;     範囲しかカバーせず、収束するまでFNV10ループを繰り返す構造なので、
+;     複数回に分けて適用すること自体は実機の設計方針と矛盾しない。
+;     ただし|SCALECNT|>38の領域はtools/l4_mbf_oracle_v2.pyの
+;     _pow10_as_doubleが10進べき乗を1回の倍精度丸めで計算しようとして
+;     同じOverflowErrorになり、予測器では検算できない——報告済み、
+;     このファイルでは予測器を直さず実機的に正しいと判断できる
+;     複数回分割のまま実装し、その範囲は非オーバーフローの確認に留めた)。
+;   - 丸めは「0.5を足して切り捨て」(GW-BASICの$SIGD/$FOTCV、
+;     偶数丸めではない)。倍精度のスケール済み値を184-DA_EXPビット
+;     右シフトして整数部を取り出すとき、最後に落ちるビット
+;     (ガードビット、シフト前の値の小数第1ビットに相当)が1なら
+;     切り上げる。これは「0.5を足して切り捨て」と2進数として完全に
+;     等価(0.5を加えて桁上げが起きるかどうかは、小数第1ビットだけで
+;     決まり、それより下位のビット(sticky)は無関係)であり、
+;     偶数丸めのように結果の最下位ビットの偶奇を見る必要が無い
+;     (前の実装は「偶数丸め」だったが、仕様書5.3節はタイを絶対値の
+;     大きい側へ丸めると規定しており偶数丸めではなかった=バグ)。
+;   - 倍精度スケール後に下限(100000)を割り込んだら(近似誤差)もう
+;     1桁掛け直す防御的補正($FOTNVのFNV20相当、
+;     tools/l4_mbf_oracle_v2.py _significant_digits_gw の
+;     "elif digits_int < 10**(ndig-1)"と同じ)。
 ; =======================================================================
 FOUT_SIGN     EQU 0xC0C0
 FOUT_E        EQU 0xC0C1   ; 符号つき1バイト
@@ -2205,6 +2232,14 @@ FOUT_R_CHAR   EQU 0xC0E5
 FOUT_SHIFTCNT EQU 0xC0E6
 FOUT_SHIFTORIG EQU 0xC0E7
 FOUT_ORIGVAL   EQU 0xC0E8   ; 4バイト(E8-EB)
+FOUT_DREMAIN   EQU 0xC162   ; 倍精度スケール: 残りの適用量(0-44程度)
+FOUT_DSCALE_NEG EQU 0xC163  ; 倍精度スケール: 1なら除算、0なら乗算
+WK_DFOUT_APPLY  EQU 0xC164  ; 倍精度スケール: 今回のパスで適用する量
+FOUT_DSHIFTCNT  EQU 0xC165  ; 倍精度→整数: シフト回数(184-DA_EXP)
+FOUT_DGUARD     EQU 0xC166  ; 倍精度→整数: 最後に落ちたビット(丸め判定)
+WK_M10_T2       EQU 0xC167  ; FOUT_INT_MUL10の作業領域(3バイト)
+WK_M10_T1       EQU 0xC168
+WK_M10_T0       EQU 0xC169
 
 MBF_FOUT:
     XOR A
@@ -2294,226 +2329,131 @@ _fout_scale_down_done:
     SUB C
     LD (FOUT_E),A
 
-    ; SCALECNTは決まったので、実際の桁合わせは元の値(FOUT_ORIGVAL)へ
-    ; 10^|SCALECNT|を2進累乗法(MBF_FINと同じ手法。FIN_POW/FIN_BASE/
-    ; WK_FINLOOP/FIN_SCALE_NEGを使い回す=仕様書に無い判断、FINと同時に
-    ; 呼ばれないので安全)で1回だけ適用し、複数回の丸めの積み重なりを
-    ; 避ける。
+    ; SCALECNTは決まったので、実際の桁合わせは元の値(FOUT_ORIGVAL)を
+    ; 倍精度(56bit)へ厳密変換してから、DBL_TABLE(10^0-10^38)を
+    ; DBL_MUL/DBL_DIVで適用する($FOTNV/MDPTENの再現、ヘッダコメント
+    ; 参照)。|SCALECNT|が38を超える場合は38ずつに分割して複数回適用
+    ; する(単精度の指数範囲全体をカバーするための仕様書に無い判断)。
+    LD A,(FOUT_ORIGVAL)
+    LD (MBF_OPA),A
+    LD A,(FOUT_ORIGVAL+1)
+    LD (MBF_OPA+1),A
+    LD A,(FOUT_ORIGVAL+2)
+    LD (MBF_OPA+2),A
+    LD A,(FOUT_ORIGVAL+3)
+    LD (MBF_OPA+3),A
+    CALL MBF_UNPACK_A
+    CALL SINGLE_TO_DOUBLE
+
     LD A,(FOUT_SCALECNT)
     OR A
-    JP Z,_fout_pow_skip
+    JP Z,_fout_dscale_done
     BIT 7,A
-    JP Z,_fout_pow_e_pos
+    JP Z,_fout_dscale_pos
     NEG
-    LD (WK_FINLOOP),A
+    LD (FOUT_DREMAIN),A
     LD A,1
-    LD (FIN_SCALE_NEG),A
-    JP _fout_pow_have_e
-_fout_pow_e_pos:
-    LD (WK_FINLOOP),A
+    LD (FOUT_DSCALE_NEG),A
+    JP _fout_dscale_loop
+_fout_dscale_pos:
+    LD (FOUT_DREMAIN),A
     XOR A
-    LD (FIN_SCALE_NEG),A
-_fout_pow_have_e:
-    XOR A
-    LD (FIN_POW),A
-    LD (FIN_POW+1),A
-    LD (FIN_POW+2),A
-    LD A,129
-    LD (FIN_POW+3),A
-    CALL FIN_SET_OPB_TEN
-    LD A,(MBF_OPB)
-    LD (FIN_BASE),A
-    LD A,(MBF_OPB+1)
-    LD (FIN_BASE+1),A
-    LD A,(MBF_OPB+2)
-    LD (FIN_BASE+2),A
-    LD A,(MBF_OPB+3)
-    LD (FIN_BASE+3),A
-_fout_pow_loop:
-    LD A,(WK_FINLOOP)
+    LD (FOUT_DSCALE_NEG),A
+_fout_dscale_loop:
+    LD A,(FOUT_DREMAIN)
     OR A
-    JP Z,_fout_pow_done
-    BIT 0,A
-    JP Z,_fout_pow_noadd
-    LD A,(FIN_POW)
-    LD (MBF_OPA),A
-    LD A,(FIN_POW+1)
-    LD (MBF_OPA+1),A
-    LD A,(FIN_POW+2)
-    LD (MBF_OPA+2),A
-    LD A,(FIN_POW+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_BASE)
-    LD (MBF_OPB),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPB+3),A
-    CALL MBF_MUL
-    LD A,(MBF_RES)
-    LD (FIN_POW),A
-    LD A,(MBF_RES+1)
-    LD (FIN_POW+1),A
-    LD A,(MBF_RES+2)
-    LD (FIN_POW+2),A
-    LD A,(MBF_RES+3)
-    LD (FIN_POW+3),A
-_fout_pow_noadd:
-    LD A,(WK_FINLOOP)
-    SRL A
-    LD (WK_FINLOOP),A
+    JP Z,_fout_dscale_done
+    CP 39
+    JP C,_fout_dscale_apply   ; A(<=38)をそのまま今回の適用量にする
+    LD A,38
+_fout_dscale_apply:
+    LD (WK_DFOUT_APPLY),A
+    CALL DBL_TABLE_LOOKUP
+    LD A,(FOUT_DSCALE_NEG)
     OR A
-    JP Z,_fout_pow_done
-    LD A,(FIN_BASE)
-    LD (MBF_OPA),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPA+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPA+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_BASE)
-    LD (MBF_OPB),A
-    LD A,(FIN_BASE+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_BASE+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_BASE+3)
-    LD (MBF_OPB+3),A
-    CALL MBF_MUL
-    LD A,(MBF_RES)
-    LD (FIN_BASE),A
-    LD A,(MBF_RES+1)
-    LD (FIN_BASE+1),A
-    LD A,(MBF_RES+2)
-    LD (FIN_BASE+2),A
-    LD A,(MBF_RES+3)
-    LD (FIN_BASE+3),A
-    JP _fout_pow_loop
-_fout_pow_done:
-    LD A,(FOUT_ORIGVAL)
-    LD (MBF_OPA),A
-    LD A,(FOUT_ORIGVAL+1)
-    LD (MBF_OPA+1),A
-    LD A,(FOUT_ORIGVAL+2)
-    LD (MBF_OPA+2),A
-    LD A,(FOUT_ORIGVAL+3)
-    LD (MBF_OPA+3),A
-    LD A,(FIN_POW)
-    LD (MBF_OPB),A
-    LD A,(FIN_POW+1)
-    LD (MBF_OPB+1),A
-    LD A,(FIN_POW+2)
-    LD (MBF_OPB+2),A
-    LD A,(FIN_POW+3)
-    LD (MBF_OPB+3),A
-    LD A,(FIN_SCALE_NEG)
-    OR A
-    JP NZ,_fout_pow_div
-    CALL MBF_MUL
-    JP _fout_pow_apply_done
-_fout_pow_div:
-    CALL MBF_DIV
-_fout_pow_apply_done:
-    LD A,(MBF_RES)
-    LD (MBF_OPA),A
-    LD A,(MBF_RES+1)
-    LD (MBF_OPA+1),A
-    LD A,(MBF_RES+2)
-    LD (MBF_OPA+2),A
-    LD A,(MBF_RES+3)
-    LD (MBF_OPA+3),A
-    JP _fout_pow_finalize
-_fout_pow_skip:
-    LD A,(FOUT_ORIGVAL)
-    LD (MBF_OPA),A
-    LD A,(FOUT_ORIGVAL+1)
-    LD (MBF_OPA+1),A
-    LD A,(FOUT_ORIGVAL+2)
-    LD (MBF_OPA+2),A
-    LD A,(FOUT_ORIGVAL+3)
-    LD (MBF_OPA+3),A
-_fout_pow_finalize:
-
-    ; 整数部を切り出しつつ偶数丸めする(旧実装は「0.5を足してから
-    ; 切り捨て」だったが、乱数1200件照合で約67%が最下位桁+1の系統的な
-    ; ずれになり不採用にした——原因はここではなく整列済み値の丸めの
-    ; 甘さだったので、guard/sticky方式の偶数丸めに置き換えた=
-    ; 仕様書に無い判断)。
-    ; shift = 152 - UA_EXP (OPAは桁合わせ後のスケール済み値)
-    CALL MBF_UNPACK_A
-    LD A,152
+    JP NZ,_fout_dscale_div
+    CALL DBL_MUL
+    JP _fout_dscale_applied
+_fout_dscale_div:
+    CALL DBL_DIV
+_fout_dscale_applied:
+    LD A,(FOUT_DREMAIN)
     LD B,A
-    LD A,(UA_EXP)
+    LD A,(WK_DFOUT_APPLY)
     LD C,A
     LD A,B
     SUB C
-    LD (FOUT_SHIFTCNT),A
-    LD (FOUT_SHIFTORIG),A
-    LD A,(UA_M2)
-    LD (FOUT_INT2),A
-    LD A,(UA_M1)
-    LD (FOUT_INT1),A
-    LD A,(UA_M0)
-    LD (FOUT_INT0),A
-    XOR A
-    LD (FOUT_INT3),A
-_fout_shift_loop:
-    LD A,(FOUT_SHIFTCNT)
-    OR A
-    JP Z,_fout_shift_done
-    XOR A
-    LD A,(FOUT_INT2)
-    SRL A
-    LD (FOUT_INT2),A
-    LD A,(FOUT_INT1)
-    RRA
-    LD (FOUT_INT1),A
-    LD A,(FOUT_INT0)
-    RRA
-    LD (FOUT_INT0),A
-    LD A,(FOUT_SHIFTCNT)
-    DEC A
-    LD (FOUT_SHIFTCNT),A
-    JP _fout_shift_loop
-_fout_shift_done:
-    ; 偶数丸め: 捨てた下位FOUT_SHIFTORIGビット(<=7bit、UA_M0の下位に
-    ; そのまま残っている)をHALF(=2^(shift-1))と比較する。
-    LD A,(FOUT_SHIFTORIG)
-    OR A
-    JP Z,_fout_round_done      ; shift=0なら丸め不要(小数部が無い)
-    DEC A
-    LD (WK_FOUTLOOP),A
-    LD A,1
-    LD (WK_REM10),A
-_fout_half_loop:
-    LD A,(WK_FOUTLOOP)
-    OR A
-    JP Z,_fout_half_done
-    LD A,(WK_REM10)
-    SLA A
-    LD (WK_REM10),A
-    LD A,(WK_FOUTLOOP)
-    DEC A
-    LD (WK_FOUTLOOP),A
-    JP _fout_half_loop
-_fout_half_done:
-    LD A,(WK_REM10)
+    LD (FOUT_DREMAIN),A
+    JP _fout_dscale_loop
+_fout_dscale_done:
+
+    ; 倍精度スケール済みの値(DA_*)から整数部を切り出しつつ丸める。
+    ; 「0.5を足して切り捨て」は、シフトで捨てる最後の1ビット
+    ; (ガードビット、小数第1ビットに相当)だけで決まる
+    ; (ヘッダコメント参照。偶数丸めのような下位ビットのOR〔sticky〕は
+    ; 不要——ここが前の実装〔偶数丸め〕からの変更点)。
+    ; shift = 184 - DA_EXP (DAは桁合わせ後のスケール済み倍精度値)。
+    LD A,184
     LD B,A
-    SLA A
-    DEC A
+    LD A,(DA_EXP)
     LD C,A
-    LD A,(UA_M0)
-    AND C
-    CP B
-    JP C,_fout_round_done
-    JP NZ,_fout_round_up
-    LD A,(FOUT_INT0)
-    BIT 0,A
+    LD A,B
+    SUB C
+    LD (FOUT_DSHIFTCNT),A
+    XOR A
+    LD (FOUT_DGUARD),A
+_fout_dshift_loop:
+    LD A,(FOUT_DSHIFTCNT)
+    OR A
+    JP Z,_fout_dshift_done
+    XOR A
+    LD A,(DA_M6)
+    SRL A
+    LD (DA_M6),A
+    LD A,(DA_M5)
+    RRA
+    LD (DA_M5),A
+    LD A,(DA_M4)
+    RRA
+    LD (DA_M4),A
+    LD A,(DA_M3)
+    RRA
+    LD (DA_M3),A
+    LD A,(DA_M2)
+    RRA
+    LD (DA_M2),A
+    LD A,(DA_M1)
+    RRA
+    LD (DA_M1),A
+    LD A,(DA_M0)
+    RRA
+    LD (DA_M0),A
+    JP NC,_fout_dshift_noguard
+    LD A,1
+    LD (FOUT_DGUARD),A
+    JP _fout_dshift_cont
+_fout_dshift_noguard:
+    XOR A
+    LD (FOUT_DGUARD),A
+_fout_dshift_cont:
+    LD A,(FOUT_DSHIFTCNT)
+    DEC A
+    LD (FOUT_DSHIFTCNT),A
+    JP _fout_dshift_loop
+_fout_dshift_done:
+    ; 整数部(56bitのうち低位4バイト。有効範囲は24bit程度に収まるので
+    ; DA_M3は常に0の想定)をFOUT_INTへコピーする。
+    LD A,(DA_M3)
+    LD (FOUT_INT3),A
+    LD A,(DA_M2)
+    LD (FOUT_INT2),A
+    LD A,(DA_M1)
+    LD (FOUT_INT1),A
+    LD A,(DA_M0)
+    LD (FOUT_INT0),A
+    LD A,(FOUT_DGUARD)
+    OR A
     JP Z,_fout_round_done
-_fout_round_up:
     LD A,(FOUT_INT0)
     INC A
     LD (FOUT_INT0),A
@@ -2546,6 +2486,36 @@ _fout_do_overflow:
     INC A
     LD (FOUT_E),A
 _fout_no_overflow:
+
+    ; 桁下限割れの防御的補正($FOTNVのFNV20相当。倍精度スケールの
+    ; 近似誤差で下限100000を割り込むことがあるため、ゼロでなければ
+    ; もう1桁掛け直す。tools/l4_mbf_oracle_v2.py _significant_digits_gw
+    ; の"elif digits_int < 10**(ndig-1) and digits_int != 0"と同じ)。
+    LD A,(FOUT_INT2)
+    CP 0x01
+    JP C,_fout_maybe_underflow
+    JP NZ,_fout_no_underflow
+    LD A,(FOUT_INT1)
+    CP 0x86
+    JP C,_fout_maybe_underflow
+    JP NZ,_fout_no_underflow
+    LD A,(FOUT_INT0)
+    CP 0xA0
+    JP NC,_fout_no_underflow
+_fout_maybe_underflow:
+    LD A,(FOUT_INT2)
+    LD B,A
+    LD A,(FOUT_INT1)
+    OR B
+    LD B,A
+    LD A,(FOUT_INT0)
+    OR B
+    JP Z,_fout_no_underflow    ; 全部0=真のゼロ、補正しない
+    CALL FOUT_INT_MUL10
+    LD A,(FOUT_E)
+    DEC A
+    LD (FOUT_E),A
+_fout_no_underflow:
 
     ; 6桁を1の位から取り出す
     LD A,5
@@ -2827,6 +2797,60 @@ _i32d10_loop:
 _i32d10_skip:
     DEC B
     JP NZ,_i32d10_loop
+    RET
+
+; FOUT_INT2:1:0(24bit想定) *= 10。桁下限割れの防御的補正専用
+; (呼び出し前に100000未満であることを確認済みなので、10倍しても
+; 1,000,000は超えず24bitに収まる)。X*10 = (X<<3)+(X<<1)。
+FOUT_INT_MUL10:
+    LD A,(FOUT_INT0)
+    LD (WK_M10_T0),A
+    LD A,(FOUT_INT1)
+    LD (WK_M10_T1),A
+    LD A,(FOUT_INT2)
+    LD (WK_M10_T2),A
+    ; WK_M10_T(2バイト分のX*2)
+    XOR A
+    LD A,(WK_M10_T0)
+    SLA A
+    LD (WK_M10_T0),A
+    LD A,(WK_M10_T1)
+    RLA
+    LD (WK_M10_T1),A
+    LD A,(WK_M10_T2)
+    RLA
+    LD (WK_M10_T2),A
+    ; FOUT_INT <<= 3 (X*8)
+    LD B,3
+_m10_shift3:
+    XOR A
+    LD A,(FOUT_INT0)
+    SLA A
+    LD (FOUT_INT0),A
+    LD A,(FOUT_INT1)
+    RLA
+    LD (FOUT_INT1),A
+    LD A,(FOUT_INT2)
+    RLA
+    LD (FOUT_INT2),A
+    DEC B
+    JP NZ,_m10_shift3
+    ; FOUT_INT(X*8) += WK_M10_T(X*2)  =>  X*10
+    LD A,(FOUT_INT0)
+    LD B,A
+    LD A,(WK_M10_T0)
+    ADD A,B
+    LD (FOUT_INT0),A
+    LD A,(FOUT_INT1)
+    LD B,A
+    LD A,(WK_M10_T1)
+    ADC A,B
+    LD (FOUT_INT1),A
+    LD A,(FOUT_INT2)
+    LD B,A
+    LD A,(WK_M10_T2)
+    ADC A,B
+    LD (FOUT_INT2),A
     RET
 
 ; MBF_OPBへ単精度定数100000.0を書く。AF破壊。
