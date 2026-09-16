@@ -1,0 +1,551 @@
+# docs/notes 索引
+
+測定・適合判定・調査・設計・事故対応の各ノートを主題ごとにまとめた索引。各節の中は
+コミット時系列順（古い→新しい）。**本文は転記せず、見出し・判定名・結論だけを1行で
+要約する。** 詳細は各ファイル自身を参照。tsv は個別の索引行を作らず、対応するノート
+の説明に含めた。
+
+## 1. 測定 (l4-s*) — L4 BASIC/プログラムモードの観測
+
+### 1.1 l4-s1 系 — L3（画面・キー入力）の観測（l3-main.md の根拠）
+
+- `l4-s1a-text-vram-preregistration.md` — l4-s1a — テキストVRAMの属性の並び・カーソル位置の対応・スクロールの仕方 — 事前登録（`25eb8c8`）
+- `l4-s1a-text-vram-preregistration-addendum.md` — l4-s1a — 事前登録の追補（測定前）。事前登録追補1（条件・腕の定義）（`a3b8685`）
+- `l4-s1a-text-vram-preregistration-addendum2.md` — l4-s1a — 事前登録の追補2（測定前）。事前登録追補2（目印を`q7z`に改めた経緯）（`8aeb8f5`）
+- `l4-s1a-text-vram-results.md` — l4-s1a: テキストVRAMの属性・カーソル位置・スクロールを測った結果。判定 Q1=attr_pairs（120B=文字80+属性40）・Q2=linear_120・Q3=scroll_moves_vram（`b29bc85`）
+- `l4-s1b-key-matrix-preregistration.md` — l4-s1b — キーマトリクスのビットと入力される文字の対応 — 事前登録（`a8f7b05`）
+- `l4-s1c-attribute-values-preregistration.md` — l4-s1c — 属性の値の意味と、白黒モードで属性が変わらなかった理由 — 事前登録（`7cd359b`）
+- `l4-s1b-key-matrix-preregistration-addendum.md` — l4-s1b — 事前登録の追補（測定前）。事前登録追補1（`d484cdb`）
+- `l4-s1c-attribute-values-results.md` — l4-s1c: 属性の値の意味と、白黒モードで属性が変わらなかった理由を測った結果。判定 Q1=default_mono・Q2=mono_codes_distinct・Q3=color_step_0x20・Q4=explained_by_stage（`5ca4e85`）
+- `l4-s1b-key-matrix-results-q1q3.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（予備走・Q1・Q3）。判定 Q1=writes_code(64)/no_write(16)/未判定(10)、Q3=no_reaction。末尾に訂正あり（`0f4d374`）
+- `l4-s1d-a3m-reproduction-preregistration.md` — l4-s1d — l4-s1a の A3m（白黒・結合行）の再現 — 事前登録（`7180de7`）
+- `l4-s1d-a3m-reproduction-results.md` — l4-s1d: l4-s1a の A3m（白黒・結合行）の再現 — 結果。判定`row_mixup`（白黒モードでCOLORが効かなく見えたのは行の取り違えと判明）（`6d3bb48`）
+- `l4-s1b-key-matrix-results-q2.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（Q2）。Q2元測定（記述のみ、SHIFT関連セル数を記録）（`d8eb0a1`）
+- `l4-s1b-key-matrix-preregistration-addendum2.md` — l4-s1b — 事前登録の追補2（SHIFT の取り直し、測定前）。事前登録追補2（SHIFTを最下行を除いて解析し直す規則）（`e678e59`）
+- `l4-s1e-default-attr-and-scroll-range-preregistration.md` — l4-s1e — 属性域の既定のバイト値と、スクロールの範囲 — 事前登録（`d1374c0`）
+- `l4-s1b-key-matrix-results-q2-shift.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（Q2 SHIFT取り直し）。Q2 SHIFT取り直し（記述のみ）（`a7911b7`）
+- `l4-s1e-default-attr-and-scroll-range-results.md` — l4-s1e: 属性域の既定のバイト値と、スクロールの範囲を測った結果。判定 Q1=nonzero_pattern・Q2=fkey_row_reserved（`edba0c8`）
+- `l4-s1b-key-matrix-preregistration-addendum3.md` — l4-s1b — 事前登録の追補3（SHIFT の文字コードの記録、測定前）。事前登録追補3（文字コードそのものの記録を明文化）（`1249b8b`）
+- `l4-s1b-key-matrix-results-q2-shift-codes.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（Q2 SHIFT の文字コード）。Q2 SHIFTの文字コードそのものを記録し直し（`e915172`）
+
+### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
+
+- `l4-s3a-print-format-preregistration.md` — l4-s3a — 直接モードの PRINT の出力の形 — 事前登録（`65ee97b`）
+- `l4-s3a-print-format-results.md` — l4-s3a: 直接モードPRINTの出力の形を測った結果。判定 Q1=sign_space_before、Q3=no_suppress/suppresses_between/newline_not_suppressed/zone_14（`497ff8c`）
+- `l4-s3b-print-trailing-preregistration.md` — l4-s3b — 直接モードの PRINT: 数の後ろの空白と、行末の区切り — 事前登録（`1e3fb3b`）
+- `l4-s3b-print-trailing-results.md` — l4-s3b: 直接モードPRINTの数の後ろの空白と行末区切りを測った結果。判定 Q1=trailing_space_1（正負0全て）、Q2=semicolon_suppresses、Q3=comma_to_zone_14（`dbc8371`）
+- `l4-s4a-float-print-preregistration.md` — l4-s4a — 直接モードの PRINT: 浮動小数点の出力の形 — 事前登録（`d8cf563`）
+- `l4-s4a-float-print-preregistration-addendum.md` — l4-s4a 事前登録 追補 — 予測v2の照合・範囲外腕の照合規則の具体化。事前登録追補（`e4dcd7d`）
+- `l4-s4a-float-print-results.md` — l4-s4a: 直接モードPRINTの浮動小数点の出力の形を測った結果。分類numeric_output/non_numeric_output（32腕、v1・v2予測表と照合）（`c85f107`）
+- `l4-s4b-h6-single-precision-digits-preregistration.md` — l4-s4b — 仮説H6（単精度は6桁で出力し、6桁を超えると指数表記）の確認 — 事前登録（`fac3cfa`）
+- `l4-s4b-h6-results.md` — l4-s4b: 仮説H6（単精度6桁で切替、6桁超で指数表記）の確認結果。判定`h6_digits_only`（単精度6桁で固定⇔指数切替）（`bbf2788`）
+- `l4-s4c-small-value-format-switch-preregistration.md` — l4-s4c — 小さい数の固定⇔指数表記の切替規則（候補の消去） — 事前登録（`b286b26`）
+- `l4-s4c-small-value-format-switch-preregistration-addendum.md` — l4-s4c 事前登録 追補 — 負の数の照合を予測・実測の両側で符号を除く形に確定。事前登録追補1（負の数の照合手順）（`8bf86b0`）
+- `l4-s4c-small-value-format-switch-preregistration-addendum2.md` — l4-s4c 事前登録 追補2 — 判定は予測表v2、S0列の訂正。事前登録追補2（予測表v2・関門G7新設）（`4d548df`）
+- `l4-s4c-small-value-format-switch-results.md` — l4-s4c: 小さい数の固定⇔指数表記の切替、候補規則の消去（結果）。単精度=unique_survivor（`LEN7`）、倍精度=no_survivor（`07a6172`）
+- `l4-s4d-double-small-value-format-switch-preregistration.md` — l4-s4d — 倍精度の小さい数の固定⇔指数切替（候補LE17/LE18） — 事前登録（`b447001`）
+- `l4-s4d-double-small-value-format-switch-preregistration-addendum.md` — l4-s4d 事前登録 追補 — 写しの時刻を全腕一律で延長、出力完了の関門G8を新設。事前登録追補（写しの時刻延長・関門G8新設）（`e80a55b`）
+- `l4-s4d-double-small-format-switch-results.md` — l4-s4d: 倍精度の小さい数の固定⇔指数切替（候補LE17/LE18）結果。no_survivor（写しが早すぎた走の経緯を含む）（`1e91c83`）
+- `l4-s4e-double-small-value-format-switch-preregistration.md` — l4-s4e — 倍精度の小さい数の固定⇔指数切替（候補RSTAR/RSTAR_B、対照GW16） — 事前登録（`4ad2922`）
+- `l4-s4e-double-small-format-switch-results.md` — l4-s4e: 倍精度の小さい数の固定⇔指数切替（候補RSTAR/RSTAR_B、対照GW16）結果。`RSTAR`がunique_survivor、`RSTAR_B`・`GW16`はcandidate_rejected（`4dda102`）
+- `l4-s4f-double-large-value-format-switch-preregistration.md` — l4-s4f — 倍精度の大きい数の固定⇔指数切替（候補LG16/LG15） — 事前登録（`bbaea36`）
+- `l4-s4f-double-large-format-switch-results.md` — l4-s4f: 倍精度の大きい数の固定⇔指数切替（候補LG16/LG15）結果。`LG16`がunique_survivor、`LG15`はE=15の4腕でcandidate_rejected（`248853c`）
+- `l4-s4g-single-round-half-preregistration.md` — l4-s4g — 単精度の丸めの半端の扱い（候補EXACT/GW） — 事前登録（`1109f48`）
+- `l4-s4g-single-rounding-tie-results.md` — l4-s4g: 単精度の丸めの半端の扱い（候補EXACT/GW）結果。`GW`（絶対値の大きい側へ丸め）がunique_survivor、`EXACT`は20腕全てcandidate_rejected（`e637eca`）
+- `l4-s4h-double-round-half-preregistration.md` — l4-s4h — 倍精度の丸めの半端の扱い（候補EXACT/GW） — 事前登録（`ea02e1f`）
+- `l4-s4h-double-round-half-preregistration-addendum.md` — l4-s4h 事前登録 追補 — 除外規則は半端の腕H1〜H7のみ、対照H8・H9は判定に含める。事前登録追補（除外規則の適用範囲）（`3a0b004`）
+- `l4-s4h-double-rounding-tie-results.md` — l4-s4h: 倍精度の丸めの半端の扱い（候補EXACT/GW）結果。`GW`がunique_survivor、`EXACT`はH1・H3・H4・H6・H7でcandidate_rejected（`b498a33`）
+- `l4-s4i-single-fin-double-round-preregistration.md` — l4-s4i — 単精度の定数読み取り(FIN)の二重丸め（候補EXACT/GW） — 事前登録（`e41f0dc`）
+- `l4-s4i-fin-double-rounding-results.md` — l4-s4i: 単精度の定数読み取り（FIN）の二重丸め（候補EXACT/GW）結果。対照C6が食い違い、まとめは`other`（`8d76647`）
+- `l4-s4j-single-fin-three-candidates-preregistration.md` — l4-s4j — 単精度の定数読み取り（候補EXACT/GW/REP10） — 事前登録（`d5becf3`）
+- `l4-s4j-fin-reading-results.md` — l4-s4j: 単精度の定数読み取り（候補EXACT/GW/REP10）結果。no_survivor（EXACT/GWは16腕、REP10は4腕でcandidate_rejected）（`7a788c8`）
+- `l4-s4k-double-fin-three-candidates-preregistration.md` — l4-s4k — 倍精度の定数読み取り（候補DEXACT/DGW/DREP01） — 事前登録（`4a85061`）
+- `l4-s4k-double-fin-candidates.md` — l4-s4k — 倍精度の定数読み取り3候補（DEXACT/DGW/DREP01）の探索（`d5fc8ee`）
+- `l4-s4k-double-fin-reading-results.md` — l4-s4k: 倍精度の定数読み取り（候補DEXACT/DGW/DREP01）結果。no_survivor（DEXACT=DGWが7腕、DREP01が21腕でcandidate_rejected）（`ec794b9`）
+- `l4-s4l-double-fin-rep10-rounding-preregistration.md` — l4-s4l — 倍精度の定数読み取りの新候補DREP10の丸め方 — 事前登録（`b7378f1`）
+- `l4-s4l-double-drep10-variants.md` — l4-s4l — 倍精度の定数読み取り新候補DREP10の2変種（DREP10E/DREP10A）。DREP10系の変種の検討（設計メモ）（`23ad7ea`）
+- `l4-s4l-double-fin-rep10-rounding-preregistration-addendum.md` — l4-s4l 事前登録 追補 — 判定は予測v2、G7=v1/v2の打鍵一致、still_controlの扱い。事前登録追補（予測v2・関門G7新設）（`1997358`）
+- `l4-s4l-double-drep10-variants-v2.md` — l4-s4l v2 — DREP10E/DREP10Aの右辺定数の読み方を訂正。DREP10系の変種の検討v2（`e3ca0ad`）
+- `l4-s4l-double-fin-rep10-rounding-results.md` — l4-s4l: 倍精度の定数読み取り（候補DREP10E/DREP10A、参照DEXACT/DREP01）結果。no_survivorだが`DREP10A`はL9〜L12（non_numeric_output）を除く24腕全てで実測と一致（`62e35b4`）
+- `l4-s5a-program-line-input-list-format-preregistration.md` — l4-s5a — 行の入力とLISTの書式 — 事前登録（`98abcdf`）
+- `l4-s5a-program-line-input-list-format-results.md` — l4-s5a: 行の入力とLISTの書式を測った結果。判定 Q3=replaced/deleted、Q4=sorted（`53183e0`）
+- `l4-s5b-run-control-flow-preregistration.md` — l4-s5b — RUNと流れの制御（GOTO・FOR・GOSUB・STOP・実行中の誤り） — 事前登録（`3f41c15`）
+- `l4-s5b-run-control-flow-results.md` — l4-s5b: RUNと流れの制御を測った結果。判定 Q1=in_order、Q2=body_runs_3/body_runs_4/body_skipped、Q3=gosub_returns（`7a2fabf`）
+- `l4-s5c-variables-control-flow-continued-preregistration.md` — l4-s5c — 変数と流れの制御の続き — 事前登録（`09c933a`）
+- `l4-s5d-conditional-comparison-logic-array-cont-preregistration.md` — l4-s5d — 条件分岐・比較・論理演算・配列・CONT — 事前登録（`697ffbf`）
+- `l4-s5c-variables-flow-results.md` — l4-s5c: 変数と流れの制御の続きを測った結果。判定 Q1=after_loop_4、Q2=nested_ok、Q3=more_significant、Q4=rounds_half_away、Q6=string_ok、Q7=starts_at_line、Q8=nested_gosub_ok（`672539e`）
+- `l4-s5d-if-compare-array-results.md` — l4-s5d: 条件分岐・比較・論理演算・配列・CONTを測った結果。判定 Q1=branch_ok、Q2=true_is_minus1、Q3=bitwise、Q4=array_ok、Q5=cont_resumes（`ec2375f`）
+- `l4-s5e-input-string-numeric-functions-preregistration.md` — l4-s5e — INPUTと文字列関数・数値関数 — 事前登録（`0627571`）
+- `l4-s5e-input-functions-results.md` — l4-s5e: INPUTと文字列関数・数値関数を測った結果。判定 Q1=input_ok、Q2=fn_ok、Q3=rounds_half_away（`79d4a99`）
+- `l4-s5f-screen-commands-preregistration.md` — l4-s5f — 画面の命令（CLS・LOCATE・COLOR・WIDTH・スクロール） — 事前登録（`5bf9ef5`）
+- `l4-s5g-read-data-rem-multi-statement-preregistration.md` — l4-s5g — READ/DATA・REM・1行に複数の文 — 事前登録（`3cd23ed`）
+- `l4-s5f-screen-commands-results.md` — l4-s5f: 画面の命令（CLS・LOCATE・COLOR・WIDTH・スクロール）を測った結果。判定 Q1=clears、Q2=locate_x_then_y、Q7=clears（`7fbc47c`）
+- `l4-s5g-read-data-rem-multi-results.md` — l4-s5g: READ/DATA・REM・1行に複数の文を測った結果。判定 Q1=read_ok、Q2=restore_ok、Q3=then_assign_ok、Q4=index0_ok、Q5=multi_ok、Q7=rem_ok、Q8=rest_runs_when_true/rest_skipped_when_false（`4d7945f`）
+
+## 2. 適合 (l4-c*) — 公式ROMとの適合判定
+
+- `l4-c1-echo-conformance-preregistration.md` — l4-c1 — 打鍵エコーの公式・自作比較 — 事前登録（`13ceb2e`）
+- `l4-c1-echo-conformance-results.md` — l4-c1 — 打鍵エコーの公式・自作比較 — 結果。全腕バイト列一致を確認。最下行（ファンクションキー表示）は開発者判断で比較対象から除外（`1817efb`）
+- `l4-c1b-echo-conformance-scene-preregistration.md` — l4-c1b — 打鍵エコー適合の場面固定 — 事前登録（`6b206b5`）
+- `l4-c1b-echo-conformance-scene-results.md` — l4-c1b — 打鍵エコー適合の場面固定 — 結果。全11腕が公式・自作とも`conform`。`tools/conform_l4.sh`に恒常登録（`4422f92`）
+- `l4-c2-print-conformance-preregistration.md` — l4-c2 — 直接モードPRINTの公式・自作比較 — 事前登録（`39eeb53`）
+- `l4-c2-print-conformance-results.md` — l4-c2 — 直接モードPRINT適合テスト — 結果。エラー行の件数差が未解明。開発者判断でエラー行は当面比較対象外（`4f774fb`）
+- `l4-c2-error-signature-diagnosis.md` — l4-c2-error-signature-diagnosis — P6エラー行の署名照合（診断）。エラー行の件数差（P6-syntax/unknown）の診断。原因は禁止事項7の制約下では特定できず（`70de1bd`）
+- `l4-c2b-print-conformance-rerun-preregistration.md` — l4-c2b — 直接モードPRINT適合テスト再測定 — 事前登録（`43071f2`）
+- `l4-c2b-print-conformance-rerun-results.md` — l4-c2b — 直接モードPRINT適合テスト再測定 — 結果。P1〜P5の測り直し。画面本文は一切書かず署名・件数のみで判定（`8b924bf`）
+- `l4-c2c-print-conformance-scene-preregistration.md` — 事前登録: l4-c2c — 直接モードPRINT適合の場面固定（`0a2117f`）
+- `l4-c2c-print-conformance-scene-results.md` — l4-c2c — 直接モードPRINT適合の場面固定 — 結果。故障注入検出OK。既存11腕は引き続き`conform`。`tools/conform_l4.sh`に固定（`90ab7ce`）
+- `l4-c3-float-print-conformance-scene-preregistration.md` — 事前登録: l4-c3 — 直接モードPRINT浮動小数点の適合場面固定（`71d81a8`）
+- `l4-c3-float-print-conformance-scene-results.md` — l4-c3 — 直接モードPRINT浮動小数点の適合場面固定 — 結果。公式側期待値25腕を固定。自作側（FS/FD）は実装完了後に照合する申し送り（`4b7ee26`）
+- `l4-c5-representative-programs-conformance-scene-preregistration.md` — 事前登録: l4-c5 — 代表プログラム集の適合場面（`2837926`）
+- `l4-c5-representative-programs-conformance-scene-preregistration-addendum.md` — l4-c5 事前登録 追補 — RUNの前にCLSを入れて画面のスクロールを避ける。事前登録追補1（`ebe29dc`）
+- `l4-c5-representative-programs-conformance-scene-preregistration-addendum2.md` — l4-c5 事前登録 追補2 — newの直後にもcls、G9は画面全体で打った行を数える。事前登録追補2（`89b503e`）
+- `l4-c5-representative-programs-conformance-scene-preregistration-addendum3.md` — l4-c5 事前登録 追補3 — 代表プログラムは17行以内、腕の入力は測定直前のtests/programs。事前登録追補3（代表プログラムは17行以内、腕の入力は測定直前のtests/programs）（`f0172d0`）
+- `l4-c5-representative-programs-conformance-scene-results.md` — l4-c5 — 代表プログラム集の適合場面固定 — 結果。公式ROM8腕・自作ROM8腕とも`conform`。ゴールA達成の根拠。群"programs"をimplementedへ（`67aa02b`）
+- `l4-c5-representative-programs-conformance-scene-preregistration-addendum4.md` — l4-c5 事前登録 追補4 — runの後の待ちを全腕+3000フレームへ、速さは比べない。事前登録追補4（runの後の待ちを全腕+3000フレームへ）（`14930c1`）
+
+## 3. L3層（サブCPU・FDCプロトコル、m6/m7系）の測定・調査ノート
+
+フェーズ m6（サブCPUとの通信基盤の確立）→ m7（FDCプロトコルの逐次解明、
+本プロジェクトで最も長期にわたった調査）の順。件数が多いため、ファイル名と
+見出しのみを時系列で並べる。個々の仮説検証の詳細は各ファイルを参照。
+
+- `m6-sub-proto.md` — M6: メイン/サブCPU通信窓口(ポートF3〜FF)の外部観測解析（`d0941ba`）
+- `m6-sub-clock.md` — M6c 共通クロック（main/sub 横断の単調増加通し番号）（`5b8ce6f`）
+- `m6-sub-invariant.md` — M6d 「sub OUT $FC = 5635件固定」の切り分け（`733adec`）
+- `m6-conformance.md` — M6（サブROM）の適合条件検証 — 第1版（`1d92cae`）
+- `m6-fdc-ports.md` — M6h — FDC制御ポート ($FA/$FB, 補助として $F7/$F8/$FE/$FF) の意味論測定（`8ee0cba`）
+- `m6-main-to-sub.md` — M6i — メイン→サブ方向の要求(コマンド)プロトコル（`d83963a`）
+- `m6-two-layer-verify.md` — M6 の検証を二層に分ける（`fbd4f60`）
+- `m6j-bulk-trigger.md` — M6j 起動時バルクバースト(5635件)の開始条件・終端条件・ハンドシェイクの有無（`141839a`）
+- `m6k-mixed-divergence.md` — M6k 混成ROM実走の分岐点診断と、sub視点`$FE`待ち状態の解析（`f42c24f`）
+- `m6l-boot-exchange.md` — M6l 起動時（バルク転送に入るまで）のmain⇔sub往復構造とFDC相関（`e7e0a38`）
+- `m6m-fe-bit-analysis.md` — M6m `$FE` 待ち判定のビット構造解析（`b15a39d`）
+- `m6n-run-boundary.md` — M6n — 「連続送信(run)の途中か、runが終わったか」をsubは何で判別しているか（`1078d50`）
+- `m6o-fc-send-path.md` — M6o — sub `OUT $FC` / main `IN $FD`（5635件）は独立した「もう1本のSEND経路」か（`2b48b39`）
+- `m6p-tc-and-f8.md` — M6p — `$F8`（TC）と`$F7`の関係、FDCコマンド結果フェーズとの位置関係（`3396cad`）
+- `m6q-boot-fdc-sequence.md` — M6q — 起動時FDC初期化シーケンス（1.16節手順8の中身）の構造解析（`709291f`）
+- `m6r-specify-vs-seek.md` — M6r — 起動時FDC初期化 batch2・5 は SPECIFY か SEEK か（`bec9e65`）
+- `m6s-tc-position-correction.md` — M6s — TC(`$F8`)位置の訂正: batch2ではなくbatch4だった（`cafb432`）
+- `m6t-idle-send-no-fdc-and-rearm-timing.md` — M6t — 単発1バイト応答はFDCを叩かない／RECV完遂直後の再武装タイミング検討（`812b815`）
+- `m6u-idle-send-holds-last-fdc-in-result.md` — M6u — 単発1バイト応答: 直近のFDC_IN結果を持ち越す構造の裏付け（`70a0bb7`）
+- `m6v-idle-send-generalized-and-sense-drive-status.md` — M6v — 単発1バイト応答: 4条件横断の一般化とSENSE DRIVE STATUS構造の探索（`6c0563d`）
+- `m6w-main-divergence-259.md` — M6w — main側分岐点259直前の応答構造（`6d0a197`）
+- `m6x-session-2026-08-12-summary.md` — M6x — 2026-08-12 セッションの到達点と次の一手（`b4bcab1`）
+- `m6y-response-byte-value-saturation.md` — M6y — 単発応答バイトの値スキャンと258件での飽和（`274615d`）
+- `m6z-divergence-259-not-response-round.md` — M6z — 分岐点259は直前の単発応答ラウンドに由来しない（`b1aeb66`）
+- `m7a-value-divergence-at-round0.md` — m7a: ラウンド#0からの値不一致と分岐点259（`0fdec85`）
+- `m7b-round0-is-a-fixed-exchange.md` — m7b: ラウンド#0は固定的なやりとりである（`67237fe`）
+- `m7c-round0-is-independent-of-disk-content.md` — m7c: ラウンド#0はディスク内容に依存しない（`b90ccc2`）
+- `m7d-round0-response-controls-downstream-branches.md` — m7d: ラウンド#0応答はmainの下流分岐を制御する（`c92f160`）
+- `m7e-configuration-invariance-and-structural-bit-map.md` — m7e: 構成不変性とビット別下流構造指標（`7cf1ed3`）
+- `m7f-round0-and-later-single-response-deconfounding.md` — m7f: ラウンド#0と後続単発応答の効果分離（`bc6cdea`）
+- `m7g-later-single-response-source-sweep.md` — m7g: 後続単発応答の取得源総当たりと構成不変性（`6568ebb`）
+- `m7h-request-response-function.md` — m7h: 後続単発応答の要求別生成規則（`984162d`）
+- `m7i-divergence-259-is-inside-main-request.md` — m7i: 分岐点259はmain→sub要求中のmainローカル制御分岐（`82b45f9`）
+- `m7j-value-prefix-remeasurement.md` — m7j: 値一致プレフィックスによる再測定（`6d4175e`）
+- `m7k-exchange3-source-classification.md` — m7k: 交換#3応答の生成源切り分け（`c622060`）
+- `conform-l3-rerun-2026-08-13.md` — L3適合テストの公式・混成再実走（`cca1586`）
+- `m7l-exchange3-observed-response.md` — m7l: 交換#3観測応答のブラックボックス介入（`50983d3`）
+- `m7m-permanent-single-response-rules.md` — m7m: 起動時単発応答規則の恒久実装と到達点（`168fda9`）
+- `m7m-zero-event-diagnosis.md` — m7m: 混成適合テストの対象0件診断（`8460bd6`）
+- `m7n-exchange3-segmentation.md` — m7n: sub側173件目と交換#3要求の分節（`d9e4bf3`）
+- `m7o-pre-read-tc.md` — m7o: sub側203件目とFDC READ系直前の制御出力（`b356b02`）
+- `m7p-pre-read-sense-drive-status.md` — m7p: sub側221件目とREAD DATA前のSENSE DRIVE STATUS（`2f4cf42`）
+- `m7q-pre-read-f7.md` — m7q: sub側222件目とREAD DATA直前の制御出力（`0807f8e`）
+- `m7r-read-data-parameter-blocker.md` — m7r: sub側256件目のREAD DATAパラメータ診断（`d3b3434`）
+- `m7s-read-data-source-rules.md` — m7s: READ DATAパラメータの生成規則（`c97cd8e`）
+- `m7t-fifth-value-source.md` — m7t: 5件目の値の生成源切り分け（`0f02b3b`）
+- `m7u-metric-definition-and-transfer-ports.md` — m7u: 258件と262件の指標定義、および転送ポートの検算（`59819c0`）
+- `m7v-divergence-263-exchange7.md` — m7v: 263位置目は交換#7の未接続READデータ（`cbabd9f`）
+- `m7w-main-structure-259-control-flow.md` — m7w: main側構造259は揺れではなく制御フロー差（`ea896cf`）
+- `m7x-divergence-523-exchange12.md` — m7x: 523位置目は交換#12の第三READデータ（`f042a72`）
+- `m7y-exchange14-bulk-entry.md` — m7y: 交換#14のFDC配置と高速バルク入口の未確定値（`7387d8e`）
+- `m7z-ff-bulk-entry-control.md` — m7z: `$FF`制御語彙を測定ログから仕様化できる根拠と高速バルク入口（`ce310e9`）
+- `m7z-bulk-entry-first-implementation.md` — m7z: 高速バルク入口・第一実装の混成実走（`ed24f16`）
+- `m7z-bulk-entry-reached.md` — m7z: 高速バルク入口到達とデータ列分岐（`5698dde`）
+- `m7aa-exchange14-position-rules.md` — m7aa: 交換#14のREAD位置対応と規則候補（`f4f7e4e`）
+- `m7ab-bulk-header-source-classification.md` — m7ab: 高速バルク先頭3位置の生成源分類（`a832cff`）
+- `m7ac-bulk-full-position-map.md` — m7ac: 高速バルク全位置のREAD座標対応（`8db452e`）
+- `m7ad-bulk-position1-observed-response.md` — m7ad: 高速バルク位置1の観測応答（`73d654b`）
+- `m7ae-bulk-header-implementation.md` — m7ae: 高速バルク先頭位置の実装と再測定（`90fe8ed`）
+- `m7af-exchange14-read2-intervention.md` — m7af: 交換#14第2 READ座標の介入測定（`e6f4e3d`）
+- `m7ag-exchange14-read2-implementation.md` — m7ag: 交換#14第2 READと交互配置の実装（`ce15870`）
+- `m7ah-fixed-byte-cutoff-regression.md` — m7ah: 2+1+5ラウンド回帰の再診断（`84fe7c9`）
+- `m7ai-exchange14-read3-candidates.md` — m7ai: 交換#14第3 READ候補の介入結果（`1772b7a`）
+- `m7z-session-2026-08-13-summary.md` — M7z — 2026-08-13 セッションの到達点と次の一手（`1d57eed`）
+- `m7aj-exchange14-read3-position-map-and-protocol-block.md` — m7aj: 交換#14第3 READ以降 — 分岐帰属・位置対応表・介入結果（`7ffec9f`）
+- `m7ak-exchange14-read3-stack-overlap.md` — m7ak: LIMIT=2退行の帰属・$F9陽性対照・STACK/BULK_DATA重複バグの特定と修正（`6c3dc19`）
+- `m7al-exchange14-read4-read5-limit-regression.md` — m7al: LIMIT=3（READ#4）・LIMIT=4（READ#5）実測 — 未診断のクラッシュで退行（`80734f2`）
+- `m7am-read4-crash-address-shift-isolation.md` — m7am: LIMIT=2→3退行の原因クラス切り分け — 詰め物対照でアドレスずれと確定、機構は未特定（`3aa8905`）
+- `m7an-subrom-fetch-window-boundary.md` — m7an: サブROMフェッチ窓(0x0800)境界の確定と整列パディングによる部分修正（`876fb04`）
+- `m7ao-subrom-fetch-window-budget.md` — m7ao: フェッチ窓の外の見え方を実測で確定、予算超過を確定・部分対処（`221a7a0`）
+- `m7ap-decision-table-and-window-budget.md` — m7ap: 要求グループ決定関数のテーブル駆動化でフェッチ窓の予算を作り、窓超過を関門へ格上げ（`25dff34`）
+- `m7aq-conformance-condition1-achieved.md` — m7aq: 交換#14のREAD#3〜#5が通り、適合条件1（main `IN $FD` 5635件）を達成（`5831866`）
+- `m7ar-negative-control-attribution.md` — m7ar: ネガティブコントロールの帰属を2×2で確定、適合条件4を達成（`99d5c34`）
+- `m7as-condition2-3-judging.md` — m7as: 適合条件2・3を判定できる形にした（条件3は自作subに割り込みが無く判定不能）（`7b7c2a6`）
+- `m7au-write-path.md` — m7au: 書き込み経路（SAVE）の構造を実測 — 末尾256バイトがそのままFDCへ流れる（`6f8db1c`）
+- `m7av-write-path-implementation.md` — m7av: 書き込み経路（WRITE DATA）を実装。窓は検証できた／ディスク反映はハーネスで判定できない（`7a83779`）
+- `m7aw-bulk-read-table.md` — m7aw: 交換#14 READ準備をテーブル駆動化して139バイト削減、陽性対照が2回空振りした話（`7d5d43a`）
+- `m7ax-write-control-record.md` — m7ax: 書き込み制御バイトの内訳を確定（論理トラックとセクタ）（`e9fbff5`）
+- `m7ay-write-response.md` — m7ay: 書き込みに対する応答は1レコード1バイトの固定値だった（`a1ee921`）
+- `m7az-write-conformance.md` — m7az: 書き込みの適合判定を用意した。ただし混成はまだSAVEに届かない（`8fd36c4`）
+- `m7ba-bulk-terminator.md` — m7ba: バルク終端の合図（`$FF=0x91`）を確定・実装。固着点はmain側へ移った（`c04cd77`）
+- `m7bb-second-channel-divergence.md` — m7bb: 適合条件1は2チャンネルのうち片方しか見ていない。もう一方はバルク開始直後から違う（`e7df60e`）
+- `m7bc-second-channel-pairing.md` — m7bc: 第2チャンネルの正体は「1バイトずれたペア」だった（`00bd05b`）
+- `m7bd-basic-boots.md` — m7bd: 自作サブROMで公式N88-BASICが起動した（`bd661fc`）
+- `m7be-request-record-kind.md` — m7be: 要求レコードは読み書き共通の形で、種別は2バイト目にある（`4a26ae1`）
+- `m7bf-general-read-path.md` — m7bf: 一般読み出し経路を実装した（まだ発火しない。手前で分岐している）（`4ed28dd`）
+- `m7bg-six-byte-record-is-a-read.md` — m7bg: 6バイトレコードは読み出し要求だった（種別値で限定してはいけない）（`398455e`）
+- `m7bh-post-bulk-read-coordinates.md` — m7bh: バルク直後の読み出しは、6バイトレコードとは別の座標で行われている（`3b45a98`）
+- `m7bi-post-bulk-record-length.md` — m7bi: バルク直後のレコード境界を2通りの窓で検算する（`c07c1cf`）
+- `m7bj-request-kind-table.md` — m7bj: 受信runの先頭バイトはrun長・座標位置の表引きキーである（`2b62d94`）
+- `m7bk-post-bulk-read-coordinates-fixed.md` — m7bk: バルク直後のREAD座標が一致した——食い違いはREAD完了後の応答へ移った（`813aae6`）
+- `m7bl-post-read-response.md` — m7bl: READ完了後は `0x06`→`0xC0`→`0x12` で256件送信へ進む（`4f1575d`）
+- `m7bm-post-read-response-implementation.md` — m7bm: バルク後READ完了応答を実装し、256件送信まで到達した（`4509f25`）
+- `m7bn-post-read-main-branch.md` — m7bn: 256件送信後のmain分岐を1本の混成診断で切り分けた（`ea5af94`）
+- `m7bo-handshake-delay-intervention.md` — m7bo: 256件後の単発応答を遅らせてもmain分岐は動かなかった（`6deb384`）
+- `m7bp-main-status-values-before-branch.md` — m7bp: main分岐前のステータス値差とループ継続を特定した（`23b0c32`）
+- `m7bq-sub-ff-bit1-intervention.md` — m7bq: `$FE` bit1を立て直す余分な再アームの特定と介入（`599c9db`）
+- `m7br-earliest-nondata-and-interrupt.md` — m7br: 最初の非データ入力差と分岐直前のVSYNC割り込み差（`df7d021`）
+- `m7bs-rearm-rule-and-first-difference-intervention.md` — m7bs: 公式再アーム規則の全数集計と最初の値差への介入（`8fca352`）
+- `m7bt-window-run-counter-intervention.md` — m7bt: window(a)独立カウンタ介入は再アーム停止後の完了処理を起動できず失敗（`364cfca`）
+- `m7bu-run-closing-outputs.md` — m7bu: runを閉じる出力は9種で一意だが1バイト種別1種に二つの列がある（`5ff2b5b`）
+- `m7bv-nine-kind-completion-intervention.md` — m7bv: 例外0件の9種を結線すると空振り0Bは消えるが最初の値差は7036件目に残る（`f4f01f4`）
+- `m7bw-nine-kind-permanent-fit.md` — m7bw: 9種結線とWRITE経路は2048バイトに収まったがK00由来の空振り1件が残る（`31afe1f`）
+- `m7bx-k00-variant-rule.md` — m7bx: リセットで実行全体通番説は棄却したがK00のA/B規則は一意に定まらない（`75118bc`）
+- `m7by-k00-completion-wiring.md` — m7by: K00列Bの完了状態をバルク完走時に畳み、空振り再アームを0件にした（`13889f1`）
+- `m7bz-save-reachability.md` — m7bz: SAVEはWRITE受信位相の分岐で停止していた（`bc55f90`）
+- `m7ca-behavior-preserving-capacity.md` — m7ca: サブROMの挙動不変容量圧縮（`829b259`）
+- `m7cb-official-conformance-after-compression.md` — m7cb: 容量圧縮後コードの公式環境適合実走（`73000f1`）
+- `m7cc-official-sub-interrupt-shape.md` — m7cc: 公式subの割り込み受理の外形（既存ログ再解析）（`ba632c1`）
+- `m7cd-sub-interrupt-driven.md` — m7cd: 自作subへ有限ポーリング併用の割り込み受理を実装（`deefaf4`）
+- `m7ce-official-conformance-after-interrupt.md` — m7ce: 割り込み駆動化後の公式環境適合実走（`44d9ebf`）
+- `m7cf-files-load-reachability.md` — m7cf: FILES/LOAD需要入口は既に終端まで一致していた（`9a1bcee`）
+- `m7cg-remaining-entry-reachability.md` — m7cg: 残り4需要入口も終端まで一致していた（`21189cf`）
+- `m7ch-screen-output-conformance.md` — m7ch: diskA起動と6需要入口のテキスト画面出力が一致した（`1595ca5`）
+- `m7ci-error-and-drive2-paths.md` — m7ci: エラー結果相とB: unit経路で初めて外部差が出た（`8da51e0`）
+- `m7cj-drive-selector-request-byte.md` — m7cj: main→sub要求のドライブ指定位置をFILES 1/2で同定（`9308c69`）
+- `m7ck-drive-selector-permanent-conformance.md` — m7ck: byte2ドライブ指定の恒久化と公式環境適合（`941dac7`）
+- `m7cl-error-exchange-shape.md` — m7cl — エラー交換run構造の公式環境測定（`0d6e605`）
+- `m7cm-error-response-bit6.md` — m7cm — unreadable_diskエラー応答のbit6帰属（`052f356`）
+- `m7cn-no-disk-visible-signals.md` — m7cn — no_diskの可視信号と待ち手前の分岐（`d973214`）
+- `m7co-no-disk-request-branch-hypothesis.md` — m7co — no_disk要求長分岐で3容疑者を除外（`f8a8cc9`）
+- `m7cp-no-disk-response-ready-sweep.md` — m7cp — 応答準備clock掃引の不成立とPIO handoff probe（`e9288ca`）
+- `m7cq-no-disk-subrom-response-ready.md` — m7cq — no_disk軸直前応答の実経路訂正とROM前段関門（`e8c88ce`）
+- `m7cr-early-response-length-sweep.md` — m7cr: no_disk +0受信中READ DATAの帰属と早期応答長sweep（`e8c88ce`）
+- `m7cs-run-merge-entry-conformance.md` — m7cs: RUN"file" / MERGE 需要入口の事前登録と適合結果（`ca3c2dc`）
+- `m7ct-bsave-bload-entry-conformance.md` — m7ct: BSAVE / BLOAD 需要入口の事前登録（`e5b189e`）
+- `m7cu-random-file-entry-conformance.md` — m7cu: ランダムアクセスファイル需要入口の事前登録（`fb72984`）
+- `m7cv-direct-sector-entry-conformance.md` — m7cv: 直接セクタ入出力需要入口の事前登録（`c52ddff`）
+- `m7cw-media-format-entry-conformance.md` — m7cw: 媒体初期化需要入口の事前登録（`525c9da`）
+- `m7cx-open-items-inventory.md` — m7cx: 3節「未確定として残すこと」の棚卸し（`82a5f28`）
+- `m7cy-second-channel-rule-search.md` — m7cy: 第2チャンネル生成規則探索の事前登録（`92e8f0a`）
+- `m7cz-common-clock-three-questions.md` — m7cz: 共通クロックで3問を閉じる測定の事前登録（`28388ca`）
+- `m7da-5635-origin-preregistration.md` — m7da: 起動時5635件の由来を公開D88仕様と構造測定で判定する事前登録（`9285aa2`）
+- `m7db-5635-stage1-saved-log-recount.md` — m7db: 起動時5635件の第1段再集計と構造selftest（`b2081fa`）
+- `m7dc-5635-h1-reproduction-control.md` — m7dc: 起動時5635件のH1再現対照を公式diskA 2走で確認（`1fd9c4d`）
+- `m7dd-5635-stage3-feasibility.md` — m7dd: 起動時5635件の第3段媒体介入は起動可能な規則生成D88不足で停止（`3f85ec5`）
+- `m7de-5635-stage3-shape-intervention.md` — m7de: 使い捨てdiskA複製のD88形状介入ではH1/H5は観測等価のまま（`1d01102`）
+- `m7df-run-cutter-error-preregistration.md` — m7df: run切り出し誤差を2系統の陽性対照で切り分ける事前登録（`9f32375`）
+- `m7dg-run-cutter-positive-selftest.md` — m7dg: run切り出し誤差の合成陽性対照（`8932081`）
+- `m7dh-run-cutter-independent-anchor-attribution.md` — m7dh: run切り出し誤差の独立境界アンカーによる実測帰属（`875655f`）
+- `m7di-attribution-tool-negative-control.md` — m7di: 帰属解析器自体の陰性対照（`33f5f19`）
+- `m7dj-boundary-match-residual-rule-search-preregistration.md` — m7dj: `boundary_match`残差の生成規則探索・事前登録（`741f9ed`）
+- `m7dk-boundary-match-residual-rule-search-results.md` — m7dk: `boundary_match`残差の生成規則探索・実測結果（`caff929`）
+- `m7dl-run-length-6-protocol-axis-preregistration.md` — m7dl: run長6偏りのプロトコル軸による説明規則探索・事前登録（`7320e6f`）
+- `m7dm-run-length-6-protocol-axis-results.md` — m7dm: run長6偏りのプロトコル軸による説明規則探索・実測結果（`7e0d5fb`）
+- `m7dn-untrodden-entry-points-survey.md` — m7dn: 未踏の需要入口サーベイ（`7917860`）
+- `m7do-multi-file-open-entry-preregistration.md` — m7do: 複数ファイル同時オープン需要入口の事前登録（`84782f8`）
+- `m7dp-multi-file-open-entry-conformance.md` — m7dp: 複数ファイル同時オープン需要入口の実測（`ca2f7be`）
+- `m7dq-same-session-sequential-open-preregistration.md` — m7dq: 同一セッション逐次オープン対照の事前登録（`b664406`）
+- `m7dr-same-session-sequential-open-conformance.md` — m7dr: 同一セッション逐次オープン対照の実測（`f0618a0`）
+- `m7ds-read-reduction-stage-intervention-preregistration.md` — m7ds: 複数ファイル読出し削減段階の介入事前登録（`527dd8b`）
+- `m7dt-read-reduction-stage-ladder-results.md` — m7dt: 複数ファイル読出し削減の段階ラダー実測（`0f93a42`）
+- `m7du-fixed-cost-model-and-p0-identity.md` — m7du: SB/SC実測による固定費モデル判定とP0起動列の同一性（`169bbf9`）
+- `m7dv-directory-expansion-boundary-preregistration.md` — m7dv: 自作ファイル本数ラダーによるディレクトリ拡張境界の事前登録（`a57d754`）
+- `m7dw-directory-expansion-boundary-first-block-results.md` — m7dw: 自作ファイル本数ラダー前半実測（N=0〜8）（`f250051`）
+- `m7dx-directory-expansion-boundary-continuation.md` — m7dx: 自作ファイル本数ラダー後半実測（`3ed7435`）
+- `m7dy-directory-expansion-jump-periodicity-preregistration.md` — m7dy: ディレクトリ拡張ジャンプ周期性の追加事前登録（`596e2eb`）
+- `m7dz-directory-expansion-jump-periodicity-results.md` — m7dz: ディレクトリ拡張ジャンプ周期性の実測（`fb09a6f`）
+- `m7ea-directory-expansion-capacity-endpoint-results.md` — m7ea: ディレクトリ拡張ラダーの容量端点と後続周期の実測（`64135da`）
+- `m7eb-blank-medium-ladder-preregistration.md` — m7eb: 自作空フォーマット媒体によるディレクトリ拡張ラダーの事前登録（`9e3d64d`）
+- `m7ec-blank-medium-boot-diagnosis.md` — m7ec: 自作空媒体単体装着時の起動不成立診断（`6332059`）
+- `m7ed-two-drive-blank-medium-ladder-preregistration.md` — m7ed: 二ドライブ自作空媒体ラダーの事前登録（`a07105e`）
+- `m7ee-blank-medium-ladder-first-three-jumps-results.md` — m7ee: 自作空媒体ラダーの確認済み三ジャンプ（`f29c3a1`）
+- `m7ef-blank-medium-ladder-fourth-jump-results.md` — m7ef: 自作空媒体ラダーの第四ジャンプ（`e53c7d3`）
+- `m7eg-official-medium-drive2-ladder-results.md` — m7eg: ドライブ2公式媒体ラダーの結果（`0f7b41a`）
+- `m7eh-official-medium-drive2-rebuild-results.md` — m7eh: ドライブ2公式媒体ラダー候補の独立再構築（`c494a90`）
+- `m7ei-official-medium-drive2-capacity-endpoint.md` — m7ei: ドライブ2公式媒体ラダーの容量端点（`771064f`）
+- `m7ej-official-media-fourth-jump-preregistration.md` — m7ej: 別の公式媒体で四点目を検査する事前登録（`773618c`）
+- `m7ek-series-c-fourth-jump-results.md` — m7ek: 別の公式媒体（系列C）で四点目まで成立（`8c09306`）
+- `m7el-series-de-results.md` — m7el: 系列D・系列Eの結果と容量端点（`0845948`）
+- `m7em-series-b-full-range-results.md` — m7em: 系列Bを登録上限N=128まで延長し八点目まで成立（`2cdcb37`）
+- `m7en-series-c-extension-preregistration.md` — m7en: 系列Cを登録上限N=128へ引き直す事前登録（`e27f7d7`）
+- `m7eo-series-c-full-range-results.md` — m7eo: 系列Cを登録上限N=128まで延長し八点目まで成立（`047e46b`）
+- `m7ep-series-c-capacity-endpoint-preregistration.md` — m7ep: 系列Cの容量端点を確定する事前登録（`23080b4`）
+- `m7eq-series-c-capacity-endpoint-results.md` — m7eq: 系列Cの容量端点をN=155と確定し九点目まで成立（`62dd562`）
+- `m7er-series-b-capacity-endpoint-preregistration.md` — m7er: 系列Bの容量端点を確定する事前登録（`3fb42b4`）
+- `m7es-series-b-capacity-endpoint-results.md` — m7es: 系列Bの容量端点をN=158と確定し九点目まで成立（`19d9eed`）
+- `m7et-interrupt-shape-gap-preregistration.md` — m7et: 割り込み受理外形の公式・自作差を特徴づける事前登録（`dec5bbb`）
+- `m7eu-interrupt-shape-gap-results.md` — m7eu: 割り込み受理外形は231件差ではなく、ほぼ別物だった（`64deccf`）
+- `m7ev-interrupt-alignment-preregistration.md` — m7ev: 割り込み受理の食い違いを共通軸で整列するための事前登録（`d3a5b52`）
+- `m7ew-interrupt-alignment-results.md` — m7ew: FDCコマンド軸では割り込み受理の段構造が一致し、差は段30に局在した（`723510b`）
+- `m7ex-boot-region-drive-selector-difference.md` — m7ex: 起動区間に残るドライブ指定差2件（既存ログの再解析）（`79b367c`）
+- `m7ey-boot-fdc-drive-selector-uninitialized.md` — m7ey: 起動時FDC初期化のドライブ選択が未初期化ワークエリアを読んでいる（`cbe73e6`）
+- `m7ez-drive-selector-fix-blocked-by-window.md` — m7ez: 起動時ドライブ選択の修正は窓2047に阻まれて入らなかった（`1e02e9a`）
+- `m7fa-read-data-error-termination.md` — m7fa: 自作subのREAD DATAは9件すべてエラー終了していた（`beb8160`）
+- `m7fb-read-eot-gpl-intervention-preregistration.md` — m7fb: 読み出し経路の EOT・GPL・TC 位置の介入を事前登録する（`ee4017c`）
+- `m7fc-read-eot-gpl-intervention-results.md` — m7fc: READのGPL規則を統一し、EOT単独介入の交絡を記録する（`5b149ea`）
+- `m7fd-read-tc-position-preregistration.md` — m7fd: 読み出し経路のTC位置介入を事前登録する（`bb1fa18`）
+- `m7fe-read-tc-position-results.md` — m7fe: 読み出し経路のTC位置介入で8段が正常化したが容量関門で採用を見送る（`948d751`）
+- `m7ff-tc-consolidation-preregistration.md` — m7ff: 結果7件直前のTC入力を共通経路へ集約する介入を事前登録する（`2a08026`）
+- `m7fg-capacity-criterion-was-wrong.md` — m7fg: 容量の合否条件が誤っており、2回の停止は偽だった（`900d4eb`）
+- `m7fh-tc-consolidation-results.md` — m7fh: TC入力をFDC_IN_7へ集約し、8段の正常終了を±0バイトで得た（`b2bc90b`）
+- `m7fi-stage30-divergence-localization-preregistration.md` — m7fi: 段30の食い違いを全段の結果ステータスで位置特定する（事前登録）（`2945058`）
+- `m7fj-stage30-divergence-localization-results.md` — m7fj: 段30の直前のSEEKはシリンダ指定が公式と食い違っていた（`2123497`）
+- `m7fk-stage27-seek-cylinder-origin.md` — m7fk: 段27のSEEKは直前のOUTでAを潰してからシリンダを送っていた（`49e760e`）
+- `m7fl-stage27-seek-order-preregistration.md` — m7fl: 段27のOUT順序入れ替えを事前登録する（`900356b`）
+- `m7fm-stage27-seek-order-results.md` — m7fm: 段27のOUT順序を直すと9段すべてが正常終了したが、条件5が崩れた（`0f0c168`）
+- `m7fn-null-intervention-control-preregistration.md` — m7fn: 段4・段6がROM像に依存するかを陰性対照で切り分ける（事前登録）（`66920c6`）
+- `m7fo-null-control-and-ram-init.md` — m7fo: 陰性対照は対象を踏んでおらず、RAM初期値の由来を確認した（`16d36bf`）
+- `m7fp-axis-d-remeasurement-verification.md` — m7fp: 軸Dの誤測定の疑いは否定され、代わりに条件5の記録が再現しなかった（`deedf9d`）
+- `m7fq-axis-d-adoption.md` — m7fq: 軸Dを全条件測り直し、READ DATA 9段すべての正常終了を得て採用した（`426b7d6`）
+- `m7fr-boot-drive-selector-preregistration.md` — m7fr: 起動時FDC初期化のドライブ選択修正（軸E）を事前登録する（`e6631f8`）
+- `m7fs-boot-drive-selector-results.md` — m7fs: 未初期化値は片側の意図と偶然一致していた（案1は症状を移すだけ）（`d237d3f`）
+- `m7ft-boot-drive-selector-both-sides-preregistration.md` — m7ft: 起動バッチ両側のドライブ指定を明示する修正（軸F）を事前登録する（`f50817f`）
+- `m7fu-capacity-compression-preregistration.md` — m7fu: 軸Fのための容量圧縮を事前登録する（`84c24cc`）
+- `m7fv-capacity-compression-results.md` — m7fv: 共有4命令列のサブルーチン化で18バイト空けた（振る舞いは完全に不変）（`ba249fd`）
+- `m7fw-boot-drive-selector-adoption.md` — m7fw: 起動区間の unit/head 差が0件になった（両側の明示）（`95644a7`）
+- `m7fx-fdc-seek-propagation-callers-reading.md` — m7fx: `FDC_SEEK`共有伝播に依存するFILES経路7呼び出し元のコード読解（`99c94c7`）
+- `m7fy-exchange6-drive-bit-preregistration.md` — m7fy: 交換#6経路のドライブビットを故障注入で切り分ける（事前登録）（`fd58d7b`）
+- `m7fz-exchange6-drive-bit-results.md` — m7fz: 交換#6経路のドライブビット故障注入・測定結果（`1a7147e`）
+- `m7ga-odd-cylinder-condition-search-preregistration.md` — m7ga: 交換#6の目的シリンダが奇数になる条件を探索する（事前登録）（`2eaca35`）
+- `m7gb-odd-cylinder-condition-search-results.md` — m7gb: 交換#6の目的シリンダが奇数になる条件を探索した結果（`cdcbe30`）
+- `m7gc-remaining-callers-probe-preregistration.md` — m7gc: `FDC_SEEK`残り6呼び出し元への同一探針の事前登録（`4d32d10`）
+- `m7gd-boot-disk-screening.md` — m7gd: 追加された起動ディスクがL3サービスに入るかを名前を出さずに選別した（`4af367b`）
+- `m7ge-disk3-exchange6-preregistration.md` — m7ge: 新しい起動ディスク（disk#3）で交換#6の目的シリンダを調べる（事前登録）（`cec3445`）
+- `m7gf-disk3-exchange6-results.md` — m7gf: 新しい起動ディスク（disk#3）で交換#6の目的シリンダを調べた結果（`5713e27`）
+- `m7gg-data-disk-screening.md` — m7gg: B:データディスクとして読めるディスクを名前を出さずに選別した（`e748ea3`）
+- `m7gh-remaining-callers-staged-preregistration.md` — m7gh: 残り6箇所の探針を段階に分けて当てる事前登録（`0c0c829`）
+- `m7gi-remaining-callers-stage12-results.md` — m7gi: 残り6箇所の探針 — 段階1（到達可能性）・段階2（B:軸clear）の結果（`e7c0a71`）
+- `m7gj-general-read-drive-discrimination-preregistration.md` — m7gj: `general_read_request`の`clear`結果はドライブ指定か奇数シリンダかを弁別する事前登録（`8d05a65`）
+- `m7gk-save-drive-syntax.md` — m7gk: SAVE のドライブ指定構文を言語リファレンスで特定する（`a422563`）
+- `m7gl-write-path-drive-axis-preregistration.md` — m7gl: WRITE経路にドライブ軸を通す — 事前登録（`8279a58`）
+- `m7gm-write-path-drive-axis-results.md` — m7gm: WRITE経路にドライブ軸を通した結果（`62f7757`）
+- `m7gn-write-data-unit-preregistration.md` — m7gn: WRITE DATAコマンド自身のunitは公式と一致するか — 事前登録（`7e3fd39`）
+- `m7go-write-data-unit-results.md` — m7go: WRITE DATAコマンド自身のunitを公式と比較した結果（`7a969df`）
+- `m7gp-disk-name-leak-path-closed.md` — m7gp: ディスク名がツール出力に出る経路を、ヘルパで1点に閉じた（`29f6466`）
+- `m7gq-write-data-unit-fix-preregistration.md` — m7gq: WRITE DATAのunit指定をドライブ選択ビットから作る修正を事前登録する（`ce1eda0`）
+- `m7gr-write-data-unit-fix-results.md` — m7gr: WRITE DATAのunit指定をドライブ選択ビットから作る修正の測定結果（`698d8e7`）
+- `m7gs-odd-cylinder-by-layout-change-preregistration.md` — m7gs: 起動ディスクの配置を自作BASICプログラムで変え、交換#6の奇数シリンダを狙う（事前登録）（`217da50`）
+- `m7gt-odd-cylinder-by-layout-change-results.md` — m7gt: 起動ディスクの配置を自作BASICプログラムで変え、交換#6の奇数シリンダを狙った測定結果（`1d460da`）
+- `m7gu-three-sites-unit-conformance-preregistration.md` — m7gu: `bulk_read_do`・交換#11・交換#14のunit指定は公式と一致するか — 事前登録（`57dd14e`）
+- `m7gv-three-sites-unit-conformance-results.md` — m7gv: `bulk_read_do`・交換#11・交換#14のunit指定を公式と比較した結果（`d741b83`）
+- `m7gw-disk10-divergence-preregistration.md` — m7gw: `disk#10`が示す3つの食い違いの切り分け — 事前登録（`531d678`）
+- `m7gx-disk10-divergence-results.md` — m7gx: `disk#10`が示す3つの食い違いの切り分け — 結果（`8139600`）
+- `m7gy-command56-divergence-preregistration.md` — m7gy: FDCコマンド種別列56件目の食い違いの切り分け — 事前登録（`757a22a`）
+- `m7gz-command56-divergence-results.md` — m7gz: FDCコマンド種別列56件目の食い違いの切り分け — 結果（`41667ae`）
+- `m7ha-consecutive-read-rule-preregistration.md` — m7ha: 公式が連続READ DATAへ移行する判断規則 — 事前登録（`30887cc`）
+- `m7hb-consecutive-read-rule-results.md` — m7hb: 公式が連続READ DATAへ移行する判断規則 — 結果（`baa20e1`）
+- `m7hc-consecutive-read-count-origin-preregistration.md` — m7hc: 連続READ DATA件数の起源（大きさ／位置）— 事前登録（`c17f841`）
+- `m7hd-consecutive-read-count-origin-results.md` — m7hd: 連続READ DATA件数の起源（大きさ／位置）— 結果（`88e171e`）
+- `m7he-disk10-consecutive-read-origin-preregistration.md` — m7he: disk#10で連続READ件数の起源を大きさと位置で切り分ける — 事前登録（`655066b`）
+- `m7hf-disk10-consecutive-read-origin-results.md` — m7hf: disk#10で連続READ件数の起源を大きさと位置で切り分ける — 結果（`8aaf130`）
+- `m7hg-disk8-large-file-consecutive-read-preregistration.md` — m7hg: disk#8に大きいファイルを作り連続READが現れるかを測る — 事前登録（`e48ea03`）
+- `m7hh-disk8-large-file-consecutive-read-results.md` — m7hh: disk#8に大きいファイルを作り連続READが現れるかを測る — 結果（`82b67b6`）
+- `m7hi-directory-size-consecutive-read-preregistration.md` — m7hi: ディレクトリのファイル数を振って連続READが現れるかを測る — 事前登録（`f7026ca`）
+- `m7hj-directory-size-consecutive-read-results.md` — m7hj: ファイル数を振ってディレクトリ列挙の連続READを探す — 結果（`2a46598`）
+- `m7hk-screen-content-leak-path-closed.md` — m7hk: 画面本文がツール出力に出る経路を、既存ヘルパの運用徹底と自己検査で塞いだ（`854c6bd`）
+- `m7hl-recv-run-count-field-preregistration.md` — m7hl: 連続READの周期「9」が受信runのフィールドに現れるかを、値を出さずに測る — 事前登録（`a4f09d6`）
+- `m7hm-recv-run-count-field-results.md` — m7hm: 連続READの周期「9」が受信runのフィールドに現れるかを、値を出さずに測る — 結果（`1dd9d3a`）
+- `m7hn-seek-without-recv-run-preregistration.md` — m7hn: 受信runが先行しないSEEK段は何に駆動されているか — 事前登録（`190688c`）
+- `m7ho-seek-without-recv-run-results.md` — m7ho: 受信runが先行しないSEEK段は何に駆動されているか — 結果（`796bf04`）
+- `m7hp-scene-matched-request-comparison-preregistration.md` — m7hp: 分岐点直前の要求が公式と混成で同一かを、場面を揃えて測る — 事前登録（`5260ff5`）
+- `m7hq-scene-matched-request-comparison-results.md` — m7hq: 分岐点直前の要求が公式と混成で同一かを、場面を揃えて測る — 結果（`c11ba4a`）
+- `m7hr-scene-matched-request-comparison-retry-preregistration.md` — m7hr: 対照を選び直して、分岐点直前の要求比較を決着させる — 事前登録（`8d1d964`）
+- `m7hs-scene-matched-request-comparison-retry-results.md` — m7hs: 対照を選び直して、分岐点直前の要求比較を決着させる — 結果（`e7ae670`）
+- `m7ht-response-vs-request-ordering-preregistration.md` — m7ht: 要求の差と応答の差はどちらが先か — 事前登録（`9453a64`）
+- `m7hu-response-vs-request-ordering-results.md` — m7hu: 要求の差と応答の差はどちらが先か — 結果（`62c8a97`）
+- `m7hv-bulk-prefix-ordering-preregistration.md` — m7hv: 大量転送runの共通prefixで、応答の差が要求の差より先かを決める — 事前登録（`1b1055a`）
+- `m7hw-bulk-prefix-ordering-results.md` — m7hw: 大量転送runの共通prefixで、応答の差が要求の差より先かを決める — 結果（`37c7ed3`）
+- `m7hx-bulk-true-length-preregistration.md` — m7hx: 混成側の大量転送runの真の長さを求め、順序を決着させる — 事前登録（`54cf60c`）
+- `m7hy-bulk-true-length-results.md` — m7hy: 混成側の大量転送runの真の長さを求め、順序を決着させる — 結果（`5a42e17`）
+- `m7hz-late-typing-progress-test-preregistration.md` — m7hz: 打鍵を遅らせて、要求の1バイト差が「進み方の差」に由来するかを決める — 事前登録（`2557a2f`）
+- `m7ia-late-typing-progress-test-results.md` — m7ia: 打鍵を遅らせて、要求の1バイト差が「進み方の差」に由来するかを決める — 結果（`8c6c420`）
+- `m7ib-late-typing-retry-preregistration.md` — m7ib: 進み方の差が解消する打鍵時刻を探し、要求の1バイト差が残るかを決める — 事前登録（`132bade`）
+- `m7ic-late-typing-retry-results.md` — m7ic: 進み方の差が解消する打鍵時刻を探し、要求の1バイト差が残るかを決める — 結果（`ab10ccc`）
+- `m7id-request-position-intervention-preregistration.md` — m7id: 要求の位置を壊して、連続READを決めている位置かを見る — 事前登録（`2f11e82`）
+- `m7ie-request-position-intervention-results.md` — m7ie: 要求の位置を壊して、連続READを決めている位置かを見る — 結果（`604dfca`）
+- `m7if-request-bit-flip-preregistration.md` — m7if: 要求の位置を1ビットずつ反転して、位置4の特異性を探す — 事前登録（`67504ca`）
+- `m7ig-request-bit-flip-results.md` — m7ig: 要求の位置を1ビットずつ反転して、位置4の特異性を探す — 結果（`330120c`）
+- `m7ih-bit-flip-runlength-shape-preregistration.md` — m7ih: ビット反転で連続READの「形」がどう変わるかを見る — 事前登録（`864c17d`）
+- `m7ii-bit-flip-runlength-shape-results.md` — m7ii: ビット反転で連続READの「形」がどう変わるかを見る — 結果（`2bc1159`）
+- `m7ij-cycle-request-correspondence-preregistration.md` — m7ij: 入口場面の要求と連続READ周期が1対1かを見る — 事前登録（`e5b89f9`）
+- `m7ik-cycle-request-correspondence-results.md` — m7ik: 入口場面の要求と連続READ周期が1対1かを見る — 結果（`3e74baa`）
+- `m7il-position5-preregistration.md` — m7il: 要求の位置5（未測定の1バイト）を壊して、「9」が動くかを見る — 事前登録（`f519179`）
+- `m7im-position5-results.md` — m7im: 要求の位置5（未測定の1バイト）を壊して、「9」が動くかを見る — 結果（`04d4d56`）
+- `m7in-early-exchange-sweep-preregistration.md` — m7in: 入口場面より前の交換runを掃引して、「9」が動く条件を探す — 事前登録（`65ae7e4`）
+- `m7io-early-exchange-sweep-results.md` — m7io: 入口場面より前の交換runを掃引して、「9」が動く条件を探す — 結果（`6e49d31`）
+- `m7ip-early-exchange-allpos-preregistration.md` — m7ip: 入口場面より前の要求を全位置で掃引し、非対称を埋める — 事前登録（`02aa15a`）
+- `m7iq-early-exchange-allpos-results.md` — m7iq: 入口場面より前の要求を全位置で掃引し、非対称を埋める — 結果（`b072fff`）
+- `m7ir-response-direction-sweep-preregistration.md` — m7ir: 応答（sub→main）を掃引して、「9」が動くかを見る — 事前登録（`4e7bd20`）
+- `m7is-response-direction-sweep-results.md` — m7is: 応答（sub→main）を掃引して、「9」が動くかを見る — 結果（`7430d0e`）
+- `m7it-response-position-preregistration.md` — m7it: 応答の位置の非対称を代表位置で埋め、「届かない」を格上げできるか決める — 事前登録（`253ff27`）
+- `m7iu-response-position-results.md` — m7iu: 応答の位置の非対称を代表位置で埋め、「届かない」を格上げできるか決める — 結果（`e0255f4`）
+- `m7iv-disk10-separation-preregistration.md` — m7iv: 何が`disk#10`を特別にしているかを、値を見ずに切り分ける — 事前登録（`7439db7`）
+- `m7iw-disk10-separation-results.md` — m7iw: 何が`disk#10`を特別にしているかを、値を見ずに切り分ける — 結果（`a6f60d3`）
+- `m7ix-disk10-separation-retry-preregistration.md` — m7ix: 窓を`m7gg`と揃えて、何が`disk#10`を特別にしているかを測り直す — 事前登録（`8290110`）
+- `m7iy-disk10-separation-retry-results.md` — m7iy: 窓を`m7gg`と揃えて、何が`disk#10`を特別にしているかを測り直す — 結果（`83c6a58`）
+- `m7iz-selfmade-disk-runlength-preregistration.md` — m7iz: セクタ数の違う自作ディスクで、run長が追随するかを測る — 事前登録（`7ac644a`）
+- `m7ja-selfmade-disk-runlength-results.md` — m7ja: セクタ数の違う自作ディスクで、run長が追随するかを測る — 結果（`a30addb`）
+- `m7jb-sectors-per-track-sweep-preregistration.md` — m7jb: 自作ディスクのセクタ数を振って、run長が追随するかを決める — 事前登録（`48e4806`）
+- `m7jc-sectors-per-track-sweep-results.md` — m7jc: 自作ディスクのセクタ数を振って、run長が追随するかを決める — 結果（`02ce7fd`）
+- `m7jd-cylinder-reach-preregistration.md` — m7jd: 目的シリンダが届く自作ディスクを作り、セクタ数を振り直す — 事前登録（`6f35ff8`）
+- `m7je-cylinder-reach-results.md` — m7je: 目的シリンダが届く自作ディスクを作り、セクタ数を振り直す — 結果（`2774c13`）
+- `m7jf-double-sided-reach-preregistration.md` — m7jf: 両面の自作ディスクを作り、座標を全部覆った到達指標でセクタ数を振る — 事前登録（`485d8cd`）
+- `m7jg-double-sided-reach-results.md` — m7jg: 両面の自作ディスクを作り、座標を全部覆った到達指標でセクタ数を振る — 結果（`f41d82f`）
+- `m7jh-sector-base-shift-preregistration.md` — m7jh: セクタ番号の起点をずらして「読めないまま」Nを振る — 事前登録（`0473765`）
+- `m7ji-sector-base-shift-results.md` — m7ji: セクタ番号の起点をずらして「読めないまま」Nを振る — 結果（`6b705fc`）
+- `m7jj-run-internal-request-identity-preregistration.md` — m7jj: run内9件は同じ要求の繰り返しか、別々の対象の走査か — 事前登録（`6525eae`）
+- `m7jk-run-internal-request-identity-results.md` — m7jk: run内9件は同じ要求の繰り返しか、別々の対象の走査か — 結果（`128def7`）
+- `m7jl-window-extension-preregistration.md` — m7jl: 外側の「4」は規則か、窓の打ち切りか — 事前登録（`4763c77`）
+- `m7jm-window-extension-results.md` — m7jm: 外側の「4」は規則か、窓の打ち切りか — 結果（`f05ad11`）
+- `m7jn-error-cause-invariance-preregistration.md` — m7jn: 失敗の原因が違っても二段構造（9と4）は同じか — 事前登録（`2078ad7`）
+- `m7jo-error-cause-invariance-results.md` — m7jo: 失敗の原因が違っても二段構造（9と4）は同じか — 結果（`0901d4c`）
+- `m7jp-request-entry-sweep-preregistration.md` — m7jp: 要求の入口を変えて「対象の数（3）」が動くか — 事前登録（`ff3cef0`）
+- `m7jq-request-entry-sweep-results.md` — m7jq: 要求の入口を変えて「対象の数（3）」が動くか — 結果（`5a06ac4`）
+- `m7jr-request-entry-retry-preregistration.md` — m7jr: 到達の器具を差し替えて、入口の掃引を測り直す — 事前登録（`9d03b91`）
+- `m7js-request-entry-retry-results.md` — m7js: 到達の器具を差し替えて、入口の掃引を測り直す — 結果（`6f04f11`）
+- `m7jt-mixed-rom-invariance-preregistration.md` — m7jt: 自作サブROMでも3・9・4は出るか（実装側の軸） — 事前登録（`be5a38f`）
+- `m7ju-mixed-rom-invariance-results.md` — m7ju: 自作サブROMでも3・9・4は出るか（実装側の軸） — 結果（`7f7738a`）
+- `m7jv-request-stream-divergence-preregistration.md` — m7jv: 対象の数の差（3対5）は main→sub の要求列に出るか — 事前登録（`d34a59f`）
+- `m7jw-request-stream-divergence-results.md` — m7jw: 対象の数の差（3対5）は main→sub の要求列に出るか — 結果（`9e670d4`）
+- `m7jx-request-run-pairing-preregistration.md` — m7jx: 要求とrunの対応づけ — 「4はmain、9はsub」は成り立つか — 事前登録（`1f5c45a`）
+- `m7jy-request-run-pairing-results.md` — m7jy: 要求とrunの対応づけ — 「4はmain、9はsub」は成り立つか — 結果（`26a51a3`）
+- `m7jz-phase-and-request-identity-preregistration.md` — m7jz: 位相と要求の中身 — 「外側の4はmain側」が確定するか — 事前登録（`00d0fbc`）
+- `m7ka-phase-and-request-identity-results.md` — m7ka: 位相と要求の中身 — 「外側の4はmain側」が確定するか — 結果（`d297a65`）
+- `m7kb-request-size-and-response-identity-preregistration.md` — m7kb: 要求の長さと、応答方向の異同 — 対象の区別はどこにあるか — 事前登録（`a98e4d2`）
+- `m7kc-request-size-and-response-identity-results.md` — m7kc: 要求の長さと、応答方向の異同 — 対象の区別はどこにあるか — 結果（`ed1f9da`）
+- `m7kd-full-coverage-exchange-preregistration.md` — m7kd: main-sub間のやりとりを1バイトも落とさず覆って測る — 事前登録（`724b28e`）
+- `m7ke-full-coverage-exchange-results.md` — m7ke: main-sub間のやりとりを1バイトも落とさず覆って測る — 結果（`43f89c7`）
+- `m7kf-layer-attribution-preregistration.md` — m7kf: 4と9はどちらの層に現れるか — 覆った単位で正面から判定する — 事前登録（`1241982`）
+- `m7kg-layer-attribution-results.md` — m7kg: 4と9はどちらの層に現れるか — 結果（`de2cedc`）
+- `m7kh-inside-the-unit-preregistration.md` — m7kh: 9を1単位の内側で探す — 打ち切りの合図は結果に現れるか — 事前登録（`de2b65d`）
+- `m7ki-inside-the-unit-results.md` — m7ki: 9を1単位の内側で探す — 打ち切りの合図は結果に現れるか — 結果（`291dbf4`）
+- `m7kj-unit-internal-structure-preregistration.md` — m7kj: 6バイトの送信単位は、どこで3種類に分かれるか — 事前登録（`ce187e1`）
+- `m7kk-unit-internal-structure-results.md` — m7kk: 6バイトの送信単位は、どこで3種類に分かれるか — 結果（`009f255`）
+- `m7kl-polling-counts-preregistration.md` — m7kl: 結果以外の入力を潰す — ポーリング回数に合図はあるか — 事前登録（`47bdff3`）
+- `m7km-polling-counts-results.md` — m7km: 結果以外の入力を潰す — ポーリング回数に合図はあるか — 結果（`9223b18`）
+- `m7kn-typing-time-sweep-preregistration.md` — m7kn: 時間を動かすと9は動くか — 打鍵時刻を振る — 事前登録（`13f7412`）
+- `m7ko-typing-time-sweep-results.md` — m7ko: 時間を動かすと9は動くか — 打鍵時刻を振る — 結果（`afb8730`）
+- `m7kp-other-ports-preregistration.md` — m7kp: 最後の軸 — 他のポートの状態に合図はあるか — 事前登録（`16113e8`）
+- `m7kq-other-ports-results.md` — m7kq: 最後の軸 — 他のポートの状態に合図はあるか — 結果（`e1d2a9a`）
+- `m7kr-implement-retry-decision.md` — m7kr: 「9」を規則が未確定のまま実装する — 決定と、その条件（`c46c3fd`）
+- `m7ks-implement-retry-dead-end.md` — m7ks: 「9」の実装は2度とも同じ回帰を出した — 行き止まりの記録（`fadbc27`）
+- `m7kt-abort-scene-attribution-preregistration.md` — m7kt: 自作の`FDC_ABORT`はどの場面で立つか — (a)と(b)を分ける — 事前登録（`6707f27`）
+- `m7ku-abort-scene-attribution-results.md` — m7ku: 自作の`FDC_ABORT`は書き込み経路・LOAD経路では1度も立たない（判定SA1）（`e23c1fa`）
+- `m7kv-third-branch-preregistration.md` — m7kv: 回帰を起こしたのは何か — 第3の枝(c)を切り分ける — 事前登録（`7b807ff`）
+- `m7kw-third-branch-results.md` — m7kw: 再試行は1度も回っていないのに、3つの回帰は出る（第3の枝(c)が立った）（`e848615`）
+- `m7kx-cause-ladder-preregistration.md` — m7kx: (c)の正体を梯子で切る — 事前登録（`5d2704c`）
+- `m7ky-cause-ladder-results.md` — m7ky: 不活性な詰め物11バイトだけで、3つの回帰がそっくり出る（判定UA1）（`3bee8e7`）
+- `m7kz-window-tail-preregistration.md` — m7kz: 窓の外へ伸びた末尾ブロック — 機構の仮説と、予測の事前登録（`3ea4393`）
+- `m7kz-window-tail-results.md` — m7kz: 窓越えの無い段はBASEと445行すべて一致した。R3は登録した指標が盲目だった（判定保留）（`8269eff`）
+- `m7la-conform-unreached-is-regression.md` — m7la: 適合テストの「未到達」を総合判定に数える — 器具の修正と、その検証の予測（`7d1512f`）
+- `m7lb-window-tail-confirm-preregistration.md` — m7lb: 窓越えの機構を確定させる——直した指標で、まだ見ていない段を測る — 事前登録（`b87c835`）
+- `m7lb-window-tail-confirm-results.md` — m7lb: 窓越えの機構は確定した（判定WA1）——4段すべてが予測どおり（`1151413`）
+- `m7lc-generator-window-gate-fixed.md` — m7lc: 生成器の窓の関門を直した——末尾だけ窓の外へ伸びた区間も止める（`289a833`）
+- `m7ld-margin-factor-eot-gpl-dtl-preregistration.md` — m7ld: 余白を作る——EOT・GPL・DTLの送出列を集約する（純粋なコード移動） — 事前登録（`f3ec6bb`）
+- `m7ld-margin-factor-eot-gpl-dtl-results.md` — m7ld: EOT・GPL・DTLの送出列を集約した——合格条件4つとも真、採用する（余白9→26バイト）（`578593d`）
+- `m7le-retry-reattempt-preregistration.md` — m7le: 「9」の再試行を再挑戦する——余白を作った後で、m7krの合格条件をそのまま使う — 事前登録（`38ab35a`）
+- `m7le-retry-reattempt-results.md` — m7le: 再試行の再挑戦——条件3だけが、登録した数え方の字義で偽。中身の悪化は0件（採否は保留）（`910b52e`）
+- `m7lf-judgment-line-identity-preregistration.md` — m7lf: 判定行の同一性を明確にする——**結果を見てから決めた数え方である** — 事前登録（`73f9918`）
+- `m7lf-judgment-line-identity-results.md` — m7lf: 明確にした数え方で条件3は真——伏せて救われたのは調べた1行だけ。「9」の再試行を採用する（`c68fc1f`）
+- `m7lg-official-readable-retry-preregistration.md` — m7lg: 読める媒体の場面で、公式はREAD DATAを繰り返すか——(a)を測る — 事前登録（`2550f32`）
+- `m7lg-official-readable-retry-results.md` — m7lg: 読める媒体の場面では、公式もREAD DATAを繰り返さない（判定XA1）（`4b92656`）
+- `m7lh-data-crc-error-preregistration.md` — m7lh: 3つ目の失敗原因——データのCRCエラーでも「9」は変わらないか — 事前登録（`1ef27ff`）
+- `m7lh-data-crc-error-results.md` — m7lh: データのCRCエラーでも公式の「9」は変わらない（ZA1）——ただし採用した自作は読み直さない（`aee628e`）
+- `m7li-retry-on-result-error-preregistration.md` — m7li: 再試行の条件に「結果が正常終了でない」を足す——m7krの更新の条件による作り直し — 事前登録（`877b6de`）
+- `m7li-retry-on-result-error-results.md` — m7li: 再試行の条件の作り直しは不採用——容量が足りず、送信単位の数も公式と合わない（`5f5d845`）
+- `m7lj-margin-factor-reset-hdr-run-preregistration.md` — m7lj: 余白をもう10バイト作る——ヘッダ受信位置とRUN_LENの初期化列を集約する（純粋なコード移動） — 事前登録（`ba305f0`）
+- `m7lj-margin-factor-reset-hdr-run-results.md` — m7lj: ヘッダ受信位置とRUN_LENの初期化列の集約——合格条件4つとも真、採用する（余白15→25バイト）（`c5b137d`）
+- `m7lk-response-after-exhaustion-preregistration.md` — m7lk: 9件読み切ったあとの応答は、失敗の原因で変わるか——送信単位の数の食い違いを測る — 事前登録（`c1bc99b`）
+- `m7lk-response-after-exhaustion-results.md` — m7lk: 9件読み切ったあとの応答——主判定はO（単位の同定が成り立たない）。ただし原因で応答を変えていたのは公式ではなく自作だった（`20c9df4`）
+- `m7lm-retry-and-response-rework-preregistration.md` — m7lm: 再試行の条件と、9件のあとの応答を、失敗の原因に依らない形で作り直す — 事前登録（`14166ba`）
+- `m7lm-retry-and-response-rework-results.md` — m7lm: 再試行の条件と9件のあとの応答の作り直し——合格条件11項目と決定論性がすべて真、採用する（`90c96e6`）
+- `m7ln-straddle-check-opcode-operand.md` — m7ln: 跨ぎ検査がオペコードとオペランドの間の境界を見逃す穴を直した（`a5a261c`）
+- `m7lo-more-failure-shapes-preregistration.md` — m7lo: ほかの失敗の形でも「9」は変わらないか——ID CRC・データの目印なし・IDが無効・単密度・削除マーク — 事前登録（`f91cb1c`）
+- `m7lo-more-failure-shapes-results.md` — m7lo: 失敗の形を5つ足した——4つは「9」のまま自作も一致。削除マークでは公式が粘り、自作は粘らない（`97036f6`）
+- `m7lp-margin-factor-two-more-preregistration.md` — m7lp: 余白をもう12バイト作る——応答開始の列とN=1の送出列を集約する（純粋なコード移動） — 事前登録（`ce91194`）
+- `m7lp-margin-factor-two-more-results.md` — m7lp: 応答開始の列とN=1の送出列の集約——合格条件4つとも真、採用する（余白15→27バイト）（`c93e6f1`）
+- `m7lq-control-mark-as-failure-preregistration.md` — m7lq: 失敗の判定にST2のCONTROL MARKを加える——削除マークでも読み直し、ほかの失敗と同じ応答を返す — 事前登録（`ff9282b`）
+- `m7lq-control-mark-as-failure-results.md` — m7lq: 失敗の判定にST2のCONTROL MARKを加えた——合格条件13項目と決定論性がすべて真、採用する（`e312da0`）
+- `m7lr-no-disk-main-interrupt-attribution-preregistration.md` — m7lr: B:媒体未挿入の要求長の分岐（公式5／混成6）を、main側の割り込み受理へ帰属させる — 事前登録（`f703b1d`）
+- `m7lr-no-disk-main-interrupt-attribution-results.md` — m7lr: main側割り込みの保留腕は+0の交換軸へ届かず、判定は出せない——受理差683/679は起動の遅れと打鍵の固定で説明がつく（`7b7b40e`）
+- `m7ls-no-disk-keystroke-shift-preregistration.md` — m7ls: no_diskの打鍵フレームを動かしても+0の要求長が変わらないか（空き時間＝main受理件数の除外）— 事前登録（`f3b66c8`）
+- `m7ls-no-disk-keystroke-shift-results.md` — m7ls: 打鍵フレームを500〜780へ動かしても+0の要求長は5/6のまま——空き時間（main受理件数）を除外（`ac45f66`）
+- `m7lt-no-disk-cpu-mode-screen-preregistration.md` — 事前登録: no_diskの5対6は、サブCPUの駆動方式（モード0/1/2）を変えても残るか（`3b5ee51`）
+- `m7lt-no-disk-cpu-mode-screen-results.md` — m7lt: 1回目——関門G0/G1が不成立（gate_failed）。I/Oログ指紋が見出しの作業パスを含んでいた（`e5cb432`）
+- `m7lt-no-disk-cpu-mode-screen-preregistration-addendum.md` — 事前登録（追補）: m7lt 2回目——I/Oログ指紋の定義だけを直し、関門と判定規則は据え置く（`7180aed`）
+- `m7lu-no-disk-sub-drive-wait-diagnosis.md` — m7lu — no_diskの5対6の正体は、公式subの媒体挿入待ち（診断）（`6f3321e`）
+- `m7lv-st3-two-side-media-signal.md` — m7lv — QUASI88ではST3 bit3（TWO SIDE）が媒体の有無を表し、READYは媒体なしでも1（`c7ba89d`）
+- `m7lv-no-disk-drive-wait-implementation-preregistration.md` — m7lv — 自作subにも、一般READ要求の5バイト目の後でST3 bit3=1になるまでSENSE DRIVE STATUSを繰り返させる — 事前登録（`51b96dd`）
+- `m7lv-no-disk-drive-wait-implementation-preregistration-addendum.md` — m7lv — 事前登録への追補（条件4の強化、測定前）（`555f3ed`）
+- `m7lv-no-disk-drive-wait-implementation-results.md` — m7lv: 自作subに媒体待ちを入れた候補は合格条件（1〜9・4b）がすべて真、採用する。no_diskの画面も公式と一致（`5e9999f`）
+- `m7lw-insert-after-no-disk-wait-preregistration.md` — m7lw — B:媒体未挿入の待ちの途中で媒体を差したあとの続きを、公式と混成で比べる — 事前登録（`6be539b`）
+- `m7lw-insert-after-no-disk-wait-results.md` — m7lw: B:未挿入待ちの途中で媒体を差したあとの続きは、4腕とも公式と混成が一致（resumes_identically）（`79f1538`）
+- `m7lx-interrupt-shape-rebaseline.md` — m7lx: サブ割り込み受理件数の再基準測定（`22d6da7`）
+- `m7ly-chapter3-inventory.md` — m7ly — 3章「未確定として残すこと」の棚卸し（`36e99fc`）
+- `m7lz-b-candidates-recheck-preregistration.md` — m7lz — B:候補の実物で FILES 2 と SAVE"2:.." を公式・混成で比べ直す（3章の残る3項を閉じる） — 事前登録（`cff233a`）
+- `m7lz-b-candidates-recheck-results.md` — m7lz: B:候補8本の実測は決定論性の関門G3で止まり、3章の3項は判定できず（gate_failed）（`db822b8`）
+- `m7lz-b-candidates-recheck-preregistration-addendum.md` — m7lz — B:候補の実物再測（2回目）— 事前登録（追補）（`401835f`）
+- `m7lz-b-candidates-recheck-results-run2.md` — m7lz（2回目）: 器具を直したB:候補8本の実測で関門はすべて真になり、3章の3項を判定できた（`d11f5b9`）
+
+## 4. 設計・調査ノート（L1/L2、BASIC設計、外部資料の確認）
+
+- `m1-quasi88-survey.md` — M1 調査メモ — QUASI88-libretro（`c1fc9da`）
+- `m3-demand-profile.md` — M3 需要プロファイル（`67aedaf`）
+- `m2-trap-rom.md` — M2 トラップROM足場（`7bb4c9a`）
+- `m4-l1-ipl.md` — M4 順序付き I/O 記録（`30b9db5`）
+- `m4-handoff-l1-impl.md` — M4 引き継ぎ — L1 IPL の実装へ（`98dd260`）
+- `m4-l1-impl.md` — M4 — L1 IPL の実装（実装セッションの記録）（`19bcd2d`）
+- `refs-pc8801ma-manual.md` — 資料調査 — NEC『PC-8801MA ユーザーズマニュアル』（`78a25e0`）
+- `refs-machinego-not-opened.md` — 資料判定 — 『PC-8801 マシン語活用マニュアル』は開かない（`ea6d244`）
+- `refs-datacrystal.md` — 資料調査 — Data Crystal wiki の PC-8801 ページ（`86f12c2`）
+- `refs-vraminfo.md` — 資料調査 — 「PC-8801 Programing - VRAM Information -」（`3dbd220`）
+- `m4c-int-log.md` — M4c 割り込み受理ログ（`f5e4c11`）
+- `m5-font-survey.md` — M5 調査メモ — フォント経路サーベイ（`385d0b3`）
+- `refs-kiwi-ohta-kanji.md` — 資料判定 2026-08-07 — 「工場のご案内」PC-8801 漢字ページ（`c5f05be`）
+- `refs-antun-nbasic.md` — 資料判定 2026-08-07 — antun.net「NEC系BASICの内部形式」（`0136d32`）
+- `m5-fontsrc-selftest.md` — M5 下ごしらえ — フォント供給源の可視化 / font.h 削除 自己検証記録（`b6e64ba`）
+- `l2-code-assignment.md` — L2 — 半角ANK 文字コード割り当ての根拠（`1f94143`）
+- `l2-font-verify.md` — L2 フォント検証記録（`30f63c9`）
+- `l2-font-misaki-recheck.md` — 美咲フォントの再判定 2026-08-07 — 「4x8だから不採用」は取りこぼしだった（`86375a0`）
+- `refs-gen88font.md` — 資料判定 2026-08-07 — Gen88Font（PC-8801エミュレータ用フォントジェネレータ）（`2d8d77d`）
+- `l2-graphic-codes.md` — L2 — グラフィック文字 65 コード（0x80-0xA0, 0xE0-0xFF）の割り当て（`a5627d6`）
+- `l2-kanji-survey.md` — M — 漢字（全角）の描画経路調査（`a56dafe`）
+- `l4-token-design.md` — L4 設計判断 — 中間コード（トークン）はゴール A では自前の体系を使う（`02c8222`）
+- `fdc-datasheet-only-going-forward.md` — FDC実装の根拠整理 — 今後はμPD765データシートのみに限る（`c9f5a0f`）
+- `refs-round0-semantics-search.md` — 資料判定 — 起動直後の固定交換の意味論を探す（`185c0bb`）
+- `m3b-alphados-demand.md` — M3b: ALPHA-DOS 需要プロファイルと「近道」案の検討（`29cc935`）
+- `m3c-romram-classifier-fault-injection.md` — M3c: ROM/RAM 判定器の故障注入による検出力確認（`23e416f`）
+- `refs-nec-manuals-2026-09-04.md` — 資料判定 2026-09-04 — NEC発行マニュアル5本の可否（カバー・前付・目次のみ）（`52754da`）
+- `l4-design.md` — M7（L4）設計ノート 第1版 — 着手にあたっての整理（`57f9af7`）
+- `l4-asm-oracle.md` — M7 段階0（後半）— 自作アセンブラの外部オラクル突き合わせ（`dd20539`）
+- `l4-keywords-extraction.md` — L4 命令語一覧の機械抽出（M7段階3準備）（`13dba1a`）
+- `refs-manual-error-messages.md` — 資料記録 2026-09-15 — エラーメッセージ一覧（マニュアル資料6）を仕様書へ転記（`c5b8ebe`）
+- `l4-mbf-oracle.md` — l4-mbf-oracle — GW-BASIC 数値部の予測器（M7 / L4 段階4 事前登録用）（`c228673`）
+- `l4-mbf-oracle-v2.md` — l4-mbf-oracle-v2 — GW-BASIC数値部の予測器v2（命令単位の再現）（`1b86da6`）
+- `l4-gwbasic-fofmt-analysis.md` — GW-BASIC `PRINT` フリーフォーマットの固定小数点／指数表記判定（`dea2a91`）
+- `l4-fin-model-search.md` — l4-fin 定数読み取り手順の探索ノート（REP01、事後の当てはめ）（`c2e8a3a`）
+- `l4-dfin-model-search.md` — l4-dfin 倍精度定数読み取り手順の探索ノート（DREP10、事後の当てはめ）（`23ad7ea`）
+
+## 5. 汚染・開示・運用判断の記録
+
+- `contamination-2026-08-07.md` — 汚染記録 2026-08-07（`8bbcf8e`）
+- `contamination-2026-08-07-l1-vsync-impl.md` — 汚染記録 2026-08-07（L1 VSYNC 割り込み駆動化セッション）（`6e8058e`）
+- `disclosure-2026-08-10.md` — 開示記録 2026-08-10（`7f3de7d`）
+- `locale-utf8-var-expansion-2026-08-11.md` — UTF-8ロケールでの変数展開バグと、それを見落としていた理由 2026-08-11（`34844c5`）
+- `banner-attribution-2026-08-16.md` — 自作ROMのバナー・著作権表示に関する決定（2026-08-16）（`74c0813`）
+- `disclosure-2026-09-03.md` — 開示記録 2026-09-03（`1e82e7c`）
+
