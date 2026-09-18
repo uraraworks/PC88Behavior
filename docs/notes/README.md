@@ -31,7 +31,9 @@
 - `l4-s1f-screen-editor-preregistration-addendum.md` — l4-s1f — 追補（マーカー開始列のwindow相対化、CAPS切り分け）（`e585b8d`）
 - `l4-s1f-screen-editor-results.md` — l4-s1f: スクリーンエディタの結果。判定 無修飾←/→=no_change（行の途中）・↑/↓=row_move・INS/DEL無修飾=del_left・SHIFT=ins_mode_only・HOME/CLR無修飾=clear・SHIFT=home。末尾に訂正あり（境界の結論を取り下げ、G8を実測確認、G7未実施を明記、`53ebbdd`）
 - `l4-s1f-screen-editor-preregistration-addendum2.md` — l4-s1f — 追補2（真の境界、列0・列79）— 事前登録（`aaf7240`）
-- `l4-s1f-screen-editor-results-boundary.md` — l4-s1f: 境界の結果。DEL無修飾=真の行頭で常にboundary_no_op、→=列79越えでwrap_to_next_line、←=直前行の内容有無でclamp_no_change/wrap_prev_line_endに分岐
+- `l4-s1f-screen-editor-results-boundary.md` — l4-s1f: 境界の結果（B1〜B4）。DEL無修飾=真の行頭で常にboundary_no_op、→=列79越えでwrap_to_next_line。末尾に訂正あり（B2'・B3'は位置ずれのため取り下げ、`fc1df2d`）
+- `l4-s1f-screen-editor-preregistration-addendum3.md` — l4-s1f — 追補3（B2'・B3'の位置修正、位置確認の関門化）— 事前登録（`08d344f`）
+- `l4-s1f-screen-editor-results-boundary2.md` — l4-s1f: B2'・B3'取り直しの結果。←もDELも前の行の内容有無によらず常に同じ（←=wrap_prev_line_end、DEL=boundary_no_op）と確定、分岐説は撤回
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
 
