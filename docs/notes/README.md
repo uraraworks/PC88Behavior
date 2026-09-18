@@ -29,7 +29,9 @@
 - `l4-s1b-key-matrix-results-q2-shift-codes.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（Q2 SHIFT の文字コード）。Q2 SHIFTの文字コードそのものを記録し直し（`e915172`）
 - `l4-s1f-screen-editor-preregistration.md` — l4-s1f — スクリーンエディタ（カーソル移動・INS/DEL・HOME/CLR・RETURN再読込）— 事前登録（`e07096a`、改訂1`39620ac`）
 - `l4-s1f-screen-editor-preregistration-addendum.md` — l4-s1f — 追補（マーカー開始列のwindow相対化、CAPS切り分け）（`e585b8d`）
-- `l4-s1f-screen-editor-results.md` — l4-s1f: スクリーンエディタの結果。判定 無修飾←/→=no_change・↑/↓=row_move・INS/DEL無修飾=del_left・SHIFT=ins_mode_only・HOME/CLR無修飾=clear・SHIFT=home。G7(Q2/CRTC)は未実施
+- `l4-s1f-screen-editor-results.md` — l4-s1f: スクリーンエディタの結果。判定 無修飾←/→=no_change（行の途中）・↑/↓=row_move・INS/DEL無修飾=del_left・SHIFT=ins_mode_only・HOME/CLR無修飾=clear・SHIFT=home。末尾に訂正あり（境界の結論を取り下げ、G8を実測確認、G7未実施を明記、`53ebbdd`）
+- `l4-s1f-screen-editor-preregistration-addendum2.md` — l4-s1f — 追補2（真の境界、列0・列79）— 事前登録（`aaf7240`）
+- `l4-s1f-screen-editor-results-boundary.md` — l4-s1f: 境界の結果。DEL無修飾=真の行頭で常にboundary_no_op、→=列79越えでwrap_to_next_line、←=直前行の内容有無でclamp_no_change/wrap_prev_line_endに分岐
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
 
