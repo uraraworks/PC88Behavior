@@ -27,7 +27,9 @@
 - `l4-s1e-default-attr-and-scroll-range-results.md` — l4-s1e: 属性域の既定のバイト値と、スクロールの範囲を測った結果。判定 Q1=nonzero_pattern・Q2=fkey_row_reserved（`edba0c8`）
 - `l4-s1b-key-matrix-preregistration-addendum3.md` — l4-s1b — 事前登録の追補3（SHIFT の文字コードの記録、測定前）。事前登録追補3（文字コードそのものの記録を明文化）（`1249b8b`）
 - `l4-s1b-key-matrix-results-q2-shift-codes.md` — l4-s1b: キーマトリクスのビットと入力文字の対応 — 結果（Q2 SHIFT の文字コード）。Q2 SHIFTの文字コードそのものを記録し直し（`e915172`）
-- `l4-s1f-screen-editor-preregistration.md` — l4-s1f — スクリーンエディタ（カーソル移動・INS/DEL・HOME/CLR・RETURN再読込）— 事前登録、測定前
+- `l4-s1f-screen-editor-preregistration.md` — l4-s1f — スクリーンエディタ（カーソル移動・INS/DEL・HOME/CLR・RETURN再読込）— 事前登録（`e07096a`、改訂1`39620ac`）
+- `l4-s1f-screen-editor-preregistration-addendum.md` — l4-s1f — 追補（マーカー開始列のwindow相対化、CAPS切り分け）（`e585b8d`）
+- `l4-s1f-screen-editor-results.md` — l4-s1f: スクリーンエディタの結果。判定 無修飾←/→=no_change・↑/↓=row_move・INS/DEL無修飾=del_left・SHIFT=ins_mode_only・HOME/CLR無修飾=clear・SHIFT=home。G7(Q2/CRTC)は未実施
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
 
