@@ -34,6 +34,7 @@
 - `l4-s1f-screen-editor-results-boundary.md` — l4-s1f: 境界の結果（B1〜B4）。DEL無修飾=真の行頭で常にboundary_no_op、→=列79越えでwrap_to_next_line。末尾に訂正あり（B2'・B3'は位置ずれのため取り下げ、`fc1df2d`）
 - `l4-s1f-screen-editor-preregistration-addendum3.md` — l4-s1f — 追補3（B2'・B3'の位置修正、位置確認の関門化）— 事前登録（`08d344f`）
 - `l4-s1f-screen-editor-results-boundary2.md` — l4-s1f: B2'・B3'取り直しの結果。←もDELも前の行の内容有無によらず常に同じ（←=wrap_prev_line_end、DEL=boundary_no_op）と確定、分岐説は撤回
+- `l4-s1g-screen-editor-return-preregistration.md` — l4-s1g — RETURNで画面上の行を読み直す動作（l4-s1fが対象外とした第2弾）— 事前登録、測定前。9腕・関門P対照7腕（16腕・32走）、G7は最初から対象外と明記
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
 
