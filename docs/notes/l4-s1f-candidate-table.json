@@ -1,0 +1,504 @@
+{
+  "arms_q1": {
+    "arrow_down_noshift/head": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_down_noshift/mid": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_down_noshift/tail": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_left_noshift/head": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "wrap_prev_line": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_left_noshift/mid": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_left_noshift/tail": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_right_noshift/head": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_right_noshift/mid": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_right_noshift/tail": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "wrap_next_line": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_up_noshift/head": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_up_noshift/mid": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "arrow_up_noshift/tail": {
+      "_fault_dummy_of_no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "no_change": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "row_move": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_noshift/head": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_noshift/mid": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_noshift/tail": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_shift/head": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_shift/mid": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "homeclr_shift/tail": {
+      "_fault_dummy_of_clear": {
+        "nonblank_count": 1,
+        "normalized_length": 1,
+        "row_sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
+      },
+      "clear": {
+        "nonblank_count": 0,
+        "normalized_length": 0,
+        "row_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "home": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "insdel_noshift/head": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "del_at": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "ca4f7c0cb95e8feead0fbda943924fa6a998adffd2563c424e621e54fa929c4a"
+      },
+      "del_left": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 6,
+        "row_sha256": "f6d8fd45ce0e3bcbe1b9dfb6ddfccd22ce37094920dd1514c967ed72fc8fc664"
+      }
+    },
+    "insdel_noshift/mid": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "9bd1a0c66b0611e86ed4dafd14357b6deecfe00b122780ea357b25b2b9b85f46"
+      },
+      "del_at": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "a1895b931129eaf98c289eadf7f0312631def8a9b466d649a013ce53245a32ef"
+      },
+      "del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "20d13d6d03e83a10081223dfd8d073e8b2e80f8219bd5e849fa05735acf37bda"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 6,
+        "row_sha256": "55bf6cfe7a84bc15f220131641b80208b6182f00884c890af773ca331c42e93a"
+      }
+    },
+    "insdel_noshift/tail": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "5f41bc631ee551bdba17c855a51432cd73cabde42f73d6a0a3d4d9df1586c205"
+      },
+      "del_at": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "b68e982a3d9af1ebe250226f8a99150fb4b78b48b1a5436ed0d8569cd67e8212"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    },
+    "insdel_shift/head": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "abc15e78a60054c47ba18818df4638b7923099fdc8521d23e85aadcf172a9b6c"
+      },
+      "del_at": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "ca4f7c0cb95e8feead0fbda943924fa6a998adffd2563c424e621e54fa929c4a"
+      },
+      "del_left": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 6,
+        "row_sha256": "f6d8fd45ce0e3bcbe1b9dfb6ddfccd22ce37094920dd1514c967ed72fc8fc664"
+      }
+    },
+    "insdel_shift/mid": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "9bd1a0c66b0611e86ed4dafd14357b6deecfe00b122780ea357b25b2b9b85f46"
+      },
+      "del_at": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "a1895b931129eaf98c289eadf7f0312631def8a9b466d649a013ce53245a32ef"
+      },
+      "del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "20d13d6d03e83a10081223dfd8d073e8b2e80f8219bd5e849fa05735acf37bda"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 6,
+        "row_sha256": "55bf6cfe7a84bc15f220131641b80208b6182f00884c890af773ca331c42e93a"
+      }
+    },
+    "insdel_shift/tail": {
+      "_fault_dummy_of_del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "5f41bc631ee551bdba17c855a51432cd73cabde42f73d6a0a3d4d9df1586c205"
+      },
+      "del_at": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "del_left": {
+        "nonblank_count": 4,
+        "normalized_length": 4,
+        "row_sha256": "b68e982a3d9af1ebe250226f8a99150fb4b78b48b1a5436ed0d8569cd67e8212"
+      },
+      "ins_mode_only": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      },
+      "ins_space": {
+        "nonblank_count": 5,
+        "normalized_length": 5,
+        "row_sha256": "e356f05f29dc71869f1ca4b08030c68809a8481ed909b1fc6a65ffed98f28ea6"
+      }
+    }
+  },
+  "note": "Q1は実測SHA-256、Q2/Q3はrow0・col未定のためsymbolic式のみ。画面本文は含まない(候補の期待署名と式のみ)。",
+  "positions": {
+    "head": 0,
+    "mid": 2,
+    "tail": 5
+  },
+  "q2q3_rules": {
+    "boundary_reflow": {
+      "col": "実測値をそのまま記録(候補としては扱わない)",
+      "row": "実測値をそのまま記録"
+    },
+    "clear": {
+      "col": "0",
+      "row": "0"
+    },
+    "del_at": {
+      "col": "col(不変)",
+      "row": "row0"
+    },
+    "del_left": {
+      "col": "col-1",
+      "row": "row0"
+    },
+    "home": {
+      "col": "0",
+      "row": "0"
+    },
+    "ins_mode_only": {
+      "col": "col(不変)",
+      "row": "row0"
+    },
+    "ins_space": {
+      "col": "col(不変)",
+      "row": "row0"
+    },
+    "no_change_arrow": {
+      "col": "col±1(左右キー) または col(上下キー)",
+      "row": "row0(左右キー) または row0±1(上下キー)"
+    },
+    "row_move": {
+      "col": "col(不変)",
+      "row": "row0±1"
+    },
+    "wrap_next_line": {
+      "col": "0",
+      "row": "row0+1"
+    },
+    "wrap_prev_line": {
+      "col": "row0-1行の非空白末尾+1(または79)",
+      "row": "row0-1"
+    }
+  }
+}
