@@ -1159,6 +1159,21 @@ FTNF_TABLE:
     DB 3
     DB "SQR"
     DW FTNF_DO_SQR
+    ; 2026-09-20追記: SIN・COS・TAN(第4.16a節、`l4-s6b`〜`l4-s6g`で確定した
+    ; 範囲縮約単精度化+away丸めの手順)。SQRと同じくVAL_LOAD_CUR_TO_OPAで
+    ; 単精度へ強制してから拡張ROMバンク0(bank0.asm EXT_BANK0_SIN_ENTRY/
+    ; COS_ENTRY/TAN_ENTRY、オフセット0x0200/0x0210/0x0220固定)を
+    ; EXT_BANK_CALL経由で呼ぶ。ATN/EXP/LOGは未実装(第4.16b節、今回の
+    ; 段階の対象外)。
+    DB 3
+    DB "SIN"
+    DW FTNF_DO_SIN
+    DB 3
+    DB "COS"
+    DW FTNF_DO_COS
+    DB 3
+    DB "TAN"
+    DW FTNF_DO_TAN
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1445,6 +1460,85 @@ _sqr_negative:
     LD A,5
     LD (ERROR_KIND),A
     RET
+
+; ---------------------------------------------------------------------
+; FTNF_DO_SIN/FTNF_DO_COS — 2026-09-20追記。SIN(<数値式>)・
+;   COS(<数値式>)、第4.16a節。SQRと同じくVAL_LOAD_CUR_TO_OPAで型を
+;   問わず単精度へ強制ロードしてから拡張ROMバンク0(bank0.asm
+;   EXT_BANK0_SIN_ENTRY/COS_ENTRY、オフセット0x0200/0x0210固定)を
+;   EXT_BANK_CALL経由で呼ぶ。sin/cosは有限入力に対し常に[-1,1]の範囲
+;   (MBF_STATUS異常は理論上到達しないため、SQR/TANと異なりステータスは
+;   確認しない——l4_mbf_oracle_v10_m9.py sin_impl/cos_implもエラーを
+;   投げない)。
+; ---------------------------------------------------------------------
+FTNF_DO_SIN:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6200                 ; EXT_BANK0_SIN_ENTRY(bank0.asm、オフセット0x0200固定)
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+
+FTNF_DO_COS:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6210                 ; EXT_BANK0_COS_ENTRY(bank0.asm、オフセット0x0210固定)
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+
+; ---------------------------------------------------------------------
+; FTNF_DO_TAN — 2026-09-20追記。TAN(<数値式>)、第4.16a節。SIN/COSと同じ
+;   経路(拡張ROMバンク0 EXT_BANK0_TAN_ENTRY、オフセット0x0220固定)だが、
+;   TANはsin/cosの除算(cos(x)=0付近)でMBF_STATUS=2(0除算)になりうる
+;   ため、VAL_DIV(第2492行)と同じ「MBF_STATUS=2ならDivision by zero
+;   (11、第7.1節)」の判定を行う。MBF_STATUS=1(オーバーフロー)は
+;   l4_mbf_oracle_v10_m9.py tan_implの構造上到達しない経路のはずだが、
+;   VAL_CHECK_MBF_STATUSと同じ安全側の扱い(Overflow、6)にしておく。
+; ---------------------------------------------------------------------
+FTNF_DO_TAN:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6220                 ; EXT_BANK0_TAN_ENTRY(bank0.asm、オフセット0x0220固定)
+    CALL EXT_BANK_CALL
+    JP VAL_CHECK_MBF_STATUS_TAN
+
+; VAL_CHECK_MBF_STATUS_TAN — VAL_CHECK_MBF_STATUS(第2529行)と同型だが、
+;   MBF_STATUS=2(0除算)をOverflowではなくDivision by zero(11)として
+;   区別する(VAL_DIVの_vdiv_zero分岐と同じ判定)。
+VAL_CHECK_MBF_STATUS_TAN:
+    LD A,(MBF_STATUS)
+    OR A
+    JR Z,_vcmst_ok
+    CP 2
+    JR Z,_vcmst_divzero
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,6
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_IS_RUNTIME),A
+    RET
+_vcmst_divzero:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,11
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_IS_RUNTIME),A
+    RET
+_vcmst_ok:
+    JP VAL_SET_SINGLE_FROM_RES
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し

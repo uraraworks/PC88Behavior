@@ -206,6 +206,18 @@ SCRIPTS_EXPECTED=(
   # (--inject-ext-bank-bcde-fault)つき。公式ROM・私物は不要、SKIPは
   # 無く常にrc=0を期待する。
   "tools/l4_sqr_endtoend_selftest.sh:0"
+  # 2026-09-20追記: 拡張ROMバンク0のSIN/COS/TAN本体(EXT_BANK0_SIN_ENTRY/
+  # COS_ENTRY/TAN_ENTRY、docs/spec/l4-program.md 第4.16a節、`l4-s6b`〜
+  # `l4-s6g`で確定した候補M9)を実際にZ80として実行し、予測器
+  # tools/l4_mbf_oracle_v10_m9.pyとバイト単位で突き合わせる。公式ROM・
+  # 私物は不要、SKIPは無く常にrc=0を期待する。
+  "tools/l4_sincos_bank_selftest.sh:0"
+  # 2026-09-20追記: SIN/COS/TANのBASIC呼び出し経路(interp.asm
+  # FTNF_DO_SIN/COS/TAN→EXT_BANK_CALL→bank0 EXT_BANK0_*_ENTRY)の
+  # end-to-end検査(l4_sqr_endtoend_selftest.shと同じ設計、単体照合だけ
+  # では検出できないハングの再発防止)。陰性対照(--inject-ext-bank-
+  # bcde-fault)つき。公式ROM・私物は不要、SKIPは無く常にrc=0を期待する。
+  "tools/l4_sincos_endtoend_selftest.sh:0"
   # VSYNCハンドラのレジスタ非退避の潜在不具合の再現・修正検査
   # (ext_bank開発時に発覚。docs/spec/ext-rom-bank.md参照)。ビルドと
   # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、

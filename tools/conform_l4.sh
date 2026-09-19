@@ -482,7 +482,11 @@ arith_arm_params() {
 # predicted_matchが確認済みの4腕。S5は倍精度引数`#`、S7は`sqr(-1)`の
 # エラー系のため除外)。SQR群は既にsrc/l4_basic配下(拡張ROMバンク0)に
 # 実装済み(`a3fb09e`)のため、見出しコメントはselfmade=implementedで
-# 始める(SIN/COS/TAN/ATN/EXP/LOGはselfmade=not_implemented_yet)。
+# 始める。2026-09-20追記: SIN/COS/TANも拡張ROMバンク0
+# (EXT_BANK0_SIN_ENTRY/COS_ENTRY/TAN_ENTRY、第4.16a節)に実装したため、
+# tests/conformance/expected_l4_trans.tsvのsin/cos/tan群もselfmade=
+# implementedへ切り替えた(ATN/EXP/LOGは引き続きselfmade=
+# not_implemented_yet、第4.16b節・今回の段階の対象外)。
 #
 # 写し(前)は全腕690固定。写し(後)・走行フレームは腕ごとに
 # l4-s6g/l4-s6h/l4-s6aの表の値をそのまま埋め込む(line_end=700+8*

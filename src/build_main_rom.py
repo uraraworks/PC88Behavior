@@ -269,6 +269,11 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
     # 2026-09-20追記(SQR、第4.16b節): mbf_double.asmの倍精度ルーチン。
     # bank0.asm EXT_BANK0_SQR_ENTRYがニュートン法(倍精度)で使う。
     "MBF_STOD", "MBF_DADD", "MBF_DDIV", "MBF_DTOS",
+    # 2026-09-20追記(SIN/COS/TAN、第4.16a節): TRUNC_TO_SINGLE(0方向への
+    # 切り捨て)。bank0.asm SC_RR_REDUCE/SC_SIN_COREが範囲縮約のfloorに使う
+    # (呼び出し箇所はいずれも被演算子が非負であることが構造上保証されて
+    # いるため、0方向切り捨て=floorとして使える)。
+    "TRUNC_TO_SINGLE",
 )
 
 # EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
@@ -279,6 +284,17 @@ EXT_BANK0_SQR_ADDR_LABELS = {
     "MBF_DADD_ADDR": "MBF_DADD",
     "MBF_DDIV_ADDR": "MBF_DDIV",
     "MBF_DTOS_ADDR": "MBF_DTOS",
+}
+
+# EXT_BANK0_SIN_ENTRY/COS_ENTRY/TAN_ENTRY(bank0.asm、第4.16a節)が参照する
+# 常駐ラベル→bank0.asm側EQU名の対応。EXT_BANK0_SQR_ADDR_LABELSと同じ手法。
+EXT_BANK0_SINCOS_ADDR_LABELS = {
+    "SIN_ADD_ADDR": "MBF_ADD",
+    "SIN_SUB_ADDR": "MBF_SUB",
+    "SIN_MUL_ADDR": "MBF_MUL",
+    "SIN_DIV_ADDR": "MBF_DIV",
+    "SIN_NEG_ADDR": "MBF_NEG",
+    "SIN_TRUNC_ADDR": "TRUNC_TO_SINGLE",
 }
 
 # 故障注入(自己検査の陰性対照専用、2026-09-20): EXT_BANK_CALLが
@@ -817,6 +833,10 @@ def main():
                 mbf_add_addr = mbf_sub_addr
         addr_overrides = {}
         for eqname, label in EXT_BANK0_SQR_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK0_SINCOS_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr

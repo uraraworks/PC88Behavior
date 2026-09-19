@@ -2,9 +2,9 @@
 # 7群: sin5/cos5/tan5/atn12/exp14/log14/sqr4）— 期待値
 # (tools/conform_l4.sh が読む)
 #
-# group sin selfmade=not_implemented_yet
-# group cos selfmade=not_implemented_yet
-# group tan selfmade=not_implemented_yet
+# group sin selfmade=implemented
+# group cos selfmade=implemented
+# group tan selfmade=implemented
 # group atn selfmade=not_implemented_yet
 # group exp selfmade=not_implemented_yet
 # group log selfmade=not_implemented_yet
