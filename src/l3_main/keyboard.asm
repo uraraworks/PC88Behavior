@@ -72,12 +72,26 @@ RETURN_BIT   EQU 7
 SPACE_PORT   EQU 09h    ; l3-main.md 第9節末尾の追記（M7段階3b追記2）
 SPACE_BIT    EQU 6
 
+; ---- 第16節: スクリーンエディタ（編集キー）4種8条件。いずれもMOD_PORT
+; (08h)・CAPS_PORT(0Ah)と同じポートのビットを使う(l3-main.md第16節見出し
+; の port:bit 表記のとおり)。専用の名前は付けず、既存のポート定数を使い
+; 回す（RETURN/SPACEと同じやり方）。
+HOME_BIT     EQU 0        ; MOD_PORT bit0: HOME/CLR (無修飾=clear/SHIFT=home)
+UP_BIT       EQU 1        ; MOD_PORT bit1: ↑ (row_move)
+RIGHT_BIT    EQU 2        ; MOD_PORT bit2: → (no_change/wrap_to_next_line)
+INSDEL_BIT   EQU 3        ; MOD_PORT bit3: INS/DEL (無修飾=del_left/SHIFT=ins_mode_only)
+DOWN_BIT     EQU 1        ; CAPS_PORT bit1: ↓ (row_move)
+LEFT_BIT     EQU 2        ; CAPS_PORT bit2: ← (no_change/wrap_prev_line_end)
+
 ; ---- RAM変数（screen.asmのVAR_ROW等と重ならない番地）----
 KEY_OLD      EQU 0E810h    ; 直前スキャン12バイト（bit=1が「離されている」）
 KEY_NEW      EQU 0E81Dh    ; 今回スキャン12バイト（一時領域）
 VAR_LINELEN  EQU 0E82Ah    ; 行バッファに入っている文字数(0-80)
 LINE_BUF     EQU 0E82Bh    ; 行バッファ本体（80バイト、null終端はしない）
 LINE_BUF_CAP EQU 80
+VAR_INSMODE  EQU 0E87Bh    ; 1バイト。第16節ins_mode_only: 1=挿入モード中。
+                            ; 抜ける条件は未測定(第18節項8)。この実装は
+                            ; RETURNで行を確定した時点で解除する(選択)。
 
 ; ---------------------------------------------------------------------
 ; KEY_INIT — KEY_OLDを「全部離されている」(0xFF)で初期化する。
@@ -92,6 +106,7 @@ _ki_loop:
     DJNZ _ki_loop
     XOR A
     LD (VAR_LINELEN),A
+    LD (VAR_INSMODE),A
     RET
 
 ; ---------------------------------------------------------------------
@@ -131,7 +146,7 @@ _kr_port_loop:
     LD A,C
     CP KEY_PORT_N
     JR NZ,_kr_port_loop
-    JR _kr_update_and_none
+    JP _kr_update_and_none
 
 _kr_found_port:
     ; Aに立ち上がりビットのマスクが入っている。最下位の1ビットの番号を求める。
@@ -169,6 +184,77 @@ _kr_not_return:
     LD A,1
     RET
 _kr_not_space:
+    ; 第16節: MOD_PORT(08h)の下位4ビット=HOME/CLR・↑・→・INS/DEL。
+    ; 修飾(SHIFT)の有無に関わらずここで拾う(矢印は無修飾しか測定していない
+    ; ため常にこの経路。HOME/CLR・INS/DELはSHIFTの有無で分岐する)。
+    ; いずれも文字コードを生成せず、この場でカーソル/画面を直接操作して
+    ; A=0(イベント無し扱い)で返す — L3_VSYNC_HOOK側の変更を要さないため。
+    LD A,C
+    CP MOD_PORT
+    JR NZ,_kr_try_down_left
+    LD A,B
+    CP HOME_BIT
+    JR Z,_kr_home_or_clr
+    LD A,B
+    CP UP_BIT
+    JR Z,_kr_do_up
+    LD A,B
+    CP RIGHT_BIT
+    JR Z,_kr_do_right
+    LD A,B
+    CP INSDEL_BIT
+    JR Z,_kr_ins_or_del
+    JR _kr_not_edit
+_kr_try_down_left:
+    LD A,C
+    CP CAPS_PORT
+    JR NZ,_kr_not_edit
+    LD A,B
+    CP DOWN_BIT
+    JR Z,_kr_do_down
+    LD A,B
+    CP LEFT_BIT
+    JR Z,_kr_do_left
+    JR _kr_not_edit
+_kr_do_up:
+    CALL KEY_CURSOR_UP
+    XOR A
+    RET
+_kr_do_down:
+    CALL KEY_CURSOR_DOWN
+    XOR A
+    RET
+_kr_do_left:
+    CALL KEY_CURSOR_LEFT
+    XOR A
+    RET
+_kr_do_right:
+    CALL KEY_CURSOR_RIGHT
+    XOR A
+    RET
+_kr_home_or_clr:
+    LD A,(KEY_NEW+MOD_PORT)
+    BIT SHIFT_BIT,A
+    JR NZ,_kr_do_clr          ; SHIFT無し(bit=1=離): 無修飾=clear
+    CALL KEY_HOME               ; SHIFT有り(bit=0=押下): home
+    XOR A
+    RET
+_kr_do_clr:
+    CALL CLS_SCREEN
+    XOR A
+    RET
+_kr_ins_or_del:
+    LD A,(KEY_NEW+MOD_PORT)
+    BIT SHIFT_BIT,A
+    JR NZ,_kr_do_del           ; SHIFT無し: 無修飾=del_left
+    CALL KEY_ENTER_INSERT       ; SHIFT有り: ins_mode_only
+    XOR A
+    RET
+_kr_do_del:
+    CALL KEY_DEL_LEFT
+    XOR A
+    RET
+_kr_not_edit:
     ; index = port*8 + bit
     LD A,C
     ADD A,A
@@ -236,6 +322,12 @@ _kr_update_old:
 
 ; ---------------------------------------------------------------------
 ; LINE_PUTCHAR — A=文字コード。カーソル位置へエコーしつつ行バッファへ積む。
+;   第16節ins_mode_only追記: VAR_INSMODE=1のときはPRINT_CHAR(上書き)の
+;   代わりにINSERT_PUTCHAR(カーソルから列79までを右へ押し出してから書く)
+;   を使う。行バッファへの格納は変更しない(LINE_BUFはRETURN時に
+;   LINE_READ_FROM_SCREENが画面から丸ごと作り直すため、ここでの格納内容
+;   自体はもう直接モードの実行には使われないが、既存の経路を壊さない
+;   ため残す)。
 ; ---------------------------------------------------------------------
 LINE_PUTCHAR:
     PUSH AF
@@ -254,6 +346,14 @@ LINE_PUTCHAR:
     LD (VAR_LINELEN),A
 _lp_skip_store:
     POP AF
+    LD C,A
+    LD A,(VAR_INSMODE)
+    OR A
+    LD A,C
+    JR Z,_lp_overwrite
+    CALL INSERT_PUTCHAR
+    RET
+_lp_overwrite:
     CALL PRINT_CHAR
     RET
 
@@ -272,8 +372,17 @@ _lp_skip_store:
 ; BASIC_HANDLE_LINE を呼ぶ。行番号つきの行（プログラムモード）は
 ; l4-program.md 第1節のとおり無出力（Ok も出ない）なので、
 ; BASIC_HANDLE_LINE が A=1 を返したときはOk表示を丸ごと飛ばす。
+;
+; 第16・17節追記: RETURNを押した時点でカーソルがある行のVRAM内容を
+; LINE_READ_FROM_SCREENでLINE_BUF/VAR_LINELENへ複製してから実行する
+; (whole_line・reads_whole_row、第17節)。NEWLINEを呼ぶ前(=カーソルが
+; まだその行にある間)に行う必要がある。挿入モード(VAR_INSMODE)は
+; ここで解除する(抜ける条件は未測定、第18節項8の選択)。
 ; ---------------------------------------------------------------------
 LINE_FINISH:
+    CALL LINE_READ_FROM_SCREEN
+    XOR A
+    LD (VAR_INSMODE),A
     CALL NEWLINE
     CALL BASIC_HANDLE_LINE
     PUSH AF
@@ -291,6 +400,229 @@ _lf_ok:
     CALL PRINT_STR
     CALL NEWLINE
 _lf_done:
+    RET
+
+; ---------------------------------------------------------------------
+; LINE_READ_FROM_SCREEN — 第17節（whole_line・reads_whole_row）。
+;   現在のカーソル行(VAR_ROWBASEが指す80桁)をそのままLINE_BUFへ複製する。
+;   カーソルの列位置には依存しない(第17節「カーソル位置に依存する候補は
+;   採用されず、常に行全体が読まれる」)。上書きされずに残った行末の
+;   古い文字(空白でないもの)もそのまま複製されるため、reads_whole_rowの
+;   結果はそのまま保たれる。
+;
+;   末尾が空白(0x20)の並びだけはVAR_LINELENから除く(仕様書に無い選択)。
+;   直接モードの構文解析(DIRECT_LINEのSKIP_SPACES+AT_END)は行末の空白を
+;   もともと無視するため実行結果は変わらない。これを省くと、まっさらな
+;   行(残りが既定の空白で埋まっている行)を打っただけでも本文長が常に
+;   COLS(80)になり、program.asm PROGRAM_STORE_LINEが「行番号より後ろ
+;   全部」を本文として保存してしまい、LIST時に大量の末尾空白が付いて
+;   1行が画面上2行にまたがる(自動折り返し)という別の不具合を生むため。
+; ---------------------------------------------------------------------
+LINE_READ_FROM_SCREEN:
+    LD HL,(VAR_ROWBASE)
+    LD DE,LINE_BUF
+    LD BC,COLS
+    LDIR
+    LD HL,LINE_BUF+COLS-1
+    LD B,COLS
+_lrfs_trim:
+    LD A,B
+    OR A
+    JR Z,_lrfs_done
+    LD A,(HL)
+    CP 020h
+    JR NZ,_lrfs_done
+    DEC HL
+    DEC B
+    JR _lrfs_trim
+_lrfs_done:
+    LD A,B
+    LD (VAR_LINELEN),A
+    RET
+
+; ---------------------------------------------------------------------
+; INSERT_PUTCHAR — A=文字コード。第16節ins_mode_only:
+;   カーソル位置から列79までの内容を1つ右へ押し出し(列79の元の内容は
+;   失われる)、カーソル位置にAを書き、カーソルを1つ右へ進める。
+;   列79で押されたときは押し出す先が無いため上書きのみ行い、カーソルは
+;   進めない(挿入モードで列79まで詰まった行への挿入の挙動は未測定、
+;   仕様未確定・第18節項8。この実装は最小の安全策として「これ以上は
+;   崩さない」を選ぶ)。破壊: AF,BC,DE,HL。
+; ---------------------------------------------------------------------
+INSERT_PUTCHAR:
+    PUSH AF
+    LD A,(VAR_COL)
+    LD C,A
+    CP COLS-1
+    JR NC,_ip_no_shift
+    LD A,COLS-1
+    SUB C
+    LD B,A                    ; B = 押し出す回数 = (COLS-1)-col
+    LD HL,(VAR_ROWBASE)
+    LD DE,COLS-1
+    ADD HL,DE                 ; HL = dst = ROWBASE+(COLS-1)
+_ip_shift_loop:
+    LD D,H
+    LD E,L
+    DEC DE                    ; DE = src = dst-1
+    LD A,(DE)
+    LD (HL),A
+    LD H,D
+    LD L,E                    ; 次の周のdst = 今回のsrc
+    DJNZ _ip_shift_loop
+_ip_no_shift:
+    LD HL,(VAR_ROWBASE)
+    LD E,C
+    LD D,0
+    ADD HL,DE                 ; HL = ROWBASE+col = 書き込み位置
+    POP AF
+    LD (HL),A
+    LD A,C
+    CP COLS-1
+    JR NC,_ip_no_advance       ; 既に列79なら進めない(選択、上記コメント参照)
+    INC A
+    LD (VAR_COL),A
+_ip_no_advance:
+    RET
+
+; ---------------------------------------------------------------------
+; 第16節: スクリーンエディタ（編集キー）の実体。いずれもKEY_READから直接
+; 呼ばれ、カーソル(VAR_ROW/VAR_COL/VAR_ROWBASE)または画面(VRAM)だけを
+; 操作する。文字コードは生成しない。
+; ---------------------------------------------------------------------
+
+; KEY_CURSOR_UP — ↑(row_move)。同じ列のまま1行上へ。行0では無反応
+; (真の境界での挙動は本節の測定対象外。仕様書に無い、安全側の選択)。
+KEY_CURSOR_UP:
+    LD A,(VAR_ROW)
+    OR A
+    RET Z
+    DEC A
+    LD (VAR_ROW),A
+    LD HL,(VAR_ROWBASE)
+    LD DE,STRIDE
+    OR A
+    SBC HL,DE
+    LD (VAR_ROWBASE),HL
+    RET
+
+; KEY_CURSOR_DOWN — ↓(row_move)。同じ列のまま1行下へ。最終使用可能行
+; (USABLE_ROWS-1、ファンクションキー予約行の手前)では無反応
+; (仕様書に無い、安全側の選択。LOCATE_SET_CURSORの範囲丸めと同じ境界)。
+KEY_CURSOR_DOWN:
+    LD A,(VAR_ROW)
+    CP USABLE_ROWS-1
+    RET NC
+    INC A
+    LD (VAR_ROW),A
+    LD HL,(VAR_ROWBASE)
+    LD DE,STRIDE
+    ADD HL,DE
+    LD (VAR_ROWBASE),HL
+    RET
+
+; KEY_CURSOR_LEFT — ←。行の途中はno_change(1列左へ)。列0の真の境界では
+; 前の行の列79へ回り込む(wrap_prev_line_end、内容の有無によらず常に
+; 起こる)。行0・列0(画面左上)では、それより上に行が無いため無反応
+; (この組み合わせは本節の測定対象外。仕様書に無い、安全側の選択)。
+KEY_CURSOR_LEFT:
+    LD A,(VAR_COL)
+    OR A
+    JR Z,_kcl_boundary
+    DEC A
+    LD (VAR_COL),A
+    RET
+_kcl_boundary:
+    LD A,(VAR_ROW)
+    OR A
+    RET Z
+    DEC A
+    LD (VAR_ROW),A
+    LD A,COLS-1
+    LD (VAR_COL),A
+    LD HL,(VAR_ROWBASE)
+    LD DE,STRIDE
+    OR A
+    SBC HL,DE
+    LD (VAR_ROWBASE),HL
+    RET
+
+; KEY_CURSOR_RIGHT — →。行の途中はno_change(1列右へ)。列79の境界では
+; 次の行の列0へ進む(長押しでのwrap_to_next_line、境界での停止は観測
+; されなかった。単発押下の挙動は未測定だが同じ動きを採る、仕様未確定・
+; 第18節項8)。最終使用可能行の列79では、それより下に行が無いため無反応
+; (この組み合わせは本節の測定対象外。仕様書に無い、安全側の選択)。
+KEY_CURSOR_RIGHT:
+    LD A,(VAR_COL)
+    CP COLS-1
+    JR Z,_kcr_boundary
+    INC A
+    LD (VAR_COL),A
+    RET
+_kcr_boundary:
+    LD A,(VAR_ROW)
+    CP USABLE_ROWS-1
+    RET Z
+    INC A
+    LD (VAR_ROW),A
+    XOR A
+    LD (VAR_COL),A
+    LD HL,(VAR_ROWBASE)
+    LD DE,STRIDE
+    ADD HL,DE
+    LD (VAR_ROWBASE),HL
+    RET
+
+; KEY_DEL_LEFT — INS/DEL無修飾(del_left)。カーソルの左の文字を1つ除き、
+; 後続の文字(同じ行、列79まで)を左へ1つ詰める。列79は空白で埋める。
+; 真の境界(列0)では常に無反応(boundary_no_op。前の行の内容の有無に
+; よらない)。破壊: AF,BC,DE,HL。
+KEY_DEL_LEFT:
+    LD A,(VAR_COL)
+    OR A
+    RET Z
+    DEC A
+    LD (VAR_COL),A
+    LD C,A                     ; C = 削除位置(新カーソル位置)
+    LD B,0
+    LD HL,(VAR_ROWBASE)
+    ADD HL,BC
+    PUSH HL                    ; dstをスタックへ退避
+    INC HL                     ; HL = src = ROWBASE+col+1
+    LD B,COLS-1
+    LD A,B
+    SUB C
+    LD B,A                     ; B = (COLS-1)-col = コピーするバイト数
+    POP DE                     ; DE = dst
+    LD A,B
+    OR A
+    JR Z,_kdl_lastonly
+_kdl_loop:
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    INC DE
+    DJNZ _kdl_loop
+_kdl_lastonly:
+    LD A,020h
+    LD (DE),A                  ; 最終列(79)を空白で埋める
+    RET
+
+; KEY_ENTER_INSERT — INS/DEL+SHIFT(ins_mode_only)。押した時点では行内容
+; は変化させず、挿入モードに入るだけ。
+KEY_ENTER_INSERT:
+    LD A,1
+    LD (VAR_INSMODE),A
+    RET
+
+; KEY_HOME — HOME/CLR+SHIFT(home)。画面内容は変えず、カーソルだけを
+; 画面左上(行0・列0)へ移す。
+KEY_HOME:
+    XOR A
+    LD (VAR_ROW),A
+    LD (VAR_COL),A
+    LD HL,TEXT_BASE
+    LD (VAR_ROWBASE),HL
     RET
 
 ; ---------------------------------------------------------------------
