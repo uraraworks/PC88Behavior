@@ -33,7 +33,10 @@
 - `l4-s1f-screen-editor-preregistration-addendum2.md` — l4-s1f — 追補2（真の境界、列0・列79）— 事前登録（`aaf7240`）
 - `l4-s1f-screen-editor-results-boundary.md` — l4-s1f: 境界の結果（B1〜B4）。DEL無修飾=真の行頭で常にboundary_no_op、→=列79越えでwrap_to_next_line。末尾に訂正あり（B2'・B3'は位置ずれのため取り下げ、`fc1df2d`）
 - `l4-s1f-screen-editor-preregistration-addendum3.md` — l4-s1f — 追補3（B2'・B3'の位置修正、位置確認の関門化）— 事前登録（`08d344f`）
-- `l4-s1f-screen-editor-results-boundary2.md` — l4-s1f: B2'・B3'取り直しの結果。←もDELも前の行の内容有無によらず常に同じ（←=wrap_prev_line_end、DEL=boundary_no_op）と確定、分岐説は撤回
+- `l4-s1f-screen-editor-results-boundary2.md` — l4-s1f: B2'・B3'取り直しの結果。←もDELも前の行の内容有無によらず常に同じ（←=wrap_prev_line_end、DEL=boundary_no_op）と確定、分岐説は撤回。末尾に前提注記あり（frame700は起動時の入力待ち中だった、判定名は全て再確認一致、`69be0ef`）
+- `l4-s1g-screen-editor-return-preregistration.md` — l4-s1g — RETURNで画面上の行を読み直す — 事前登録（`29880bc`、改訂1`3b3be75`）
+- `l4-s1g-screen-editor-return-preregistration-addendum.md` — l4-s1g — 追補（settle手順の訂正、起動時入力待ちの切り分けH1確認）（`da3cc2d`）
+- `l4-s1g-screen-editor-return-results.md` — l4-s1g: RETURN再読込の結果。判定 群R=whole_line・群U=reexec_overwrites_below・群E=line_registration_updated・群T=reads_whole_row。全腕2走完全一致、G8実測確認済み、G7は対象外
 - `l4-s1g-screen-editor-return-preregistration.md` — l4-s1g — RETURNで画面上の行を読み直す動作（l4-s1fが対象外とした第2弾）— 事前登録、測定前。9腕・関門P対照8腕（17腕・34走）、G7は最初から対象外と明記。改訂1（`29880bc`へのレビュー反映、群U作り直し・E1の列位置根拠明記・G10追加）
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
