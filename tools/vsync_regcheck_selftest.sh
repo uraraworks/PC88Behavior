@@ -79,7 +79,7 @@ echo "DONE=$DONE1 RESULT=$RESULT1"
 if [ "$DONE1" = "01" ] && [ "$RESULT1" = "01" ]; then
   echo "OK: 修正後ビルドはA/BC/DE/HL/IX/IYすべて割り込み前後で一致した"
 else
-  fail "修正後ビルドでレジスタ不一致が起きた(DONE=$DONE1 RESULT=$RESULT1、修正が効いていない可能性)"
+  fail "修正後ビルドでレジスタ不一致が起きた(DONE=$DONE1 RESULT=${RESULT1}、修正が効いていない可能性)"
 fi
 
 # -----------------------------------------------------------------------
@@ -93,7 +93,7 @@ echo "DONE=$DONE2 RESULT=$RESULT2"
 if [ "$DONE2" = "01" ] && [ "$RESULT2" = "00" ]; then
   echo "OK(検出力): PUSH/POPを外すと実際にレジスタ不一致を検出できた(修正前の再現)"
 else
-  fail "陰性対照で不一致を検出できなかった(DONE=$DONE2 RESULT=$RESULT2、検査に検出力が無い)"
+  fail "陰性対照で不一致を検出できなかった(DONE=$DONE2 RESULT=${RESULT2}、検査に検出力が無い)"
 fi
 
 # -----------------------------------------------------------------------
