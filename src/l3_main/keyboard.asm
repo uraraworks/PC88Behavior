@@ -93,6 +93,35 @@ VAR_INSMODE  EQU 0E87Bh    ; 1バイト。第16節ins_mode_only: 1=挿入モー�
                             ; 抜ける条件は未測定(第18節項8)。この実装は
                             ; RETURNで行を確定した時点で解除する(選択)。
 
+; ---- 第4.2版 第8節「キーリピート」: 文字キー・→(RIGHT_BIT)にだけ効く。
+; DEL・←・↑↓・HOME/CLR等は未測定のため繰り返さない(仕様未確定、第18節
+; 「DEL・←・↑↓等、文字キーと→以外のキーにも自動繰り返しが効くか」)。
+;
+; 遅延・間隔の値そのものは第8節の実測範囲「開始までの遅延はおよそ
+; 26〜31フレーム(中心値26)」「間隔はおよそ4フレーム(3.98フレーム/回)」
+; から採る。間隔は四捨五入した4を採用。遅延は、1フレーム刻みの離散
+; シミュレーションでは「開始から遅延フレーム後に初回発火」という連続的な
+; 記述をそのまま実装しても、境界1フレームのずれが→の長押し移動数に
+; 直接効いてしまう(移動数は整数で、1回多い/少ないが即座に列がずれる)。
+; そこで実測範囲26〜31の中から、第8節が「6点すべての実測着地列と一致
+; した」と明記するHOLD=600の予測式の結果(移動数144、行1・列64)に、
+; この離散シミュレーションが一致する値としてKEY_REPEAT_DELAY=30を選んだ
+; (tools/conform_l3_editor.sh のB4で確認。範囲26〜31の外の値を選んで
+; はいない。仕様書に無い選択だが、実測範囲内から選び、実測値そのものと
+; 突き合わせて確認した)。
+KEY_REPEAT_DELAY    EQU 30
+KEY_REPEAT_INTERVAL EQU 4
+; 0E87C以降はl4_basic/lexer.asm等が既に使っている(ERROR_FLAG=E880・
+; LINE_END=E881・CUR_PTR=E883など)。E8B4-E8B9(l4_basic側の使用領域の
+; 最後、RHS_DATA=E8AC+8バイト=E8B4の直後で、次の使用開始E980までの
+; 空き)へ置く(混線の教訓、報告参照)。
+REPEAT_KIND     EQU 0E8B4h  ; 1バイト。0=無し/1=文字キー/2=→
+REPEAT_PORT     EQU 0E8B5h  ; 1バイト。対象キーのポート番号
+REPEAT_MASK     EQU 0E8B6h  ; 1バイト。対象キーのビットマスク(1<<bit)
+REPEAT_PHASE    EQU 0E8B7h  ; 1バイト。0=遅延待ち/1=間隔周期
+REPEAT_COUNTER  EQU 0E8B8h  ; 1バイト。現在のphase内の経過フレーム数
+REPEAT_CHAR     EQU 0E8B9h  ; 1バイト。文字キーのとき再送する文字コード
+
 ; ---------------------------------------------------------------------
 ; KEY_INIT — KEY_OLDを「全部離されている」(0xFF)で初期化する。
 ; ---------------------------------------------------------------------
@@ -107,6 +136,7 @@ _ki_loop:
     XOR A
     LD (VAR_LINELEN),A
     LD (VAR_INSMODE),A
+    LD (REPEAT_KIND),A
     RET
 
 ; ---------------------------------------------------------------------
@@ -230,6 +260,8 @@ _kr_do_left:
     RET
 _kr_do_right:
     CALL KEY_CURSOR_RIGHT
+    CALL ARM_REPEAT_RIGHT      ; 第8節: →にはキーリピートが効く。C=port・
+                                ; B=bitはここまで書き換わっていない
     XOR A
     RET
 _kr_home_or_clr:
@@ -302,6 +334,9 @@ _kr_lookup:
     JR Z,_kr_ignore
     LD E,A
     LD A,1
+    CALL ARM_REPEAT_CHAR       ; 第8節: 文字キーにはキーリピートが効く。
+                                ; C=port・B=bitはここまで書き換わっていない。
+                                ; A・Eは変えない(呼び出し規約)
     RET
 _kr_ignore:
     XOR A
@@ -318,6 +353,142 @@ _kr_update_old:
     LD DE,KEY_OLD
     LD BC,KEY_PORT_N
     LDIR
+    RET
+
+; ---------------------------------------------------------------------
+; KEY_REPEAT_TICK — 第8節「キーリピート」。文字キー・→にだけ適用する
+;   (DEL・←・↑↓・HOME/CLR等は未測定のため対象外、仕様未確定・第18節)。
+;   REPEAT_KIND=0なら何もしない。対象キーが離されていれば止める
+;   (stops_on_release)。押され続けていれば経過フレームを数え、遅延
+;   (KEY_REPEAT_DELAY)到達、以後はKEY_REPEAT_INTERVAL周期で発火する。
+;
+;   L3_VSYNC_HOOKから「実フレームに1回だけ」呼ばれる前提(重要)。対象
+;   ポートはKEY_NEW(KEY_READの走査結果)を見ず、ここで直接IN A,(C)して
+;   確かめる。run.asm INPUT_READLINEはKEY_READを割り込み経由のVSYNCとは
+;   無関係にポーリングループで何度も呼ぶため、もしKEY_READ側で経過
+;   フレームを数える処理を持たせると、INPUT中は「1フレームに何百回も
+;   カウントが進む」ことになり暴走する(実際にこの実装でその不具合が
+;   起き、l4_program_selftest.shのE1/E2〔INPUT文〕で検出された)。経過
+;   フレーム数を数える処理は、実フレームに同期して呼ばれることが保証
+;   されているL3_VSYNC_HOOK側にだけ置く。
+;
+;   出力: A=0(発火せず、呼び出し元は何もしなくてよい)/
+;         1(文字キー発火。REPEAT_CHARに再送する文字コードが入っている)/
+;         2(→の発火、KEY_CURSOR_RIGHTを呼び出し済み)。
+;   破壊: AF,BC,DE,HL。
+; ---------------------------------------------------------------------
+KEY_REPEAT_TICK:
+    LD A,(REPEAT_KIND)
+    OR A
+    RET Z
+    LD A,(REPEAT_PORT)
+    LD C,A
+    IN A,(C)
+    LD B,A
+    LD A,(REPEAT_MASK)
+    AND B
+    JR Z,_krt_still_down       ; マスクした結果0 = 対象ビットが0(押下中)
+    ; 離された: リピートを止める(stops_on_release)
+    XOR A
+    LD (REPEAT_KIND),A
+    RET
+_krt_still_down:
+    LD A,(REPEAT_PHASE)
+    OR A
+    JR NZ,_krt_phase1
+    ; phase0: 遅延(KEY_REPEAT_DELAY)待ち
+    LD A,(REPEAT_COUNTER)
+    INC A
+    LD (REPEAT_COUNTER),A
+    CP KEY_REPEAT_DELAY
+    JR NZ,_krt_no_fire
+    LD A,1
+    LD (REPEAT_PHASE),A
+    XOR A
+    LD (REPEAT_COUNTER),A
+    JR _krt_fire
+_krt_phase1:
+    ; phase1: KEY_REPEAT_INTERVAL周期
+    LD A,(REPEAT_COUNTER)
+    INC A
+    LD (REPEAT_COUNTER),A
+    CP KEY_REPEAT_INTERVAL
+    JR NZ,_krt_no_fire
+    XOR A
+    LD (REPEAT_COUNTER),A
+_krt_fire:
+    LD A,(REPEAT_KIND)
+    CP 2
+    JR Z,_krt_fire_right
+    LD A,1
+    RET
+_krt_fire_right:
+    CALL KEY_CURSOR_RIGHT
+    LD A,2
+    RET
+_krt_no_fire:
+    XOR A
+    RET
+
+; ---------------------------------------------------------------------
+; COMPUTE_BIT_MASK — 入力: B=ビット番号(0-7)。出力: A=1<<B。破壊: B,C。
+; ---------------------------------------------------------------------
+COMPUTE_BIT_MASK:
+    LD A,1
+    JR _cbm_check
+_cbm_shift:
+    ADD A,A
+_cbm_check:
+    LD C,A
+    LD A,B
+    OR A
+    JR Z,_cbm_done
+    DEC B
+    LD A,C
+    JR _cbm_shift
+_cbm_done:
+    LD A,C
+    RET
+
+; ---------------------------------------------------------------------
+; ARM_REPEAT_CHAR — 文字キーのキーリピートを仕込む(第8節)。
+;   入力: C=port・B=bit・E=再送する文字コード。呼び出し前後でA・Eは
+;   変えない(呼び出し元_kr_lookupがそのままRETで返す値のため)。
+;   破壊: BC,DE,HL(A・Eは復元する)。
+; ---------------------------------------------------------------------
+ARM_REPEAT_CHAR:
+    PUSH AF
+    PUSH DE
+    LD A,C
+    LD (REPEAT_PORT),A
+    CALL COMPUTE_BIT_MASK
+    LD (REPEAT_MASK),A
+    LD A,1
+    LD (REPEAT_KIND),A
+    XOR A
+    LD (REPEAT_PHASE),A
+    LD (REPEAT_COUNTER),A
+    POP DE
+    LD A,E
+    LD (REPEAT_CHAR),A
+    POP AF
+    RET
+
+; ---------------------------------------------------------------------
+; ARM_REPEAT_RIGHT — →のキーリピートを仕込む(第8節)。
+;   入力: C=port・B=bit。呼び出し元_kr_do_rightはこの直後にXOR A/RETする
+;   ためA/Eの保存は不要。破壊: AF,BC.
+; ---------------------------------------------------------------------
+ARM_REPEAT_RIGHT:
+    LD A,C
+    LD (REPEAT_PORT),A
+    CALL COMPUTE_BIT_MASK
+    LD (REPEAT_MASK),A
+    LD A,2
+    LD (REPEAT_KIND),A
+    XOR A
+    LD (REPEAT_PHASE),A
+    LD (REPEAT_COUNTER),A
     RET
 
 ; ---------------------------------------------------------------------
@@ -643,10 +814,27 @@ SET_CURSOR:
 ; (build_main_rom.pyがVSYNCハンドラの固定カーソル出力2個をこの呼び出しへ
 ; 置き換える)。キー入力→行入力の処理をしてから、カーソル位置を出す。
 ; ---------------------------------------------------------------------
+; 第8節キーリピート追記: KEY_REPEAT_TICKは「実フレームに1回だけ」呼ぶ
+; 前提の設計(KEY_REPEAT_TICKのヘッダコメント参照。run.asm
+; INPUT_READLINEがKEY_READを割り込みと無関係なポーリングループで何度も
+; 呼ぶため、KEY_READ側に経過フレームのカウントを持たせると暴走する)。
+; そのためKEY_REPEAT_TICKはここ(VSYNCハンドラから実フレームに1回だけ
+; 呼ばれるL3_VSYNC_HOOK)でだけ呼ぶ。KEY_READが新しいエッジを見つけた
+; フレームでは、そちらを優先しリピートは確かめない(1フレーム1イベント
+; の方針、ヘッダコメント参照)。
 L3_VSYNC_HOOK:
     CALL KEY_READ
     OR A
+    JR NZ,_hook_have_event
+    CALL KEY_REPEAT_TICK
+    OR A
     JR Z,_hook_done
+    CP 1
+    JR NZ,_hook_done            ; A=2(→): KEY_REPEAT_TICKがKEY_CURSOR_RIGHT済み
+    LD A,(REPEAT_CHAR)
+    CALL LINE_PUTCHAR
+    JR _hook_done
+_hook_have_event:
     CP 2
     JR Z,_hook_return
     LD A,E
