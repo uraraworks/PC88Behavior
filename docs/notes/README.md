@@ -38,6 +38,7 @@
 - `l4-s1g-screen-editor-return-preregistration-addendum.md` — l4-s1g — 追補（settle手順の訂正、起動時入力待ちの切り分けH1確認）（`da3cc2d`）
 - `l4-s1g-screen-editor-return-results.md` — l4-s1g: RETURN再読込の結果。判定 群R=whole_line・群U=reexec_overwrites_below・群E=line_registration_updated・群T=reads_whole_row。全腕2走完全一致、G8実測確認済み、G7は対象外
 - `l4-s1g-screen-editor-return-preregistration.md` — l4-s1g — RETURNで画面上の行を読み直す動作（l4-s1fが対象外とした第2弾）— 事前登録、測定前。9腕・関門P対照8腕（17腕・34走）、G7は最初から対象外と明記。改訂1（`29880bc`へのレビュー反映、群U作り直し・E1の列位置根拠明記・G10追加）
+- `l4-s1h-key-repeat-preregistration.md` — l4-s1h — キーリピート（自動繰り返し）— 事前登録、測定前。`l4-c6`のB4不一致（自作ROMにリピート未実装）を埋めるための遅延・間隔測定。11腕×2走（Q1文字キー時系列、Q2の→への外挿6点、Q3単発での列79越え、陽性・陰性対照、Q3専用の関門P）、G7非対象と明記
 
 ### 1.2 l4-s3〜l4-s5 系 — L4 BASIC の観測（l4-basic.md・l4-program.md の根拠）
 
