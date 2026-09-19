@@ -1150,6 +1150,15 @@ FTNF_TABLE:
     DB 4
     DB "CDBL"
     DW FTNF_DO_CDBL
+    ; 2026-09-20追記: SQR(第4.16b節)。単精度へ強制してから拡張ROM
+    ; バンク0(src/ext_bank/bank0.asm EXT_BANK0_SQR_ENTRY、オフセット
+    ; 0x80固定)を中継(EXT_BANK_CALL、docs/spec/ext-rom-bank.md)経由で
+    ; 呼ぶ。SIN/COS/TAN/ATN/EXP/LOGは未実装(第4.16a/b節参照、今回の
+    ; 段階の対象外——PLAN.md「行き止まりを消さない」規律どおり、
+    ; ここでは着手した範囲だけをコミットする)。
+    DB 3
+    DB "SQR"
+    DW FTNF_DO_SQR
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1396,6 +1405,46 @@ FTNF_DO_CDBL:
     OR A
     RET NZ
     JP VAL_PROMOTE_CUR_TO_DOUBLE
+
+; ---------------------------------------------------------------------
+; FTNF_DO_SQR — 2026-09-20追記。SQR(<数値式>)、第4.16b節。
+;   VAL_LOAD_CUR_TO_OPA(ABS/SGNのVAL_CUR_SIGN/VAL_CUR_IS_ZERO同様、型を
+;   問わずMBF_OPAへ単精度で強制ロードする——第4.16b節「単精度へ丸めて
+;   計算し単精度で返す」既知の差、倍精度引数もここで単精度へ落ちる)。
+;   0はそのまま0、負はIllegal function call(5、第7.1節・l4-s6a
+;   SQR(-1))、それ以外は拡張ROMバンク0(src/ext_bank/bank0.asm
+;   EXT_BANK0_SQR_ENTRY、オフセット0x80固定)をEXT_BANK_CALL
+;   (src/ext_bank/relay.asm、docs/spec/ext-rom-bank.md)経由で呼ぶ。
+; ---------------------------------------------------------------------
+FTNF_DO_SQR:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    LD A,(MBF_OPA+3)          ; 単精度指数バイト(0=値0、VAL_CUR_IS_ZEROと同じ規則)
+    OR A
+    JR Z,_sqr_zero
+    LD A,(MBF_OPA+2)
+    AND 0x80                  ; 単精度符号ビット(VAL_CUR_SIGNと同じ規則)
+    JR NZ,_sqr_negative
+    XOR A                     ; A=0(バンク0)
+    LD HL,0x6080               ; EXT_BANK0_SQR_ENTRY(bank0.asm、オフセット0x80固定)
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+_sqr_zero:
+    XOR A
+    LD (MBF_RES),A
+    LD (MBF_RES+1),A
+    LD (MBF_RES+2),A
+    LD (MBF_RES+3),A
+    JP VAL_SET_SINGLE_FROM_RES
+_sqr_negative:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,5
+    LD (ERROR_KIND),A
+    RET
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し

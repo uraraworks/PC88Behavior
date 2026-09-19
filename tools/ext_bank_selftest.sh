@@ -80,10 +80,12 @@ for i in range(4):
     if i == 0:
         # bank0だけ0x10-0x1Cに絶対番地試験ルーチン(EXT_BANK0_ABS_TEST_ENTRY)、
         # 0x30-0x6Fに常駐MBF_ADD呼び出し試験ルーチン(EXT_BANK0_MBF_TEST_ENTRY、
-        # いずれもsrc/ext_bank/bank0.asm)があるため、そこだけ除外してFILLを
-        # 確認する。ルーチンの中身そのものはtools/ext_bank_selftest.sh 2節
-        # (実行結果)で検査する。
-        rest = data[3:0x10] + data[0x1D:0x30] + data[0x70:]
+        # いずれもsrc/ext_bank/bank0.asm)、0x80以降にSQR本体
+        # (EXT_BANK0_SQR_ENTRY、2026-09-20追記、第4.16b節)があるため、
+        # そこだけ除外してFILLを確認する。ルーチンの中身そのものは
+        # tools/ext_bank_selftest.sh 2節(実行結果)・tools/l4_sqr_bank_conform.py
+        # (バイト照合)で検査する。
+        rest = data[3:0x10] + data[0x1D:0x30] + data[0x70:0x80]
     else:
         rest = data[3:]
     if any(b != 0x00 for b in rest):

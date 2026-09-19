@@ -193,6 +193,11 @@ SCRIPTS_EXPECTED=(
   # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、
   # SKIPは無く常にrc=0を期待する。
   "tools/ext_bank_selftest.sh:0"
+  # 2026-09-20追記: 拡張ROMバンク0のSQR本体(EXT_BANK0_SQR_ENTRY、
+  # docs/spec/l4-program.md 第4.16b節実装メモ)を実際にZ80として実行し、
+  # 予測器tools/l4_mbf_oracle_v10_m9.pyとバイト単位で突き合わせる。
+  # 公式ROM・私物は不要、SKIPは無く常にrc=0を期待する。
+  "tools/l4_sqr_bank_selftest.sh:0"
   # VSYNCハンドラのレジスタ非退避の潜在不具合の再現・修正検査
   # (ext_bank開発時に発覚。docs/spec/ext-rom-bank.md参照)。ビルドと
   # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、
