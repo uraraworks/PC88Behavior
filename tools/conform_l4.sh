@@ -56,6 +56,7 @@ EXPECTED="$REPO/tests/conformance/expected_l4_echo.tsv"
 EXPECTED_PRINT="$REPO/tests/conformance/expected_l4_print.tsv"
 EXPECTED_FLOAT="$REPO/tests/conformance/expected_l4_float.tsv"
 EXPECTED_PROGRAMS="$REPO/tests/conformance/expected_l4_programs.tsv"
+EXPECTED_ARITH="$REPO/tests/conformance/expected_l4_arith.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -76,6 +77,10 @@ if [ ! -f "$EXPECTED_FLOAT" ]; then
 fi
 if [ ! -f "$EXPECTED_PROGRAMS" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED_PROGRAMS" >&2
+  exit 2
+fi
+if [ ! -f "$EXPECTED_ARITH" ]; then
+  echo "エラー: 期待値ファイルが無い: $EXPECTED_ARITH" >&2
   exit 2
 fi
 
@@ -124,6 +129,24 @@ program_group_status() {
       }
     }
   ' "$EXPECTED_PROGRAMS"
+}
+
+# -----------------------------------------------------------------------
+# l4-c7 直接モードPRINT整数四則演算(cdbl丸め)適合の場面: 群(1群のみ、
+# "arith")の自作側の実装状態を expected_l4_arith.tsv の見出しコメント
+# (# group arith selfmade=<status>) から読む。program_group_status と
+# 同じ作法(値は出さない)。
+# -----------------------------------------------------------------------
+arith_group_status() {
+  awk '
+    /^# group / {
+      if ($3 == "arith") {
+        split($4, kv, "=")
+        print kv[2]
+        exit
+      }
+    }
+  ' "$EXPECTED_ARITH"
 }
 
 if [ -n "${PC88_CONFORM_WORK_DIR:-}" ]; then
@@ -320,6 +343,80 @@ float_arm_params() {
   local line_end=$(( 700 + 8 * (n + 1) ))
   PRINT_DUMP=$(( line_end + 300 ))
   PRINT_RUN=$(( PRINT_DUMP + 200 ))
+  PRINT_BEFORE=690
+  PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
+}
+
+# -----------------------------------------------------------------------
+# l4-c7 直接モードPRINT整数四則演算(cdbl丸め)適合の場面（40腕、1群
+# "arith"のみ）。事前登録: docs/notes/
+# l4-c7-integer-arithmetic-rounding-conformance-preregistration.md。
+# 腕・打鍵文字列・フレーム値は docs/notes/
+# l4-s7b-integer-only-rounding-preregistration.md「腕」節の表と完全に
+# 同一(そこで既に機械的に導出済みの値をそのまま使う。二重に計算し
+# 直さない)。写し(前)は全腕690固定、写し(後)・走行フレームは腕ごとに
+# 個別の値を直接埋め込む(l4-c3のように打鍵文字列長から機械的に導出する
+# 式ではなく、l4-s7bの表(line_end=700+8*打鍵文字数(\n込み)、
+# dump=line_end+20、run=dump+200)で既に確定した値そのもの)。
+# 記録・照合はPRINT場面と全く同じ(run_print_arm_once/PRINT_RECORDを
+# そのまま使い回す)。
+# -----------------------------------------------------------------------
+ARITH_ARM_NAMES=(
+  K1 K2 K3 K4 K5 K6 K7 K8
+  L1 L2 L3 L4 L5 L6 L7 L8
+  M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 M13 M14 M15 M16
+  N1 N2 N3 N4 N5 N6 N7 N8
+)
+
+arith_arm_params() {
+  local arm="$1" cmd dump run
+  case "$arm" in
+    K1)  cmd='print cdbl(15777217!+1000000!)'; dump=968; run=1168 ;;
+    K2)  cmd='print cdbl(15777147!+1000074!)'; dump=968; run=1168 ;;
+    K3)  cmd='print cdbl(15777077!+1000148!)'; dump=968; run=1168 ;;
+    K4)  cmd='print cdbl(15777007!+1000222!)'; dump=968; run=1168 ;;
+    K5)  cmd='print cdbl(15777182!+1000037!)'; dump=968; run=1168 ;;
+    K6)  cmd='print cdbl(15777112!+1000111!)'; dump=968; run=1168 ;;
+    K7)  cmd='print cdbl(15777042!+1000185!)'; dump=968; run=1168 ;;
+    K8)  cmd='print cdbl(1000000!+2000000!)'; dump=960; run=1160 ;;
+    L1)  cmd='print cdbl(15777217!-(-1000000!))'; dump=992; run=1192 ;;
+    L2)  cmd='print cdbl(15777147!-(-1000074!))'; dump=992; run=1192 ;;
+    L3)  cmd='print cdbl(15777077!-(-1000148!))'; dump=992; run=1192 ;;
+    L4)  cmd='print cdbl(15777007!-(-1000222!))'; dump=992; run=1192 ;;
+    L5)  cmd='print cdbl(15777182!-(-1000037!))'; dump=992; run=1192 ;;
+    L6)  cmd='print cdbl(15777112!-(-1000111!))'; dump=992; run=1192 ;;
+    L7)  cmd='print cdbl(15777042!-(-1000185!))'; dump=992; run=1192 ;;
+    L8)  cmd='print cdbl(3000000!-(-1000000!))'; dump=984; run=1184 ;;
+    M1)  cmd='print cdbl(2259!*9807!)'; dump=912; run=1112 ;;
+    M2)  cmd='print cdbl(2259!*8771!)'; dump=912; run=1112 ;;
+    M3)  cmd='print cdbl(2259!*7439!)'; dump=912; run=1112 ;;
+    M4)  cmd='print cdbl(2259!*8253!)'; dump=912; run=1112 ;;
+    M5)  cmd='print cdbl(2259!*15010!)'; dump=920; run=1120 ;;
+    M6)  cmd='print cdbl(153!*290175!)'; dump=920; run=1120 ;;
+    M7)  cmd='print cdbl(153!*430259!)'; dump=920; run=1120 ;;
+    M8)  cmd='print cdbl(2259!*150091!)'; dump=928; run=1128 ;;
+    M9)  cmd='print cdbl(2259!*40025!)'; dump=920; run=1120 ;;
+    M10) cmd='print cdbl(153!*710427!)'; dump=920; run=1120 ;;
+    M11) cmd='print cdbl(2259!*100061!)'; dump=928; run=1128 ;;
+    M12) cmd='print cdbl(6662!*950571!)'; dump=928; run=1128 ;;
+    M13) cmd='print cdbl(6662!*680409!)'; dump=928; run=1128 ;;
+    M14) cmd='print cdbl(100061!*230139!)'; dump=944; run=1144 ;;
+    M15) cmd='print cdbl(1000!*2000!)'; dump=912; run=1112 ;;
+    M16) cmd='print cdbl(999!*999!)'; dump=896; run=1096 ;;
+    N1)  cmd='print cdbl(881!/1397!)'; dump=904; run=1104 ;;
+    N2)  cmd='print cdbl(181!/1393!)'; dump=904; run=1104 ;;
+    N3)  cmd='print cdbl(1387!/1399!)'; dump=912; run=1112 ;;
+    N4)  cmd='print cdbl(287!/1395!)'; dump=904; run=1104 ;;
+    N5)  cmd='print cdbl(784!/611!)'; dump=896; run=1096 ;;
+    N6)  cmd='print cdbl(514!/402!)'; dump=896; run=1096 ;;
+    N7)  cmd='print cdbl(52!/167!)'; dump=888; run=1088 ;;
+    N8)  cmd='print cdbl(1000!/4!)'; dump=888; run=1088 ;;
+    *)
+      return 2
+      ;;
+  esac
+  PRINT_DUMP=$dump
+  PRINT_RUN=$run
   PRINT_BEFORE=690
   PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
 }
@@ -997,6 +1094,93 @@ else
 fi
 overall_rc=$(( overall_rc || program_selftest_rc ))
 
+say "検出力の自己検査(ARITH場面。記録・期待値をわざと壊して検出できるか)"
+
+arith_selftest_rc=0
+mkdir -p "$WORK/selftest_arith"
+
+python3 - "$WORK/selftest_arith" <<'PYEOF2'
+import sys
+out = sys.argv[1]
+STRIDE = 120
+before = bytearray(25 * STRIDE)
+for r in range(25):
+    for c in range(80):
+        before[r * STRIDE + c] = 0x20
+after = bytearray(before)
+cmd = b"print cdbl(1!+1!)"
+for i, ch in enumerate(cmd):
+    after[6 * STRIDE + i] = ch
+for i, ch in enumerate(b"2"):
+    after[7 * STRIDE + 1 + i] = ch
+after[8 * STRIDE + 0] = ord('O')
+after[8 * STRIDE + 1] = ord('k')
+with open(out + "/before.bin", "wb") as f:
+    f.write(bytes(before))
+with open(out + "/after.bin", "wb") as f:
+    f.write(bytes(after))
+# 1バイトだけ違う対照(出力セルの文字コードを変える)
+after2 = bytearray(after)
+after2[7 * STRIDE + 1] = ord('3')
+with open(out + "/after_bad.bin", "wb") as f:
+    f.write(bytes(after2))
+PYEOF2
+
+good_line_a="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_arith/before.bin" --after "$WORK/selftest_arith/after.bin" --count-only-rows 19)"
+bad_line_a="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_arith/before.bin" --after "$WORK/selftest_arith/after_bad.bin" --count-only-rows 19)"
+good_sha_a="$(printf '%s' "$good_line_a" | cut -f3)"
+bad_sha_a="$(printf '%s' "$bad_line_a" | cut -f3)"
+if [ "$good_sha_a" != "$bad_sha_a" ]; then
+  ok "自己検査a(ARITH): 記録の出力セルを変えるとSHA-256が変わる(検出力あり)"
+else
+  ng "自己検査a(ARITH): 記録の出力セルを変えてもSHA-256が変わらなかった"
+  arith_selftest_rc=1
+fi
+
+exp_good_a="$WORK/selftest_arith/expected_good.tsv"
+{
+  echo "# selftest"
+  printf 'selftest_arm\t%s\n' "$good_line_a"
+} > "$exp_good_a"
+
+verdict_b_self_a="$(check_print_record_against_expected selftest_arm "$exp_good_a" "$good_line_a")"
+verdict_b_bad_a="$(check_print_record_against_expected selftest_arm "$exp_good_a" "$bad_line_a")"
+if [ "$verdict_b_self_a" = "conform" ] && [ "${verdict_b_bad_a#not_conform}" != "$verdict_b_bad_a" ]; then
+  ok "自己検査b1(ARITH): 正しい記録は期待値と conform、壊した記録は not_conform"
+else
+  ng "自己検査b1(ARITH): 正しい記録(${verdict_b_self_a})/壊した記録(${verdict_b_bad_a})の判定がおかしい"
+  arith_selftest_rc=1
+fi
+
+exp_bad_count_a="$WORK/selftest_arith/expected_bad_count.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next} {$2=$2+1; print}' "$exp_good_a" > "$exp_bad_count_a"
+verdict_c_a="$(check_print_record_against_expected selftest_arm "$exp_bad_count_a" "$good_line_a")"
+if [ "${verdict_c_a#not_conform}" != "$verdict_c_a" ]; then
+  ok "自己検査c(ARITH): 期待値の件数を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査c(ARITH): 件数を壊した期待値が誤って conform になった"
+  arith_selftest_rc=1
+fi
+
+exp_bad_sha_a="$WORK/selftest_arith/expected_bad_sha.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next}
+     {sha=$4; last=substr(sha,length(sha),1); $4=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print}' \
+    "$exp_good_a" > "$exp_bad_sha_a"
+verdict_d_a="$(check_print_record_against_expected selftest_arm "$exp_bad_sha_a" "$good_line_a")"
+if [ "${verdict_d_a#not_conform}" != "$verdict_d_a" ]; then
+  ok "自己検査d(ARITH): 期待値のSHA-256を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査d(ARITH): SHA-256を壊した期待値が誤って conform になった"
+  arith_selftest_rc=1
+fi
+
+if [ "$arith_selftest_rc" -eq 0 ]; then
+  ok "検出力の自己検査(ARITH): 全項目OK"
+else
+  ng "検出力の自己検査(ARITH): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || arith_selftest_rc ))
+
 # -----------------------------------------------------------------------
 # 自作main ROM側の照合（公式環境の有無に関わらず常に実行する）。
 # -----------------------------------------------------------------------
@@ -1300,6 +1484,70 @@ echo "  gate_failed: ${program_gate_failed_count} / 8"
 echo "  not_implemented_yet: ${program_notimpl_count} / 8 (判定外・rcに含めない)"
 
 # -----------------------------------------------------------------------
+# l4-c7 自作main ROM側の照合(ARITH場面。公式環境不要。40腕・1群)。
+# 群"arith"がnot_implemented_yetの間は判定外(na表示)としてrcに含めない
+# (l4-c3のFS/FD、l4-c5のprogramsと同じ作法)。
+# -----------------------------------------------------------------------
+say "自作main ROM側の照合(ARITH場面。公式環境不要。40腕)"
+
+arith_conform_count=0
+arith_not_conform_count=0
+arith_gate_failed_count=0
+arith_notimpl_count=0
+
+arith_status_now="$(arith_group_status)"
+if [ "$arith_status_now" = "not_implemented_yet" ]; then
+  for arm in "${ARITH_ARM_NAMES[@]}"; do
+    na "[自作/ARITH] ${arm}: not_implemented_yet(群arithは自作側未実装のため判定外)"
+    arith_notimpl_count=$((arith_notimpl_count + 1))
+  done
+else
+  for arm in "${ARITH_ARM_NAMES[@]}"; do
+    arith_arm_params "$arm"
+    prefix="$WORK/self_arith_${arm}"
+    line1="$(run_print_arm_once "$SELF_ROMDIR" "$prefix" "${PRINT_ARM_ARGS[@]}" 2>"$prefix.err.txt")"
+    rc1=$?
+    if [ "$rc1" -ne 0 ] || [ -z "$line1" ]; then
+      ng "[自作/ARITH] ${arm}: 走行または記録化に失敗した(gate_failed)"
+      sed 's/^/       /' "$prefix.err.txt"
+      arith_gate_failed_count=$((arith_gate_failed_count + 1))
+      overall_rc=1
+      continue
+    fi
+    ok_rel="$(printf '%s' "$line1" | cut -f2)"
+    if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+      ng "[自作/ARITH] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+      arith_gate_failed_count=$((arith_gate_failed_count + 1))
+      overall_rc=1
+      continue
+    fi
+    verdict="$(check_print_record_against_expected "$arm" "$EXPECTED_ARITH" "$line1")"
+    case "$verdict" in
+      conform)
+        ok "[自作/ARITH] ${arm}: conform(cell$(printf '%s' "$line1" | cut -f1)・ok行+${ok_rel}・SHA-256一致)"
+        arith_conform_count=$((arith_conform_count + 1))
+        ;;
+      gate_failed)
+        ng "[自作/ARITH] ${arm}: 期待値に行が無い(gate_failed)"
+        arith_gate_failed_count=$((arith_gate_failed_count + 1))
+        overall_rc=1
+        ;;
+      *)
+        ng "[自作/ARITH] ${arm}: ${verdict}"
+        arith_not_conform_count=$((arith_not_conform_count + 1))
+        overall_rc=1
+        ;;
+    esac
+  done
+fi
+
+say "自作ROM側の集計(ARITH場面)"
+echo "  conform: ${arith_conform_count} / 40"
+echo "  not_conform: ${arith_not_conform_count} / 40"
+echo "  gate_failed: ${arith_gate_failed_count} / 40"
+echo "  not_implemented_yet: ${arith_notimpl_count} / 40 (判定外・rcに含めない)"
+
+# -----------------------------------------------------------------------
 # 自己検査e: 群の印をnot_implemented_yet→implementedへ書き換えると、
 # (a)not_implemented_yetの間は判定がスキップされること、
 # (b)implementedにすると実際に照合が走り、現在の自作ROM(浮動小数点PRINT
@@ -1437,6 +1685,66 @@ else
   ng "自己検査e(PROGRAM): 失敗した項目がある"
 fi
 overall_rc=$(( overall_rc || program_selftest_e_rc ))
+
+# -----------------------------------------------------------------------
+# 自己検査e(ARITH): 群"arith"の印をnot_implemented_yet→implementedへ
+# 書き換えると、(a)not_implemented_yetの間は判定がスキップされること、
+# (b)implementedにすると実際に照合が走り、現在の自作ROM(本節時点では
+# 実装前)ではNG(not_conform/gate_failed)になること——つまり判定外の
+# 扱いが「本物の判定を隠していない」ことを確認する。FLOAT/PROGRAMの
+# 自己検査eと同じ作法。実データ(expected_l4_arith.tsvの本番行)には
+# 依存せず、明らかに不一致になる合成の期待値行を使う。
+# -----------------------------------------------------------------------
+say "自己検査e(ARITH): 群の印をimplementedにすると判定が実際に走りNGになるか"
+
+arith_selftest_e_rc=0
+AEG_ARM="K1"
+AEG_DIR="$WORK/selftest_arith_group"
+mkdir -p "$AEG_DIR"
+
+AEG_NOTIMPL="$AEG_DIR/expected_notimpl.tsv"
+{
+  echo "# selftest(自己検査e専用、実データではない)"
+  echo "# group arith selfmade=not_implemented_yet"
+  printf '%s\t999\t2\t0000000000000000000000000000000000000000000000000000000000000000\n' "$AEG_ARM"
+} > "$AEG_NOTIMPL"
+
+AEG_IMPL="$AEG_DIR/expected_impl.tsv"
+sed 's/selfmade=not_implemented_yet/selfmade=implemented/' "$AEG_NOTIMPL" > "$AEG_IMPL"
+
+aeg_status_before="$(EXPECTED_ARITH="$AEG_NOTIMPL" arith_group_status)"
+if [ "$aeg_status_before" = "not_implemented_yet" ]; then
+  ok "自己検査e-1(ARITH): 書き換え前は not_implemented_yet と読める"
+else
+  ng "自己検査e-1(ARITH): 書き換え前の状態読み取りが期待どおりでない(${aeg_status_before:-空})"
+  arith_selftest_e_rc=1
+fi
+
+aeg_status_after="$(EXPECTED_ARITH="$AEG_IMPL" arith_group_status)"
+if [ "$aeg_status_after" = "implemented" ]; then
+  ok "自己検査e-2(ARITH): 書き換え後は implemented と読める"
+else
+  ng "自己検査e-2(ARITH): 書き換え後の状態読み取りが期待どおりでない(${aeg_status_after:-空})"
+  arith_selftest_e_rc=1
+fi
+
+arith_arm_params "$AEG_ARM"
+aeg_prefix="$AEG_DIR/self_${AEG_ARM}"
+aeg_line="$(run_print_arm_once "$SELF_ROMDIR" "$aeg_prefix" "${PRINT_ARM_ARGS[@]}" 2>"$aeg_prefix.err.txt")"
+aeg_verdict="$(check_print_record_against_expected "$AEG_ARM" "$AEG_IMPL" "$aeg_line")"
+if [ "$aeg_verdict" = "conform" ]; then
+  ng "自己検査e-3(ARITH): 合成の(ありえない)期待値と偶然一致してしまった(自己検査のフィクスチャを見直すこと)"
+  arith_selftest_e_rc=1
+else
+  ok "自己検査e-3(ARITH): implementedにすると実際に照合が走り、現在の自作ROMではNG(${aeg_verdict})になった(判定外が本物の判定を隠していない)"
+fi
+
+if [ "$arith_selftest_e_rc" -eq 0 ]; then
+  ok "自己検査e(ARITH): 全項目OK"
+else
+  ng "自己検査e(ARITH): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || arith_selftest_e_rc ))
 
 # -----------------------------------------------------------------------
 # 公式ROM側（環境変数が無ければSKIP）。
@@ -1734,6 +2042,68 @@ say "公式ROM側の集計(PROGRAM場面)"
 echo "  conform: ${official_program_conform} / 8"
 echo "  not_conform: ${official_program_not_conform} / 8"
 echo "  gate_failed: ${official_program_gate_failed} / 8"
+
+say "公式ROM側の再導出(ARITH場面。40腕)"
+
+official_arith_conform=0
+official_arith_not_conform=0
+official_arith_gate_failed=0
+
+for arm in "${ARITH_ARM_NAMES[@]}"; do
+  arith_arm_params "$arm"
+  prefix1="$WORK/official_arith_${arm}_run1"
+  prefix2="$WORK/official_arith_${arm}_run2"
+  line1="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix1" "${PRINT_ARM_ARGS[@]}" 2>"$prefix1.err.txt")"
+  rc1=$?
+  arith_arm_params "$arm"
+  line2="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix2" "${PRINT_ARM_ARGS[@]}" 2>"$prefix2.err.txt")"
+  rc2=$?
+  if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ -z "$line1" ] || [ -z "$line2" ]; then
+    ng "[公式/ARITH] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix1.err.txt" "$prefix2.err.txt" 2>/dev/null
+    official_arith_gate_failed=$((official_arith_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$line1" != "$line2" ]; then
+    ng "[公式/ARITH] ${arm}: G3決定論性が破れた(2走の記録が不一致。gate_failed)"
+    official_arith_gate_failed=$((official_arith_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  ok_rel="$(printf '%s' "$line1" | cut -f2)"
+  if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+    ng "[公式/ARITH] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+    official_arith_gate_failed=$((official_arith_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_ARITH")"
+  if [ -z "$row" ]; then
+    ng "[公式/ARITH] ${arm}: 期待値に行が無い(gate_failed)"
+    official_arith_gate_failed=$((official_arith_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$ok_rel" != "$e_ok" ] || [ "$a_sha" != "$e_sha" ]; then
+    ng "[公式/ARITH] ${arm}: not_conform（再導出した記録が期待値と不一致）"
+    official_arith_not_conform=$((official_arith_not_conform + 1))
+    overall_rc=1
+  else
+    ok "[公式/ARITH] ${arm}: conform（2走一致・期待値とも一致）"
+    official_arith_conform=$((official_arith_conform + 1))
+  fi
+done
+
+say "公式ROM側の集計(ARITH場面)"
+echo "  conform: ${official_arith_conform} / 40"
+echo "  not_conform: ${official_arith_not_conform} / 40"
+echo "  gate_failed: ${official_arith_gate_failed} / 40"
 
 if [ "$overall_rc" -eq 0 ]; then
   echo
