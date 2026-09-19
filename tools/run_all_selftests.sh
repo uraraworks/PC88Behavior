@@ -189,6 +189,10 @@ SCRIPTS_EXPECTED=(
   # 固定されていることの検査。ビルドだけで完結するので公式ROM・私物は
   # 不要、SKIPは無く常にrc=0を期待する。
   "tools/check_rom_version_reserved.sh:0"
+  # 拡張ROMバンク(4th ROM)の土台(docs/spec/ext-rom-bank.md)。ビルドと
+  # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、
+  # SKIPは無く常にrc=0を期待する。
+  "tools/ext_bank_selftest.sh:0"
 )
 
 overall=0
