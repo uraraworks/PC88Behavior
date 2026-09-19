@@ -61,6 +61,20 @@ DB列(8進数)をメモリ順(下位バイト→中位バイト→(符号|上位
 と一致することを below selftest で確認している(ROMのバイト列ではなく
 MIT公開ソースの定数表なので、クリーンルーム規律の対象外)。
 
+## 有効桁数(n88=True)
+
+l4-s4a(`docs/notes/l4-s4a-float-print-results.md`)は、割り切れない
+単精度の値(`1/3`等)で「実測の有効桁数が予測(既定7桁)より1桁少ない
+(6桁)」という食い違いを既に見つけており、予測器側の課題として次の
+作業に渡していた(同ノート「判定後の行き先」節)。v2の`fout_format`/
+`print_one`には、この既知の食い違いに対応する`n88=True`(単精度6桁・
+`small_rule="len"`・`small_len=7`)という設定口が用意されていたので、
+v3の`predict_fn()`はこれを使う。本ノートの実測(l4-s6a、下記)でも、
+`n88=True`にした途端SQR(2)等の桁数が実測(`1.41421`、6桁)と一致した
+ことをselftest的に確認している。すなわちv3は「割り切れない値では
+GW-BASICの既定7桁ではなくN88-BASICは6桁を使う」というl4-s4aの発見を
+そのまま引き継いでいる。
+
 ## 倍精度引数の扱い
 
 $SIN/$COS/$TAN/$ATAN/$EXP/$LOG/$SQRはいずれも$FAC(単精度)だけを前提に
@@ -461,9 +475,9 @@ def predict_fn(fname: str, arg_literal: str) -> Tuple[str, str, bool]:
         arg_single = force_to_single(arg_num)  # 超越関数は常に単精度引数
         result = fn(arg_single)
     except GwError as e:
-        line, approx = print_one(e.residual)
+        line, approx = print_one(e.residual, n88=True)
         return "error", f"{e.kind};{line}", approx
-    line, approx = print_one(result)
+    line, approx = print_one(result, n88=True)
     return "numeric", line, approx or always_approx
 
 
