@@ -65,6 +65,14 @@ NO_ORG_FAULT_SUBS = (
     # 0x6080まで詰め物される形になり、バンク(8KB)に収まらなくなる
     # (故障注入の意図=絶対番地参照をズラすことと無関係な失敗)。
     ("    ORG 0x6080\n", "    ORG 0x0080\n"),
+    # 2026-09-20追記(SIN/COS/TAN、EXT_BANK0_SIN_ENTRY/COS_ENTRY/
+    # TAN_ENTRY): 同じ理由。この3つを書き換え忘れると、故障注入時に
+    # 前段のORGだけ0始まりへ縮むのにこの3つは0x62xxのまま残り、
+    # その間が大量の詰め物になって8KBに収まらなくなる
+    # (run_all_selftests.sh ext_bank_selftest.shで発覚)。
+    ("    ORG 0x6200\n", "    ORG 0x0200\n"),
+    ("    ORG 0x6210\n", "    ORG 0x0210\n"),
+    ("    ORG 0x6220\n", "    ORG 0x0220\n"),
 )
 
 # bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の
