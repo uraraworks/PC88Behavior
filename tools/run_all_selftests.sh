@@ -144,6 +144,9 @@ SCRIPTS_EXPECTED=(
   # それ以外はすべて公式測定と一致させる、という判断。
   # tools/l3_main_selftest.sh 検査4のコメント参照）、期待rcを0に戻した。
   "tools/l3_main_selftest.sh:0"
+  # 第16節(スクリーンエディタ・編集キー)・第17節(RETURNによる行の読み直し)
+  # の自己検査。公式ROM不要（自作ROMだけで動かす）。
+  "tools/l3_screen_editor_selftest.sh:0"
   # M7段階3準備（2026-09-15）。マニュアルテキスト(refs/manual.txt、私物)が
   # 無い環境ではSKIPで即rc=0になる（tools/l4_extract_keywords_selftest.sh
   # 内のSKIPメッセージ参照）。
