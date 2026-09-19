@@ -100,3 +100,31 @@ B2'・B3'は下記の追補3による取り直しに置き換わる。
 （追補3
 [l4-s1f-screen-editor-preregistration-addendum3](l4-s1f-screen-editor-preregistration-addendum3.md)
 に基づく）を参照。
+
+## 直接モードでの取り直し（B1・B4）
+
+記録日: 2026-09-19。
+[l4-s1f-screen-editor-results](l4-s1f-screen-editor-results.md)
+「前提についての注記」・
+[l4-s1g-screen-editor-return-preregistration-addendum](l4-s1g-screen-editor-return-preregistration-addendum.md)
+（settle手順、G11）のとおり、境界ラウンド（本ノート・追補2・追補3の
+B1〜B4・B2'・B3'）は**すべてframe700の起動時入力待ちの中で測定していた**
+ことが判明した。B2・B3は既に
+[l4-s1f-screen-editor-results-boundary2](l4-s1f-screen-editor-results-boundary2.md)
+の前提注記で扱い済みのため、残るB1・B4を、settle手順（RETURN×2、G11で
+無反応を確認）の後の真の直接モードで取り直した。
+
+- **関門P（位置確認、対象操作無しの対照走、各2走）**: settle→HOME/CLR
+  →目印、で(行0,列0)を確認（2走一致）。B1・B4とも起点は同じ(0,0)のため
+  この1本で両腕分を兼ねる。
+- **B1（←を真の(行0,列0)で単発押下）**: 目印の着地点は(行0,列0)（不変）、
+  2走完全一致。`unique_survivor(clamp_no_change)`。**入力待ち中の結果
+  （`clamp_no_change`）と一致。**
+- **B4（→を列79に達するまで長押し）**: 目印の着地点は(行1,列64)、
+  2走完全一致。`unique_survivor(wrap_to_next_line)`。**入力待ち中の結果
+  （`wrap_to_next_line`、着地列も同じ列64）と一致。**
+
+**結論: B1・B4とも、入力待ち中の判定名（`clamp_no_change`・
+`wrap_to_next_line`）と完全に一致した。撤回する結論は無い。** これで
+本ノート・追補2・追補3が扱った境界腕（B1・B2・B2'(改)・B3・B3'(改)・B4）
+すべてについて、真の直接モードでの再現確認が完了した。
