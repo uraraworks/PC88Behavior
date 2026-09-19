@@ -62,12 +62,16 @@ def normalize_arm(name: str, entry: dict, status_rows: set[int]) -> dict:
         md = _norm_cells(entry["mark_diff"], status_rows)
         return {"nonblank_count": len(md), "sha256": _sha(md)}
     if name in S1H_SWEEP:
-        # offsetごとの差分セル列をそのまま正規化して並べる。件数の時系列
-        # だけでなく座標(位置)の並びごと比較するので、遅延・間隔の位相
-        # がずれていれば sha256 が一致しない。
-        series = [_norm_cells(cells, status_rows) for cells in entry["series_diffs"]]
-        total = sum(len(c) for c in series)
-        return {"nonblank_count": total, "sha256": _sha(series)}
+        # l4-c6結果ノート追補「キーリピートの時系列で何を比べるか」
+        # (974a2de後の追補、不一致を見た後で決めた方針)のとおり、
+        # offsetごとの時系列全体ではなく「離した後に確定した最終状態」
+        # (series_diffsの最後のoffset)だけを比較する。途中の間隔の
+        # 刻み方(公式は揺れる、自作は固定)は画面書き込みの処理時間の
+        # 違いを反映しうるため、適合の対象から外す(l4-c5追補4の
+        # 「速さは比べない」と同じ扱い)。
+        series = entry["series_diffs"]
+        final = _norm_cells(series[-1], status_rows) if series else []
+        return {"nonblank_count": len(final), "sha256": _sha(final)}
     raise ValueError(f"未知の腕: {name}")
 
 
