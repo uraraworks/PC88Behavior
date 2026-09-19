@@ -114,6 +114,7 @@
 - `l4-c5-representative-programs-conformance-scene-preregistration-addendum3.md` — l4-c5 事前登録 追補3 — 代表プログラムは17行以内、腕の入力は測定直前のtests/programs。事前登録追補3（代表プログラムは17行以内、腕の入力は測定直前のtests/programs）（`f0172d0`）
 - `l4-c5-representative-programs-conformance-scene-results.md` — l4-c5 — 代表プログラム集の適合場面固定 — 結果。公式ROM8腕・自作ROM8腕とも`conform`。ゴールA達成の根拠。群"programs"をimplementedへ（`67aa02b`）
 - `l4-c5-representative-programs-conformance-scene-preregistration-addendum4.md` — l4-c5 事前登録 追補4 — runの後の待ちを全腕+3000フレームへ、速さは比べない。事前登録追補4（runの後の待ちを全腕+3000フレームへ）（`14930c1`）
+- `l4-c6-screen-editor-conformance-results.md` — l4-c6 — スクリーンエディタ適合の場面固定 — 結果。22腕中21腕一致、B4（→の自動繰り返しでの列79越え）のみ不一致（公式=行1列64、自作=行0列1）。第18節「未確定」相当（挿入モード充填・抜ける条件・→単発境界越え・行方向境界）は照合対象外。自作ROMは修正していない（`fe197e4`器具・`c424577`期待値・結果本体）
 
 ## 3. L3層（サブCPU・FDCプロトコル、m6/m7系）の測定・調査ノート
 
