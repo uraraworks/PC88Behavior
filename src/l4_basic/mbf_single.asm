@@ -430,12 +430,22 @@ _add_both_nonzero:
     CP B
     JR C,_add_a_is_big
     JR NZ,_add_b_is_big
+    ; 2026-09-20修正(SIN/COS/TAN実装中にtools/l4_sincos_bank_conform.pyで
+    ; 発見): M0(仮数最下位byte)の比較だけ「JR NZ,_add_b_is_big」が
+    ; 欠けており、M2・M1が一致しM0だけがUB>UAの場合でも常にAを大きい方
+    ; 扱いにしていた(M2・M1レベルと非対称)。同符号の加算では結果が
+    ; 可換なため影響が表面化しないが、異符号の減算(BIG-SML、桁借り無し
+    ; 前提)でBIG/SMLの選択が逆転すると符号・値とも壊れる
+    ; (range reduction floor(y)-yのような、上位2byteが一致し最下位byte
+    ; だけ僅差というケースで実際に踏んだ。sin(1000000)等)。M2・M1と
+    ; 同型の分岐に揃えて修正する。
     LD A,(UA_M0)
     LD B,A
     LD A,(UB_M0)
     CP B
     JR C,_add_a_is_big
-    ; ここに来るのは UB<=UA のとき（等しい場合を含む）。Aを大とする。
+    JR NZ,_add_b_is_big
+    ; ここに来るのはUA_M0==UB_M0(全24bit一致=完全に等しい)のとき。Aを大とする。
 _add_a_is_big:
     LD A,(UA_SIGN)
     LD (BIG_SIGN),A
