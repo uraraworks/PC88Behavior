@@ -281,6 +281,40 @@ EXT_BANK0_SQR_ADDR_LABELS = {
     "MBF_DTOS_ADDR": "MBF_DTOS",
 }
 
+# 故障注入(自己検査の陰性対照専用、2026-09-20): EXT_BANK_CALLが
+# CALL EXT_BANK_JUMP_HLをまたいでC(旧0x32)・E(旧0x71)をスタックへ退避
+# する修正(src/ext_bank/relay.asm「2026-09-20の修正」参照、
+# docs/notes/l4-c8-transcendental-conformance-scene-results.mdで見つかった
+# SQRのハングの原因)を外し、修正前(バンク側ルーチンがBC/DEを自由に
+# 使うと窓の復元が壊れる)の状態を再現する。
+# tools/l4_sqr_endtoend_selftest.sh 専用。
+EXT_BANK_BCDE_SAVE_FAULT_OLD = (
+    ";FAULT-INJECT-BCDE-SAVE-BEGIN(故障注入 --inject-ext-bank-bcde-fault が\n"
+    "; この2行〈PUSH BC/PUSH DE〉を削る。build_main_rom.pyのテキスト置換用\n"
+    "; マーカー、削除しても文法上壊れないようこの節だけで完結させてある)\n"
+    "    PUSH BC                       ; C(旧0x32)をスタックへ退避\n"
+    "                                   ; ——バンク側ルーチンがBC/DEを自由に\n"
+    "                                   ; 使ってよいことにするため(上記\n"
+    "                                   ; 「2026-09-20の修正」参照。Bの中身は\n"
+    "                                   ; 以後使わないので気にしない)\n"
+    "    PUSH DE                       ; E(旧0x71)をスタックへ退避(Dのバンク\n"
+    "                                   ; 番号も以後不要)\n"
+    ";FAULT-INJECT-BCDE-SAVE-END"
+)
+EXT_BANK_BCDE_SAVE_FAULT_NEW = (
+    "; 故障注入(--inject-ext-bank-bcde-fault): PUSH BC/PUSH DEを削り、\n"
+    "; 修正前(バンク側ルーチンがBC/DEを使うと窓復元が壊れる)を再現する。"
+)
+EXT_BANK_BCDE_RESTORE_FAULT_OLD = (
+    ";FAULT-INJECT-BCDE-RESTORE-BEGIN(同上。この2行〈POP DE/POP BC〉を削る)\n"
+    "    POP DE                        ; E = 旧0x71を復元(POPはA/Fを変えない)\n"
+    "    POP BC                        ; C = 旧0x32を復元(同上)\n"
+    ";FAULT-INJECT-BCDE-RESTORE-END"
+)
+EXT_BANK_BCDE_RESTORE_FAULT_NEW = (
+    "; 故障注入(--inject-ext-bank-bcde-fault): POP DE/POP BCを削る(対)。"
+)
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -298,6 +332,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         enable_l4_selftest: bool = False,
                         enable_ext_bank_selftest: bool = False,
                         inject_ext_bank_window_fault: bool = False,
+                        inject_ext_bank_bcde_fault: bool = False,
                         enable_vsync_regcheck: bool = False,
                         inject_vsync_no_save_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
@@ -481,8 +516,18 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 窓の中に来て、check_ext_bank_relay_below_window()のビルド時検査が
     # 失敗するはずである。既存モジュールの中身・順序はどちらの場合も
     # 変えない(ext_bank_relay_pathの挿入位置だけが変わる)。
+    ext_bank_relay_text = EXT_BANK_RELAY_ASM.read_text(encoding="utf-8")
+    if inject_ext_bank_bcde_fault:
+        if ext_bank_relay_text.count(EXT_BANK_BCDE_SAVE_FAULT_OLD) != 1:
+            raise SystemExit("EXT_BANK_CALL BC/DE退避の故障注入対象(退避側)が一意に見つからない（relay.asmが変わった？）")
+        if ext_bank_relay_text.count(EXT_BANK_BCDE_RESTORE_FAULT_OLD) != 1:
+            raise SystemExit("EXT_BANK_CALL BC/DE退避の故障注入対象(復元側)が一意に見つからない（relay.asmが変わった？）")
+        ext_bank_relay_text = ext_bank_relay_text.replace(
+            EXT_BANK_BCDE_SAVE_FAULT_OLD, EXT_BANK_BCDE_SAVE_FAULT_NEW)
+        ext_bank_relay_text = ext_bank_relay_text.replace(
+            EXT_BANK_BCDE_RESTORE_FAULT_OLD, EXT_BANK_BCDE_RESTORE_FAULT_NEW)
     ext_bank_relay_path = work / "ext_bank_relay_gen.asm"
-    ext_bank_relay_path.write_text(EXT_BANK_RELAY_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    ext_bank_relay_path.write_text(ext_bank_relay_text, encoding="utf-8")
     ext_bank_relay_include = f'\nINCLUDE "{ext_bank_relay_path}"\n'
 
     # 「窓の中から呼んでも戻れる」自己検査用プローブ(src/ext_bank/
@@ -693,6 +738,12 @@ def main():
                           "INCLUDE順序ごと移し、ビルド時検査"
                           "(check_ext_bank_relay_below_window)が落ちることを確かめる"
                           "（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-ext-bank-bcde-fault", action="store_true",
+                     help="故障注入: EXT_BANK_CALLがCALL EXT_BANK_JUMP_HLをまたいで"
+                          "C(旧0x32)・E(旧0x71)をスタックへ退避する修正(2026-09-20、"
+                          "l4-c8で見つかったSQRハングの修正)を外し、バンク側ルーチンが"
+                          "BC/DEを使うと窓復元が壊れる修正前の状態を再現する"
+                          "（自己検査の陰性対照専用。tools/l4_sqr_endtoend_selftest.sh）")
     ap.add_argument("--enable-vsync-regcheck", action="store_true",
                      help="ブート時にVSYNC_REGCHECKを呼ぶ（L1タイミング検査を壊すため既定offに"
                           "してある。VSYNCハンドラのレジスタ退避の自己検査専用）")
@@ -743,6 +794,7 @@ def main():
                                        enable_l4_selftest=args.enable_l4_selftest,
                                        enable_ext_bank_selftest=args.enable_ext_bank_selftest,
                                        inject_ext_bank_window_fault=args.inject_ext_bank_window_fault,
+                                       inject_ext_bank_bcde_fault=args.inject_ext_bank_bcde_fault,
                                        enable_vsync_regcheck=args.enable_vsync_regcheck,
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault)
         rom, asm = assemble(combined, work)

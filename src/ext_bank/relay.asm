@@ -116,10 +116,35 @@ EXT_BANK_WINDOW_BASE EQU 0x6000
 ; ---------------------------------------------------------------
 ; EXT_BANK_CALL — 拡張ROMバンクの窓内ルーチンを1回呼び出す中継
 ;
-; 作業値(バンク番号・旧0x71・旧0x32)は通常のレジスタ(D・E・C)へ置く
-; (上記「レジスタ渡し vs RAM退避」参照。VSYNCハンドラのPUSH/POP修正
-; 済みなので、割り込みを有効にしたまま実行中に割り込まれてもこれらの
-; レジスタは保たれる)。
+; 作業値(バンク番号・旧0x71・旧0x32)は準備段階では通常のレジスタ
+; (D・E・C)へ置くが、**CALL EXT_BANK_JUMP_HLをまたぐ間はスタックへ退避
+; する**(下記EXT_BANK_CALL本体・2026-09-20の修正、経緯は次段落)。
+; VSYNCハンドラのPUSH/POP修正(上記「レジスタ渡し vs RAM退避」)は
+; 「呼び出しをまたぐ間に割り込みが挟まってもBC/DEが保たれる」ことしか
+; 保証しない。**バンク側ルーチン自身がBC/DEを作業用に使う設計
+; (例: src/ext_bank/bank0.asm EXT_BANK0_SQR_ENTRYのLDIRによる倍精度
+; ワークのコピー)では、そのルーチンの実行そのものがC(旧0x32)・
+; E(旧0x71)を上書きしてしまう**——この2つは別の問題であり、前者の
+; 修正は後者を保証しない。
+;
+; ## 2026-09-20の修正(l4-c8で発見)の経緯
+;
+; docs/notes/l4-c8-transcendental-conformance-scene-results.mdで、
+; SQR(EXT_BANK0_SQR_ENTRY経由)をBASICの直接モードPRINTから呼ぶと
+; ハングすることが分かった。--io-log・--int-logで追ったところ、
+; EXT_BANK_JUMP_HLからの復帰直後の「LD A,E; OUT (0x71)」が
+; 旧0x71の値(観測時FF)ではなく無関係な値(観測時08、EXT_BANK0_
+; SQR_ENTRYの`LD BC,8`等の残骸)を書き込んでいた。結果、bit0が
+; 意図せず0のまま(窓が拡張ROMバンク側を指したまま)戻ってしまい、
+; その後に実行したメインROM側のコード(0x6000以降にあるL4 BASICの
+; 出力整形ルーチン等)がバンク0の内容を命令として読んで暴走し、
+; 以後I/O・割り込みが一切発生しなくなった(ハングと同型)。原因は
+; EXT_BANK_CALLが「C(旧0x32)・E(旧0x71)はCALL EXT_BANK_JUMP_HLを
+; またいでも保たれる」という、単体試験(EXT_BANK0_TEST_ENTRY等、
+; BC/DEをほとんど使わない/使っても最後に上書きし直さない)でしか
+; 裏づいていなかった前提に頼っていたこと。修正はCとEを**スタックへ
+; 退避**してCALLをまたぎ、バンク側ルーチンがBC/DEを自由に使っても
+; 影響を受けないようにした(下記PUSH BC/PUSH DE〜POP DE/POP BC)。
 ; ---------------------------------------------------------------
 EXT_BANK_CALL:
     LD B,A                        ; B = 要求バンク番号(0-3)を一旦退避
@@ -149,7 +174,24 @@ _ebc_not_busy:
     LD A,E
     AND EXT_SWITCH_ENABLE_MASK
     OUT (EXT_PORT_SWITCH),A       ; ここで窓がバンク側に切り替わる
-    CALL EXT_BANK_JUMP_HL         ; HL先を1回CALLして戻ってくる(下記)
+;FAULT-INJECT-BCDE-SAVE-BEGIN(故障注入 --inject-ext-bank-bcde-fault が
+; この2行〈PUSH BC/PUSH DE〉を削る。build_main_rom.pyのテキスト置換用
+; マーカー、削除しても文法上壊れないようこの節だけで完結させてある)
+    PUSH BC                       ; C(旧0x32)をスタックへ退避
+                                   ; ——バンク側ルーチンがBC/DEを自由に
+                                   ; 使ってよいことにするため(上記
+                                   ; 「2026-09-20の修正」参照。Bの中身は
+                                   ; 以後使わないので気にしない)
+    PUSH DE                       ; E(旧0x71)をスタックへ退避(Dのバンク
+                                   ; 番号も以後不要)
+;FAULT-INJECT-BCDE-SAVE-END
+    CALL EXT_BANK_JUMP_HL         ; HL先を1回CALLして戻ってくる(下記)。
+                                   ; 返り値はA/Fに残る(この間BC/DEは
+                                   ; バンク側ルーチンが自由に破壊してよい)
+;FAULT-INJECT-BCDE-RESTORE-BEGIN(同上。この2行〈POP DE/POP BC〉を削る)
+    POP DE                        ; E = 旧0x71を復元(POPはA/Fを変えない)
+    POP BC                        ; C = 旧0x32を復元(同上)
+;FAULT-INJECT-BCDE-RESTORE-END
     PUSH AF                       ; バンク側ルーチンの返り値(A/F)を退避
                                    ; ——このあとの窓復元でAを使うため
                                    ; (開発時、ここでAを退避し忘れ、

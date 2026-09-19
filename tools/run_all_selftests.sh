@@ -198,6 +198,14 @@ SCRIPTS_EXPECTED=(
   # 予測器tools/l4_mbf_oracle_v10_m9.pyとバイト単位で突き合わせる。
   # 公式ROM・私物は不要、SKIPは無く常にrc=0を期待する。
   "tools/l4_sqr_bank_selftest.sh:0"
+  # 2026-09-20追記: SQRのBASIC呼び出し経路(interp.asm FTNF_DO_SQR→
+  # EXT_BANK_CALL→bank0 EXT_BANK0_SQR_ENTRY)のend-to-end検査
+  # (tools/l4_sqr_bank_selftest.shはバンクルーチン単体の照合であり
+  # この経路のハング〈l4-c8で発見、docs/notes/l4-c8-transcendental-
+  # conformance-scene-results.md〉を検出できなかった)。陰性対照
+  # (--inject-ext-bank-bcde-fault)つき。公式ROM・私物は不要、SKIPは
+  # 無く常にrc=0を期待する。
+  "tools/l4_sqr_endtoend_selftest.sh:0"
   # VSYNCハンドラのレジスタ非退避の潜在不具合の再現・修正検査
   # (ext_bank開発時に発覚。docs/spec/ext-rom-bank.md参照)。ビルドと
   # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、
