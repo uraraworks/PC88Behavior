@@ -552,6 +552,7 @@
 - `l4-gwbasic-fofmt-analysis.md` — GW-BASIC `PRINT` フリーフォーマットの固定小数点／指数表記判定（`dea2a91`）
 - `l4-fin-model-search.md` — l4-fin 定数読み取り手順の探索ノート（REP01、事後の当てはめ）（`c2e8a3a`）
 - `l4-dfin-model-search.md` — l4-dfin 倍精度定数読み取り手順の探索ノート（DREP10、事後の当てはめ）（`23ad7ea`）
+- `ext-rom-bank-survey.md` — 拡張ROMバンク（4th ROM）下調べ — ポート32/71の事実整理、QUASI88実装・WebQ88への影響、自作ROMの現状配置実測、配置案3つ、測定の候補列挙
 
 ## 5. 汚染・開示・運用判断の記録
 
