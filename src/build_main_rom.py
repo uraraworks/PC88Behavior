@@ -253,6 +253,21 @@ EXT_BANK_WINDOW_START = 0x6000
 EXT_BANK_INTERRUPT_SAFE_LABELS = (
     "VSYNC_HANDLER", "L3_VSYNC_HOOK", "EXT_BANK_CALL", "EXT_BANK_JUMP_HL")
 
+# 拡張ROMバンク: バンク側ルーチンから1回CALLして戻ってよい常駐部ルーチン
+# 一覧(docs/spec/ext-rom-bank.md 第2節 制約3(a)〜(c)、
+# docs/notes/ext2-relay-to-resident-results.md で測定済み)。まずは単精度の
+# 四則演算・比較・FIN/FOUT等、mbf_single.asm の公開ラベル(内部ヘルパは
+# 含めない)。いずれも既存の配置(案C、既存モジュールの配置は動かさない)で
+# 既に0x6000未満にある(実測: 最も番地の大きいMBF_FOUTでも0x2503付近、
+# 窓の先頭0x6000まで大きな余白がある)。制約3(b)(c)(=呼び先が0x71/0x32・
+# EXT_BANK_CALLへ触れない、1回CALLされて戻るだけ)は個々の呼び出し側の
+# 設計規律であり、ここでは(a)(番地が窓の外にあること)だけを機械的に検査
+# する。
+EXT_BANK_CALLABLE_RESIDENT_LABELS = (
+    "MBF_ADD", "MBF_SUB", "MBF_NEG", "MBF_CMP", "MBF_MUL", "MBF_DIV",
+    "MBF_INT_TO_SINGLE", "MBF_UDWORD_TO_SINGLE", "MBF_FIN", "MBF_FOUT",
+)
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -506,7 +521,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 ROM_VERSION_RESERVED_ADDR = 0x79D7
 
 
-def assemble(text: str, work: pathlib.Path) -> bytes:
+def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]":
     src_path = work / "n88_main_gen.asm"
     src_path.write_text(text, encoding="utf-8")
     asm = z80text.Assembler()
@@ -526,7 +541,8 @@ def assemble(text: str, work: pathlib.Path) -> bytes:
             "偶然変わってしまう。この番地の手前でレイアウトを分けること。"
         )
     check_ext_bank_relay_below_window(asm)
-    return bytes(rom)
+    check_ext_bank_callable_labels_below_window(asm)
+    return bytes(rom), asm
 
 
 def check_ext_bank_relay_below_window(asm: "z80text.Assembler"):
@@ -552,6 +568,31 @@ def check_ext_bank_relay_below_window(asm: "z80text.Assembler"):
         )
 
 
+def check_ext_bank_callable_labels_below_window(asm: "z80text.Assembler"):
+    """拡張ROMバンク: バンク側ルーチンから1回CALLして戻ってよい常駐部
+    ルーチン(EXT_BANK_CALLABLE_RESIDENT_LABELS)が窓(0x6000-0x7FFF)の外に
+    あることをビルド時に機械的に検査する(docs/spec/ext-rom-bank.md 第2節
+    制約3(a)、docs/notes/ext2-relay-to-resident-results.mdで測定済みの
+    条件のうち機械的に検査できる部分)。check_ext_bank_relay_below_window()
+    と同じ「落ちたら書き出さない」流儀。
+    """
+    problems = []
+    for name in EXT_BANK_CALLABLE_RESIDENT_LABELS:
+        addr = asm.labels.get(name)
+        if addr is None:
+            problems.append(f"{name}: ラベルが見つからない(mbf_single.asmが変わった？)")
+            continue
+        if addr >= EXT_BANK_WINDOW_START:
+            problems.append(
+                f"{name} が窓の中(0x{addr:04X} >= 0x{EXT_BANK_WINDOW_START:04X})にある。"
+                "バンク側から呼んでよい常駐ルーチンの前提(制約3(a))が崩れている。")
+    if problems:
+        raise SystemExit(
+            "拡張ROMバンク: バンクから呼んでよい常駐ルーチンの配置検査に失敗"
+            "(docs/spec/ext-rom-bank.md 第2節 制約3(a)):\n  " + "\n  ".join(problems)
+        )
+
+
 def build_disk_rom(outdir: pathlib.Path):
     subprocess.run(
         [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)],
@@ -565,11 +606,23 @@ def build_font_rom(outdir: pathlib.Path, unscii_hex: pathlib.Path, misaki_bdf: p
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def build_ext_bank_roms(outdir: pathlib.Path, inject_no_org_fault: bool = False):
-    """拡張ROMバンク N88_0.ROM〜N88_3.ROM(docs/spec/ext-rom-bank.md)。"""
+def build_ext_bank_roms(outdir: pathlib.Path, inject_no_org_fault: bool = False,
+                         mbf_add_addr: int = None):
+    """拡張ROMバンク N88_0.ROM〜N88_3.ROM(docs/spec/ext-rom-bank.md)。
+
+    mbf_add_addr: 常駐部(N88.ROM)側のMBF_ADDの実アドレス。バンクは独立に
+    アセンブルされる(make_ext_rom_banks.py)ため、bank0.asmの
+    EXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の単精度演算を
+    呼んで正しい結果を返す」自己検査、docs/spec/ext-rom-bank.md 第2節
+    制約3)が参照する絶対番地を、この実測値でテキスト置換する
+    (--mbf-add-addr)。渡さない場合はbank0.asm既定値のまま(ズレていれば
+    自己検査が不一致を検出する)。
+    """
     cmd = [sys.executable, str(REPO / "src" / "ext_bank" / "make_ext_rom_banks.py"), str(outdir)]
     if inject_no_org_fault:
         cmd.append("--inject-no-org-fault")
+    if mbf_add_addr is not None:
+        cmd += ["--mbf-add-addr", f"0x{mbf_add_addr:04X}"]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -631,6 +684,10 @@ def main():
                      help="故障注入: src/ext_bank/bank0.asmのORG 0x6000/0x6010を0始まりへ"
                           "書き換えて拡張ROMバンクを組み立てる"
                           "（自己検査の陰性対照専用。絶対番地参照がズレる）")
+    ap.add_argument("--inject-ext-bank-mbf-addr-fault", action="store_true",
+                     help="故障注入: bank0.asmへ渡すMBF_ADDの絶対番地を1バイトずらし、"
+                          "EXT_BANK0_MBF_TEST_ENTRYが誤った番地をCALLするようにする"
+                          "（自己検査の陰性対照専用）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -669,13 +726,26 @@ def main():
                                        inject_ext_bank_window_fault=args.inject_ext_bank_window_fault,
                                        enable_vsync_regcheck=args.enable_vsync_regcheck,
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault)
-        rom = assemble(combined, work)
+        rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
         build_disk_rom(args.outdir)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
-        build_ext_bank_roms(args.outdir, inject_no_org_fault=args.inject_ext_bank_no_org_fault)
+        mbf_add_addr = asm.labels.get("MBF_ADD")
+        if args.inject_ext_bank_mbf_addr_fault and mbf_add_addr is not None:
+            # 故障注入(自己検査の陰性対照専用): わざとMBF_SUBの番地を渡し、
+            # bank0.asmのEXT_BANK0_MBF_TEST_ENTRYが「1.0+2.0のつもりで
+            # 実際にはMBF_SUB(1.0-2.0=-1.0)」を呼ぶことになる(密結合が
+            # ズレた場合の検出力の確認。1バイトずらす程度では、たまたま
+            # ズレた番地の先も有効な同等コード列に再収束して結果が変わらない
+            # ことがあると実測で分かったため、別ルーチンへ丸ごと誤って
+            # 結びつく場合で検出力を確かめる)。
+            mbf_sub_addr = asm.labels.get("MBF_SUB")
+            if mbf_sub_addr is not None:
+                mbf_add_addr = mbf_sub_addr
+        build_ext_bank_roms(args.outdir, inject_no_org_fault=args.inject_ext_bank_no_org_fault,
+                             mbf_add_addr=mbf_add_addr)
 
         used = len(combined.splitlines())
         print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "

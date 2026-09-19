@@ -59,11 +59,23 @@ BANK_FILES = (
 NO_ORG_FAULT_SUBS = (
     ("    ORG 0x6000\n", "    ORG 0x0000\n"),
     ("    ORG 0x6010\n", "    ORG 0x0010\n"),
+    ("    ORG 0x6030\n", "    ORG 0x0030\n"),
 )
+
+# bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の
+# 単精度演算を呼んで正しい結果を返す」自己検査、docs/spec/ext-rom-bank.md
+# 第2節 制約3)が参照する、常駐部(N88.ROM)側MBF_ADDの絶対番地の既定値の
+# 行。バンクは独立にアセンブルされ、N88.ROM側のレイアウトを直接は参照
+# できないため、build_main_rom.pyが実際に組み立てたN88.ROMのMBF_ADDの
+# アドレスをここへテキスト置換で渡す(--mbf-add-addr)。渡されない場合は
+# bank0.asmの既定値のまま(ズレていれば自己検査が不一致を検出する——
+# これ自体が「密結合がズレたこと」の検出になる、安全側の設計)。
+MBF_ADD_ADDR_OLD = "MBF_ADD_ADDR EQU 0x1787"
 
 
 def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
-                   inject_no_org_fault: bool = False) -> bytes:
+                   inject_no_org_fault: bool = False,
+                   mbf_add_addr: int = None) -> bytes:
     text = asm_path.read_text(encoding="utf-8")
     # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、
     # 詰め物(baseバイト)を切り落とす対象にする。ORGを使わない
@@ -79,6 +91,10 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                         f"{asm_path.name}: 故障注入の置換対象が一意でない: {old!r}")
                 text = text.replace(old, new)
                 base = 0
+    if mbf_add_addr is not None and MBF_ADD_ADDR_OLD in text:
+        if text.count(MBF_ADD_ADDR_OLD) != 1:
+            raise SystemExit(f"{asm_path.name}: MBF_ADD_ADDRの置換対象が一意でない")
+        text = text.replace(MBF_ADD_ADDR_OLD, f"MBF_ADD_ADDR EQU 0x{mbf_add_addr:04X}")
     src_path = work / f"{asm_path.stem}_gen.asm"
     src_path.write_text(text, encoding="utf-8")
 
@@ -105,13 +121,15 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     return bytes(rom)
 
 
-def build_banks(outdir: pathlib.Path, inject_no_org_fault: bool = False):
+def build_banks(outdir: pathlib.Path, inject_no_org_fault: bool = False,
+                 mbf_add_addr: int = None):
     import tempfile
     outdir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pc88_extbank_") as work_s:
         work = pathlib.Path(work_s)
         for rom_name, asm_name in BANK_FILES:
-            rom = assemble_bank(rom_name, HERE / asm_name, work, inject_no_org_fault)
+            rom = assemble_bank(rom_name, HERE / asm_name, work, inject_no_org_fault,
+                                 mbf_add_addr=mbf_add_addr)
             (outdir / rom_name).write_bytes(rom)
 
 
@@ -122,8 +140,12 @@ def main():
     ap.add_argument("--inject-no-org-fault", action="store_true",
                      help="故障注入: bank0.asmのORGを0始まりへ書き換えて組み立てる"
                           "（自己検査の陰性対照専用）")
+    ap.add_argument("--mbf-add-addr", type=lambda s: int(s, 0), default=None,
+                     help="bank0.asmのEXT_BANK0_MBF_TEST_ENTRYが参照する常駐部"
+                          "MBF_ADDの絶対番地(例: 0x1787)。build_main_rom.pyが"
+                          "実測値を渡す。省略時はbank0.asmの既定値のまま")
     args = ap.parse_args()
-    build_banks(args.outdir, args.inject_no_org_fault)
+    build_banks(args.outdir, args.inject_no_org_fault, mbf_add_addr=args.mbf_add_addr)
     print(f"生成した: {args.outdir} (N88_0.ROM〜N88_3.ROM 各{BANK_SIZE}バイト)")
 
 

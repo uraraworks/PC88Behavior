@@ -21,8 +21,25 @@
 ;         ないが、呼び出し先が自由に使ってよい)。保存が要るなら
 ;         呼び出し元がPUSH/POPする(呼び出し規約としてCALLと同様)。
 ;   前提: 呼び出し先(バンク側ルーチン)は窓内で完結してRETで戻ること。
-;         バンク側からさらに別バンク・常駐部ルーチンを跨いで呼ぶ設計は
-;         測定していない(第3節項3、未確定)ため使わない。
+;         ただし、バンク側ルーチンが常駐部(窓の外、0x0000-0x5FFF)の
+;         ルーチンを1回CALLして戻ってくること自体は、以下の条件下で
+;         許可される(docs/spec/ext-rom-bank.md 第2節 制約3(a)〜(c)、
+;         docs/notes/ext2-relay-to-resident-results.mdで測定済み):
+;           (a) 呼び先が窓の外(0x0000-0x5FFF)にあること(窓の中の番地を
+;               「常駐部の共有ルーチン」のつもりで呼ぶ設計は、実際には
+;               その時点で有効なバンクの内容が実行されてしまうため使えない
+;               ——q3_window_target_is_bank_local)。
+;           (b) 呼び先の常駐ルーチンが実行中に0x71・0x32・EXT_BANK_CALLへ
+;               一切触れないこと(触れる場合=常駐ルーチンが自ら別バンクへ
+;               跨る呼び出しをする場合の挙動は未測定)。
+;           (c) 常駐ルーチンは1回CALLされてRETで戻るだけの形に留めること
+;               (バンクA→常駐部→バンクBのように、常駐ルーチンの中から
+;               さらに別バンクへ跨る呼び出しは未測定)。
+;         build_main_rom.pyのEXT_BANK_CALLABLE_RESIDENT_LABELSが、この
+;         条件のうち(a)(機械的に検査できる部分)をビルド時に検査する
+;         (check_ext_bank_callable_labels_below_window())。
+;         バンク側から窓の中の他の番地(同じバンクの別ルーチン)を直接
+;         CALLする設計は、引き続き測定していない(未確定)ため使わない。
 ;   定型: 呼び出し前に0x71・0x32の現在値を読んで保存し、対象ビット
 ;         (0x71のbit0・0x32の下位2bit)だけを書き換えてバンクを選び、
 ;         呼び出しから戻った後に保存しておいた値をそのまま書き戻す
@@ -211,6 +228,12 @@ EXT_BANK0_ABS_EXPECT       EQU 0xC5
 EXT_BANK_ST_ABS_VAL EQU 0E8CFh   ; 1バイト: 絶対番地試験の生の返り値
 EXT_BANK_ST_ABS_OK  EQU 0E8CEh   ; 1バイト: 1=期待値0xC5と一致
 
+; バンク0の「常駐の単精度演算(MBF_ADD)を呼んで正しい結果を返す」試験
+; (src/ext_bank/bank0.asm EXT_BANK0_MBF_TEST_ENTRY、docs/spec/
+; ext-rom-bank.md 第2節 制約3)。offset 0x30固定。
+EXT_BANK0_MBF_ENTRY_OFFSET EQU 0x30
+EXT_BANK_ST_MBF_OK  EQU 0E8D0h   ; 1バイト: 1=MBF_ADD(1.0+2.0)が3.0と一致
+
 ; ---------------------------------------------------------------
 ; EXT_BANK_SELFTEST — 割り込み無しで行える範囲の自己検査(常駐部から
 ; バンク0-3を呼ぶ・窓の中から呼んでも戻れる)。ブート途中(IM2/EIの
@@ -298,6 +321,16 @@ _ebst_v3ng:
     LD A,1
     LD (EXT_BANK_ST_ABS_OK),A
 _ebst_absng:
+
+    ; バンク0の試験ルーチンが常駐のMBF_ADD(単精度加算)を呼んで
+    ; 1.0+2.0=3.0を正しく返すことの自己検査(docs/spec/ext-rom-bank.md
+    ; 第2節 制約3)。
+    XOR A
+    LD (EXT_BANK_ST_MBF_OK),A
+    LD A,0
+    LD HL,EXT_BANK_WINDOW_BASE+EXT_BANK0_MBF_ENTRY_OFFSET
+    CALL EXT_BANK_CALL
+    LD (EXT_BANK_ST_MBF_OK),A
     RET
 
 ; ---------------------------------------------------------------

@@ -42,3 +42,61 @@ EXT_BANK0_ABS_CHECK:
 
 EXT_BANK0_ABS_TABLE:
     DB 0xC5
+
+; ---------------------------------------------------------------
+; EXT_BANK0_MBF_TEST_ENTRY(オフセット0x30固定) — 「バンク0の試験ルーチン
+; が常駐の単精度演算を呼んで正しい結果を返す」自己検査
+; (docs/spec/ext-rom-bank.md 第2節 制約3、docs/notes/
+; ext2-relay-to-resident-results.md で測定済みの範囲)。
+;
+; MBF_OPA=1.0・MBF_OPB=2.0(src/l4_basic/mbf_single.asmのMBF単精度4バイト
+; 表現、番地は同ファイルの固定EQU)を置いてから常駐部のMBF_ADDを1回CALLし、
+; 結果MBF_RESが3.0(00 00 40 82)と一致するかを返す。
+;
+; MBF_ADD_ADDR: 常駐部(N88.ROM)側のMBF_ADDの実アドレス。バンクは
+; N88.ROMと独立にアセンブルされる(make_ext_rom_banks.py)ため、この値は
+; build_main_rom.pyが実測したアドレスでテキスト置換する
+; (--mbf-add-addr、既定値は現在のモジュール配置での実測値)。ズレて
+; いれば呼び出し先が変わり、この自己検査が不一致(またはハング)を検出
+; する——密結合を隠さず、崩れたら検出できる形にしてある。
+MBF_ADD_ADDR EQU 0x1787
+MBF_OPA EQU 0xC000
+MBF_OPB EQU 0xC004
+MBF_RES EQU 0xC008
+
+    ORG 0x6030
+EXT_BANK0_MBF_TEST_ENTRY:
+    XOR A
+    LD (MBF_OPA),A
+    LD (MBF_OPA+1),A
+    LD (MBF_OPA+2),A
+    LD A,0x81               ; 1.0
+    LD (MBF_OPA+3),A
+
+    XOR A
+    LD (MBF_OPB),A
+    LD (MBF_OPB+1),A
+    LD (MBF_OPB+2),A
+    LD A,0x82               ; 2.0
+    LD (MBF_OPB+3),A
+
+    CALL MBF_ADD_ADDR       ; 常駐部(窓の外)のMBF_ADDを1回CALLして戻る
+
+    ; 期待値3.0 = 00 00 40 82
+    LD A,(MBF_RES)
+    OR A
+    JR NZ,_eb0mbf_ng
+    LD A,(MBF_RES+1)
+    OR A
+    JR NZ,_eb0mbf_ng
+    LD A,(MBF_RES+2)
+    CP 0x40
+    JR NZ,_eb0mbf_ng
+    LD A,(MBF_RES+3)
+    CP 0x82
+    JR NZ,_eb0mbf_ng
+    LD A,1
+    RET
+_eb0mbf_ng:
+    XOR A
+    RET
