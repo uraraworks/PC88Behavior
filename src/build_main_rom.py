@@ -69,6 +69,11 @@ L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 # M7段階5b: RUNとプログラムの実行(GOTO/FOR/GOSUB/STOP/変数)。run.asm
 L4_RUN_ASM = REPO / "src" / "l4_basic" / "run.asm"
 
+# 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
+EXT_BANK_DIR = REPO / "src" / "ext_bank"
+EXT_BANK_RELAY_ASM = EXT_BANK_DIR / "relay.asm"
+EXT_BANK_WINCALL_PROBE_ASM = EXT_BANK_DIR / "wincall_probe.asm"
+
 # 故障注入（tools/l4_basic_selftest.sh の陰性対照用）。
 # 数値の前置空白(正/0のとき)を出す2行(PUSH HLとLD A,' ')を削り、
 # 書式が崩れることを確かめる。
@@ -217,6 +222,23 @@ EDITKEY_HOME_CLR_FAULT_NEW = (
 KEY_REPEAT_DELAY_FAULT_OLD = "KEY_REPEAT_DELAY    EQU 30"
 KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
 
+# 拡張ROMバンク: 定常状態(STEADY_WAIT、IM2/I/EI設定済み)に入った直後の
+# 挿入点。--enable-ext-bank-selftestのときだけ、ここへ
+# EXT_BANK_LOOP_TEST(割り込みを有効にしたまま多数回EXT_BANK_CALLを
+# 呼ぶ自己検査)の呼び出しを差し込む。STEADY_WAITはHALT/JPで毎フレーム
+# 回るループなので、呼び出し先は自前で「実行済みフラグ」を見て
+# 2回目以降は素通りする(src/ext_bank/relay.asm EXT_BANK_LOOP_TEST)。
+STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
+
+# 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)・割り込み処理
+# (VSYNC_HANDLER・L3_VSYNC_HOOK)が窓(0x6000-0x7FFF)の外に無ければ
+# ならない(docs/spec/ext-rom-bank.md 第2節 制約1・2)。ROM_VERSION予約
+# 番地の検査(assemble()内)と同じ「ビルド時に機械的に落とす」流儀で
+# 検査する。
+EXT_BANK_WINDOW_START = 0x6000
+EXT_BANK_INTERRUPT_SAFE_LABELS = (
+    "VSYNC_HANDLER", "L3_VSYNC_HOOK", "EXT_BANK_CALL", "EXT_BANK_JUMP_HL")
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -231,7 +253,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_l4_missing_operand_fault: bool = False,
                         inject_editkey_home_clr_fault: bool = False,
                         inject_key_repeat_fault: bool = False,
-                        enable_l4_selftest: bool = False) -> str:
+                        enable_l4_selftest: bool = False,
+                        enable_ext_bank_selftest: bool = False,
+                        inject_ext_bank_window_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -249,8 +273,26 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 検査）が壊れる（実測: 350件中343件しか出ない）。既定では呼ばず、
     # tools/l4_basic_selftest.sh がこのフラグを立てたビルドでだけ呼ぶ。
     l4_selftest_call = "    CALL LEX_SELFTEST\n" if enable_l4_selftest else ""
+    # 拡張ROMバンク: 割り込み無しで行える範囲の自己検査(常駐部からの
+    # 呼び出し・窓の中からの呼び出し)はSCREEN_MAINと同じ挿入点(まだ
+    # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
+    # (無条件で呼ぶとL1適合検査のOUT件数・サイクル数が変わる)。
+    ext_bank_selftest_call = "    CALL EXT_BANK_SELFTEST\n" if enable_ext_bank_selftest else ""
     ipl_text = ipl_text.replace(
-        INSERT_MARK, "    CALL SCREEN_MAIN\n" + l4_selftest_call + INSERT_MARK)
+        INSERT_MARK,
+        "    CALL SCREEN_MAIN\n" + l4_selftest_call + ext_bank_selftest_call + INSERT_MARK)
+
+    # 拡張ROMバンク: 割り込みを有効にしたまま多数回呼ぶ自己検査
+    # (EXT_BANK_LOOP_TEST)は、IM2/I/EI設定済みの定常状態(STEADY_WAIT)に
+    # 入ってから呼ぶ(src/ext_bank/relay.asmのコメント参照。EIより前に
+    # 割り込みを有効化するとベクタ引きが外れて暴走しうるため)。
+    if enable_ext_bank_selftest:
+        if STEADY_WAIT_MARK not in ipl_text:
+            raise SystemExit(f"STEADY_WAITの挿入点が見つからない: {STEADY_WAIT_MARK!r}")
+        if ipl_text.count(STEADY_WAIT_MARK) != 1:
+            raise SystemExit(f"STEADY_WAITの挿入点が一意でない: {STEADY_WAIT_MARK!r}")
+        ipl_text = ipl_text.replace(
+            STEADY_WAIT_MARK, "STEADY_WAIT:\n    CALL EXT_BANK_LOOP_TEST\n    HALT")
 
     if CURSOR_OLD not in ipl_text:
         raise SystemExit(f"カーソル追従の置換点が見つからない: {CURSOR_OLD!r}")
@@ -353,11 +395,38 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     run_path = work / "l4_run_gen.asm"
     run_path.write_text(L4_RUN_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
+    # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)は窓(0x6000-0x7FFF)の外に
+    # 無ければならない(docs/spec/ext-rom-bank.md 第2節 制約1)。通常ビルドは
+    # 他のどのモジュールより前(IPL直後・screen.asmより前)にINCLUDEし、
+    # 十分な余白を持って0x6000未満に収める。
+    #
+    # --inject-ext-bank-window-fault(自己検査の陰性対照専用)のときだけ、
+    # わざと最後(run.asmの後)にINCLUDEする。run.asmの一部が既に0x6000を
+    # 越えて配置されている(現状のレイアウトの実測)ため、中継ルーチンも
+    # 窓の中に来て、check_ext_bank_relay_below_window()のビルド時検査が
+    # 失敗するはずである。既存モジュールの中身・順序はどちらの場合も
+    # 変えない(ext_bank_relay_pathの挿入位置だけが変わる)。
+    ext_bank_relay_path = work / "ext_bank_relay_gen.asm"
+    ext_bank_relay_path.write_text(EXT_BANK_RELAY_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    ext_bank_relay_include = f'\nINCLUDE "{ext_bank_relay_path}"\n'
+
+    # 「窓の中から呼んでも戻れる」自己検査用プローブ(src/ext_bank/
+    # wincall_probe.asm)。窓の中の常駐コードとして振る舞わせたいので、
+    # 常にrun.asmの直後(=既存モジュールの末尾)にINCLUDEする
+    # (--inject-ext-bank-window-faultの影響を受けない)。
+    ext_bank_wincall_probe_path = work / "ext_bank_wincall_probe_gen.asm"
+    ext_bank_wincall_probe_path.write_text(
+        EXT_BANK_WINCALL_PROBE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
         f"EXTRA_LINES EQU {extra_lines}\n"
         + ipl_text
-        + f'\nINCLUDE "{screen_path}"\n'
+    )
+    if not inject_ext_bank_window_fault:
+        combined += ext_bank_relay_include
+    combined += (
+        f'\nINCLUDE "{screen_path}"\n'
         + f'\nINCLUDE "{keyboard_path}"\n'
         + f'\nINCLUDE "{key_table_path}"\n'
         + f'\nINCLUDE "{tokens_path}"\n'
@@ -370,6 +439,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{program_path}"\n'
         + f'\nINCLUDE "{run_path}"\n'
     )
+    if inject_ext_bank_window_fault:
+        combined += ext_bank_relay_include
+    combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
     return combined
 
 
@@ -405,7 +477,31 @@ def assemble(text: str, work: pathlib.Path) -> bytes:
             "コード/表がここへ届き、QUASI88の機種判定(memory.h ROM_VERSION)が"
             "偶然変わってしまう。この番地の手前でレイアウトを分けること。"
         )
+    check_ext_bank_relay_below_window(asm)
     return bytes(rom)
+
+
+def check_ext_bank_relay_below_window(asm: "z80text.Assembler"):
+    """拡張ROMバンク: 中継ルーチン・割り込み処理が窓(0x6000-0x7FFF)の外に
+    あることをビルド時に機械的に検査する(docs/spec/ext-rom-bank.md
+    第2節 制約1・2)。ROM_VERSION予約番地の検査と同じ「落ちたら書き出さ
+    ない」流儀。--inject-ext-bank-window-fault の陰性対照はここで落ちる
+    ことを確かめる。
+    """
+    problems = []
+    for name in EXT_BANK_INTERRUPT_SAFE_LABELS:
+        addr = asm.labels.get(name)
+        if addr is None:
+            problems.append(f"{name}: ラベルが見つからない(ビルド構成が変わった？)")
+            continue
+        if addr >= EXT_BANK_WINDOW_START:
+            problems.append(
+                f"{name} が窓の中(0x{addr:04X} >= 0x{EXT_BANK_WINDOW_START:04X})にある")
+    if problems:
+        raise SystemExit(
+            "拡張ROMバンク: 中継ルーチン/割り込み処理の配置検査に失敗"
+            "(docs/spec/ext-rom-bank.md 第2節 制約1・2):\n  " + "\n  ".join(problems)
+        )
 
 
 def build_disk_rom(outdir: pathlib.Path):
@@ -418,6 +514,13 @@ def build_font_rom(outdir: pathlib.Path, unscii_hex: pathlib.Path, misaki_bdf: p
     subprocess.run(
         [sys.executable, str(REPO / "src" / "l2_font" / "make_font_rom.py"), str(outdir),
          "--unscii-hex", str(unscii_hex), "--misaki-bdf", str(misaki_bdf)],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def build_ext_bank_roms(outdir: pathlib.Path):
+    """拡張ROMバンク N88_0.ROM〜N88_3.ROM(docs/spec/ext-rom-bank.md)。"""
+    subprocess.run(
+        [sys.executable, str(REPO / "src" / "ext_bank" / "make_ext_rom_banks.py"), str(outdir)],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -460,6 +563,15 @@ def main():
     ap.add_argument("--enable-l4-selftest", action="store_true",
                      help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
                           "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
+    ap.add_argument("--enable-ext-bank-selftest", action="store_true",
+                     help="ブート時にEXT_BANK_SELFTEST/EXT_BANK_LOOP_TESTを呼ぶ"
+                          "（L1タイミング検査を壊すため既定offにしてある。"
+                          "拡張ROMバンクの自己検査専用）")
+    ap.add_argument("--inject-ext-bank-window-fault", action="store_true",
+                     help="故障注入: 中継ルーチン(EXT_BANK_CALL)を窓(0x6000-0x7FFF)の中へ"
+                          "INCLUDE順序ごと移し、ビルド時検査"
+                          "(check_ext_bank_relay_below_window)が落ちることを確かめる"
+                          "（自己検査の陰性対照専用）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -493,16 +605,20 @@ def main():
                                        inject_l4_missing_operand_fault=args.inject_l4_missing_operand_fault,
                                        inject_editkey_home_clr_fault=args.inject_editkey_home_clr_fault,
                                        inject_key_repeat_fault=args.inject_key_repeat_fault,
-                                       enable_l4_selftest=args.enable_l4_selftest)
+                                       enable_l4_selftest=args.enable_l4_selftest,
+                                       enable_ext_bank_selftest=args.enable_ext_bank_selftest,
+                                       inject_ext_bank_window_fault=args.inject_ext_bank_window_fault)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
         build_disk_rom(args.outdir)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
+        build_ext_bank_roms(args.outdir)
 
         used = len(combined.splitlines())
-        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM)")
+        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
+              f"N88_0.ROM〜N88_3.ROM 各0x2000 bytes)")
         print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
               f"inject_address_fault={args.inject_address_fault} "
               f"inject_cursor_fault={args.inject_cursor_fault}")
