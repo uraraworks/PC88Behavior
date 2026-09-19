@@ -57,6 +57,7 @@ EXPECTED_PRINT="$REPO/tests/conformance/expected_l4_print.tsv"
 EXPECTED_FLOAT="$REPO/tests/conformance/expected_l4_float.tsv"
 EXPECTED_PROGRAMS="$REPO/tests/conformance/expected_l4_programs.tsv"
 EXPECTED_ARITH="$REPO/tests/conformance/expected_l4_arith.tsv"
+EXPECTED_TRANS="$REPO/tests/conformance/expected_l4_trans.tsv"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok()  { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
@@ -81,6 +82,10 @@ if [ ! -f "$EXPECTED_PROGRAMS" ]; then
 fi
 if [ ! -f "$EXPECTED_ARITH" ]; then
   echo "エラー: 期待値ファイルが無い: $EXPECTED_ARITH" >&2
+  exit 2
+fi
+if [ ! -f "$EXPECTED_TRANS" ]; then
+  echo "エラー: 期待値ファイルが無い: $EXPECTED_TRANS" >&2
   exit 2
 fi
 
@@ -147,6 +152,42 @@ arith_group_status() {
       }
     }
   ' "$EXPECTED_ARITH"
+}
+
+# -----------------------------------------------------------------------
+# l4-c8 超越関数(SIN/COS/TAN/ATN/EXP/LOG/SQR)適合の場面: 群(関数ごとに
+# 7群、sin/cos/tan/atn/exp/log/sqr)の自作側の実装状態を
+# expected_l4_trans.tsv の見出しコメント(# group <NAME> selfmade=<status>)
+# から読む。float_group_status/float_arm_group と同じ作法(l4-c3のFS/FD
+# の7群版)。
+# -----------------------------------------------------------------------
+trans_group_status() {
+  local group="$1"
+  awk -v g="$group" '
+    /^# group / {
+      if ($3 == g) {
+        split($4, kv, "=")
+        print kv[2]
+        exit
+      }
+    }
+  ' "$EXPECTED_TRANS"
+}
+
+# 腕id(例: SIN3, ATN12, SQR2)からその群(sin/cos/tan/atn/exp/log/sqr)を
+# 取り出す。
+trans_arm_group() {
+  local arm="$1"
+  case "$arm" in
+    SIN*) echo "sin" ;;
+    COS*) echo "cos" ;;
+    TAN*) echo "tan" ;;
+    ATN*) echo "atn" ;;
+    EXP*) echo "exp" ;;
+    LOG*) echo "log" ;;
+    SQR*) echo "sqr" ;;
+    *) echo "" ;;
+  esac
 }
 
 if [ -n "${PC88_CONFORM_WORK_DIR:-}" ]; then
@@ -411,6 +452,122 @@ arith_arm_params() {
     N6)  cmd='print cdbl(514!/402!)'; dump=896; run=1096 ;;
     N7)  cmd='print cdbl(52!/167!)'; dump=888; run=1088 ;;
     N8)  cmd='print cdbl(1000!/4!)'; dump=888; run=1088 ;;
+    *)
+      return 2
+      ;;
+  esac
+  PRINT_DUMP=$dump
+  PRINT_RUN=$run
+  PRINT_BEFORE=690
+  PRINT_ARM_ARGS=(--type-at 300 --type '\n' --type-at 700 --type "${cmd}\\n")
+}
+
+# -----------------------------------------------------------------------
+# l4-c8 超越関数(SIN/COS/TAN/ATN/EXP/LOG/SQR)の単精度適合場面（59腕、
+# 7群: sin5・cos5・tan5・atn12・exp14・log14・sqr4）。事前登録: docs/notes/
+# l4-c8-transcendental-conformance-scene-preregistration.md。
+#
+# SIN/COS/TAN(5腕ずつ)は docs/notes/l4-s6g-away-rounding-transcendentals-
+# preregistration.md「腕」節のZ01〜Z15と完全に同一(away丸め、35腕中の
+# SIN/COS/TAN15腕、100%一致で確定済み)。
+# ATN/EXP/LOG(12/14/14腕)は docs/notes/l4-s6h-atn-exp-log-more-arms-
+# preregistration.md「腕」節のH03〜H42と完全に同一(away丸めで確定済み。
+# H01`atn(1)`・H02`atn(-1)`は l4-s6h が確認した未解決の既知差=分岐境界
+# `|x|=1`のため除外)。腕idはZ/Hの番号のままでは関数の判別が付かない
+# ため、trans_arm_group()が接頭辞で群を判定できるよう関数名接頭辞
+# (SIN/COS/TAN/ATN/EXP/LOG)+通し番号へ付け替えた(打鍵文字列・写し(後)・
+# 走行フレームの値そのものは変更しない)。
+# SQR(4腕)は docs/notes/l4-s6a-transcendental-functions-preregistration.md
+# 「腕」節のS1〜S4と完全に同一(単精度・無理数入力・l4-s6aで
+# predicted_matchが確認済みの4腕。S5は倍精度引数`#`、S7は`sqr(-1)`の
+# エラー系のため除外)。SQR群は既にsrc/l4_basic配下(拡張ROMバンク0)に
+# 実装済み(`a3fb09e`)のため、見出しコメントはselfmade=implementedで
+# 始める(SIN/COS/TAN/ATN/EXP/LOGはselfmade=not_implemented_yet)。
+#
+# 写し(前)は全腕690固定。写し(後)・走行フレームは腕ごとに
+# l4-s6g/l4-s6h/l4-s6aの表の値をそのまま埋め込む(line_end=700+8*
+# 打鍵文字数(\n込み)・dump=line_end+20・run=dump+200で既に導出済みの
+# 値を再計算し直さない。l4-c7のARITH場面と同じ方針)。
+# -----------------------------------------------------------------------
+TRANS_ARM_NAMES=(
+  SIN1 SIN2 SIN3 SIN4 SIN5
+  COS1 COS2 COS3 COS4 COS5
+  TAN1 TAN2 TAN3 TAN4 TAN5
+  ATN1 ATN2 ATN3 ATN4 ATN5 ATN6 ATN7 ATN8 ATN9 ATN10 ATN11 ATN12
+  EXP1 EXP2 EXP3 EXP4 EXP5 EXP6 EXP7 EXP8 EXP9 EXP10 EXP11 EXP12 EXP13 EXP14
+  LOG1 LOG2 LOG3 LOG4 LOG5 LOG6 LOG7 LOG8 LOG9 LOG10 LOG11 LOG12 LOG13 LOG14
+  SQR1 SQR2 SQR3 SQR4
+)
+
+trans_arm_params() {
+  local arm="$1" cmd dump run
+  case "$arm" in
+    # SIN(l4-s6g Z01〜Z05)
+    SIN1) cmd='print cdbl(sin(3))';     dump=872; run=1072 ;;
+    SIN2) cmd='print cdbl(sin(6))';     dump=872; run=1072 ;;
+    SIN3) cmd='print cdbl(sin(162))';   dump=888; run=1088 ;;
+    SIN4) cmd='print cdbl(sin(168))';   dump=888; run=1088 ;;
+    SIN5) cmd='print cdbl(sin(10124))'; dump=904; run=1104 ;;
+    # COS(l4-s6g Z06〜Z10)
+    COS1) cmd='print cdbl(cos(24))';    dump=880; run=1080 ;;
+    COS2) cmd='print cdbl(cos(28))';    dump=880; run=1080 ;;
+    COS3) cmd='print cdbl(cos(132))';   dump=888; run=1088 ;;
+    COS4) cmd='print cdbl(cos(145))';   dump=888; run=1088 ;;
+    COS5) cmd='print cdbl(cos(12605))'; dump=904; run=1104 ;;
+    # TAN(l4-s6g Z11〜Z15)
+    TAN1) cmd='print cdbl(tan(3))';     dump=872; run=1072 ;;
+    TAN2) cmd='print cdbl(tan(6))';     dump=872; run=1072 ;;
+    TAN3) cmd='print cdbl(tan(140))';   dump=888; run=1088 ;;
+    TAN4) cmd='print cdbl(tan(162))';   dump=888; run=1088 ;;
+    TAN5) cmd='print cdbl(tan(11356))'; dump=904; run=1104 ;;
+    # ATN(l4-s6h H03〜H14。H01/H02=atn(1)/atn(-1)は既知未解決差のため除外)
+    ATN1)  cmd='print cdbl(atn(33))';   dump=880; run=1080 ;;
+    ATN2)  cmd='print cdbl(atn(-33))';  dump=888; run=1088 ;;
+    ATN3)  cmd='print cdbl(atn(215))';  dump=888; run=1088 ;;
+    ATN4)  cmd='print cdbl(atn(-215))'; dump=896; run=1096 ;;
+    ATN5)  cmd='print cdbl(atn(1.6))';  dump=888; run=1088 ;;
+    ATN6)  cmd='print cdbl(atn(0.27))'; dump=896; run=1096 ;;
+    ATN7)  cmd='print cdbl(atn(0.83))'; dump=896; run=1096 ;;
+    ATN8)  cmd='print cdbl(atn(3.3))';  dump=888; run=1088 ;;
+    ATN9)  cmd='print cdbl(atn(7.2))';  dump=888; run=1088 ;;
+    ATN10) cmd='print cdbl(atn(0.42))'; dump=896; run=1096 ;;
+    ATN11) cmd='print cdbl(atn(2))';    dump=872; run=1072 ;;
+    ATN12) cmd='print cdbl(atn(0.5))';  dump=888; run=1088 ;;
+    # EXP(l4-s6h H15〜H28)
+    EXP1)  cmd='print cdbl(exp(4))';   dump=872; run=1072 ;;
+    EXP2)  cmd='print cdbl(exp(-5))';  dump=880; run=1080 ;;
+    EXP3)  cmd='print cdbl(exp(18))';  dump=880; run=1080 ;;
+    EXP4)  cmd='print cdbl(exp(-12))'; dump=888; run=1088 ;;
+    EXP5)  cmd='print cdbl(exp(35))';  dump=880; run=1080 ;;
+    EXP6)  cmd='print cdbl(exp(-22))'; dump=888; run=1088 ;;
+    EXP7)  cmd='print cdbl(exp(54))';  dump=880; run=1080 ;;
+    EXP8)  cmd='print cdbl(exp(-35))'; dump=888; run=1088 ;;
+    EXP9)  cmd='print cdbl(exp(70))';  dump=880; run=1080 ;;
+    EXP10) cmd='print cdbl(exp(-48))'; dump=888; run=1088 ;;
+    EXP11) cmd='print cdbl(exp(23))';  dump=880; run=1080 ;;
+    EXP12) cmd='print cdbl(exp(-7))';  dump=880; run=1080 ;;
+    EXP13) cmd='print cdbl(exp(1))';   dump=872; run=1072 ;;
+    EXP14) cmd='print cdbl(exp(-1))';  dump=880; run=1080 ;;
+    # LOG(l4-s6h H29〜H42)
+    LOG1)  cmd='print cdbl(log(2))';   dump=872; run=1072 ;;
+    LOG2)  cmd='print cdbl(log(4))';   dump=872; run=1072 ;;
+    LOG3)  cmd='print cdbl(log(6))';   dump=872; run=1072 ;;
+    LOG4)  cmd='print cdbl(log(9))';   dump=872; run=1072 ;;
+    LOG5)  cmd='print cdbl(log(18))';  dump=880; run=1080 ;;
+    LOG6)  cmd='print cdbl(log(26))';  dump=880; run=1080 ;;
+    LOG7)  cmd='print cdbl(log(36))';  dump=880; run=1080 ;;
+    LOG8)  cmd='print cdbl(log(45))';  dump=880; run=1080 ;;
+    LOG9)  cmd='print cdbl(log(58))';  dump=880; run=1080 ;;
+    LOG10) cmd='print cdbl(log(65))';  dump=880; run=1080 ;;
+    LOG11) cmd='print cdbl(log(72))';  dump=880; run=1080 ;;
+    LOG12) cmd='print cdbl(log(90))';  dump=880; run=1080 ;;
+    LOG13) cmd='print cdbl(log(1.5))'; dump=888; run=1088 ;;
+    LOG14) cmd='print cdbl(log(5))';   dump=872; run=1072 ;;
+    # SQR(l4-s6a S1〜S4。単精度・実装済み。cdblは使わない=l4-s6a原型のまま)
+    SQR1) cmd='print sqr(2)';      dump=824; run=1024 ;;
+    SQR2) cmd='print sqr(3)';      dump=824; run=1024 ;;
+    SQR3) cmd='print sqr(.5)';     dump=832; run=1032 ;;
+    SQR4) cmd='print sqr(123456)'; dump=864; run=1064 ;;
     *)
       return 2
       ;;
@@ -1181,6 +1338,93 @@ else
 fi
 overall_rc=$(( overall_rc || arith_selftest_rc ))
 
+say "検出力の自己検査(TRANS場面。記録・期待値をわざと壊して検出できるか)"
+
+trans_selftest_rc=0
+mkdir -p "$WORK/selftest_trans"
+
+python3 - "$WORK/selftest_trans" <<'PYEOF3'
+import sys
+out = sys.argv[1]
+STRIDE = 120
+before = bytearray(25 * STRIDE)
+for r in range(25):
+    for c in range(80):
+        before[r * STRIDE + c] = 0x20
+after = bytearray(before)
+cmd = b"print cdbl(sin(3))"
+for i, ch in enumerate(cmd):
+    after[6 * STRIDE + i] = ch
+for i, ch in enumerate(b".1411202"):
+    after[7 * STRIDE + i] = ch
+after[8 * STRIDE + 0] = ord('O')
+after[8 * STRIDE + 1] = ord('k')
+with open(out + "/before.bin", "wb") as f:
+    f.write(bytes(before))
+with open(out + "/after.bin", "wb") as f:
+    f.write(bytes(after))
+# 1バイトだけ違う対照(出力セルの文字コードを変える)
+after2 = bytearray(after)
+after2[7 * STRIDE + 0] = ord('9')
+with open(out + "/after_bad.bin", "wb") as f:
+    f.write(bytes(after2))
+PYEOF3
+
+good_line_t="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_trans/before.bin" --after "$WORK/selftest_trans/after.bin" --count-only-rows 19)"
+bad_line_t="$(python3 "$PRINT_RECORD" --before "$WORK/selftest_trans/before.bin" --after "$WORK/selftest_trans/after_bad.bin" --count-only-rows 19)"
+good_sha_t="$(printf '%s' "$good_line_t" | cut -f3)"
+bad_sha_t="$(printf '%s' "$bad_line_t" | cut -f3)"
+if [ "$good_sha_t" != "$bad_sha_t" ]; then
+  ok "自己検査a(TRANS): 記録の出力セルを変えるとSHA-256が変わる(検出力あり)"
+else
+  ng "自己検査a(TRANS): 記録の出力セルを変えてもSHA-256が変わらなかった"
+  trans_selftest_rc=1
+fi
+
+exp_good_t="$WORK/selftest_trans/expected_good.tsv"
+{
+  echo "# selftest"
+  printf 'selftest_arm\t%s\n' "$good_line_t"
+} > "$exp_good_t"
+
+verdict_b_self_t="$(check_print_record_against_expected selftest_arm "$exp_good_t" "$good_line_t")"
+verdict_b_bad_t="$(check_print_record_against_expected selftest_arm "$exp_good_t" "$bad_line_t")"
+if [ "$verdict_b_self_t" = "conform" ] && [ "${verdict_b_bad_t#not_conform}" != "$verdict_b_bad_t" ]; then
+  ok "自己検査b1(TRANS): 正しい記録は期待値と conform、壊した記録は not_conform"
+else
+  ng "自己検査b1(TRANS): 正しい記録(${verdict_b_self_t})/壊した記録(${verdict_b_bad_t})の判定がおかしい"
+  trans_selftest_rc=1
+fi
+
+exp_bad_count_t="$WORK/selftest_trans/expected_bad_count.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next} {$2=$2+1; print}' "$exp_good_t" > "$exp_bad_count_t"
+verdict_c_t="$(check_print_record_against_expected selftest_arm "$exp_bad_count_t" "$good_line_t")"
+if [ "${verdict_c_t#not_conform}" != "$verdict_c_t" ]; then
+  ok "自己検査c(TRANS): 期待値の件数を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査c(TRANS): 件数を壊した期待値が誤って conform になった"
+  trans_selftest_rc=1
+fi
+
+exp_bad_sha_t="$WORK/selftest_trans/expected_bad_sha.tsv"
+awk 'BEGIN{FS=OFS="\t"} /^#/{print;next}
+     {sha=$4; last=substr(sha,length(sha),1); $4=substr(sha,1,length(sha)-1) (last=="0"?"f":"0"); print}' \
+    "$exp_good_t" > "$exp_bad_sha_t"
+verdict_d_t="$(check_print_record_against_expected selftest_arm "$exp_bad_sha_t" "$good_line_t")"
+if [ "${verdict_d_t#not_conform}" != "$verdict_d_t" ]; then
+  ok "自己検査d(TRANS): 期待値のSHA-256を壊すと正しい記録でも not_conform で検出される"
+else
+  ng "自己検査d(TRANS): SHA-256を壊した期待値が誤って conform になった"
+  trans_selftest_rc=1
+fi
+
+if [ "$trans_selftest_rc" -eq 0 ]; then
+  ok "検出力の自己検査(TRANS): 全項目OK"
+else
+  ng "検出力の自己検査(TRANS): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || trans_selftest_rc ))
+
 # -----------------------------------------------------------------------
 # 自作main ROM側の照合（公式環境の有無に関わらず常に実行する）。
 # -----------------------------------------------------------------------
@@ -1747,6 +1991,131 @@ fi
 overall_rc=$(( overall_rc || arith_selftest_e_rc ))
 
 # -----------------------------------------------------------------------
+# l4-c8 自作main ROM側の照合(TRANS場面。公式環境不要。59腕・7群)。
+# 群(sin/cos/tan/atn/exp/log/sqr)ごとにexpected_l4_trans.tsvの見出し
+# コメントから実装状態を読み、not_implemented_yetの群は判定外(na表示)
+# としてrcに含めない(l4-c3のFS/FDと同じ作法)。SQR群だけは`a3fb09e`で
+# 実装済みのためselfmade=implementedから始まり、実際に照合が走る。
+# -----------------------------------------------------------------------
+say "自作main ROM側の照合(TRANS場面。公式環境不要。59腕)"
+
+trans_conform_count=0
+trans_not_conform_count=0
+trans_gate_failed_count=0
+trans_notimpl_count=0
+
+for arm in "${TRANS_ARM_NAMES[@]}"; do
+  group="$(trans_arm_group "$arm")"
+  status="$(trans_group_status "$group")"
+  if [ "$status" = "not_implemented_yet" ]; then
+    na "[自作/TRANS] ${arm}: not_implemented_yet(群${group}は自作側未実装のため判定外)"
+    trans_notimpl_count=$((trans_notimpl_count + 1))
+    continue
+  fi
+  trans_arm_params "$arm"
+  prefix="$WORK/self_trans_${arm}"
+  line1="$(run_print_arm_once "$SELF_ROMDIR" "$prefix" "${PRINT_ARM_ARGS[@]}" 2>"$prefix.err.txt")"
+  rc1=$?
+  if [ "$rc1" -ne 0 ] || [ -z "$line1" ]; then
+    ng "[自作/TRANS] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix.err.txt"
+    trans_gate_failed_count=$((trans_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  ok_rel="$(printf '%s' "$line1" | cut -f2)"
+  if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+    ng "[自作/TRANS] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+    trans_gate_failed_count=$((trans_gate_failed_count + 1))
+    overall_rc=1
+    continue
+  fi
+  verdict="$(check_print_record_against_expected "$arm" "$EXPECTED_TRANS" "$line1")"
+  case "$verdict" in
+    conform)
+      ok "[自作/TRANS] ${arm}: conform(cell$(printf '%s' "$line1" | cut -f1)・ok行+${ok_rel}・SHA-256一致)"
+      trans_conform_count=$((trans_conform_count + 1))
+      ;;
+    gate_failed)
+      ng "[自作/TRANS] ${arm}: 期待値に行が無い(gate_failed)"
+      trans_gate_failed_count=$((trans_gate_failed_count + 1))
+      overall_rc=1
+      ;;
+    *)
+      ng "[自作/TRANS] ${arm}: ${verdict}"
+      trans_not_conform_count=$((trans_not_conform_count + 1))
+      overall_rc=1
+      ;;
+  esac
+done
+
+say "自作ROM側の集計(TRANS場面)"
+echo "  conform: ${trans_conform_count} / 59"
+echo "  not_conform: ${trans_not_conform_count} / 59"
+echo "  gate_failed: ${trans_gate_failed_count} / 59"
+echo "  not_implemented_yet: ${trans_notimpl_count} / 59 (判定外・rcに含めない)"
+
+# -----------------------------------------------------------------------
+# 自己検査e(TRANS): 群(ここでは"sin")の印をnot_implemented_yet→
+# implementedへ書き換えると、(a)not_implemented_yetの間は判定がスキップ
+# されること、(b)implementedにすると実際に照合が走り、現在の自作ROM
+# (SIN未実装)ではNGになること——を確認する。FLOAT/ARITHの自己検査eと
+# 同じ作法。実データ(expected_l4_trans.tsvの本番行)には依存せず、明らか
+# に不一致になる合成の期待値行を使う。
+# -----------------------------------------------------------------------
+say "自己検査e(TRANS): 群の印をimplementedにすると判定が実際に走りNGになるか"
+
+trans_selftest_e_rc=0
+TEG_ARM="SIN1"
+TEG_GROUP="$(trans_arm_group "$TEG_ARM")"
+TEG_DIR="$WORK/selftest_trans_group"
+mkdir -p "$TEG_DIR"
+
+TEG_NOTIMPL="$TEG_DIR/expected_notimpl.tsv"
+{
+  echo "# selftest(自己検査e専用、実データではない)"
+  echo "# group ${TEG_GROUP} selfmade=not_implemented_yet"
+  printf '%s\t999\t2\t0000000000000000000000000000000000000000000000000000000000000000\n' "$TEG_ARM"
+} > "$TEG_NOTIMPL"
+
+TEG_IMPL="$TEG_DIR/expected_impl.tsv"
+sed 's/selfmade=not_implemented_yet/selfmade=implemented/' "$TEG_NOTIMPL" > "$TEG_IMPL"
+
+teg_status_before="$(EXPECTED_TRANS="$TEG_NOTIMPL" trans_group_status "$TEG_GROUP")"
+if [ "$teg_status_before" = "not_implemented_yet" ]; then
+  ok "自己検査e-1(TRANS): 書き換え前は not_implemented_yet と読める"
+else
+  ng "自己検査e-1(TRANS): 書き換え前の状態読み取りが期待どおりでない(${teg_status_before:-空})"
+  trans_selftest_e_rc=1
+fi
+
+teg_status_after="$(EXPECTED_TRANS="$TEG_IMPL" trans_group_status "$TEG_GROUP")"
+if [ "$teg_status_after" = "implemented" ]; then
+  ok "自己検査e-2(TRANS): 書き換え後は implemented と読める"
+else
+  ng "自己検査e-2(TRANS): 書き換え後の状態読み取りが期待どおりでない(${teg_status_after:-空})"
+  trans_selftest_e_rc=1
+fi
+
+trans_arm_params "$TEG_ARM"
+teg_prefix="$TEG_DIR/self_${TEG_ARM}"
+teg_line="$(run_print_arm_once "$SELF_ROMDIR" "$teg_prefix" "${PRINT_ARM_ARGS[@]}" 2>"$teg_prefix.err.txt")"
+teg_verdict="$(check_print_record_against_expected "$TEG_ARM" "$TEG_IMPL" "$teg_line")"
+if [ "$teg_verdict" = "conform" ]; then
+  ng "自己検査e-3(TRANS): 合成の(ありえない)期待値と偶然一致してしまった(自己検査のフィクスチャを見直すこと)"
+  trans_selftest_e_rc=1
+else
+  ok "自己検査e-3(TRANS): implementedにすると実際に照合が走り、現在の自作ROMではNG(${teg_verdict})になった(判定外が本物の判定を隠していない)"
+fi
+
+if [ "$trans_selftest_e_rc" -eq 0 ]; then
+  ok "自己検査e(TRANS): 全項目OK"
+else
+  ng "自己検査e(TRANS): 失敗した項目がある"
+fi
+overall_rc=$(( overall_rc || trans_selftest_e_rc ))
+
+# -----------------------------------------------------------------------
 # 公式ROM側（環境変数が無ければSKIP）。
 # -----------------------------------------------------------------------
 say "公式ROM側の再導出（公式環境が必要）"
@@ -2104,6 +2473,68 @@ say "公式ROM側の集計(ARITH場面)"
 echo "  conform: ${official_arith_conform} / 40"
 echo "  not_conform: ${official_arith_not_conform} / 40"
 echo "  gate_failed: ${official_arith_gate_failed} / 40"
+
+say "公式ROM側の再導出(TRANS場面。59腕)"
+
+official_trans_conform=0
+official_trans_not_conform=0
+official_trans_gate_failed=0
+
+for arm in "${TRANS_ARM_NAMES[@]}"; do
+  trans_arm_params "$arm"
+  prefix1="$WORK/official_trans_${arm}_run1"
+  prefix2="$WORK/official_trans_${arm}_run2"
+  line1="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix1" "${PRINT_ARM_ARGS[@]}" 2>"$prefix1.err.txt")"
+  rc1=$?
+  trans_arm_params "$arm"
+  line2="$(run_print_arm_once "$OFFICIAL_ROMDIR" "$prefix2" "${PRINT_ARM_ARGS[@]}" 2>"$prefix2.err.txt")"
+  rc2=$?
+  if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ -z "$line1" ] || [ -z "$line2" ]; then
+    ng "[公式/TRANS] ${arm}: 走行または記録化に失敗した(gate_failed)"
+    sed 's/^/       /' "$prefix1.err.txt" "$prefix2.err.txt" 2>/dev/null
+    official_trans_gate_failed=$((official_trans_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  if [ "$line1" != "$line2" ]; then
+    ng "[公式/TRANS] ${arm}: G3決定論性が破れた(2走の記録が不一致。gate_failed)"
+    official_trans_gate_failed=$((official_trans_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  ok_rel="$(printf '%s' "$line1" | cut -f2)"
+  if [ "$ok_rel" = "NA" ] || { [ "$ok_rel" != "" ] && [ "$ok_rel" -lt 2 ] 2>/dev/null; }; then
+    ng "[公式/TRANS] ${arm}: G8(出力完了の確認)が偽(写しが早すぎた。gate_failed)"
+    official_trans_gate_failed=$((official_trans_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  row="$(awk -F'\t' -v a="$arm" '$1==a{print;exit}' "$EXPECTED_TRANS")"
+  if [ -z "$row" ]; then
+    ng "[公式/TRANS] ${arm}: 期待値に行が無い(gate_failed)"
+    official_trans_gate_failed=$((official_trans_gate_failed + 1))
+    overall_rc=1
+    continue
+  fi
+  e_count="$(printf '%s' "$row" | cut -f2)"
+  e_ok="$(printf '%s' "$row" | cut -f3)"
+  e_sha="$(printf '%s' "$row" | cut -f4)"
+  a_count="$(printf '%s' "$line1" | cut -f1)"
+  a_sha="$(printf '%s' "$line1" | cut -f3)"
+  if [ "$a_count" != "$e_count" ] || [ "$ok_rel" != "$e_ok" ] || [ "$a_sha" != "$e_sha" ]; then
+    ng "[公式/TRANS] ${arm}: not_conform（再導出した記録が期待値と不一致）"
+    official_trans_not_conform=$((official_trans_not_conform + 1))
+    overall_rc=1
+  else
+    ok "[公式/TRANS] ${arm}: conform（2走一致・期待値とも一致）"
+    official_trans_conform=$((official_trans_conform + 1))
+  fi
+done
+
+say "公式ROM側の集計(TRANS場面)"
+echo "  conform: ${official_trans_conform} / 59"
+echo "  not_conform: ${official_trans_not_conform} / 59"
+echo "  gate_failed: ${official_trans_gate_failed} / 59"
 
 if [ "$overall_rc" -eq 0 ]; then
   echo
