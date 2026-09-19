@@ -901,4 +901,84 @@ else
   fail "t. 陰性対照: --row-signature の故障注入版でも秘密文字列が検出されなかった(検査に検出力が無い)"
 fi
 
+# --- u. q88measure 本体(--out無し実行)が画面本文を標準出力・標準エラーへ
+# 出さないこと（l4-s1h 事故、disclosure-2026-09-19.md の対処）。
+# a.〜t. は check_l3_*.py・l4_vram_probe.py という「後段の読み手」の
+# 検出力だったが、事故の実体は「そもそも q88measure 自身が --out 無しで
+# 走ると画面本文を作業端末（標準出力）へ書いていた」ことなので、
+# ここだけは自作ROMで q88measure を実際に走らせて確かめる
+# （公式ROM・公式ディスクは使わない。make_test_rom.py の合成ROMのみ）。
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+U_VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
+U_CORE="$(ls "$U_VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
+if [[ -z "$U_CORE" ]]; then
+  fail "u0. コアが無い(vendor/quasi88-libretro)。先に tools/setup_harness.sh を実行すること"
+else
+  make -s -C "$REPO/tools/harness/frontend"
+  Q88MEASURE="$REPO/tools/harness/frontend/q88measure"
+  U_ROMDIR="$WORK/u_rom"
+  mkdir -p "$U_ROMDIR"
+  python3 "$REPO/tools/harness/make_test_rom.py" "$U_ROMDIR" > /dev/null
+
+  # 画面節の見出し。write_screen() が出す側にしか現れない
+  # （write_screen_redacted_notice() は見出し自体を出さない設計）。
+  SCREEN_HEADER="測定終了時のテキスト画面"
+
+  # u1. 陽性対照: --out ありのファイル側は従来どおり write_screen() の
+  # 本物の画面節（見出し行つき）が書かれていること。ここが崩れると
+  # check_l3_screen_output.py・check_l3_entry_screen.py が読めなくなる。
+  "$Q88MEASURE" --core "$U_CORE" --rom-dir "$U_ROMDIR" --frames 8 \
+    --out "$WORK/u_out_report.txt" --expect-exec 0x0000 \
+    > "$WORK/u_out.stdout.txt" 2> "$WORK/u_out.stderr.txt"
+  U_OUT_RC=$?
+  if [[ $U_OUT_RC -ne 0 ]]; then
+    fail "u1. q88measure(--out あり)の実行が失敗した (rc=$U_OUT_RC)"
+  elif grep -qF "$SCREEN_HEADER" "$WORK/u_out_report.txt"; then
+    pass "u1. --out のファイルには従来どおり画面節の見出しが入っている(既存ツールの前提を維持)"
+  else
+    fail "u1. --out のファイルに画面節の見出しが見当たらない(既存ツールが読めなくなる)"
+  fi
+
+  # u2. 本題: --out 無しで実行したときの標準出力・標準エラーのどちらにも、
+  # 画面節の見出し（および行データ）が1つも現れないこと。見出し自体も
+  # write_screen_redacted_notice() では出さない設計なので、見出しの有無が
+  # そのまま「本物のwrite_screen()が呼ばれたか」の判定になる。
+  "$Q88MEASURE" --core "$U_CORE" --rom-dir "$U_ROMDIR" --frames 8 \
+    --expect-exec 0x0000 \
+    > "$WORK/u2.stdout.txt" 2> "$WORK/u2.stderr.txt"
+  U2_RC=$?
+  if [[ $U2_RC -ne 0 ]]; then
+    fail "u2. q88measure(--out 無し)の実行が失敗した (rc=$U2_RC)"
+  elif grep -qF "$SCREEN_HEADER" "$WORK/u2.stdout.txt" "$WORK/u2.stderr.txt"; then
+    fail "u2. --out 無しの標準出力・標準エラーへ画面節(見出しまたは行データ)が漏れた"
+  else
+    pass "u2. --out 無しでも標準出力・標準エラーへ画面節(見出し・行データとも)は出ない"
+  fi
+
+  # u3. --dump-text も同じ経路(標準エラー)なので同様に漏れないこと。
+  "$Q88MEASURE" --core "$U_CORE" --rom-dir "$U_ROMDIR" --frames 8 \
+    --dump-text --out "$WORK/u3_out_report.txt" --expect-exec 0x0000 \
+    > "$WORK/u3.stdout.txt" 2> "$WORK/u3.stderr.txt"
+  U3_RC=$?
+  if [[ $U3_RC -ne 0 ]]; then
+    fail "u3. q88measure(--dump-text)の実行が失敗した (rc=$U3_RC)"
+  elif grep -qF "$SCREEN_HEADER" "$WORK/u3.stdout.txt" "$WORK/u3.stderr.txt"; then
+    fail "u3. --dump-text の標準出力・標準エラーへ画面節が漏れた"
+  else
+    pass "u3. --dump-text でも標準出力・標準エラーへ画面節は出ない(--outのファイル側は別途u1.相当で健全)"
+  fi
+
+  # u4. 陰性対照: Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT で修正前の挙動
+  # （--out 無しでも標準出力に画面節が出る）を再現し、u2. 相当の判定が
+  # 実際に落ちる(検出力を持つ)ことを確認する。
+  Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT=1 "$Q88MEASURE" \
+    --core "$U_CORE" --rom-dir "$U_ROMDIR" --frames 8 --expect-exec 0x0000 \
+    > "$WORK/u4.stdout.txt" 2> "$WORK/u4.stderr.txt"
+  if grep -qF "$SCREEN_HEADER" "$WORK/u4.stdout.txt" "$WORK/u4.stderr.txt"; then
+    pass "u4. 陰性対照: 故障注入版(修正前相当)ではu2.相当の判定が正しく落ちる(検出力あり)"
+  else
+    fail "u4. 陰性対照: 故障注入版でも画面節が検出されなかった(検査に検出力が無い)"
+  fi
+fi
+
 exit "$FAIL"

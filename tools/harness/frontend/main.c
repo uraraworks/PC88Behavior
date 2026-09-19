@@ -878,7 +878,14 @@ static void (*p_text_fn)(uint8_t *, uint32_t, uint32_t, uint32_t);
 /* テキスト画面を人が読める形で書き出す。
  * 測定結果に残すのは「その条件が意図どおりだったか」を結果自身で
  * 検証できるようにするため。条件が違っていたのに気づかず数字だけ
- * 眺めるのが一番危ない（実際に一度やった）。 */
+ * 眺めるのが一番危ない（実際に一度やった）。
+ *
+ * 呼び出し先は必ず「ファイルへ書く」経路（--out の書き出し）に限る。
+ * 標準出力・標準エラーは対話実行だと素通しで作業端末に出る＝人の目に
+ * 触れうる経路なので、そちらには絶対に呼ばない
+ * （write_report_screen_section() / --dump-text 参照。
+ * 経緯: docs/notes/m7hk-screen-content-leak-path-closed.md、
+ * disclosure-2026-09-19.md）。 */
 static void write_screen(FILE *fp)
 {
     static uint8_t scr[Q88H_TEXT_ROWS * Q88H_TEXT_COLS];
@@ -899,6 +906,22 @@ static void write_screen(FILE *fp)
         if (any) fprintf(fp, "  %2u| %s\n", r, line);
     }
     fprintf(fp, "\n");
+}
+
+/* write_screen() の代わりに、画面本文を出さない旨の1行だけを書く。
+ * 呼び先が作業端末（標準出力・標準エラー）のときに使う。
+ * write_screen() が出す見出し行 "[測定終了時のテキスト画面]" 自体も
+ * 出さない（画面節の見出しが出ること自体を「画面を覗いてよい経路」と
+ * 誤解させないため）。--out のファイル側（write_screen() 本体）の
+ * 書式はこの関数では一切変えない。 */
+static void write_screen_redacted_notice(FILE *fp)
+{
+    fprintf(fp, "(このコマンドの標準出力・標準エラーには、q88h_text が返す"
+                "テキスト画面の内容を書かない設計。"
+                "--out で指定したファイルにのみ書くので、"
+                "そのファイルを直接 cat/grep 等で開かず、"
+                "tools/check_l3_screen_output.py や tools/check_l3_entry_screen.py "
+                "で扱うこと。PC88Behavior/CLAUDE.md 禁止事項7。)\n\n");
 }
 
 /* CPU 1 個分の採取結果を書く */
@@ -1219,13 +1242,17 @@ static int write_screenshot_ppm(const char *path, const q88h_screenshot_t *s)
     return 1;
 }
 
+/* show_screen: false のときは write_screen() を呼ばず、
+ * write_screen_redacted_notice() で済ませる。
+ * fp が作業端末（標準出力・標準エラー）になりうる呼び出しでは
+ * 必ず false を渡すこと。--out のファイルへ書く呼び出しだけ true。 */
 static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts,
                          const q88h_trap_t *tp, const q88h_trap_t *tps,
                          const char *core, const char *romdir,
                          const char *disk, const char *disk2, unsigned frames,
                          bool insert2_done, unsigned insert2_frame,
                          int insert2_rc, const char *insert2_actual,
-                         const kmrec_t *kmrec, int n_kmrec)
+                         const kmrec_t *kmrec, int n_kmrec, bool show_screen)
 {
     int i;
     fprintf(fp, "# PC88Behavior バスアクセス採取結果\n");
@@ -1239,7 +1266,7 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
                 insert2_frame, insert2_rc, insert2_actual ? insert2_actual : "(なし)");
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
-    write_screen(fp);
+    if (show_screen) write_screen(fp); else write_screen_redacted_notice(fp);
 
     /* PC-88 は Z80 が 2 個。サブ ROM も再実装対象なので別々に出す。 */
     write_cpu(fp, "メインCPU", t);
@@ -2187,23 +2214,44 @@ int main(int argc, char **argv)
          * 需要が増えていないとき、それが「その機能を使わなかった」のか
          * 「そもそも入力が届いていない」のかを区別できないと詰む。 */
         p_text_fn = p_text;
-        if (dump_text) write_screen(stderr);
+        /* --dump-text は元々「画面が意図どおりか作業端末で目視確認する」
+         * ためのフラグだが、標準エラーは作業端末へ素通しになりうる経路
+         * （禁止事項7）。既存の tools 配下のシェル・Python スクリプトの
+         * いずれもこのフラグを使っていない（grep 済み、docs/notes 内の手打ちコマンド
+         * 例に残るのみ）ので、目視確認の需要そのものが無い。よって
+         * 画面本文は出さず、通知だけ出す。 */
+        if (dump_text) write_screen_redacted_notice(stderr);
 
         {
             q88h_trap_t *tp  = (g_trap_available && g_trap_map_path[0]) ? p_trap()     : NULL;
             q88h_trap_t *tps = (g_trap_available && g_trap_map_path[0]) ? p_trap_sub() : NULL;
 
+            /* 標準出力は --out の有無に関係なく作業端末へ素通しになりうる
+             * 経路なので、show_screen は常に false。画面本文が要る側は
+             * 必ず --out のファイルを経由し、check_l3_screen_output.py 等
+             * の署名化ヘルパで扱う（write_screen_redacted_notice 参照）。
+             *
+             * Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT は自己検査専用の
+             * 故障注入（既存の Q88MEASURE_FAULT_* と同じ作法）。
+             * 修正前の「標準出力にも画面本文が出る」挙動をわざと再現し、
+             * tools/screen_content_leak_selftest.sh の陰性対照が
+             * 検出力を持つことを確かめるためだけに使う。通常運用では
+             * 設定しない。 */
             write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                          disk, disk2, frames,
                          insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
-                         kmrec, n_kmrec);
+                         kmrec, n_kmrec,
+                         getenv("Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT") != NULL);
             if (out) {
                 FILE *fp = fopen(out, "w");
                 if (!fp) { perror(out); return 1; }
+                /* --out のファイルは既存ツール（check_l3_screen_output.py・
+                 * check_l3_entry_screen.py）が読む前提の書式なので、
+                 * show_screen は true のまま変えない。 */
                 write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                              disk, disk2, frames,
                              insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
-                             kmrec, n_kmrec);
+                             kmrec, n_kmrec, true);
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
             }
