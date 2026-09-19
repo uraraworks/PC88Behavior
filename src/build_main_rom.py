@@ -211,6 +211,12 @@ EDITKEY_HOME_CLR_FAULT_NEW = (
     "    JR Z,_kr_do_clr"
 )
 
+# 故障注入: 第4.2版第8節「キーリピート」の遅延を255フレームへ引き伸ばし、
+# テストで使う程度の長押し(数百フレーム未満)では実質発火しないようにする
+# （自己検査の陰性対照専用。tools/l3_screen_editor_selftest.sh）。
+KEY_REPEAT_DELAY_FAULT_OLD = "KEY_REPEAT_DELAY    EQU 30"
+KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -224,6 +230,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_l3_space_fault: bool = False,
                         inject_l4_missing_operand_fault: bool = False,
                         inject_editkey_home_clr_fault: bool = False,
+                        inject_key_repeat_fault: bool = False,
                         enable_l4_selftest: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -278,6 +285,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if keyboard_text.count(EDITKEY_HOME_CLR_FAULT_OLD) != 1:
             raise SystemExit("HOME/CLR故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
         keyboard_text = keyboard_text.replace(EDITKEY_HOME_CLR_FAULT_OLD, EDITKEY_HOME_CLR_FAULT_NEW)
+    if inject_key_repeat_fault:
+        if keyboard_text.count(KEY_REPEAT_DELAY_FAULT_OLD) != 1:
+            raise SystemExit("キーリピート故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
+        keyboard_text = keyboard_text.replace(KEY_REPEAT_DELAY_FAULT_OLD, KEY_REPEAT_DELAY_FAULT_NEW)
 
     screen_path = work / "screen_gen.asm"
     screen_path.write_text(screen_text, encoding="utf-8")
@@ -443,6 +454,9 @@ def main():
     ap.add_argument("--inject-editkey-home-clr-fault", action="store_true",
                      help="故障注入: 第16節HOME/CLR(08H:0)のSHIFT分岐を反転する"
                           "（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-key-repeat-fault", action="store_true",
+                     help="故障注入: 第4.2版第8節キーリピートの遅延を255フレームへ"
+                          "引き伸ばし実質無効化する（自己検査の陰性対照専用）")
     ap.add_argument("--enable-l4-selftest", action="store_true",
                      help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
                           "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
@@ -478,6 +492,7 @@ def main():
                                        inject_l3_space_fault=args.inject_l3_space_fault,
                                        inject_l4_missing_operand_fault=args.inject_l4_missing_operand_fault,
                                        inject_editkey_home_clr_fault=args.inject_editkey_home_clr_fault,
+                                       inject_key_repeat_fault=args.inject_key_repeat_fault,
                                        enable_l4_selftest=args.enable_l4_selftest)
         rom = assemble(combined, work)
 

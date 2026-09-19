@@ -31,6 +31,14 @@
 #  11. 故障注入: HOME/CLRのSHIFT分岐を反転したROM
 #      (--inject-editkey-home-clr-fault)で検査1と同じ打鍵をすると、
 #      画面が消えない(検査1の判定基準が壊れたことを検出できる、陰性対照)。
+#  12. 第4.2版第8節「キーリピート」: HOME→→を200フレーム長押しすると、
+#      1回の押下(列1)だけでなく自動的に繰り返して列を進む(CRTC OUT 0x50の
+#      Xで確認、列1より先まで進むことだけを見る。正確な着地列は
+#      tools/conform_l3_editor.sh のB4〔HOLD=600・期待列64〕で確かめる)。
+#  13. 故障注入: キーリピートの遅延を255フレームへ引き伸ばしたROM
+#      (--inject-key-repeat-fault)で検査12と同じ200フレーム長押しをすると、
+#      1回の押下(列1)のまま進まない(検査12の判定基準が壊れたことを検出
+#      できる、陰性対照)。
 #
 # 使い方: tools/l3_screen_editor_selftest.sh
 set -uo pipefail
@@ -60,10 +68,13 @@ make -s -C "$REPO/tools/harness/frontend" || exit 1
 say "0. ビルド（通常・故障注入(HOME/CLR分岐反転)）"
 NORMAL_ROM="$WORK/rom_normal"
 FAULT_ROM="$WORK/rom_faultedit"
+REPEAT_FAULT_ROM="$WORK/rom_faultrepeat"
 python3 "$BUILD" "$NORMAL_ROM" >"$WORK/build_normal.txt" 2>&1 \
   || { fail "build_main_rom.py(通常)が失敗"; cat "$WORK/build_normal.txt" >&2; }
 python3 "$BUILD" "$FAULT_ROM" --inject-editkey-home-clr-fault >"$WORK/build_fault.txt" 2>&1 \
   || { fail "build_main_rom.py(故障注入)が失敗"; cat "$WORK/build_fault.txt" >&2; }
+python3 "$BUILD" "$REPEAT_FAULT_ROM" --inject-key-repeat-fault >"$WORK/build_repeat_fault.txt" 2>&1 \
+  || { fail "build_main_rom.py(キーリピート故障注入)が失敗"; cat "$WORK/build_repeat_fault.txt" >&2; }
 
 # row_signatureはrow0-1のnonblank件数(banner=16, Ok=2)なので、これを
 # 「起動直後のまま」の判定基準として使い回す。
@@ -303,6 +314,39 @@ print("OK: whole_line/reads_whole_row/reexec_overwrites_below" if ok
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "RETURN(第17節)の検査"
+
+# -----------------------------------------------------------------------
+# 第4.2版第8節「キーリピート」。CRTC OUT 0x50のX(列)で確認する
+# (ハードウェア設定値であり画面本文ではない)。HOMEで(0,0)へ戻してから
+# →を200フレーム長押しする(遅延30・間隔4なら複数回発火するはずの長さ)。
+check_key_repeat() {
+  local rom="$1" label="$2"
+  local dump="$WORK/${label}.iolog.txt"
+  "$FRONTEND" --core "$CORE" --rom-dir "$rom" --frames 500 \
+      --key-matrix 0x08:0x6:50:40 --key-matrix 0x08:0x0:60:10 \
+      --key-matrix 0x08:0x2:100:200 \
+      --io-log "$dump" --io-log-from-frame 480 >"$WORK/${label}.log" 2>&1
+  if [ $? -ne 0 ]; then fail "q88measure(${label})が失敗"; cat "$WORK/${label}.log" >&2; echo ""; return; fi
+  grep " 0050 " "$dump" | tail -2 | head -1 | awk '{print $7}'
+}
+
+say "12. キーリピート: →を200フレーム長押しすると1回(列1)より先へ進む"
+X_NORMAL="$(check_key_repeat "$NORMAL_ROM" krnorm)"
+X_NORMAL_DEC=$((16#${X_NORMAL:-00}))
+if [ "$X_NORMAL_DEC" -gt 1 ]; then
+  ok "キーリピート発火(200フレーム長押しで列${X_NORMAL_DEC}まで進んだ、列1=単発押下のみと区別できる)"
+else
+  fail "キーリピート: 200フレーム長押ししても列${X_NORMAL_DEC}のまま(発火していない)"
+fi
+
+say "13. 故障注入: キーリピート遅延を255フレームへ引き伸ばし（検査12と同じ長押しで列1のまま進まないことを検出できる、陰性対照）"
+X_FAULT="$(check_key_repeat "$REPEAT_FAULT_ROM" krfault)"
+X_FAULT_DEC=$((16#${X_FAULT:-00}))
+if [ "$X_FAULT_DEC" -eq 1 ]; then
+  ok "故障注入ROM: 列${X_FAULT_DEC}のまま(検査12の判定基準に検出力がある)"
+else
+  fail "故障注入ROM: 列${X_FAULT_DEC}(期待は列1のまま。陰性対照が機能していない)"
+fi
 
 # -----------------------------------------------------------------------
 if [ "$FAILED" -eq 0 ]; then
