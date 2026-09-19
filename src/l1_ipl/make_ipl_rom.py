@@ -365,6 +365,16 @@ class Asm:
 
     def push_bc(self): self.db(0xC5)
     def pop_bc(self):  self.db(0xC1)
+    def push_af(self): self.db(0xF5)
+    def pop_af(self):  self.db(0xF1)
+    def push_de(self): self.db(0xD5)
+    def pop_de(self):  self.db(0xD1)
+    def push_hl(self): self.db(0xE5)
+    def pop_hl(self):  self.db(0xE1)
+    def push_ix(self): self.db(0xDD, 0xE5)
+    def pop_ix(self):  self.db(0xDD, 0xE1)
+    def push_iy(self): self.db(0xFD, 0xE5)
+    def pop_iy(self):  self.db(0xFD, 0xE1)
 
     # ---- OUT（記録つき）----
     def out(self, port, value):
@@ -445,6 +455,16 @@ _ASM_TEMPLATES = {
     "out_a": lambda port: f"OUT ({hex8(port)}),A",
     "push_bc": lambda: "PUSH BC",
     "pop_bc": lambda: "POP BC",
+    "push_af": lambda: "PUSH AF",
+    "pop_af": lambda: "POP AF",
+    "push_de": lambda: "PUSH DE",
+    "pop_de": lambda: "POP DE",
+    "push_hl": lambda: "PUSH HL",
+    "pop_hl": lambda: "POP HL",
+    "push_ix": lambda: "PUSH IX",
+    "pop_ix": lambda: "POP IX",
+    "push_iy": lambda: "PUSH IY",
+    "pop_iy": lambda: "POP IY",
 }
 install_note_templates(Asm, _ASM_TEMPLATES)
 
@@ -641,8 +661,41 @@ def sub_vsync_handler(a):
     VRTC（`IN 40`）は待たない——待つ理由が無い。割り込みそのものが
     「次のフレームが来た」の合図なので、ポーリングは不要。
     これが適合条件③（定常状態に `IN 40` が現れないこと）の実装側の理由。
+
+    ## レジスタ退避（潜在不具合の修正、docs/spec/ext-rom-bank.md 開発時に発覚）
+
+    このハンドラ（と、build_main_rom.py がここへ挿入する L3_VSYNC_HOOK
+    以下の呼び出し木——KEY_READ・KEY_REPEAT_TICK・LINE_PUTCHAR・
+    LINE_FINISH・SET_CURSOR、さらにRETURN経由で実行されるBASIC本体）は
+    AF/BC/DE/HL/IX/IYを自由に使うが、従来は一切PUSH/POPしていなかった。
+
+    通常時（本体codebaseの既存コードが一切EIを呼ばない構成）は、
+    VSYNC_HANDLER自身の`EI`が実行されるまでIFF（割り込み許可）が
+    0のままなので、このハンドラの実行区間そのものが多重割り込みされず、
+    結果的にレジスタ非退避でも壊れなかった——**「常に安全」ではなく
+    「たまたま、このハンドラの外でEIを呼ぶコードが存在しなかったから
+    壊れなかった」**という暗黙の前提に支えられていた。
+
+    拡張ROMバンクの自己検査（EXT_BANK_LOOP_TEST、定常状態STEADY_WAITから
+    EIしたまま多数回呼ぶ）でこの前提を破ったところ、実際に
+    ワークレジスタ（当初BC/DEに置いていた中継ルーチンの退避値）が
+    このハンドラに壊された（tools/ext_bank_selftest.shで検出、
+    docs/spec/ext-rom-bank.md 実装コミットのログ参照）。「拡張ROMバンク
+    固有の話」ではなく、**割り込みを有効にしたままハンドラの外の
+    レジスタ状態を跨ぐ設計であれば、拡張ROMバンクの有無に関わらず
+    いつでも起こりうる潜在不具合**だったため、ハンドラ全体を
+    PUSH/POPで包んで対称的に安全にする（呼び出し元がどんな前提で
+    EIしていても、このハンドラは呼び出し元のレジスタを一切変えずに
+    戻る）。裏レジスタ(EXX/EX AF,AF')はこのリポジトリのどのコードも
+    使っていない（grep済み）ので対象外。
     """
     a.label("VSYNC_HANDLER")
+    a.push_af()
+    a.push_bc()
+    a.push_de()
+    a.push_hl()
+    a.push_ix()
+    a.push_iy()
     a.out_seq([
         (P_SYSCTRL2, 0x19),
         (P_INTSTAT,  0x01),                  # ハンドラ実行中はレベルを1に下げる
@@ -656,6 +709,12 @@ def sub_vsync_handler(a):
         (P_INTSTAT,  0xFF),                  # 次の VSYNC を受け取れる状態に戻す
         (P_SYSCTRL2, 0x19),
     ])
+    a.pop_iy()
+    a.pop_ix()
+    a.pop_hl()
+    a.pop_de()
+    a.pop_bc()
+    a.pop_af()
     a.ei()
     a.ret()
 
