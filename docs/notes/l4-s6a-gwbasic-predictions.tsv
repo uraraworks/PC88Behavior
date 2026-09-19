@@ -1,0 +1,45 @@
+# 生成元: tools/l4_mbf_oracle_v3.py sha256=68d15af25dfd9b25f2f4db109368eb39addf49a4af644cb3e21ddc7bbb8cab7c
+# 生成コマンド: python3 tools/gen_l4_s6a_predictions.py
+id	group	typed	kind	predicted	approx
+S1	sqr_irrational	print sqr(2)\n	numeric	" 1.414214 "	1
+S2	sqr_irrational	print sqr(3)\n	numeric	" 1.732051 "	1
+S3	sqr_irrational	print sqr(.5)\n	numeric	" .7071068 "	1
+S4	sqr_irrational	print sqr(123456)\n	numeric	" 351.3631 "	1
+S5	sqr_double	print sqr(2#)\n	numeric	" 1.414214 "	1
+S6	sqr_double	print sqr(1000000#)\n	numeric	" 1000 "	1
+S7	sqr_error	print sqr(-1)\n	error	"IllegalFunctionCall; 0 "	0
+N1	sin_irrational	print sin(1)\n	numeric	" .841471 "	1
+N2	sin_irrational	print sin(.5)\n	numeric	" .4794255 "	1
+N3	sin_irrational	print sin(-1)\n	numeric	"-.841471 "	1
+N4	sin_large	print sin(100)\n	numeric	"-.5063657 "	1
+N5	sin_double	print sin(1#)\n	numeric	" .841471 "	1
+N6	sin_near2pi	print sin(6.283185)\n	numeric	"-.0000003019916 "	1
+N7	sin_large	print sin(1000000)\n	numeric	"-.3499935 "	1
+C1	cos_irrational	print cos(.5)\n	numeric	" .8775826 "	1
+C2	cos_irrational	print cos(1)\n	numeric	" .5403023 "	1
+C3	cos_irrational	print cos(-1)\n	numeric	" .5403023 "	1
+C4	cos_large	print cos(100)\n	numeric	" .8623189 "	1
+T1	tan_irrational	print tan(1)\n	numeric	" 1.557408 "	1
+T2	tan_irrational	print tan(.5)\n	numeric	" .5463025 "	1
+T3	tan_irrational	print tan(-1)\n	numeric	"-1.557408 "	1
+T4	tan_large	print tan(100)\n	numeric	"-.5872139 "	1
+A1	atn_irrational	print atn(1)\n	numeric	" .7853982 "	1
+A2	atn_irrational	print atn(-1)\n	numeric	"-.7853982 "	1
+A3	atn_large	print atn(100)\n	numeric	" 1.560797 "	1
+A4	atn_small	print atn(.001)\n	numeric	" .0009999997 "	1
+A5	atn_double	print atn(1#)\n	numeric	" .7853982 "	1
+A6	atn_irrational	print atn(.5)\n	numeric	" .4636476 "	1
+E1	exp_irrational	print exp(1)\n	numeric	" 2.718282 "	1
+E2	exp_irrational	print exp(-1)\n	numeric	" .3678795 "	1
+E3	exp_irrational	print exp(.5)\n	numeric	" 1.648721 "	1
+E4	exp_irrational	print exp(10)\n	numeric	" 22026.47 "	1
+E5	exp_double	print exp(1#)\n	numeric	" 2.718282 "	1
+E6	exp_overflow	print exp(100)\n	error	"Overflow; 1.701412E+38 "	1
+E7	exp_irrational	print exp(.1)\n	numeric	" 1.105171 "	1
+L1	log_irrational	print log(2)\n	numeric	" .6931471 "	1
+L2	log_irrational	print log(.5)\n	numeric	"-.6931472 "	1
+L3	log_irrational	print log(100)\n	numeric	" 4.60517 "	1
+L4	log_double	print log(2#)\n	numeric	" .6931471 "	1
+L5	log_error	print log(0)\n	error	"IllegalFunctionCall; 0 "	0
+L6	log_error	print log(-1)\n	error	"IllegalFunctionCall; 0 "	0
+L7	log_irrational	print log(10)\n	numeric	" 2.302585 "	1
