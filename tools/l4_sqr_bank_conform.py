@@ -49,9 +49,17 @@ BANK0_ASM = REPO / "src" / "ext_bank" / "bank0.asm"
 FRONTEND = REPO / "tools" / "harness" / "frontend" / "q88measure"
 VENDOR = REPO.parent / "vendor" / "quasi88-libretro"
 
-VEC_TABLE_ADDR = 0x6120     # bank0.asmの実測終端(実測0x6113付近、
-                             # z80textのORG前方ジャンプで0埋めされる)
-                             # より少し先。
+VEC_TABLE_ADDR = 0x6700     # bank0.asmの実測終端より少し先。2026-09-20
+                             # 追記: SIN/COS/TAN実装(EXT_BANK0_SIN_ENTRY等、
+                             # オフセット0x0200-0x0220台)でbank0.asmが伸び、
+                             # 旧値0x6120では実際のコード終端(実測0x64BD
+                             # 付近)と衝突して「org が既に書いた領域より
+                             # 手前を指している」でアセンブル失敗するように
+                             # なった(run_all_selftests.shで発覚)。
+                             # tools/l4_sincos_bank_conform.pyの0x6900と
+                             # 同じ理由で値を上げる(SQR側は0x6900だと
+                             # -n既定値1900がcapを超えるため、0x6900より
+                             # 少し詰めた0x6700にする)。
 N88_SIZE = 0x8000            # 32KB(実機のROM窓と同じ)。2026-09-20の
                               # デバッグで、48KB(0xC000)にしたところ
                               # n=1536件目から突然「別の固定値が繰り返し
@@ -383,10 +391,12 @@ def report(n_total: int, mismatches, expect_ng: bool) -> bool:
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-n", type=int, default=1900,
+    ap.add_argument("-n", type=int, default=1600,
                      help="乱数ベクタの数(境界値は別に常に含む)。VEC_TABLE_ADDRから"
-                          "N88_SIZE(実機と同じ0x8000)までに収まる上限は約1976件"
-                          "(--addr等は使わず、bank0.asmの実測終端に合わせて"
+                          "N88_SIZE(実機と同じ0x8000)までに収まる上限は約1600件"
+                          "(2026-09-20、SIN/COS/TAN追加でbank0.asmが伸びた分だけ"
+                          "VEC_TABLE_ADDRを上げたため、既定値も上限内へ下げた。"
+                          "--addr等は使わず、bank0.asmの実測終端に合わせて"
                           "VEC_TABLE_ADDRを決めている)")
     ap.add_argument("--seed", type=int, default=20260920)
     ap.add_argument("--frames", type=int, default=None,
