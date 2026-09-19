@@ -12,6 +12,11 @@ JSONで返す。画面本文は一切出力しない（CLAUDE.md禁止事項7）
           homeclr_{noshift,shift}_mid（行の途中、各1腕）・
           B1・B2・B2p（B2'改）・B3・B3p（B3'改）・B4（真の境界）
   第17節: R1a・R1b・R1c・U1・E1・T1・T2・PC1（陽性対照）
+  第18節項5・l4-s1h（キーリピート、
+  docs/notes/l4-s1h-key-repeat-results.md）:
+    s1h_q1_main（qキーの繰り返し時系列）・s1h_g4_pos/s1h_g5_neg
+    （陽性・陰性対照）・s1h_q2_a〜f（→の6腕）・s1h_q3_main
+    （→単発での列79越え）
 
 除外（第18節・各節「未実施・未確定」節のとおり、この版では対象外）:
   挿入モードで列79まで実文字が詰まった行への挿入・挿入モードを抜ける
@@ -162,7 +167,81 @@ S1G_ARMS = {
            "l", "i", "s", "t", "RETURN", "UP", "UP"] + ["RIGHT"] * 9 + ["4", "RETURN", "r", "u", "n", "RETURN"],
 }
 
-ALL_ARM_NAMES = list(MID_ARMS) + list(BOUNDARY_ARMS) + list(S1G_ARMS)
+# ---- l4-s1h キーリピート適合の腕 ------------------------------------
+# docs/notes/l4-s1h-key-repeat-results.md（事前登録c9d5935+追補）が
+# 確定したQ1(qキー時系列)・Q2(→の6腕)・Q3(→単発の列79越え)・
+# G4/G5(陽性・陰性対照)をそのまま流用する。フレーム設計
+# (press_frame=end+16、D=10、mark_frameの間隔24)はl4-s1hの
+# tools/l4_key_repeat_record.pyと同じ値を使う(器具の再利用、二重実装
+# しない——数値だけこちらにも複製する形になるが、q88measureの呼び出し
+# 方自体はrun_q88/build_tokens/diff_cellsをそのまま使う)。
+
+S1H_D = 10
+S1H_SWEEP_OFFSETS = [30, 35, 40, 45, 50, 55, 60, 90, 150, 210, 270, 330, 390, 420, 450]
+
+# 腕名 -> HOLD(qキー)。Noneは無打鍵(G5陰性対照)。
+S1H_SWEEP_ARMS = {
+    "s1h_q1_main": 400,
+    "s1h_g4_pos": 4,
+    "s1h_g5_neg": None,
+}
+
+# 腕名 -> (起点トークン列, →キーのHOLD)
+S1H_LANDING_ARMS = {
+    "s1h_q2_a": (["HOME"], 4),
+    "s1h_q2_b": (["HOME"], 26),
+    "s1h_q2_c": (["HOME"], 34),
+    "s1h_q2_d": (["HOME"], 40),
+    "s1h_q2_e": (["HOME"], 60),
+    "s1h_q2_f": (["HOME"], 600),
+    "s1h_q3_main": (["HOME", "DOWN", "LEFT"], 4),
+}
+
+ALL_ARM_NAMES = (list(MID_ARMS) + list(BOUNDARY_ARMS) + list(S1G_ARMS)
+                  + list(S1H_SWEEP_ARMS) + list(S1H_LANDING_ARMS))
+
+
+def run_s1h_sweep_arm(romdir: str, name: str, workdir: Path):
+    hold = S1H_SWEEP_ARMS[name]
+    km, end = build_tokens(["HOME"])
+    press_frame = end + 16
+    dump_before = press_frame - 2
+    dumps = [("d0", dump_before)]
+    for i, off in enumerate(S1H_SWEEP_OFFSETS):
+        dumps.append((f"d{i + 1}", press_frame + off))
+    kms = list(SETTLE) + km
+    if hold is not None:
+        kms = kms + [(*CHAR["q"], press_frame, hold)]
+    total = dumps[-1][1] + 40
+    prefix = str(workdir / name)
+    rc, paths, err = run_q88(romdir, kms, dumps, prefix, total)
+    if rc != 0:
+        return {"rc": rc, "err_tail": err[-300:]}
+    d0 = paths[0]
+    series = [diff_cells(d0, p) for p in paths[1:]]
+    return {"rc": rc, "series_diffs": series}
+
+
+def run_s1h_landing_arm(romdir: str, name: str, workdir: Path):
+    start_tokens, hold = S1H_LANDING_ARMS[name]
+    km, end = build_tokens(list(start_tokens))
+    target_frame = end + 16
+    dump_before = target_frame - 2
+    km.append((*SPECIAL["RIGHT"], target_frame, hold))
+    after_target = target_frame + hold + S1H_D
+    mark_frame = after_target + 24
+    km.append((*CHAR["w"], mark_frame, 4))
+    after_mark = mark_frame + 4 + S1H_D
+    total = after_mark + 30
+    prefix = str(workdir / name)
+    rc, paths, err = run_q88(romdir, SETTLE + km,
+                              [("before", dump_before), ("aftertarget", after_target),
+                               ("aftermark", after_mark)],
+                              prefix, total)
+    if rc != 0:
+        return {"rc": rc, "err_tail": err[-300:]}
+    before_p, at_p, am_p = paths
+    return {"rc": rc, "mark_diff": diff_cells(at_p, am_p)}
 
 
 def run_mid_arm(romdir: str, name: str, workdir: Path):
@@ -237,6 +316,10 @@ def run_arm(romdir: str, name: str, workdir: Path):
         return run_boundary_arm(romdir, name, workdir)
     if name in S1G_ARMS:
         return run_s1g_arm(romdir, name, workdir)
+    if name in S1H_SWEEP_ARMS:
+        return run_s1h_sweep_arm(romdir, name, workdir)
+    if name in S1H_LANDING_ARMS:
+        return run_s1h_landing_arm(romdir, name, workdir)
     raise SystemExit(f"未知の腕: {name}")
 
 

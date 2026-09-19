@@ -2,9 +2,14 @@
 # tools/conform_l3_editor.sh — l4-c6 スクリーンエディタ適合の場面固定。
 #
 # docs/spec/l3-main.md 第16節（l4-s1f本体+追補1-3）・第17節（l4-s1g本体+
-# 追補）が確定した腕を、settle手順（RETURN x2、G11）つきで実行し、公式ROM
-# と自作main ROM（src/build_main_rom.py）の判定名・座標・出力行署名を
-# 突き合わせる。tools/conform_l4.sh と同じ二層方針:
+# 追補）・第18節項5（l4-s1h、キーリピート）が確定した腕を、settle手順
+# （RETURN x2、G11）つきで実行し、公式ROMと自作main ROM
+# （src/build_main_rom.py）の判定名・座標・出力行署名を突き合わせる。
+# l4-s1hの腕（s1h_*）は docs/notes/l4-s1h-key-repeat-results.md が確定
+# したQ1(qキー時系列)・Q2(→の6腕)・Q3(→単発の列79越え)・G4/G5(対照)を
+# そのまま流用（B4は遅延をB4の期待値に合わせ込んだ腕なので、キーリピート
+# の独立な検証にはならない——l4-c6結果ノートの追補節を参照）。
+# tools/conform_l4.sh と同じ二層方針:
 #   - 自作ROM側の照合は、公式環境の有無に関わらず常に、コミット済みの
 #     tests/conformance/expected_l4_editor.tsv とだけ照合して回る
 #     （M8、公式環境が無い環境でも第三者がこのテストを回せる）
@@ -96,7 +101,7 @@ python3 "$NORMALIZE" --raw-json "$WORK/self.json" --status-rows self \
 CMP_RC=$?
 MATCH_N="$(python3 -c 'import json;print(len(json.load(open("'"$CMP_JSON"'"))["match"]))' 2>/dev/null || echo '?')"
 MISMATCH_LIST="$(python3 -c 'import json;print(",".join(json.load(open("'"$CMP_JSON"'"))["mismatch"]))' 2>/dev/null || echo '?')"
-TOTAL_N=22
+TOTAL_N=32
 if [ "$CMP_RC" = 0 ]; then
   ok "自作ROM: ${MATCH_N}/${TOTAL_N}腕が期待値と一致"
 else

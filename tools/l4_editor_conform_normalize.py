@@ -23,7 +23,9 @@ import l4_editor_conform_record as R  # noqa: E402
 MID = list(R.MID_ARMS)
 BOUNDARY = list(R.BOUNDARY_ARMS)
 S1G = list(R.S1G_ARMS)
-ARM_ORDER = MID + BOUNDARY + S1G
+S1H_SWEEP = list(R.S1H_SWEEP_ARMS)
+S1H_LANDING = list(R.S1H_LANDING_ARMS)
+ARM_ORDER = MID + BOUNDARY + S1G + S1H_SWEEP + S1H_LANDING
 
 STATUS_ROWS_OFFICIAL = {19}
 STATUS_ROWS_SELF = {20, 21, 22, 23, 24}
@@ -56,6 +58,16 @@ def normalize_arm(name: str, entry: dict, status_rows: set[int]) -> dict:
         out_row = min(rows, key=lambda r: int(r))
         sig = rows[out_row]
         return {"nonblank_count": sig["nonblank_count"], "sha256": sig["row_sha256"]}
+    if name in S1H_LANDING:
+        md = _norm_cells(entry["mark_diff"], status_rows)
+        return {"nonblank_count": len(md), "sha256": _sha(md)}
+    if name in S1H_SWEEP:
+        # offsetごとの差分セル列をそのまま正規化して並べる。件数の時系列
+        # だけでなく座標(位置)の並びごと比較するので、遅延・間隔の位相
+        # がずれていれば sha256 が一致しない。
+        series = [_norm_cells(cells, status_rows) for cells in entry["series_diffs"]]
+        total = sum(len(c) for c in series)
+        return {"nonblank_count": total, "sha256": _sha(series)}
     raise ValueError(f"未知の腕: {name}")
 
 
