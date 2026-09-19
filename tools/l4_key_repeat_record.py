@@ -50,12 +50,14 @@ def _run(romdir, kms, dumps, prefix, total_frames):
 # ---- Q1: qキーの繰り返し時系列（G4陽性対照・G5陰性対照もこれで撮れる） ----
 
 def run_sweep(romdir: str, workdir: Path, prefix: str, offsets: list[int],
-              hold: "int | None") -> dict:
+              hold: "int | None", press_extra: int = 0) -> dict:
     """HOME/CLR後に q を hold フレーム押し、offsets(フレーム、押下開始
     からの相対値)ごとに写しを撮る。hold=None なら q を押さず(G5陰性対照)。
+    press_extra: 押し始めのフレームをさらにこの分だけ遅らせる
+    (Q4の位相依存確認用。既定0で従来どおり)。
     """
     km, end = ec.build_tokens(["HOME"])
-    press_frame = end + 16
+    press_frame = end + 16 + press_extra
     dump_before = press_frame - 2
     dumps = [("d0", dump_before)]
     for i, off in enumerate(offsets):
@@ -109,12 +111,14 @@ def _landing_from_marker(before_mark_path: str, after_mark_path: str):
 
 
 def run_arrow_arm(romdir: str, workdir: Path, prefix: str, hold: int,
-                   start_tokens: list[str] = ("HOME",)) -> dict:
+                   start_tokens: list[str] = ("HOME",), press_extra: int = 0) -> dict:
     """start_tokens で起点へ移動した後、→(RIGHT)を hold フレーム押し、
     離した後に目印 w を打って着地セルを座標で返す(Q2の各腕・Q3-main)。
+    press_extra: →キーを押すフレームをさらにこの分だけ遅らせる
+    (Q4の位相依存確認用。既定0で従来どおり)。
     """
     km, end = ec.build_tokens(list(start_tokens))
-    target_frame = end + 16
+    target_frame = end + 16 + press_extra
     dump_before = target_frame - 2
     km.append((RIGHT_KEY[0], RIGHT_KEY[1], target_frame, hold))
     after_target = target_frame + hold + D
@@ -177,6 +181,8 @@ def main() -> int:
     ap.add_argument("--offsets", default=None, help="カンマ区切りのフレームオフセット")
     ap.add_argument("--start-tokens", default="HOME", help="カンマ区切り(HOME,DOWN,LEFT等)")
     ap.add_argument("--sweep-json", default=None, help="faultアクション用: sweepの出力JSON")
+    ap.add_argument("--press-extra", type=int, default=0,
+                     help="押し始めのフレームをさらにこの分遅らせる(Q4位相依存確認用)")
     args = ap.parse_args()
 
     workdir = Path(args.workdir)
@@ -189,7 +195,8 @@ def main() -> int:
                                      args.start_tokens.split(","))
     elif args.action == "sweep":
         offsets = [int(x) for x in args.offsets.split(",")]
-        result = run_sweep(args.rom_dir, workdir, args.prefix, offsets, args.hold)
+        result = run_sweep(args.rom_dir, workdir, args.prefix, offsets, args.hold,
+                            press_extra=args.press_extra)
         # _paths はファイルパス文字列の配列(画面本文ではない)。fault
         # アクションが同じ写しを再解析するために必要なので残す。
     elif args.action == "fault":
@@ -200,10 +207,10 @@ def main() -> int:
         result = run_fault_injection(sweep_full)
     elif args.action == "arrow":
         result = run_arrow_arm(args.rom_dir, workdir, args.prefix, args.hold,
-                                args.start_tokens.split(","))
+                                args.start_tokens.split(","), press_extra=args.press_extra)
     elif args.action == "q3main":
         result = run_arrow_arm(args.rom_dir, workdir, args.prefix, args.hold,
-                                ["HOME", "DOWN", "LEFT"])
+                                ["HOME", "DOWN", "LEFT"], press_extra=args.press_extra)
     else:
         raise SystemExit(2)
 
