@@ -663,7 +663,7 @@ more-arms-preregistration.md`＋結果ノート）で各12腕（+対照2腕）�
 通り探索しても)見つからず、確定させられないまま残る（`SQR`自体の
 近似精度の限界も別途残る。第8節参照）。
 
-### 実装メモ（2026-09-20、`SQR`のみ実装。`SIN`/`COS`/`TAN`/`ATN`/`EXP`/
+### 実装メモ（2026-09-20、`SQR`・`SIN`/`COS`/`TAN`を実装。`ATN`/`EXP`/
 `LOG`は本段階の対象外）
 
 - `SQR`は上記のとおり実装手順が未確定のため、`src/ext_bank/bank0.asm`
@@ -683,9 +683,32 @@ more-arms-preregistration.md`＋結果ノート）で各12腕（+対照2腕）�
   方針）、`SQR`もこの経路に乗り、倍精度引数は単精度に丸められてから
   計算される。`docs/PLAN.md`の「行き止まりを消さない」規律どおり、
   倍精度専用の実装をあらためて起こすかどうかは未着手のまま残す。
-- `SIN`・`COS`・`TAN`・`ATN`・`EXP`・`LOG`は、第4.16a・4.16b節で
-  範囲縮約・多項式係数・分岐が確定しているにもかかわらず、本段階
-  ではまだ`bank0.asm`に実装していない（未着手、次の段階の対象）。
+- `SIN`・`COS`・`TAN`は第4.16a節(`l4-s6g`で確定したM9=範囲縮約単精度化
+  +内部単精度演算すべてaway丸め)のとおり`src/ext_bank/bank0.asm`
+  `EXT_BANK0_SIN_ENTRY`/`COS_ENTRY`/`TAN_ENTRY`(オフセット0x0200/
+  0x0210/0x0220固定)に実装した。SQRと異なり実装手順そのものが確定
+  済みのため、独自近似ではなく常駐部(`mbf_single.asm`)の単精度四則
+  (`MBF_ADD`/`MBF_SUB`/`MBF_MUL`/`MBF_DIV`/`MBF_NEG`)と`TRUNC_TO_
+  SINGLE`(範囲縮約のfloor、被演算子は構造上常に非負なので0方向切り
+  捨て=floorとしてそのまま使える)をそのままCALLする構成にし、演算
+  自体は再実装していない。係数・定数(`IN2PI_SINGLE`・`PI2`・
+  `TWO_PI`・`SINCN`)は`tools/l4_mbf_oracle_v3.py`・`v5_m5.py`
+  (GW-BASIC MIT公開ソースのインライン即値をそのまま起こしたもの)の
+  値を使う。`tools/l4_sincos_bank_conform.py`で各関数800件(境界値+
+  乱数)の乱数・境界値照合、不一致0(陰性対照3種で検出力を確認済み)。
+  `tools/l4_sincos_endtoend_selftest.sh`でBASIC呼び出し経路の通し
+  検査(陰性対照つき)も確認済み。`tools/conform_l4.sh`(l4-c8)の公式
+  ROM期待値(`SIN1`〜`5`・`COS1`〜`5`・`TAN1`〜`5`)とも全腕conform。
+  - 実装の過程で、常駐部`MBF_ADD`のBIG/SML判定(仮数24bitのうち最下位
+    byteの比較)に非対称なバグ(M2・M1レベルには`JR NZ`の分岐がある
+    のに、M0レベルだけ欠けていた)を発見・修正した(`mbf_single.asm`)。
+    同符号の加算では結果が可換なため表面化しないが、範囲縮約の
+    `n-y`(異符号減算、上位2byteが一致し最下位byteだけ僅差という
+    条件を高頻度で作る)で顕在化した。修正後も既存の
+    `tools/l4_mbf_z80_selftest.sh`は全項目OKのまま(退行なし)。
+- `ATN`・`EXP`・`LOG`は、第4.16b節で範囲縮約・多項式係数・分岐が
+  確定しているにもかかわらず、本段階ではまだ`bank0.asm`に実装して
+  いない（未着手、次の段階の対象）。
 
 ## 5. 観測 — 画面の命令（`CLS`・`LOCATE`・`COLOR`・`WIDTH`・スクロール）
 
