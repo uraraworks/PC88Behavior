@@ -51,12 +51,17 @@ def row_signature(row: bytes) -> dict:
 def build_table() -> dict:
     # 本ノートの腕が生じさせうる数値(自分で打つ・上書きの結果として想定する値)。
     # 根拠は事前登録本体「候補」節の各腕の設計。
+    # `print_99`は「PRINTの実行結果」ではなく、U1でPRINT出力行(先頭に符号
+    # スペース1桁)の数字2桁だけを手で`9``9`に上書きした結果のバイト形
+    # (空白+数字2桁+後置空白)を指す。桁数・符号スペースの位置が同じ形に
+    # なるため同じ関数で作れるが、由来はPRINT実行ではない(事前登録本体
+    # 「群U」節を参照)。
     values = {
-        "print_12": 12,   # buffer_wins / 未編集(陽性対照PC1) / 上下移動の再実行(U1)
-        "print_42": 42,   # screen_wins(行全体を読み直す)
-        "print_4": 4,     # from_start_to_cursor(カーソルまでを読む)
+        "print_12": 12,   # buffer_wins / 未編集(陽性対照PC1) / U1の再実行候補(reexec_overwrites_below)
+        "print_42": 42,   # screen_wins(行全体を読み直す)、from_start_to_cursor(含む)と縮退
+        "print_4": 4,     # from_start_to_cursor(カーソル列を含まない)
         "print_423": 423, # T群: 行末に古い文字が残ったまま行全体を読む場合
-        "print_34": 34,   # U群: 2本目の直接モード文(位置確認用)
+        "print_99": 99,   # U1: row1の出力を99で上書きした後の対照(no_reexec/reexec_elsewhere判定用)
     }
     table = {}
     for name, v in values.items():
