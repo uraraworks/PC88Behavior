@@ -31,7 +31,12 @@ trap 'rm -rf "$WORK"' EXIT
 Z80TEXT="tools/asm/z80text.py"
 
 # ---- 既定出力の sha256（このアセンブラ機能を追加する前に実測して固定した値）----
-EXPECT_N88_SHA="042b27209b97ac638aa6433be2f01de451c03f71349c9f6bc11fa123190aadf0"
+# EXPECT_N88_SHAは、VSYNCハンドラのレジスタ非退避の潜在不具合を修正した
+# 際(sub_vsync_handlerの冒頭・末尾にPUSH/POPを追加、docs/spec/
+# ext-rom-bank.md開発時に発覚)に更新した。この検査自体が確かめたい
+# 不変条件(「.asm経由の再組み立てがバイト一致」)はこの下の別の検査
+# （sha256とは独立）が引き続き見ており、そちらは修正の前後とも通る。
+EXPECT_N88_SHA="1f4305a2c443fce00bc91cabb92c8a01f9c6157c3cd9e05bff8f72e943c075b1"
 EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9f6c5b"
 EXPECT_SUBROM_DISK_SHA="d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070"
 
