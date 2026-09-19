@@ -6,7 +6,9 @@
 # tools/l4_editor_conform_normalize.py が正規化した後のハッシュ
 # （ファンクションキー表示行〈公式row19〉・自作の状態表示行〈row20-24〉は
 # 正規化時に除外済み）。
-# 事前登録: docs/spec/l3-main.md 第16・17節（l4-s1f・l4-s1g）。
+# 事前登録: docs/spec/l3-main.md 第16・17・18節（l4-s1f・l4-s1g・
+# l4-s1h。l4-s1hはdocs/notes/l4-s1h-key-repeat-results.mdが確定した
+# 腕、s1h_*）。
 # 公式ROM(PC88_REF_ROM_DIR経由)で採取する(tools/conform_l3_editor.sh --record)。
 #
 # arm	nonblank_count	sha256
@@ -32,3 +34,13 @@ T1	3	c499b9ca53cad54d0b68dbf235c59f2a473a2befd138b933a61ad05f122bed53
 T2	3	c499b9ca53cad54d0b68dbf235c59f2a473a2befd138b933a61ad05f122bed53
 PC1	2	32c75a5e4c4b1959030416ac620d7246fdab47556b7280d2510f971078d4b925
 E1	2	7dcfe72448919e73ccd1de757f58fcad6341bf8a85abfd004f6f8bf9dcd3e3ab
+s1h_q1_main	547	4ecb002eb4a9848a664997f9c99fe65a801dc31174fb6d5157bb3859d4557cb4
+s1h_g4_pos	15	63ebf2742470c443cf4e8bd8e308d66a2cfeeadc0ceea2ceeebc724b098ad938
+s1h_g5_neg	0	75194d3e2ab088c5dd693fa97a15635ea1a96b660806b068d1c6e6913bb33425
+s1h_q2_a	1	517cd679ab8947733da6f802c735dcbb585f9ab675ba1619a6fd0b6215a43b61
+s1h_q2_b	1	517cd679ab8947733da6f802c735dcbb585f9ab675ba1619a6fd0b6215a43b61
+s1h_q2_c	1	9cf63013c309969cd1a7c7d2685c1fbb3fe9b22a258a40e83acccb1064cfd620
+s1h_q2_d	1	5a97c298d3af735e917da8b4854312dc0da61d82397d9e48ccf74dbc7e8229ba
+s1h_q2_e	1	c14b50a364e92d2af0ed3f822a513e505de88bef54047d48ba4fe5286f566436
+s1h_q2_f	1	67b6c75b4f360a86adc02dad6b47a401fd036eb6d14ad98051db6bdfc201126a
+s1h_q3_main	1	8f50fb51e0f90b9f14acb2e6d559cb83686d24fe1a98bbb9977be5318cbc280f
