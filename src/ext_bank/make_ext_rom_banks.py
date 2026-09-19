@@ -60,6 +60,11 @@ NO_ORG_FAULT_SUBS = (
     ("    ORG 0x6000\n", "    ORG 0x0000\n"),
     ("    ORG 0x6010\n", "    ORG 0x0010\n"),
     ("    ORG 0x6030\n", "    ORG 0x0030\n"),
+    # 2026-09-20追記(SQR、EXT_BANK0_SQR_ENTRY): 上と同じ理由で、この
+    # ORGも0始まりへ書き換えないと、base=0(故障注入時)のままコードが
+    # 0x6080まで詰め物される形になり、バンク(8KB)に収まらなくなる
+    # (故障注入の意図=絶対番地参照をズラすことと無関係な失敗)。
+    ("    ORG 0x6080\n", "    ORG 0x0080\n"),
 )
 
 # bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の
@@ -72,10 +77,31 @@ NO_ORG_FAULT_SUBS = (
 # これ自体が「密結合がズレたこと」の検出になる、安全側の設計)。
 MBF_ADD_ADDR_OLD = "MBF_ADD_ADDR EQU 0x1787"
 
+# bank0.asmのEXT_BANK0_SQR_ENTRY（第4.16b節SQR）が参照する常駐部
+# (mbf_double.asm)側ルーチンの絶対番地。MBF_ADD_ADDRと同じ理由・同じ
+# 手法(build_main_rom.pyが実測値をテキスト置換)で汎用化した
+# (--addr NAME=0xNNNN、複数指定可)。EQU名はbank0.asm側の宣言
+# 「<NAME> EQU 0x1787」と一致させる。
+GENERIC_ADDR_PLACEHOLDER = "0x1787"
+
+
+def _generic_addr_subs(text: str, addr_overrides: dict) -> str:
+    if not addr_overrides:
+        return text
+    for name, addr in addr_overrides.items():
+        old = f"{name} EQU {GENERIC_ADDR_PLACEHOLDER}"
+        if old not in text:
+            continue
+        if text.count(old) != 1:
+            raise SystemExit(f"{name}の置換対象が一意でない")
+        text = text.replace(old, f"{name} EQU 0x{addr:04X}")
+    return text
+
 
 def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                    inject_no_org_fault: bool = False,
-                   mbf_add_addr: int = None) -> bytes:
+                   mbf_add_addr: int = None,
+                   addr_overrides: dict = None) -> bytes:
     text = asm_path.read_text(encoding="utf-8")
     # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、
     # 詰め物(baseバイト)を切り落とす対象にする。ORGを使わない
@@ -95,6 +121,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         if text.count(MBF_ADD_ADDR_OLD) != 1:
             raise SystemExit(f"{asm_path.name}: MBF_ADD_ADDRの置換対象が一意でない")
         text = text.replace(MBF_ADD_ADDR_OLD, f"MBF_ADD_ADDR EQU 0x{mbf_add_addr:04X}")
+    text = _generic_addr_subs(text, addr_overrides)
     src_path = work / f"{asm_path.stem}_gen.asm"
     src_path.write_text(text, encoding="utf-8")
 
@@ -122,14 +149,14 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
 
 
 def build_banks(outdir: pathlib.Path, inject_no_org_fault: bool = False,
-                 mbf_add_addr: int = None):
+                 mbf_add_addr: int = None, addr_overrides: dict = None):
     import tempfile
     outdir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pc88_extbank_") as work_s:
         work = pathlib.Path(work_s)
         for rom_name, asm_name in BANK_FILES:
             rom = assemble_bank(rom_name, HERE / asm_name, work, inject_no_org_fault,
-                                 mbf_add_addr=mbf_add_addr)
+                                 mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
             (outdir / rom_name).write_bytes(rom)
 
 
@@ -144,8 +171,21 @@ def main():
                      help="bank0.asmのEXT_BANK0_MBF_TEST_ENTRYが参照する常駐部"
                           "MBF_ADDの絶対番地(例: 0x1787)。build_main_rom.pyが"
                           "実測値を渡す。省略時はbank0.asmの既定値のまま")
+    ap.add_argument("--addr", action="append", default=[],
+                     metavar="NAME=0xNNNN",
+                     help="bank0.asm等が参照する常駐部ルーチンの絶対番地を"
+                          "汎用的に置換する(例: --addr MBF_STOD_ADDR=0x1234)。"
+                          "複数指定可。EXT_BANK0_SQR_ENTRY用のMBF_STOD_ADDR/"
+                          "MBF_DADD_ADDR/MBF_DDIV_ADDR/MBF_DTOS_ADDRなど。")
     args = ap.parse_args()
-    build_banks(args.outdir, args.inject_no_org_fault, mbf_add_addr=args.mbf_add_addr)
+    addr_overrides = {}
+    for item in args.addr:
+        if "=" not in item:
+            raise SystemExit(f"--addr は NAME=0xNNNN 形式: {item!r}")
+        name, val = item.split("=", 1)
+        addr_overrides[name] = int(val, 0)
+    build_banks(args.outdir, args.inject_no_org_fault, mbf_add_addr=args.mbf_add_addr,
+                addr_overrides=addr_overrides)
     print(f"生成した: {args.outdir} (N88_0.ROM〜N88_3.ROM 各{BANK_SIZE}バイト)")
 
 

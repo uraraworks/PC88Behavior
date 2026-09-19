@@ -266,7 +266,20 @@ EXT_BANK_INTERRUPT_SAFE_LABELS = (
 EXT_BANK_CALLABLE_RESIDENT_LABELS = (
     "MBF_ADD", "MBF_SUB", "MBF_NEG", "MBF_CMP", "MBF_MUL", "MBF_DIV",
     "MBF_INT_TO_SINGLE", "MBF_UDWORD_TO_SINGLE", "MBF_FIN", "MBF_FOUT",
+    # 2026-09-20追記(SQR、第4.16b節): mbf_double.asmの倍精度ルーチン。
+    # bank0.asm EXT_BANK0_SQR_ENTRYがニュートン法(倍精度)で使う。
+    "MBF_STOD", "MBF_DADD", "MBF_DDIV", "MBF_DTOS",
 )
+
+# EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
+# の対応。make_ext_rom_banks.pyの--addrへ実測アドレスを渡すのに使う
+# (MBF_ADD_ADDRと同じ手法の汎用版、build_ext_bank_roms参照)。
+EXT_BANK0_SQR_ADDR_LABELS = {
+    "MBF_STOD_ADDR": "MBF_STOD",
+    "MBF_DADD_ADDR": "MBF_DADD",
+    "MBF_DDIV_ADDR": "MBF_DDIV",
+    "MBF_DTOS_ADDR": "MBF_DTOS",
+}
 
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
@@ -607,7 +620,7 @@ def build_font_rom(outdir: pathlib.Path, unscii_hex: pathlib.Path, misaki_bdf: p
 
 
 def build_ext_bank_roms(outdir: pathlib.Path, inject_no_org_fault: bool = False,
-                         mbf_add_addr: int = None):
+                         mbf_add_addr: int = None, addr_overrides: dict = None):
     """拡張ROMバンク N88_0.ROM〜N88_3.ROM(docs/spec/ext-rom-bank.md)。
 
     mbf_add_addr: 常駐部(N88.ROM)側のMBF_ADDの実アドレス。バンクは独立に
@@ -617,12 +630,18 @@ def build_ext_bank_roms(outdir: pathlib.Path, inject_no_org_fault: bool = False,
     制約3)が参照する絶対番地を、この実測値でテキスト置換する
     (--mbf-add-addr)。渡さない場合はbank0.asm既定値のまま(ズレていれば
     自己検査が不一致を検出する)。
+
+    addr_overrides: 同じ手法の汎用版({EQU名: 実アドレス}、--addr NAME=0x..
+    を複数渡す)。EXT_BANK0_SQR_ENTRYが参照するMBF_STOD_ADDR等に使う。
     """
     cmd = [sys.executable, str(REPO / "src" / "ext_bank" / "make_ext_rom_banks.py"), str(outdir)]
     if inject_no_org_fault:
         cmd.append("--inject-no-org-fault")
     if mbf_add_addr is not None:
         cmd += ["--mbf-add-addr", f"0x{mbf_add_addr:04X}"]
+    if addr_overrides:
+        for name, addr in addr_overrides.items():
+            cmd += ["--addr", f"{name}=0x{addr:04X}"]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -744,8 +763,13 @@ def main():
             mbf_sub_addr = asm.labels.get("MBF_SUB")
             if mbf_sub_addr is not None:
                 mbf_add_addr = mbf_sub_addr
+        addr_overrides = {}
+        for eqname, label in EXT_BANK0_SQR_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
         build_ext_bank_roms(args.outdir, inject_no_org_fault=args.inject_ext_bank_no_org_fault,
-                             mbf_add_addr=mbf_add_addr)
+                             mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
 
         used = len(combined.splitlines())
         print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
