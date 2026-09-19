@@ -1,7 +1,7 @@
 # l4-c7 直接モードPRINT整数四則演算のcdbl丸め適合の場面（40腕、1群
 # "arith"）— 期待値（tools/conform_l4.sh が読む）
 #
-# group arith selfmade=not_implemented_yet
+# group arith selfmade=implemented
 #
 # 書式: arm<TAB>cell_count<TAB>ok_relative_row<TAB>sha256
 K1	8	2	e9be35780039f23466cc366d4e45ae21500b711f433d4e359d188bb56b326216

@@ -714,7 +714,21 @@ _add_round:
     ;   桁借り有り: guard=0x80から微小量(WK_STICKY!=0の場合)を引くと
     ;     「0.5より真に小さい」になるので、切り捨てになる
     ;     (符号が反転する)。WK_STICKY=0ならどちらの側でも真にちょうど
-    ;     0.5なので、偶数丸めは共通。
+    ;     0.5なので、この場合だけ(sticky=0)は桁借りの有無で意味が
+    ;     逆転しない(下記2026-09-20追記参照)。
+    ;
+    ; 2026-09-20追記(l4-s7a・l4-s7b): 真のタイ(guard=0x80・sticky=0)の
+    ; 丸め方は、当初下の_add_round_tieで候補仮数の最下位ビットを見る
+    ; 偶数丸め(round-half-even)にしていたが、`docs/notes/
+    ; l4-s7a-single-precision-arithmetic-rounding-results.md`・
+    ; `docs/notes/l4-s7b-integer-only-rounding-results.md`
+    ; (`print cdbl(<式>)`による直接測定、加算4腕+減算4腕=8腕全てで
+    ; away(0から遠い側=常に切り上げ)が的中し、evenは0/8)により、
+    ; 実機は偶数丸めではなくaway(半分は常に切り上げ)と確定した
+    ; (`docs/spec/l4-basic.md`5.3a節)。sticky!=0のときの桁借り分岐
+    ; (借り有り=切り捨て・借り無し=切り上げ)はそのまま維持する
+    ; (この2つは「真のタイ」ではなく、guard=0x80±微小量という
+    ; sticky!=0特有の非対称な場合なので、away/evenの違いは影響しない)。
     LD A,(BIG_MG)
     LD B,A                     ; B に guard byte を保持
     BIT 7,B
@@ -725,16 +739,11 @@ _add_round:
     ; ここに来るのは guard=0x80 ちょうどのとき
     LD A,(WK_STICKY)
     OR A
-    JR Z,_add_round_tie          ; sticky=0 -> 真のタイ、偶数丸めへ
+    JR Z,_add_round_up           ; sticky=0 -> 真のタイ、away規則で常に切り上げ
     LD A,(WK_BORROW)
     OR A
     JR NZ,_add_round_down        ; 桁借り側は符号が逆転するので切り捨て
     JR _add_round_up             ; 桁借り無し側はそのまま切り上げ
-_add_round_tie:
-    ; 真のタイ: 偶数丸め（候補仮数の最下位ビット=BIG_M0 bit0）
-    LD A,(BIG_M0)
-    BIT 0,A
-    JR Z,_add_round_down
 _add_round_up:
     ; 24bit(BIG_M2,BIG_M1,BIG_M0)を+1、繰り上がりがあれば正規化しなおす
     LD A,(BIG_M0)
@@ -999,15 +1008,18 @@ WK_DROUND_MODE EQU 0xC04F  ; M7段階4b-2: DBL_DIVの丸めモード共有フラ
                              ; 同じ設計——既定入口が毎回0へ明示的に
                              ; 確定させ、AWAY入口だけ1のまま本体へ合流。
                              ; RAM未初期化値に依存しない=6dbd1cbの教訓)。
-WK_MUL_ROUNDMODE EQU 0xC04E  ; 0=既定(粗いROUNS、偶数丸め、$FMULS忠実再現)
-                              ; 1=REP01専用(半分は絶対値の大きい側)。
-                              ; MBF_MULへ直接CALLすると常に0へ確定させる
-                              ; (下記)。REP01側はMBF_MUL_HALFUPへCALLする
-                              ; こと。
+WK_MUL_ROUNDMODE EQU 0xC04E  ; 2026-09-20以前は 0=既定(粗いROUNS、偶数丸め、
+                              ; $FMULS忠実再現) 1=REP01専用(away) の2値
+                              ; だった。現在はMBF_MUL・MBF_MUL_HALFUPどちらの
+                              ; 入口も必ず1をセットしてから本体へ入るため、
+                              ; mode=0の分岐(下記_mbfmul_body内)はどこからも
+                              ; 到達しない(下記追記参照。フラグと分岐自体は
+                              ; 丸め規則の変遷を追える形で残してある)。
 
 ; MBF_MUL_HALFUP — MBF_FIN(REP01、docs/spec/l4-basic.md 5.1.1節)専用の
-; 入り口。WK_MUL_ROUNDMODE=1をセットしてからMBF_MULの本体(_mbfmul_body)
-; へ合流する。
+; 入り口として新設したが、2026-09-20以降はMBF_MULの既定と同じ丸めに
+; なったため実質MBF_MULの別名(下記追記参照)。WK_MUL_ROUNDMODE=1を
+; セットしてからMBF_MULの本体(_mbfmul_body)へ合流する。
 ;
 ; 2026-09-15追記(M7): 当初はFIN側で「LD A,1 / LD (WK_MUL_ROUNDMODE),A」
 ; してからCALL MBF_MULし、戻り値を見てから「XOR A / LD (WK_MUL_ROUNDMODE)」
@@ -1020,13 +1032,27 @@ WK_MUL_ROUNDMODE EQU 0xC04E  ; 0=既定(粗いROUNS、偶数丸め、$FMULS忠�
 ; 明示的に確定させ、REP01側だけがそれをスキップして1のまま本体へ
 ; 合流する構成に直したことで解消した(以後、呼び出し後に0へ戻す後始末は
 ; 不要——次にどちらの入り口から呼ばれても、その入り口が値を確定させる)。
+;
+; 2026-09-20追記(l4-s7a・l4-s7b): 単発乗算の丸めは、`docs/notes/
+; l4-s7a-single-precision-arithmetic-rounding-results.md`・
+; `docs/notes/l4-s7b-integer-only-rounding-results.md`により
+; 「正しい丸め・awayタイブレーク」が実機と一致し、既定だった粗いROUNS
+; 再現($FMULS忠実再現、coarse8)は判別可能な全腕(l4-s7a+l4-s7bで
+; 計17腕)で棄却された(`docs/spec/l4-basic.md`5.3a節)。このため
+; MBF_MULの既定入口もWK_MUL_ROUNDMODE=1(このHALFUPと同じ経路)へ
+; 切り替える。MBF_FOUTは内部スケーリング(10倍・10分の1倍の繰り返し)に
+; 素のMBF_MUL/MBF_DIVを直接CALLしているため、この切り替えの影響を
+; そのまま受けるが、`tools/conform_l4.sh`自作側照合(FLOAT場面25腕・
+; PROGRAM場面8腕、公式ROM実測のSHA-256と照合)がこの変更後も全腕conform
+; のままだったため、桁生成(FOUT)専用の互換入口は不要と判断した
+; (詳細はコミットログ参照)。
 MBF_MUL_HALFUP:
     LD A,1
     LD (WK_MUL_ROUNDMODE),A
     JR _mbfmul_body
 
 MBF_MUL:
-    XOR A
+    LD A,1
     LD (WK_MUL_ROUNDMODE),A
 _mbfmul_body:
     XOR A

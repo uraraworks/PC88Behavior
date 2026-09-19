@@ -1136,6 +1136,20 @@ FTNF_TABLE:
     DB 3
     DB "SGN"
     DW FTNF_DO_SGN
+    ; 2026-09-20追記(l4-c7): CDBL(引数を型を問わず倍精度へ厳密に揃える)。
+    ; tokens.asmには既にCDBLのトークン項目(0x93)があったが、この関数
+    ; 名テーブル(FACTOR_TRY_NUM_FUNCS、IDENT_BUFの文字列と直接比較する
+    ; 経路)には未登録で、l4-s7a/l4-s7b以来「print cdbl(<式>)」を
+    ; 測定の直接プローブに使ってきたにもかかわらず自作ROM側では未実装
+    ; のままだった(l4-c7自作側照合で発覚。公式ROMは1000000!のような
+    ; 単純な値でも常にOverflow/0を返す既存のCDBL欠落経路とは無関係に
+    ; 正しく倍精度化していたことをl4-c7の公式側期待値が示している)。
+    ; 実装はrun.asm ASSIGN_STMTの#変数代入が既に使っている
+    ; VAL_PROMOTE_CUR_TO_DOUBLE(整数はMBF_ITOD、単精度はMBF_STOD、
+    ; 倍精度はそのまま——いずれも丸め不要の厳密変換)をそのまま呼ぶ。
+    DB 4
+    DB "CDBL"
+    DW FTNF_DO_CDBL
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1368,6 +1382,20 @@ _sgn_notzero:
 _sgn_pos:
     LD HL,1
     JP VAL_SET_INT
+
+; ---------------------------------------------------------------------
+; FTNF_DO_CDBL — 2026-09-20追記(l4-c7)。CDBL(<数値式>)。型を問わず
+;   倍精度へ厳密に揃える(整数・単精度・倍精度いずれも丸め不要の厳密
+;   変換)。run.asm ASSIGN_STMTの#変数代入が既に使っている
+;   VAL_PROMOTE_CUR_TO_DOUBLE(CUR_TYPE/CUR_DATAを見て変換しCUR_TYPE=2
+;   で書き戻す)をそのまま呼ぶ。二重実装しない。
+; ---------------------------------------------------------------------
+FTNF_DO_CDBL:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JP VAL_PROMOTE_CUR_TO_DOUBLE
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し
