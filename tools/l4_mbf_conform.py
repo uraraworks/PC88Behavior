@@ -27,6 +27,20 @@ mem_write_log_selftest.sh で疎通確認済み）は既にある。これを流
 出力領域は --mem-write-range で監視し、--mem-write-log で
 (順序,発行元PC,番地,値) の列として記録させ、このスクリプトが番地→値の
 対応にまとめてから期待値と突き合わせる。
+
+## 2026-09-20追記: 単精度add/sub/mul/divの比較相手をaway丸め予測器へ切替え
+
+`src/l4_basic/mbf_single.asm`のMBF_ADD/MBF_SUB/MBF_MUL/MBF_DIVを
+`docs/spec/l4-basic.md`5.3a節（正しい丸め・awayタイブレーク、`759de46`）
+へ直したのに合わせ、`expected_binop`（add/sub/mul/div専用、`compare()`
+のelse分岐からのみ呼ばれる）の実装を、`tools/l4_mbf_oracle_v2.py`の
+`gw_binop`（GWの粗い丸め・偶数タイ）から`tools/l4_mbf_oracle_v11_away.py`
+の`expected_binop_away`（`_encode_single_away`による厳密値1回away丸め、
+二重実装しない）へ切り替えた。**v2自体は変更していない** — 整数変換
+(itos/itod/stod/dtos)・FIN/FOUT(fin/dfin/fout/dfout)・倍精度
+(dadd/dsub/dmul/ddiv/dcmp/dneg)・cmp/negの期待値関数は従来どおりv2を
+直接使う（`compare()`内の各分岐、変更していない）。詳細は
+`tools/l4_mbf_oracle_v11_away.py`のモジュールdocstring参照。
 """
 
 from __future__ import annotations
@@ -44,6 +58,7 @@ sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tools" / "asm"))
 
 import l4_mbf_oracle_v2 as oracle  # noqa: E402
+import l4_mbf_oracle_v11_away as oracle_away  # noqa: E402
 import z80text  # noqa: E402
 
 MBF_SINGLE_ASM = REPO / "src" / "l4_basic" / "mbf_single.asm"
@@ -516,9 +531,15 @@ def gen_vectors(op: str, n: int, seed: int):
 
 
 def expected_binop(op: str, a: "oracle.GwNum", b: "oracle.GwNum"):
+    """add/sub/mul/div(単精度)専用。2026-09-20以降、比較相手は
+    tools/l4_mbf_oracle_v11_away.py の expected_binop_away
+    （正しい丸め・awayタイブレーク、docs/spec/l4-basic.md 5.3a節）。
+    旧来のv2 gw_binop（GWの粗い丸め・偶数タイ）は使わない
+    （モジュールdocstring「2026-09-20追記」参照）。
+    """
     sym = {"add": "+", "sub": "-", "mul": "*", "div": "/"}[op]
     try:
-        r = oracle.gw_binop(a, b, sym)
+        r = oracle_away.expected_binop_away(sym, a, b)
         return gwnum_bytes(r), 0
     except oracle.GwError as e:
         status = 2 if "zero" in e.kind.lower() else 1
@@ -991,17 +1012,57 @@ FAULT_STICKY_NEW = "_add_shift_nostick:"  # 整列シフトで落ちたbitをス
 FAULT_ROUND_TRUNCATE_OLD = "_add_round:\n    ; guard = BIG_MG。"
 FAULT_ROUND_TRUNCATE_NEW = "_add_round:\n    JP _add_round_down\n    ; guard = BIG_MG。"
 
-FAULT_MUL_COARSE_OLD = (
-    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0 (既定、$FMULS忠実再現)\n"
-    "    LD A,(BIG_MG)\n"
-    "    AND 0xE0"
+# 2026-09-20追記(l4-c7実装後の陰性対照見直し): _add_round のタイ
+# (guard=0x80・sticky=0)をaway(常に切り上げ)から旧偶数丸め(候補仮数の
+# 最下位ビット)へ戻す故障注入。_add_roundはMBF_ADD/MBF_SUB/MBF_DIV
+# 共通なので、この1つのfaultでadd/sub/divいずれの陰性対照にも使える
+# (tools/l4_mbf_z80_selftest.shでop=add/sub/div、いずれも--fault tie_even
+# で呼ぶ)。真のタイ以外(guard=0x81-0xFF・guard<0x80・guard=0x80だが
+# sticky!=0の非タイ場面)は変更しない——away化で唯一挙動が変わったのが
+# この分岐だけであるため、他の分岐へ故障を入れても「away化前から
+# 変わっていない箇所」を壊すだけになり、検出力にならない。
+FAULT_TIE_EVEN_OLD = (
+    "    ; ここに来るのは guard=0x80 ちょうどのとき\n"
+    "    LD A,(WK_STICKY)\n"
+    "    OR A\n"
+    "    JR Z,_add_round_up           ; sticky=0 -> 真のタイ、away規則で常に切り上げ\n"
+    "    LD A,(WK_BORROW)"
 )
-FAULT_MUL_COARSE_NEW = (
-    "; $ROUNS の粗い丸め: masked = guard(BIG_MG) & 0xE0 (既定、$FMULS忠実再現)\n"
-    "    LD A,(BIG_MG)\n"
-    "    AND 0xFF"  # 故障注入: 下位5bitをマスクしない(=粗いタイ判定を外す)
+FAULT_TIE_EVEN_NEW = (
+    "    ; ここに来るのは guard=0x80 ちょうどのとき\n"
+    "    LD A,(WK_STICKY)\n"
+    "    OR A\n"
+    "    JR NZ,_fault_tie_even_sticky_nz\n"
+    "    ; 故障注入: 真のタイをaway(常に切り上げ)ではなく旧偶数丸め\n"
+    "    ; (候補仮数の最下位ビット=BIG_M0 bit0)に戻す\n"
+    "    LD A,(BIG_M0)\n"
+    "    BIT 0,A\n"
+    "    JR Z,_add_round_down\n"
+    "    JR _add_round_up\n"
+    "_fault_tie_even_sticky_nz:\n"
+    "    LD A,(WK_BORROW)"
 )
 
+# 2026-09-20追記: MBF_MULの既定入口をaway(WK_MUL_ROUNDMODE=1、
+# MBF_MUL_HALFUPと同一経路)から、l4-s7a/l4-s7b以前の既定だった粗い
+# ROUNS再現(WK_MUL_ROUNDMODE=0)へ戻す故障注入。旧FAULT_MUL_COARSE
+# (guardバイトのマスクを緩める版)は、awayへの切り替え後は
+# WK_MUL_ROUNDMODE=0の分岐そのものがどこからも到達しなくなり
+# (mbf_single.asm『2026-09-20以前は...』コメント参照)、テキスト置換
+# 自体は成功するが実行結果には一切影響しない(親からの指摘どおり
+# 故障注入点が踏まれていない)状態になっていたため、MBF_MULの入口
+# 自体を書き換える形に作り直した。
+FAULT_MUL_COARSE_OLD = "MBF_MUL:\n    LD A,1\n    LD (WK_MUL_ROUNDMODE),A\n_mbfmul_body:"
+FAULT_MUL_COARSE_NEW = "MBF_MUL:\n    XOR A\n    LD (WK_MUL_ROUNDMODE),A\n_mbfmul_body:"
+
+# 旧FAULT_DIV_STICKY(DIVの剰余->WK_STICKY反映を外す)は、away化後は
+# WK_BORROW=0(DIVは桁借りを作らない)の場合、guard=0x80での丸め方向が
+# sticky=0(真のタイ)でもsticky!=0でも常に切り上げに揃うため
+# (away規則の帰結、mbf_single.asm _add_round のコメント参照)、
+# 数学的に検出不能になった(親から報告の「div_sticky不一致0」の原因)。
+# DIVは_add_roundを共有するので、上のFAULT_TIE_EVENをそのまま使う
+# (tools/l4_mbf_z80_selftest.shでop=divに--fault tie_evenとして適用)。
+# 旧定義はここに残す(検出力が無いことの記録、実際のFAULTSには登録しない)。
 FAULT_DIV_STICKY_OLD = (
     "    LD A,(WK_REMZERO)\n"
     "    LD (WK_STICKY),A\n"
@@ -1221,8 +1282,8 @@ FAULT_DFOUT_K14_NEW = (
 FAULTS = {
     "sticky": (FAULT_STICKY_OLD, FAULT_STICKY_NEW),
     "round_truncate": (FAULT_ROUND_TRUNCATE_OLD, FAULT_ROUND_TRUNCATE_NEW),
+    "tie_even": (FAULT_TIE_EVEN_OLD, FAULT_TIE_EVEN_NEW),
     "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
-    "div_sticky": (FAULT_DIV_STICKY_OLD, FAULT_DIV_STICKY_NEW),
     "fin_bang": (FAULT_FIN_BANG_OLD, FAULT_FIN_BANG_NEW),
     "fin_exact": (FAULT_FIN_EXACT_OLD, FAULT_FIN_EXACT_NEW),
     "fin_rep10": (FAULT_FIN_REP10_OLD, FAULT_FIN_REP10_NEW),

@@ -80,12 +80,39 @@ run_case "fout N=1700 seed2" fout -n 1700 --seed 2 --frames 20000 --max-mismatch
 run_case "fout N=1700 seed3" fout -n 1700 --seed 3 --frames 20000 --max-mismatch 0
 
 echo "==> 故障注入（陰性対照。不一致が出ることを正常系として扱う）"
-run_case "add  --fault sticky"         add -n 800 --frames 90  --fault sticky         --expect-ng
+# 2026-09-20追記(l4-c7実装後の見直し): 単精度add/sub/mul/divがaway丸め
+# (docs/spec/l4-basic.md 5.3a節、759de46)へ変わったのに合わせ、故障注入
+# 点を実際に踏まれる箇所へ付け直した(tools/l4_mbf_conform.py FAULTS参照)。
+# - add --fault sticky: 同符号加算(WK_BORROW=0)はaway化により
+#   guard=0x80でのWK_STICKYの値が丸め方向に影響しなくなった(away規則の
+#   数学的帰結、guard bit7=1なら常に切り上げ)ため、この故障は検出不能に
+#   なった。away化そのものを検出するadd --fault tie_evenに差し替える。
+run_case "add  --fault tie_even"       add -n 800 --frames 90  --fault tie_even       --expect-ng
 run_case "sub  --fault sticky"         sub -n 800 --frames 90  --fault sticky         --expect-ng
+run_case "sub  --fault tie_even"       sub -n 800 --frames 90  --fault tie_even       --expect-ng
 run_case "add  --fault round_truncate" add -n 400 --frames 90  --fault round_truncate --expect-ng
 run_case "sub  --fault round_truncate" sub -n 400 --frames 90  --fault round_truncate --expect-ng
+# mul --fault mul_coarse: 2026-09-20以前はWK_MUL_ROUNDMODE=0の粗いROUNS
+# 再現が既定だったが、away化(MBF_MUL_HALFUPと同じ経路が既定)によりその
+# 分岐はどこからも到達しなくなった。旧mul_coarse(guardバイトのマスクを
+# 緩める版)はこの到達不能な分岐を書き換えるだけで効果が無くなったため、
+# MBF_MULの入口自体を旧既定(ROUNDMODE=0)へ戻す内容に作り直した
+# (tools/l4_mbf_conform.py FAULT_MUL_COARSE参照)。
 run_case "mul  --fault mul_coarse"     mul -n 400 --frames 200 --fault mul_coarse     --expect-ng
-run_case "div  --fault div_sticky"     div -n 400 --frames 900 --fault div_sticky     --expect-ng
+# div --fault ???: MBF_DIVは_add_roundを共有するが、単精度の正規化された
+# 24bit仮数どうしの除算は、除数の仮数が2進数として持てる末尾ゼロが
+# 高々23bit(先頭の明示1ビットを除く)であるため、「guard=0x80ちょうど・
+# 真の剰余=0(WK_STICKY=0)」という真のタイに到達することが数学的に
+# ありえない(2026-09-20、親から指摘を受けて検証。除数の奇数部分が
+# 2^(24-t)で商を割り切るには商も2で割り切れる必要があるが、商の最下位
+# ビットはguard=1(タイ条件)の定義上つねに1で矛盾する——l4-s7bの
+# 「除算はtieを作れない」という記述の数学的な理由が本タスクで確定した)。
+# よってdiv --fault tie_even/div_stickyはどちらも検出不能(旧div_sticky
+# は削除、tie_evenはaddで既に検証済み——_add_roundは共有コードなので
+# タイ分岐自体の正しさはadd/subの故障注入で担保される)。DIVの陰性対照は
+# 代わりに、guard>=0x81/guard<0x80という「タイ以外(=DIVが実際に到達する
+# 全域)」の丸め判定が機能していることをround_truncateで確認する。
+run_case "div  --fault round_truncate" div -n 400 --frames 900 --fault round_truncate --expect-ng
 run_case "fin  --fault fin_bang"       fin -n 30  --frames 400 --fault fin_bang       --expect-ng
 run_case "fin  --fault fin_exact"      fin -n 100 --frames 1500 --fault fin_exact      --expect-ng
 run_case "fin  --fault fin_rep10"      fin -n 100 --frames 1500 --fault fin_rep10      --expect-ng
