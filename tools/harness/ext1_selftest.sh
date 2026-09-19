@@ -65,7 +65,7 @@ b1h="$(awk '$4=="C113"{v=$5} END{print v}' "$WORK/swap.memlog.txt")"
 b3h="$(awk '$4=="C119"{v=$5} END{print v}' "$WORK/swap.memlog.txt")"
 [ "$b1h" = "A3" ] || ng "G6: 入れ替え後バンク1位置の期待A3、実際=${b1h:-なし}(検出できていない)"
 [ "$b3h" = "A1" ] || ng "G6: 入れ替え後バンク3位置の期待A1、実際=${b3h:-なし}(検出できていない)"
-ok "G6: バンク入れ替えを検出できた(バンク1位置=$b1h バンク3位置=$b3h、正常時はA1/A3)"
+ok "G6: バンク入れ替えを検出できた(バンク1位置=${b1h} バンク3位置=${b3h}、正常時はA1/A3)"
 
 echo
 echo "ext1_selftest.sh: 全項目OK"
