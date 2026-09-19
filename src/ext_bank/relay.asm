@@ -16,10 +16,10 @@
 ;         HL = 窓内(0x6000-0x7FFF)の呼び出し先番地
 ;   出力: バンク側ルーチンがAレジスタ等に置いた返り値をそのまま返す
 ;         (このルーチン自身は返り値を書き換えない)
-;   壊すレジスタ: A, F, HL, および呼び出し先(バンク側ルーチン)が使った
-;         レジスタ。BC・DEはこのルーチンの作業用に使うため保存しない
-;         (呼び出し規約としてCALLと同様、保存が要るなら呼び出し元が
-;         PUSH/POPする)。
+;   壊すレジスタ: A, F, BC, DE、および呼び出し先(バンク側ルーチン)が
+;         使ったレジスタ(HLを含む——HLはこのルーチン自身は書き換え
+;         ないが、呼び出し先が自由に使ってよい)。保存が要るなら
+;         呼び出し元がPUSH/POPする(呼び出し規約としてCALLと同様)。
 ;   前提: 呼び出し先(バンク側ルーチン)は窓内で完結してRETで戻ること。
 ;         バンク側からさらに別バンク・常駐部ルーチンを跨いで呼ぶ設計は
 ;         測定していない(第3節項3、未確定)ため使わない。
@@ -28,7 +28,61 @@
 ;         呼び出しから戻った後に保存しておいた値をそのまま書き戻す
 ;         (第2節 制約4。l1-ipl.md 第4節の「読んでから書き戻す」定型と
 ;         同じ形)。無関係なビット(PMODE等)は破壊しない。
+;   再入不可(非reentrant): EXT_BANK_CALLの実行中(0x71/0x32を切り替えて
+;         からポートを元に戻すまでの間)に、同じEXT_BANK_CALLを
+;         もう一度呼ぶ設計は使わない。作業値(旧0x71・旧0x32・
+;         バンク番号)をBC/DE(下記参照)に置いているため、再入すると
+;         外側の呼び出しの作業値を内側の呼び出しが上書きし、外側が
+;         窓を復元するときに壊れた値を書き戻してしまう。**この設計で
+;         再入が起きうるのは、(a)バンク側ルーチンが自分自身から
+;         EXT_BANK_CALLを呼ぶ、(b)割り込みハンドラ(VSYNC_HANDLER
+;         以下)がEXT_BANK_CALLを呼ぶ、の2通りだが、いずれも現状の
+;         コードには無い**（(a)は制約3で禁止済み、(b)はVSYNC_HANDLER
+;         →L3_VSYNC_HOOK→KEY_READ等のどこもEXT_BANK_CALLを呼んで
+;         いないことをgrep済み）。将来どちらかを行う設計に変える
+;         場合は、下記のEXT_BANK_BUSYによる検出だけでは「壊れた値を
+;         書き戻さない」ことまでは保証しない(検出して異常応答を
+;         返すだけ)ため、別途の設計(呼び出しごとに独立した保存領域を
+;         スタックに積む、等)が要る。
 ; ---------------------------------------------------------------
+;
+; ## レジスタ渡し vs RAM退避（経緯）
+;
+; 開発時、EXT_BANK_LOOP_TEST(割り込みを有効にしたまま連続呼び出し)で
+; 実際にBC/DEの値が壊れる不具合を踏んだ。原因はEXT_BANK_CALL自身では
+; なく、当時のVSYNCハンドラ(src/l1_ipl/make_ipl_rom.py
+; sub_vsync_handler)がAF/BC/DE/HL/IX/IYを一切PUSH/POPしていなかった
+; ことによる潜在不具合だった(割り込みを有効にしたまま呼び出しを
+; またぐレジスタなら何でも壊れうる、ext_bank固有の話ではない)。
+; 応急処置として作業値をRAM(EXT_BANK_SAVE_*)へ逃がしていたが、
+; VSYNCハンドラ本体をPUSH/POPで包む修正(sub_vsync_handlerのコメント
+; 参照)を入れたことで、このハンドラ経由の割り込みでレジスタが
+; 壊れることは無くなったため、RAM退避は不要になり通常のレジスタ渡し
+; (BC/DE)へ戻した。tools/vsync_regcheck_selftest.shが、VSYNCハンドラの
+; レジスタ退避が外れると壊れる（陰性対照）・入っていれば壊れない
+; ことを確認している。
+
+; EXT_BANK_CALLの再入検出用フラグ(RAM)。上記「再入不可」参照。
+EXT_BANK_BUSY              EQU 0E8C8h   ; 1=EXT_BANK_CALL実行中
+EXT_BANK_REENTRY_DETECTED  EQU 0E8C9h   ; 1=再入を検出したことがある
+
+; ---------------------------------------------------------------
+; EXT_BANK_INIT — EXT_BANK_BUSYの初期化。
+;
+; RAM(main_ram)は起動時にゼロクリアされる保証が無い(vendor/
+; quasi88-libretro/src/memory.c mem_alloc()はmallocでゼロ初期化しない、
+; EXT_BANK_ST_LOOP_DONEで一度踏んだのと同じ話——下記EXT_BANK_SELFTEST
+; 参照)。EXT_BANK_BUSYが起動直後にたまたま非ゼロだと、最初の
+; EXT_BANK_CALLが「既に実行中」と誤検出して即座に異常応答を返し、
+; 拡張ROMバンクが一切使えなくなる(自己検査ビルドで実際に踏んだ)。
+; build_main_rom.pyがブート時に無条件(selftestフラグの有無と無関係)で
+; 一度だけ呼び、常に0から始まるようにする。
+; ---------------------------------------------------------------
+EXT_BANK_INIT:
+    XOR A
+    LD (EXT_BANK_BUSY),A
+    LD (EXT_BANK_REENTRY_DETECTED),A
+    RET
 
 ; ポート(l1-ipl.md 第5c節・ext-rom-bank.md 第1節)
 EXT_PORT_BANKSEL EQU 0x32   ; bit1-0 = EROMSL(内蔵拡張ROMバンク選択0-3)
@@ -42,55 +96,57 @@ EXT_SWITCH_ENABLE_MASK EQU 0xFE   ; bit0をクリア(拡張ROM有効化)
 ; ここに置く(src/ext_bank/bank0.asm〜bank3.asm)。
 EXT_BANK_WINDOW_BASE EQU 0x6000
 
-; EXT_BANK_CALLの作業領域(RAM)。あえてBC/DEのようなレジスタではなく
-; RAMに置く。理由: このリポジトリの既存VSYNCハンドラ
-; (src/l1_ipl/make_ipl_rom.py sub_vsync_handler)はAF/BC/HL等を
-; PUSH/POPせずに動く設計(定常状態のSTEADY_WAITは何もレジスタに
-; 保持しないHALTループだけなので、それで成立している)。
-; EXT_BANK_LOOP_TESTのように「割り込みを有効にしたまま」EXT_BANK_CALLを
-; 連続で呼ぶ場面では、EXT_BANK_CALL自身がレジスタに退避した値の途中で
-; VSYNC割り込みが入り、そのレジスタを壊されうる。**実際に最初の実装
-; (BC/DEに退避)でこれを踏み、EXT_BANK_LOOP_TESTが常に失敗した**
-; (tools/ext_bank_selftest.shで検出)。RAMへ退避すれば、割り込みが
-; レジスタを壊しても次に読み直すまで値は保たれる。
-EXT_BANK_SAVE_SWITCH  EQU 0E8C8h   ; 1バイト: 呼び出し前の0x71退避
-EXT_BANK_SAVE_BANKSEL EQU 0E8C9h   ; 1バイト: 呼び出し前の0x32退避
-EXT_BANK_SAVE_TARGET  EQU 0E8CAh   ; 2バイト: 呼び出し先番地(HL)の退避
-
 ; ---------------------------------------------------------------
 ; EXT_BANK_CALL — 拡張ROMバンクの窓内ルーチンを1回呼び出す中継
+;
+; 作業値(バンク番号・旧0x71・旧0x32)は通常のレジスタ(D・E・C)へ置く
+; (上記「レジスタ渡し vs RAM退避」参照。VSYNCハンドラのPUSH/POP修正
+; 済みなので、割り込みを有効にしたまま実行中に割り込まれてもこれらの
+; レジスタは保たれる)。
 ; ---------------------------------------------------------------
 EXT_BANK_CALL:
-    LD (EXT_BANK_SAVE_TARGET),HL  ; 呼び出し先番地をRAMへ退避
-    LD D,A                        ; D = 要求バンク番号(0-3)。ここから
-                                   ; OUT (EXT_PORT_BANKSEL) までの短い
-                                   ; 区間だけレジスタに置く(RAM化は
-                                   ; していない——既知の残余リスク、
-                                   ; docs/spec/ext-rom-bank.md 第3節項1
-                                   ; 「中継呼び出しの費用は未測定」とも
-                                   ; 関係するトレードオフ)。
+    LD B,A                        ; B = 要求バンク番号(0-3)を一旦退避
+                                   ; (EXT_BANK_BUSYチェックでAを使うため)
+    LD A,(EXT_BANK_BUSY)
+    OR A
+    JR Z,_ebc_not_busy
+    ; 再入を検出した。上記コメントのとおり、この実装は再入時に
+    ; 「外側の呼び出しの作業値を壊さない」ことまでは保証できないため、
+    ; ポートには一切触れずに異常を記録して抜ける(既存の窓の状態は
+    ; そのまま——少なくとも新たな破壊は増やさない)。
+    LD A,1
+    LD (EXT_BANK_REENTRY_DETECTED),A
+    XOR A
+    RET
+_ebc_not_busy:
+    LD A,1
+    LD (EXT_BANK_BUSY),A
+    LD D,B                        ; D = 要求バンク番号(0-3)
     IN A,(EXT_PORT_SWITCH)
-    LD (EXT_BANK_SAVE_SWITCH),A
+    LD E,A                        ; E = 旧0x71(あとで書き戻す)
     IN A,(EXT_PORT_BANKSEL)
-    LD (EXT_BANK_SAVE_BANKSEL),A
+    LD C,A                        ; C = 旧0x32(あとで書き戻す)
     AND EXT_BANKSEL_CLEAR_MASK
     OR D                          ; 対象ビット(下位2bit)だけバンク番号へ
     OUT (EXT_PORT_BANKSEL),A      ; まだ0x71が有効なので窓はまだ切り替わらない
-    LD A,(EXT_BANK_SAVE_SWITCH)
+    LD A,E
     AND EXT_SWITCH_ENABLE_MASK
     OUT (EXT_PORT_SWITCH),A       ; ここで窓がバンク側に切り替わる
-    LD HL,(EXT_BANK_SAVE_TARGET)  ; 窓切り替え直後、CALLの直前で読み直す
-                                   ; (HLが割り込みで壊れていても戻せる)
     CALL EXT_BANK_JUMP_HL         ; HL先を1回CALLして戻ってくる(下記)
     PUSH AF                       ; バンク側ルーチンの返り値(A/F)を退避
                                    ; ——このあとの窓復元でAを使うため
-                                   ; (実際にここでAを退避し忘れ、返り値が
-                                   ; 常に0x32の旧値に化ける不具合を作った。
+                                   ; (開発時、ここでAを退避し忘れ、
+                                   ; 返り値が常に0x32の旧値に化ける
+                                   ; 不具合を作ったことがある。
                                    ; tools/ext_bank_selftest.shで検出)
-    LD A,(EXT_BANK_SAVE_SWITCH)
+    LD A,E
     OUT (EXT_PORT_SWITCH),A       ; まず0x71を元に戻す(窓をメインROM側へ)
-    LD A,(EXT_BANK_SAVE_BANKSEL)
+    LD A,C
     OUT (EXT_PORT_BANKSEL),A      ; 0x32も元に戻す(PMODE等の無関係ビットも保持)
+    XOR A
+    LD (EXT_BANK_BUSY),A          ; 再入検出フラグを下ろす(POP AFの前、
+                                   ; Aは次のPOP AFで上書きされるので
+                                   ; ここで自由に使ってよい)
     POP AF                        ; 返り値(A/F)を復元してから戻る
     RET
 
@@ -130,11 +186,11 @@ EXT_BANK_ST_PASS      EQU 0E8C4h   ; 4バンク中、期待値と一致した本
 EXT_BANK_ST_WINCALL   EQU 0E8C5h   ; 1=窓の中(run部)から呼んでも正しく戻れた
 EXT_BANK_ST_LOOP_DONE EQU 0E8C6h   ; 1=多数回呼び出し試験を実行済み
 EXT_BANK_ST_LOOP_OK   EQU 0E8C7h   ; 1=多数回呼び出し試験が全数一致
-EXT_BANK_ST_LOOP_CNT  EQU 0E8CCh   ; 2バイト: 残り回数のカウンタ。DE等の
-                                   ; レジスタに置くと、EXT_BANK_CALL自身の
-                                   ; 作業(元はBC/DEを使っていた)やVSYNC
-                                   ; ハンドラによる破壊を受けるため、
-                                   ; EXT_BANK_SAVE_*と同じ理由でRAMに置く。
+EXT_BANK_ST_LOOP_CNT  EQU 0E8CCh   ; 2バイト: 残り回数のカウンタ。
+                                   ; EXT_BANK_CALLがB/C/D/Eを作業用に
+                                   ; 使う(上記「壊すレジスタ」参照)ため、
+                                   ; BC/DEに置くと呼ぶたびに潰れる。
+                                   ; RAMに置けば影響されない。
 
 ; 各バンクの試験エントリ(src/ext_bank/bank0.asm等)が返す期待値。
 ; 単純にバンク番号+0xB0(0x00やFILL=0x00・欠落時の0xFFと衝突しない値)。
@@ -142,6 +198,18 @@ EXT_BANK_EXPECT0 EQU 0xB0
 EXT_BANK_EXPECT1 EQU 0xB1
 EXT_BANK_EXPECT2 EQU 0xB2
 EXT_BANK_EXPECT3 EQU 0xB3
+
+; バンク0の絶対番地試験(src/ext_bank/bank0.asm EXT_BANK0_ABS_TEST_ENTRY)
+; のオフセットと期待値。0x6000起点でORGされていれば、絶対番地の
+; CALL/JP/LD A,(nn)がすべて正しい窓内番地を指し、テーブルの値0xC5を
+; 正しく読める。ORGがずれていれば別の番地へ飛ぶ/別のデータを読み、
+; 一致しない(ビルド次第では暴走もありうる——RETに辿り着かない場合、
+; ここのCALLは戻ってこず、以降の自己検査も止まる。これ自体が
+; 「壊れている」ことの検出になる)。
+EXT_BANK0_ABS_ENTRY_OFFSET EQU 0x10
+EXT_BANK0_ABS_EXPECT       EQU 0xC5
+EXT_BANK_ST_ABS_VAL EQU 0E8CFh   ; 1バイト: 絶対番地試験の生の返り値
+EXT_BANK_ST_ABS_OK  EQU 0E8CEh   ; 1バイト: 1=期待値0xC5と一致
 
 ; ---------------------------------------------------------------
 ; EXT_BANK_SELFTEST — 割り込み無しで行える範囲の自己検査(常駐部から
@@ -156,6 +224,7 @@ EXT_BANK_SELFTEST:
     XOR A
     LD (EXT_BANK_ST_PASS),A
     LD (EXT_BANK_ST_WINCALL),A
+    LD (EXT_BANK_ST_ABS_OK),A
     ; EXT_BANK_ST_LOOP_DONE/LOOP_OKもここで明示的に0初期化する。
     ; RAM(main_ram)は起動時にゼロクリアされる保証が無く(vendor/
     ; quasi88-libretro/src/memory.c mem_alloc()はmallocでゼロ初期化しない)、
@@ -217,6 +286,18 @@ _ebst_v3ng:
     ; 確かめる。
     CALL EXT_BANK_WINCALL_PROBE
     LD (EXT_BANK_ST_WINCALL),A
+
+    ; バンク0の絶対番地試験(src/ext_bank/bank0.asm
+    ; EXT_BANK0_ABS_TEST_ENTRY)。ORGが正しければ期待値0xC5が返る。
+    LD A,0
+    LD HL,EXT_BANK_WINDOW_BASE+EXT_BANK0_ABS_ENTRY_OFFSET
+    CALL EXT_BANK_CALL
+    LD (EXT_BANK_ST_ABS_VAL),A
+    CP EXT_BANK0_ABS_EXPECT
+    JR NZ,_ebst_absng
+    LD A,1
+    LD (EXT_BANK_ST_ABS_OK),A
+_ebst_absng:
     RET
 
 ; ---------------------------------------------------------------

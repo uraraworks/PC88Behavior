@@ -51,6 +51,7 @@ FILL = make_ipl_rom.FILL
 
 SCREEN_ASM = REPO / "src" / "l3_main" / "screen.asm"
 KEYBOARD_ASM = REPO / "src" / "l3_main" / "keyboard.asm"
+VSYNC_REGCHECK_ASM = REPO / "src" / "l3_main" / "vsync_regcheck.asm"
 KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
 
 # M7段階3b: BASIC核(直接モードPRINT)。src/l4_basic/*.asm・生成物。
@@ -129,6 +130,19 @@ FAULT_NEW = "    LD HL,TEXT_BASE+1\n    LD (VAR_ROWBASE),HL"
 # 化けて不合格になった）。バイト数を揃えることでこれを避けている。
 CURSOR_OLD = "    LD A,0x16\n    OUT (0x50),A\n    LD A,0x01\n    OUT (0x50),A"
 CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP"
+
+# 故障注入（陰性対照専用、tools/vsync_regcheck_selftest.sh）。VSYNC_HANDLER
+# 冒頭・末尾のレジスタ退避(PUSH/POP、src/l1_ipl/make_ipl_rom.py
+# sub_vsync_handlerの「レジスタ退避」節参照)を無効化し、修正前の
+# 「一切PUSH/POPしない」状態を再現する。バイト数を1:1のNOPへ置き換える
+# ことで揃える(PUSH AF/BC/DE/HLは1バイト×4、PUSH IX/IYは2バイト×2で
+# 計8バイト、POP側も同型に8バイト。CURSOR_OLD/NEWと同じ理由——
+# VEC_TABLEの256バイト境界整列はPython側の2パスアセンブラが確定した
+# レイアウトなので、置換後もバイト数を変えてはいけない)。
+VSYNC_PUSH_OLD = "    PUSH AF\n    PUSH BC\n    PUSH DE\n    PUSH HL\n    PUSH IX\n    PUSH IY"
+VSYNC_PUSH_NEW = "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP"
+VSYNC_POP_OLD = "    POP IY\n    POP IX\n    POP HL\n    POP DE\n    POP BC\n    POP AF"
+VSYNC_POP_NEW = "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP"
 
 # カーソル追従の故障注入（tools/l3_main_selftest.sh --cursor-fault 相当）。
 # SET_CURSOR(keyboard.asm)のCOL/ROWの出力順を1バイトずらす。
@@ -255,7 +269,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_key_repeat_fault: bool = False,
                         enable_l4_selftest: bool = False,
                         enable_ext_bank_selftest: bool = False,
-                        inject_ext_bank_window_fault: bool = False) -> str:
+                        inject_ext_bank_window_fault: bool = False,
+                        enable_vsync_regcheck: bool = False,
+                        inject_vsync_no_save_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -278,21 +294,49 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
     # (無条件で呼ぶとL1適合検査のOUT件数・サイクル数が変わる)。
     ext_bank_selftest_call = "    CALL EXT_BANK_SELFTEST\n" if enable_ext_bank_selftest else ""
+    # 拡張ROMバンク: EXT_BANK_BUSY(再入検出フラグ)の初期化は
+    # selftestフラグの有無と無関係に必ず行う(src/ext_bank/relay.asmの
+    # EXT_BANK_INITコメント参照。RAMがゼロ初期化される保証が無いため、
+    # ここで明示的に0にしないと拡張ROMバンクを実際に使う将来の機能が
+    # 「常に再入中」と誤検出されて一切動かなくなる)。
     ipl_text = ipl_text.replace(
         INSERT_MARK,
-        "    CALL SCREEN_MAIN\n" + l4_selftest_call + ext_bank_selftest_call + INSERT_MARK)
+        "    CALL SCREEN_MAIN\n    CALL EXT_BANK_INIT\n"
+        + l4_selftest_call + ext_bank_selftest_call + INSERT_MARK)
 
-    # 拡張ROMバンク: 割り込みを有効にしたまま多数回呼ぶ自己検査
-    # (EXT_BANK_LOOP_TEST)は、IM2/I/EI設定済みの定常状態(STEADY_WAIT)に
-    # 入ってから呼ぶ(src/ext_bank/relay.asmのコメント参照。EIより前に
-    # 割り込みを有効化するとベクタ引きが外れて暴走しうるため)。
+    # STEADY_WAIT(IM2/I/EI設定済みの定常状態)へ入った直後に呼ぶ自己検査
+    # 呼び出し列。複数のフラグが同時に立っても1回のtext置換で済むよう、
+    # ここへ積み上げてからまとめて置換する。
+    #
+    # - 拡張ROMバンク: 割り込みを有効にしたまま多数回呼ぶ自己検査
+    #   (EXT_BANK_LOOP_TEST)は、IM2/I/EI設定済みの定常状態に入ってから
+    #   呼ぶ(src/ext_bank/relay.asmのコメント参照。EIより前に割り込みを
+    #   有効化するとベクタ引きが外れて暴走しうるため)。
+    # - VSYNCハンドラのレジスタ退避自己検査(VSYNC_REGCHECK)も同じ理由で
+    #   ここから呼ぶ(src/l3_main/vsync_regcheck.asm参照。実際に1回
+    #   VSYNCを受理させて確認する必要があるため、定常状態でなければ
+    #   意味が無い)。
+    steady_wait_calls = ""
     if enable_ext_bank_selftest:
+        steady_wait_calls += "    CALL EXT_BANK_LOOP_TEST\n"
+    if enable_vsync_regcheck:
+        steady_wait_calls += "    CALL VSYNC_REGCHECK\n"
+    if steady_wait_calls:
         if STEADY_WAIT_MARK not in ipl_text:
             raise SystemExit(f"STEADY_WAITの挿入点が見つからない: {STEADY_WAIT_MARK!r}")
         if ipl_text.count(STEADY_WAIT_MARK) != 1:
             raise SystemExit(f"STEADY_WAITの挿入点が一意でない: {STEADY_WAIT_MARK!r}")
         ipl_text = ipl_text.replace(
-            STEADY_WAIT_MARK, "STEADY_WAIT:\n    CALL EXT_BANK_LOOP_TEST\n    HALT")
+            STEADY_WAIT_MARK, "STEADY_WAIT:\n" + steady_wait_calls + "    HALT")
+
+    if inject_vsync_no_save_fault:
+        for old, new, name in (
+            (VSYNC_PUSH_OLD, VSYNC_PUSH_NEW, "PUSH"),
+            (VSYNC_POP_OLD, VSYNC_POP_NEW, "POP"),
+        ):
+            if ipl_text.count(old) != 1:
+                raise SystemExit(f"VSYNCハンドラの{name}退避の置換点が一意でない: {old!r}")
+            ipl_text = ipl_text.replace(old, new)
 
     if CURSOR_OLD not in ipl_text:
         raise SystemExit(f"カーソル追従の置換点が見つからない: {CURSOR_OLD!r}")
@@ -347,6 +391,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         key_table_text = key_table_text.replace(KEY_TABLE_SHIFT_FAULT_OLD, KEY_TABLE_SHIFT_FAULT_NEW)
     key_table_path = work / "key_table_gen.asm"
     key_table_path.write_text(key_table_text, encoding="utf-8")
+
+    vsync_regcheck_path = work / "vsync_regcheck_gen.asm"
+    vsync_regcheck_path.write_text(VSYNC_REGCHECK_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     # M7段階3b: BASIC核(直接モードPRINT)。tokens.asm/print_dispatch.asm/
     # errors.asmは生成物(手で編集しない)、lexer.asm/interp.asmは新規実装。
@@ -429,6 +476,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         f'\nINCLUDE "{screen_path}"\n'
         + f'\nINCLUDE "{keyboard_path}"\n'
         + f'\nINCLUDE "{key_table_path}"\n'
+        + f'\nINCLUDE "{vsync_regcheck_path}"\n'
         + f'\nINCLUDE "{tokens_path}"\n'
         + f'\nINCLUDE "{print_dispatch_path}"\n'
         + f'\nINCLUDE "{errors_path}"\n'
@@ -517,11 +565,12 @@ def build_font_rom(outdir: pathlib.Path, unscii_hex: pathlib.Path, misaki_bdf: p
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def build_ext_bank_roms(outdir: pathlib.Path):
+def build_ext_bank_roms(outdir: pathlib.Path, inject_no_org_fault: bool = False):
     """拡張ROMバンク N88_0.ROM〜N88_3.ROM(docs/spec/ext-rom-bank.md)。"""
-    subprocess.run(
-        [sys.executable, str(REPO / "src" / "ext_bank" / "make_ext_rom_banks.py"), str(outdir)],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    cmd = [sys.executable, str(REPO / "src" / "ext_bank" / "make_ext_rom_banks.py"), str(outdir)]
+    if inject_no_org_fault:
+        cmd.append("--inject-no-org-fault")
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main():
@@ -572,6 +621,16 @@ def main():
                           "INCLUDE順序ごと移し、ビルド時検査"
                           "(check_ext_bank_relay_below_window)が落ちることを確かめる"
                           "（自己検査の陰性対照専用）")
+    ap.add_argument("--enable-vsync-regcheck", action="store_true",
+                     help="ブート時にVSYNC_REGCHECKを呼ぶ（L1タイミング検査を壊すため既定offに"
+                          "してある。VSYNCハンドラのレジスタ退避の自己検査専用）")
+    ap.add_argument("--inject-vsync-no-save-fault", action="store_true",
+                     help="故障注入: VSYNC_HANDLERのレジスタ退避(PUSH/POP)をNOPへ置き換え、"
+                          "修正前の状態を再現する（自己検査の陰性対照専用）")
+    ap.add_argument("--inject-ext-bank-no-org-fault", action="store_true",
+                     help="故障注入: src/ext_bank/bank0.asmのORG 0x6000/0x6010を0始まりへ"
+                          "書き換えて拡張ROMバンクを組み立てる"
+                          "（自己検査の陰性対照専用。絶対番地参照がズレる）")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -607,14 +666,16 @@ def main():
                                        inject_key_repeat_fault=args.inject_key_repeat_fault,
                                        enable_l4_selftest=args.enable_l4_selftest,
                                        enable_ext_bank_selftest=args.enable_ext_bank_selftest,
-                                       inject_ext_bank_window_fault=args.inject_ext_bank_window_fault)
+                                       inject_ext_bank_window_fault=args.inject_ext_bank_window_fault,
+                                       enable_vsync_regcheck=args.enable_vsync_regcheck,
+                                       inject_vsync_no_save_fault=args.inject_vsync_no_save_fault)
         rom = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
         build_disk_rom(args.outdir)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
-        build_ext_bank_roms(args.outdir)
+        build_ext_bank_roms(args.outdir, inject_no_org_fault=args.inject_ext_bank_no_org_fault)
 
         used = len(combined.splitlines())
         print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
