@@ -114,8 +114,17 @@ run_case "mul  --fault mul_coarse"     mul -n 400 --frames 200 --fault mul_coars
 # 全域)」の丸め判定が機能していることをround_truncateで確認する。
 run_case "div  --fault round_truncate" div -n 400 --frames 900 --fault round_truncate --expect-ng
 run_case "fin  --fault fin_bang"       fin -n 30  --frames 400 --fault fin_bang       --expect-ng
-run_case "fin  --fault fin_exact"      fin -n 100 --frames 1500 --fault fin_exact      --expect-ng
-run_case "fin  --fault fin_rep10"      fin -n 100 --frames 1500 --fault fin_rep10      --expect-ng
+# l4-s7c(2026-09-20)で通常経路をEXACTへ入れ替えた
+# (docs/spec/l4-basic.md 5.1.1節第3.8版、mbf_single.asm
+# `_fin_scale_nonzero_exact`)。fin_exactは「EXACTを注入する陽性対照」
+# だったが通常経路が既にEXACTになったため意味を失い、代わりに
+# 「REP01(旧実装、現在は不使用)を注入する陰性対照」fin_rep01に置き換えた。
+# fin_rep10(REP01ループ内部を狙った故障注入)は、その対象(REP01ループ)
+# 自体が通常経路から呼ばれなくなり故障を注入しても出力に影響しなくなった
+# ため退役させた(空振りしてexpect-ngが常に偽になるだけの無意味な検査に
+# なるため。tools/l4_mbf_conform.py FAULT_FIN_REP10_OLD/NEWはコードごと
+# 残置——REP01のコード自体は削除していない、規律「行き止まりを消さない」)。
+run_case "fin  --fault fin_rep01"      fin -n 100 --frames 1500 --fault fin_rep01      --expect-ng
 run_case "fout --fault fout_trunc"       fout -n 200 --frames 20000 --fault fout_trunc       --expect-ng
 run_case "fout --fault fout_round_even"  fout -n 200 --frames 20000 --fault fout_round_even  --expect-ng
 run_case "fout --fault fout_len7"        fout -n 200 --frames 20000 --fault fout_len7        --expect-ng

@@ -687,26 +687,53 @@ def expected_fin(text: str):
     """戻り値: (期待バイト列 or None, status)。status=3(倍精度)のときバイト列
     はNone(呼び出し側はstatusだけ比較する)。
 
-    fin_algo="rep01"を使う(2026-09-15、M7): docs/spec/l4-basic.md
-    第3.6版5.1.1節「単精度の定数の読み取り(FIN)」の推定REP01
-    (ユーザー判断により実装を進める規則)。l4-s4i・l4-s4j実測57件中55件を
-    再現する規則で、以前使っていた"gw"(倍精度56bit経由・$CSD1回丸め、
-    $FINE/MDPTENの実際の手順の再現)は対照C6(l4-s4i)・4腕(l4-s4j)で
-    実測と食い違うことが分かったため置き換えた
-    (詳細はdocs/spec/l4-basic.md 5.1.1節「観測」、
-    tools/l4_mbf_oracle_v2.py parse_literal内の該当コメント参照)。
+    fin_algo="gw"を使う(2026-09-20、l4-s7c): docs/spec/l4-basic.md
+    5.1.1節第3.8版。以前は"rep01"(2026-09-15採用、REP01)を使っていたが、
+    l4-s7c(atn10のセル数不一致を切り分けた測定、公式ROMで13腕を新規
+    実測)で、`!`もE指数も無い単純な小数リテラル9腕がEXACT/GW側に決定的
+    に一致しREP01側には2腕しか一致しなかった。REP01が根拠にしていた
+    「l4-s4i・l4-s4j実測57件中55件」は前向き測定ではない事後の当てはめ
+    だったことが`docs/notes/l4-fin-model-search.md`自身に明記されており、
+    l4-s7cの前向き測定がそれを覆した。
 
-    REP01は指数の絶対値ぶん10.0/S01を1回ずつ掛ける反復なので、境界値
-    (1E38・1E-38付近)ではparse_literalがOverflowError由来のGwErrorを
-    投げる。mbf_single.asm側もMBF_MUL(WK_MUL_ROUNDMODE=1)が同じ境界で
-    オーバーフロー検出しMBF_STATUS=1を返す設計なので、ここでも
+    "exact"ではなく"gw"を選ぶ理由: mbf_single.asmの通常経路
+    `_fin_scale_nonzero_exact`は、積み上げた整数を厳密に倍精度化
+    (UDWORD_TO_DOUBLE)した後、DBL_TABLEの**丸められた**10^|SCALE|定数を
+    DBL_MUL/DBL_DIVで1回だけ掛け/割ってから、DBL_TO_SINGLE_CSD
+    (ガードバイト1個だけを見る、真のスティッキーは見ない丸め、
+    csd_narrow参照)で単精度へ丸める——これは`parse_literal`の
+    "gw"アルゴリズム(`_scale_by_pow10_gw`+`force_to_single`のCSD経由)と
+    同じ構造で、"exact"(`Fraction(acc)*10**net_exp`を1回だけ
+    `encode_mbf`の偶数丸めで直接24bitへ)とは丸めの入口が異なる。
+    小さい`|net_exp|`(`.42`等)では両者が一致するため`l4-s7c`の13腕では
+    区別できなかったが、`|net_exp|`が数桁になる乱数照合
+    (`tools/l4_mbf_z80_selftest.sh`のfin N=1300)で"exact"が3/1300で
+    Z80の実際の出力と食い違うことが分かり、"gw"に切り替えたところ
+    この食い違いは解消した(下記自己検査参照)。
+
+    "gw"は正味指数の絶対値が大きいとparse_literal内部でOverflowError
+    由来のGwErrorを投げる(DBL_TABLEの範囲|SCALE|<=38、mbf_single.asm
+    `_fin_scale_nonzero_exact`のコメント参照)。この境界でZ80側も
+    MBF_PACK_OVERFLOWを経てMBF_STATUS=1を返す設計なので、ここでも
     status=1・残留値($INFPD/$INFMD相当)を返して合わせる
     (expected_binopと同じ扱い)。
     """
     try:
-        r = oracle.parse_literal(text, fin_algo="rep01")
+        r = oracle.parse_literal(text, fin_algo="gw")
     except oracle.GwError as e:
         return gwnum_bytes(e.residual), 1
+    except OverflowError:
+        # l4-s7c(2026-09-20)で見つけたバグ: `fin_algo="gw"`は倍精度の
+        # 中間値(`_scale_by_pow10_gw`)がMBFの指数域(概ね1.7e38)を先に
+        # 超えることがあり(例: "3.4E38")、`oracle.parse_literal`内部の
+        # `try/except oracle.GwError`より前で素の`OverflowError`が出る
+        # (最終結果が単精度の範囲内でも、経由する倍精度中間値の方が
+        # 先にオーバーフローしうる)。過去の測定基準
+        # (tools/l4_mbf_oracle_v2.py)は変更せず、ここ(呼び出し側)で
+        # 補足してGwErrorと同じ扱いに正規化する。
+        sign = 1 if text.strip().lstrip("+").startswith("-") else 0
+        residual = oracle._max_value_num("single", sign)
+        return gwnum_bytes(residual), 1
     if r.kind == "double":
         return None, 3
     if r.kind == "int":
@@ -1084,23 +1111,24 @@ FAULT_FIN_BANG_NEW = (
     "    ; 故障注入: `!`の単精度強制を外す\n"
 )
 
-# M7(REP01)追記(2026-09-15): docs/spec/l4-basic.md 5.1.1節REP01の陽性対照。
-# fin_exact: 「1手ごとの丸めを最後の1回にまとめる」(EXACT相当)。
-# _fin_scale_nonzero の先頭を、mbf_single.asm に残置してある
-# _fin_scale_nonzero_EXACT_FAULT(倍精度56bit経由・DBL_MUL/DBL_DIVを
-# 1回だけ掛ける/割ってからDBL_TO_SINGLE_CSDで単精度へ1回だけ丸める、
-# REP01置き換え前の旧実装)へ無条件でJPさせる。
-FAULT_FIN_EXACT_OLD = (
-    "_fin_scale_nonzero:\n"
+# l4-s7c(2026-09-20)追記: 通常経路がEXACTへ入れ替わった
+# (mbf_single.asm `_fin_scale_nonzero_exact`、経緯は同ラベルの
+# コメント・docs/spec/l4-basic.md 5.1.1節第3.8版参照)。以前はここに
+# 「EXACTを注入する陽性対照」(fin_exact)があったが、通常経路が既に
+# EXACTになったため意味を失った。代わりに**REP01(旧実装、現在は不使用)
+# を注入する陰性対照**(fin_rep01)にする。`_fin_scale_nonzero_exact`
+# 呼び出し箇所を`_fin_scale_nonzero_rep01`(mbf_single.asmに残置した
+# 旧実装)へ差し替える。
+FAULT_FIN_REP01_OLD = (
+    "    JP NZ,_fin_scale_nonzero_exact\n"
     "    CALL FIN_ACC_TO_SINGLE_AWAY\n"
-    "    CALL FIN_COPY_RES_TO_OPA\n"
+    "    JP _fin_done\n"
 )
-FAULT_FIN_EXACT_NEW = (
-    "_fin_scale_nonzero:\n"
-    "    ; 故障注入: 1手ごとの丸めをやめ、最後に1回だけ丸める(EXACT相当)\n"
-    "    JP _fin_scale_nonzero_EXACT_FAULT\n"
+FAULT_FIN_REP01_NEW = (
+    "    ; 故障注入: EXACTをやめ、REP01(1手ごとに丸め直す旧実装)を使う\n"
+    "    JP NZ,_fin_scale_nonzero_rep01\n"
     "    CALL FIN_ACC_TO_SINGLE_AWAY\n"
-    "    CALL FIN_COPY_RES_TO_OPA\n"
+    "    JP _fin_done\n"
 )
 
 # fin_rep10: 「0.1を掛ける代わりに10で割る」(REP10相当)。負の正味指数の
@@ -1285,7 +1313,7 @@ FAULTS = {
     "tie_even": (FAULT_TIE_EVEN_OLD, FAULT_TIE_EVEN_NEW),
     "mul_coarse": (FAULT_MUL_COARSE_OLD, FAULT_MUL_COARSE_NEW),
     "fin_bang": (FAULT_FIN_BANG_OLD, FAULT_FIN_BANG_NEW),
-    "fin_exact": (FAULT_FIN_EXACT_OLD, FAULT_FIN_EXACT_NEW),
+    "fin_rep01": (FAULT_FIN_REP01_OLD, FAULT_FIN_REP01_NEW),
     "fin_rep10": (FAULT_FIN_REP10_OLD, FAULT_FIN_REP10_NEW),
     "fout_trunc": (FAULT_FOUT_TRUNC_OLD, FAULT_FOUT_TRUNC_NEW),
     "fout_round_even": (FAULT_FOUT_ROUND_EVEN_OLD, FAULT_FOUT_ROUND_EVEN_NEW),

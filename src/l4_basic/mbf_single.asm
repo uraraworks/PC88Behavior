@@ -2294,22 +2294,23 @@ _fin_expsigned_done:
 
     LD A,(FIN_SCALE)
     OR A
-    JP NZ,_fin_scale_nonzero
+    JP NZ,_fin_scale_nonzero_exact
     CALL FIN_ACC_TO_SINGLE_AWAY
     JP _fin_done
 
-    ; REP01(docs/spec/l4-basic.md 第3.6版 5.1.1節): 積み上げた整数
-    ; (FIN_ACC)をFIN_ACC_TO_SINGLE_AWAYでまず単精度へ変換し(FIN_ACCが
-    ; 1,000,000未満なら厳密、`!`強制単精度でそれ以上のときは半分は
-    ; 絶対値の大きい側で丸める。MBF_UDWORD_TO_SINGLEの偶数丸めを使うと
-    ; ずれる=下のFIN_ACC_TO_SINGLE_AWAYヘッダコメント参照)、正味指数
-    ; |SCALE|回だけ「10.0を掛ける(SCALE>0)」または「単精度に丸めた
-    ; 0.1〔FIN_SET_OPB_S01〕を掛ける(SCALE<0)」を1回ずつ・毎回単精度へ
-    ; 丸め直しながら繰り返す。丸めはMBF_MULのWK_MUL_ROUNDMODE=1(半分は
-    ; 絶対値の大きい側、$FMULSの偶数丸めとは別)。ここのオペランドは
-    ; 常に非負(10.0・S01)なのでXORによる符号伝播はFIN_SIGNをそのまま
-    ; 素通りさせるだけで、「符号は最後に適用する」と数学的に等価。
-_fin_scale_nonzero:
+    ; REP01(旧実装、2026-09-20 l4-s7cで置き換え・以後不使用)。
+    ; docs/spec/l4-basic.md 第3.6版5.1.1節で「ユーザー判断」により採用
+    ; されたが、l4-s7c(atn10=`print cdbl(atn(0.42))`のセル数不一致の
+    ; 切り分けから発した測定、13腕を公式ROMで新規に実測)で、単純な
+    ; 小数リテラル(`.42`等、`!`もE指数も無い)9腕がEXACT/GW側に決定的に
+    ; 一致しREP01側には2腕しか一致しなかった(l4-fin-model-search.md
+    ; の「55/57」は前向き測定ではない事後の当てはめだった、と同ノート
+    ; 自身が明記していた)。以後は`_fin_scale_nonzero_exact`(実装は
+    ; 下記のとおりGW=倍精度56bit経由+$CSD型の狭め)が通常経路になり、
+    ; このREP01実装は通常経路から呼ばれない(`git reset`で消さない・
+    ; 失敗した試行を残す規律により削除せず残置。`tools/l4_mbf_conform.py
+    ; --fault fin_rep01`から参照される)。
+_fin_scale_nonzero_rep01:
     CALL FIN_ACC_TO_SINGLE_AWAY
     CALL FIN_COPY_RES_TO_OPA
 
@@ -2355,16 +2356,17 @@ _fin_done:
     RET
 
 ; =======================================================================
-; _fin_scale_nonzero_EXACT_FAULT — 通常経路からは呼ばれない。
-; tools/l4_mbf_conform.py --fault fin_exact(陽性対照)専用の代替実装。
-; REP01(1手ごとに単精度へ丸め直す)ではなく、「厳密値を求めて最後に
-; 1回だけ単精度へ丸める」(EXACT相当)を再現する。積み上げた整数を
-; UDWORD_TO_DOUBLEで倍精度(56bit、厳密)へ変換し、DBL_TABLEの10^|SCALE|
-; 定数をDBL_MUL/DBL_DIVで1回だけ掛ける/割ってから、DBL_TO_SINGLE_CSDで
-; 単精度へ1回だけ丸める(旧FIN実装〔コミット90cb054〕そのもの)。
+; _fin_scale_nonzero_exact — 単精度の定数読み取り(FIN)の通常経路
+; (2026-09-20 l4-s7cで採用。旧`_fin_scale_nonzero_rep01`から置き換え、
+; 経緯は同ラベルのコメント参照)。「厳密値を求めて最後に1回だけ単精度へ
+; 丸める」(EXACT)。積み上げた整数をUDWORD_TO_DOUBLEで倍精度(56bit、
+; 厳密)へ変換し、DBL_TABLEの10^|SCALE|定数をDBL_MUL/DBL_DIVで1回だけ
+; 掛ける/割ってから、DBL_TO_SINGLE_CSDで単精度へ1回だけ丸める(旧FIN
+; 実装〔コミット90cb054〕そのもの。この実装自体は変更していない、
+; 通常経路からの参照先だけを変えた)。
 ; |SCALE|>38(DBL_TABLEの範囲外)は未対応のままオーバーフロー扱いにする。
 ; =======================================================================
-_fin_scale_nonzero_EXACT_FAULT:
+_fin_scale_nonzero_exact:
     LD A,(FIN_SCALE)
     BIT 7,A
     JP NZ,_finXF_check_neg
