@@ -5,9 +5,9 @@
 # group sin selfmade=implemented
 # group cos selfmade=implemented
 # group tan selfmade=implemented
-# group atn selfmade=not_implemented_yet
-# group exp selfmade=not_implemented_yet
-# group log selfmade=not_implemented_yet
+# group atn selfmade=implemented
+# group exp selfmade=implemented
+# group log selfmade=implemented
 # group sqr selfmade=implemented
 #
 # 書式: arm<TAB>cell_count<TAB>ok_relative_row<TAB>sha256

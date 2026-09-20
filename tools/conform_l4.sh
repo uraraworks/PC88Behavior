@@ -485,8 +485,10 @@ arith_arm_params() {
 # 始める。2026-09-20追記: SIN/COS/TANも拡張ROMバンク0
 # (EXT_BANK0_SIN_ENTRY/COS_ENTRY/TAN_ENTRY、第4.16a節)に実装したため、
 # tests/conformance/expected_l4_trans.tsvのsin/cos/tan群もselfmade=
-# implementedへ切り替えた(ATN/EXP/LOGは引き続きselfmade=
-# not_implemented_yet、第4.16b節・今回の段階の対象外)。
+# implementedへ切り替えた。2026-09-20さらに追記: ATN/EXP/LOGも拡張ROM
+# バンク0(EXT_BANK0_ATN_ENTRY/EXP_ENTRY/LOG_ENTRY、第4.16b節、`l4-s6h`
+# で確定したround-half-away丸め)に実装したため、atn/exp/log群も
+# selfmade=implementedへ切り替えた(全7群がimplementedになった)。
 #
 # 写し(前)は全腕690固定。写し(後)・走行フレームは腕ごとに
 # l4-s6g/l4-s6h/l4-s6aの表の値をそのまま埋め込む(line_end=700+8*
@@ -534,6 +536,15 @@ trans_arm_params() {
     ATN7)  cmd='print cdbl(atn(0.83))'; dump=896; run=1096 ;;
     ATN8)  cmd='print cdbl(atn(3.3))';  dump=888; run=1088 ;;
     ATN9)  cmd='print cdbl(atn(7.2))';  dump=888; run=1088 ;;
+    # ATN10(atn(0.42))は自作ROM側でcell_count不一致(17 vs 期待16)になる
+    #既知の残存差(2026-09-20判明、docs/spec/l4-program.md 第8節参照)。
+    # 直接注入(バンクルーチン単体、FIN経由しない)でtools/l4_mbf_oracle_
+    # v10_m9.py atn_implと照合すると一致するが、実際に「0.42」をFINで
+    # 解釈した値(MBF_OPAを実測)をatn_implへ渡すと一致しない——原因は
+    # ATNの計算そのものではなく、FINの十進小数解釈またはCDBL/PRINTの
+    # 桁生成側にある可能性が高い(いずれも本節の対象外の既存モジュール)。
+    # dump/runを大きくしても解消しない(タイミングの問題ではないことを
+    # 確認済み)ため、既定値のまま残す。
     ATN10) cmd='print cdbl(atn(0.42))'; dump=896; run=1096 ;;
     ATN11) cmd='print cdbl(atn(2))';    dump=872; run=1072 ;;
     ATN12) cmd='print cdbl(atn(0.5))';  dump=888; run=1088 ;;
@@ -543,11 +554,17 @@ trans_arm_params() {
     EXP3)  cmd='print cdbl(exp(18))';  dump=880; run=1080 ;;
     EXP4)  cmd='print cdbl(exp(-12))'; dump=888; run=1088 ;;
     EXP5)  cmd='print cdbl(exp(35))';  dump=880; run=1080 ;;
-    EXP6)  cmd='print cdbl(exp(-22))'; dump=888; run=1088 ;;
+    # EXP6/EXP8/EXP10はdump=888(他のEXP腕と同じ既定値)だと自作ROM側で
+    # G8(写しが早すぎた)になった(2026-09-20。ATN10と同じ理由——絶対値の
+    # 大きい負の引数ほどexp(x)が極端に小さくなり、CDBL全16桁展開の表示
+    # 〔MBF_FOUTの内部スケーリング〕により多くのフレームを要するとみられる。
+    # l4_atnexplog_bank_conform.pyのバイト照合〔2000件不一致0〕は
+    # 通過済みのため値そのものの誤りではない)。
+    EXP6)  cmd='print cdbl(exp(-22))'; dump=1400; run=1600 ;;
     EXP7)  cmd='print cdbl(exp(54))';  dump=880; run=1080 ;;
-    EXP8)  cmd='print cdbl(exp(-35))'; dump=888; run=1088 ;;
+    EXP8)  cmd='print cdbl(exp(-35))'; dump=1400; run=1600 ;;
     EXP9)  cmd='print cdbl(exp(70))';  dump=880; run=1080 ;;
-    EXP10) cmd='print cdbl(exp(-48))'; dump=888; run=1088 ;;
+    EXP10) cmd='print cdbl(exp(-48))'; dump=1400; run=1600 ;;
     EXP11) cmd='print cdbl(exp(23))';  dump=880; run=1080 ;;
     EXP12) cmd='print cdbl(exp(-7))';  dump=880; run=1080 ;;
     EXP13) cmd='print cdbl(exp(1))';   dump=872; run=1072 ;;

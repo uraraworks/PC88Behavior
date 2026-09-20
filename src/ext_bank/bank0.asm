@@ -63,6 +63,13 @@ MBF_ADD_ADDR EQU 0x1787
 MBF_OPA EQU 0xC000
 MBF_OPB EQU 0xC004
 MBF_RES EQU 0xC008
+; 2026-09-20追記(ATN/EXP/LOG、第4.16b節): MBF_STATUS(EXPのオーバーフロー
+; 信号)・MBF_OUT_CMP(ATN/LOGのMBF_CMP結果)・MBF_IN_INT(LOGのe_raw→
+; MBF_INT_TO_SINGLE入力)。mbf_single.asmの同名EQUと同じ値(密結合は
+; コメントで明示、MBF_OPA等と同じ方針)。
+MBF_STATUS EQU 0xC00C
+MBF_IN_INT EQU 0xC00D
+MBF_OUT_CMP EQU 0xC00F
 
     ORG 0x6030
 EXT_BANK0_MBF_TEST_ENTRY:
@@ -337,6 +344,35 @@ EXT_BANK0_COS_ENTRY:
     ORG 0x6220
 EXT_BANK0_TAN_ENTRY:
     CALL SC_TAN_IMPL
+    RET
+
+; ---------------------------------------------------------------------
+; EXT_BANK0_ATN_ENTRY(オフセット0x0230固定)・EXT_BANK0_EXP_ENTRY
+; (0x0240固定)・EXT_BANK0_LOG_ENTRY(0x0250固定、いずれも2026-09-20
+; 追記) — interp.asm FTNF_DO_ATN/EXP/LOGがEXT_BANK_CALL(bank=0)で呼ぶ。
+; 入力: MBF_OPA=単精度x(呼び出し元がVAL_LOAD_CUR_TO_OPAで設定済み)。
+; 出力: MBF_RES=結果。EXPのみMBF_STATUS(0=正常/1=オーバーフロー)も見る。
+; 破壊: 全レジスタ。AEL_ATN_IMPL/AEL_EXP_IMPL/AEL_LOG_IMPL(実装本体、
+; 定数・作業域含む)はSIN/COS/TANの実装本体(SC_COPY4以降)より後ろに
+; 置く(前方参照、SC_SIN_ENTRYがSC_SIN_IMPLを前方参照するのと同じ手法)
+; ——SIN/COS/TANの4つのORG(0x6200/0x6210/0x6220)と同じく、この3つの
+; ORGも実装本体より前(TAN_ENTRYの直後)に固定オフセットで置かないと、
+; 実装本体の分量次第で「ORGが既に書いた領域より手前を指す」アセンブル
+; エラーになる(2026-09-20の実装時に実際に踏んだ)。
+; ---------------------------------------------------------------------
+    ORG 0x6230
+EXT_BANK0_ATN_ENTRY:
+    CALL AEL_ATN_IMPL
+    RET
+
+    ORG 0x6240
+EXT_BANK0_EXP_ENTRY:
+    CALL AEL_EXP_IMPL
+    RET
+
+    ORG 0x6250
+EXT_BANK0_LOG_ENTRY:
+    CALL AEL_LOG_IMPL
     RET
 
 ; ---------------------------------------------------------------------
@@ -696,3 +732,645 @@ SC_TAN_IMPL:
                                        ; MBF_STATUS=2なら0除算(呼び出し元
                                        ; interp.asm FTNF_DO_TANが判定する)。
                                        ; 末尾呼び出し、RETは常駐MBF_DIV側。
+
+; =======================================================================
+; ATN/EXP/LOG(単精度、2026-09-20追記) — docs/spec/l4-program.md 第4.16b節
+; (`l4-s6h`で確定したround-half-away丸め)。手順・係数・分岐条件は
+; tools/l4_mbf_oracle_v10_m9.py の atn_impl/exp_impl/log_impl(M9、
+; SIN/COS/TANと同じ丸めをATN/EXP/LOGへ適用した候補)をそのままZ80へ
+; 移した。係数の出所はtools/l4_mbf_oracle_v3.pyのATNC1・ATNC2・EXPCN・
+; LOGP・LOGQ・LOG2E・LN2・TAN_PI12・SQRT3・PI6(コメントにGW-BASIC MIT
+; 公開ソースMATH1.ASM/MATH2.ASMの行番号を明記——係数の当てはめは行って
+; いない)。PI2・ONE_S(=1.0)は既にSIN/COS用に定義済みのSC_PI2・
+; SC_ONE_SINGLEをそのまま再利用する(同じ8進DB列、二重定義しない)。
+;
+; 演算は全てSIN/COS/TANと同じ常駐部(mbf_single.asm)のMBF_ADD/MBF_SUB/
+; MBF_MUL/MBF_DIV/MBF_NEG/MBF_CMP(away丸め、l4-s7a・l4-s7b)を
+; EXT_BANK_CALL越しにCALLする(docs/spec/ext-rom-bank.md 第2節 制約3
+; 準拠、SIN/COS/TANと同じ手法)。floor(EXPのfloor(y))はFTNF_DO_INT
+; (interp.asm)と同じ「TRUNC_TO_SINGLE(0方向切り捨て)+負かつ端数
+; ありなら-1.0」の手順をAEL_FLOORとして持つ(EXPのyは負にもなりうる
+; ため、SIN/COS/TANのSC_RR_REDUCEのように「非負だから0方向切り捨て=
+; floor」とは言えない)。EXPのny(floor(y)の整数化、2^ny構成用)は、
+; 常駐部のMBF_ROUND_TO_INT16(run.asm)を呼ぶ案だとその番地がATN/EXP/LOG
+; 追加後の総バイト数増でちょうど窓(0x6000以上)へ入ってしまうと分かった
+; ため、AEL_EXP_NY_TO_INT16として自己完結に実装した(floor済みの値は
+; 端数を持たない厳密な整数なので丸め処理は不要、MBF_UNPACK_A相当の
+; 展開だけをやり直す)。LOGのe_raw→単精度化はMBF_INT_TO_SINGLE(既存、
+; SQR等では未使用だったが元々EXT_BANK_CALLABLE_RESIDENT_LABELSに
+; 登録済み)を使う。
+;
+; 誤り(第7.1節・第4.16節「実装メモ」): LOG(0)・LOG(負)はIllegal function
+; call(5)——interp.asm FTNF_DO_LOGがEXT_BANK_CALLする前にMBF_OPAの符号・
+; ゼロを判定する(FTNF_DO_SQRの負数判定と同じ手法、バンク0側はx>0のみを
+; 前提にできる)。EXPのオーバーフロー(y.exp>=0o210、またはexp2>255)は
+; Overflow(6)——バンク0側がMBF_STATUSを直接1に立てて戻り、interp.asm
+; FTNF_DO_EXPは既存のVAL_CHECK_MBF_STATUS(MBF_STATUS!=0ならOverflow)を
+; そのまま使う(TAN用の専用ラッパーのような新設は不要、EXPの誤りは
+; Overflowだけのため)。ATNは有限入力に対し誤りを返さない
+; (l4_mbf_oracle_v10_m9.py atn_implはGwErrorを投げない)。
+; =======================================================================
+
+; 常駐部アドレス(build_main_rom.pyが実測アドレスへテキスト置換する、
+; SIN_ADD_ADDR等と同じ手法。プレースホルダの値0x1787は
+; make_ext_rom_banks.pyのGENERIC_ADDR_PLACEHOLDERと一致させる必要があり、
+; 実際の値ではない)。
+AEL_ADD_ADDR EQU 0x1787   ; MBF_ADD
+AEL_SUB_ADDR EQU 0x1787   ; MBF_SUB
+AEL_MUL_ADDR EQU 0x1787   ; MBF_MUL
+AEL_DIV_ADDR EQU 0x1787   ; MBF_DIV
+AEL_NEG_ADDR EQU 0x1787   ; MBF_NEG
+AEL_CMP_ADDR EQU 0x1787   ; MBF_CMP
+AEL_TRUNC_ADDR EQU 0x1787   ; TRUNC_TO_SINGLE
+AEL_ITOS_ADDR EQU 0x1787   ; MBF_INT_TO_SINGLE(LOGのe_raw→単精度)
+; EXPのny(floor(y)の整数化、2^ny構成用)は、常駐部のMBF_ROUND_TO_INT16を
+; 呼ぶとその番地がちょうど窓(0x6000以上)へ入ってしまう(ATN/EXP/LOG追加で
+; N88.ROM総バイト数が伸びたため、docs/spec/ext-rom-bank.md第2節制約3(a)
+; 違反になる)ことが分かったため、下記AEL_EXP_NY_TO_INT16として自己完結に
+; 実装する(常駐呼び出しにしない)。
+
+; 作業域(単精度4byte、SC_*(0xC320-0xC35D)と重ならない0xC380以降を使う
+; (同ファイルのSC_*コメントにある「衝突しない空きを選ぶ」方針の踏襲)。
+; ATN・EXP・LOGは呼び出し元(interp.asm)が同時に2つ以上を実行することは
+; ない(BASICインタプリタは単一スレッド)ため、関数間で作業域を再利用
+; していない——判読性を優先し、各関数専用の番地を割り当てる。
+AEL_ATN_X      EQU 0xC380   ; xx(範囲縮約後の作業値、poly_eval/polyx_evalの入力にもなる)
+AEL_ATN_XPS    EQU 0xC384   ; x+sqrt(3)
+AEL_ATN_NUM    EQU 0xC388   ; poly_eval(xx, ATNC1) = x*sqrt(3)-1相当
+AEL_ATN_RESULT EQU 0xC38C   ; 結果(PI6加算・PI2減算・outer_negの前後で共有)
+AEL_ATN_NEG    EQU 0xC390   ; outer_neg(0/1、1byte)
+AEL_ATN_PI6    EQU 0xC391   ; need_pi6(0/1、1byte)
+AEL_ATN_PI2    EQU 0xC392   ; need_pi2(0/1、1byte)
+
+AEL_EXP_Y      EQU 0xC3A0   ; y = x*LOG2E
+AEL_EXP_NY     EQU 0xC3A4   ; ny_single = floor(y)(単精度のまま、厳密な整数値)
+AEL_EXP_FRAC   EQU 0xC3A8   ; frac = y - ny_single
+AEL_EXP_POLY   EQU 0xC3AC   ; poly_eval(frac, EXPCN)
+AEL_EXP_POW2   EQU 0xC3B0   ; 2^ny(単精度、仮数0=1.xxxxの意味で厳密)
+
+AEL_LOG_M      EQU 0xC3C0   ; xの仮数はそのまま・指数だけ128に固定した値([0.5,1))
+AEL_LOG_P      EQU 0xC3C4   ; poly_eval(m, LOGP)
+AEL_LOG_Q      EQU 0xC3C8   ; poly_eval(m, LOGQ)
+AEL_LOG_PQ     EQU 0xC3CC   ; P/Q
+AEL_LOG_EFLOAT EQU 0xC3D0   ; float(e_raw)(e_raw=xの指数バイト-128)
+AEL_LOG_LOG2X  EQU 0xC3D4   ; e_float + P/Q = log2(x)
+
+; Horner多項式評価(poly_eval、_polyx_evalではなくvariableをそのまま
+; 使う側)の共有作業域。ATN(ATNC2はx^2側で使うため事前にAEL_POLY_VARへ
+; x^2を書く)・EXP(EXPCN)・LOG(LOGP・LOGQ)のいずれも実行順は逐次
+; (呼び出し元が単一スレッド)のため共有して構わない。
+AEL_POLY_VAR   EQU 0xC3E0   ; Hornerの掛け算対象(x、または_polyx_eval由来のx^2)
+AEL_POLY_ACC   EQU 0xC3E4   ; Hornerのアキュムレータ
+AEL_TMP_SHIFT  EQU 0xC3E8   ; AEL_EXP_NY_TO_INT16の作業用シフトカウンタ(1byte)
+
+; 定数(単精度4byte)。出所は各定数のコメントを参照——GW-BASIC MIT公開
+; ソースMATH1.ASM/MATH2.ASMのインライン即値、8進DB列を16進へ変換した
+; だけで係数の当てはめは行っていない(tools/l4_mbf_oracle_v3.pyの
+; LOG2E・LN2・TAN_PI12・SQRT3・PI6・EXPCN・ATNC1・ATNC2・LOGP・LOGQ
+; そのもの)。PI2・ONE_S(1.0)はSC_PI2・SC_ONE_SINGLEを再利用する。
+AEL_LOG2E:
+    DB 0x3B,0xAA,0x38,0x81   ; log2(e)(MATH1.ASM 3029-3030)
+AEL_LN2:
+    DB 0x18,0x72,0x31,0x80   ; ln(2)(MATH2.ASM 1047-1048 MLLN2)
+AEL_TAN_PI12:
+    DB 0xA2,0x30,0x09,0x7F   ; tan(π/12)(MATH1.ASM 1109-1110)
+AEL_SQRT3:
+    DB 0xD7,0xB3,0x5D,0x81   ; √3(MATH1.ASM 1117-1118)
+AEL_PI6:
+    DB 0x92,0x0A,0x06,0x80   ; π/6(MATH1.ASM 1141-1142、ATN200)
+
+AEL_EXPCN0:
+    DB 0x7C,0x88,0x59,0x74   ; MATH1.ASM 802-830($EXPCN、Hart #1302)、7係数
+AEL_EXPCN1:
+    DB 0xE0,0x97,0x26,0x77
+AEL_EXPCN2:
+    DB 0xC4,0x1D,0x1E,0x7A
+AEL_EXPCN3:
+    DB 0x5E,0x50,0x63,0x7C
+AEL_EXPCN4:
+    DB 0x1A,0xFE,0x75,0x7E
+AEL_EXPCN5:
+    DB 0x18,0x72,0x31,0x80
+AEL_EXPCN6:
+    DB 0x00,0x00,0x00,0x81
+
+AEL_ATNC1_0:
+    DB 0xD7,0xB3,0x5D,0x81   ; MATH1.ASM 857-866(x*sqrt(3)-1の分子生成用)、2係数
+AEL_ATNC1_1:
+    DB 0x00,0x00,0x80,0x81
+
+AEL_ATNC2_0:
+    DB 0x62,0x35,0x83,0x7E   ; MATH1.ASM 867-884(Hart #4940)、4係数
+AEL_ATNC2_1:
+    DB 0x50,0x24,0x4C,0x7E
+AEL_ATNC2_2:
+    DB 0x79,0xA9,0xAA,0x7F
+AEL_ATNC2_3:
+    DB 0x00,0x00,0x00,0x81
+
+AEL_LOGP0:
+    DB 0x9A,0xF7,0x19,0x83   ; MATH1.ASM 631-647(Hart #2524、P(x))、4係数
+AEL_LOGP1:
+    DB 0x24,0x63,0x43,0x83
+AEL_LOGP2:
+    DB 0x75,0xCD,0x8D,0x84
+AEL_LOGP3:
+    DB 0xA9,0x7F,0x83,0x82
+
+AEL_LOGQ0:
+    DB 0x00,0x00,0x00,0x81   ; MATH1.ASM 648-664(Hart #2524、Q(x))、4係数
+AEL_LOGQ1:
+    DB 0xE2,0xB0,0x4D,0x83
+AEL_LOGQ2:
+    DB 0x0A,0x72,0x11,0x83
+AEL_LOGQ3:
+    DB 0xF4,0x04,0x35,0x7F
+
+; ---------------------------------------------------------------------
+; AEL_FLOOR — MBF_OPA(単精度、符号は問わない)の床(floor)をMBF_RESへ
+;   書く。interp.asm FTNF_DO_INT(第4.15節E11)と同じ「TRUNC_TO_SINGLE
+;   (0方向切り捨て)+負かつ端数ありなら-1.0」の手順(SC_RR_REDUCEの
+;   ような「非負だから0方向切り捨て=floor」という単純化はできない、
+;   EXPのyは負にもなりうるため)。破壊: 全レジスタ。
+; ---------------------------------------------------------------------
+; TRUNC_HADFRAC/TRUNC_SIGN(mbf_single.asmのRAM番地、同じ値のEQUをここに
+; も持つ——bank0.asmはmbf_single.asmをINCLUDEしないため、MBF_DOPA_RAM等
+; 既存のRAM番地EQUと同じ「密結合はコメントで明示」方針の踏襲)。
+AEL_TRUNC_HADFRAC EQU 0xC0F0
+AEL_TRUNC_SIGN    EQU 0xC0F1
+
+AEL_FLOOR:
+    CALL AEL_TRUNC_ADDR         ; MBF_RES = trunc(MBF_OPA)、TRUNC_HADFRAC/TRUNC_SIGN設定
+    LD A,(AEL_TRUNC_HADFRAC)
+    OR A
+    RET Z
+    LD A,(AEL_TRUNC_SIGN)
+    OR A
+    RET Z
+    LD HL,MBF_RES
+    CALL SC_SET_OPA               ; MBF_OPA = trunc(y)
+    LD HL,SC_ONE_SINGLE
+    CALL SC_SET_OPB
+    JP AEL_SUB_ADDR               ; MBF_RES = trunc(y)-1.0 = floor(y)(末尾呼び出し)
+
+; ---------------------------------------------------------------------
+; AEL_POLY_STEP — Horner多項式評価の1段(l4_mbf_oracle_v10_m9.py
+;   _poly_eval_awayの1反復): acc=away_mul(acc,AEL_POLY_VAR);
+;   acc=away_add(c,acc)。入力: HL=係数cへのポインタ(4byte)、
+;   AEL_POLY_ACC/AEL_POLY_VAR。出力: AEL_POLY_ACC更新。破壊: 全レジスタ。
+;   SC_POLY_STEP(SINCN専用、変数はSC_X2固定)と同型だが、変数を
+;   AEL_POLY_VARへ一般化しATN/EXP/LOGで共有する。
+; ---------------------------------------------------------------------
+AEL_POLY_STEP:
+    PUSH HL
+    LD HL,AEL_POLY_ACC
+    CALL SC_SET_OPA
+    LD HL,AEL_POLY_VAR
+    CALL SC_SET_OPB
+    CALL AEL_MUL_ADDR            ; MBF_RES = acc*var
+    LD DE,AEL_POLY_ACC
+    CALL SC_GET_RES
+    POP HL                        ; HL = 係数cへのポインタ
+    CALL SC_SET_OPA                ; MBF_OPA = c
+    LD HL,AEL_POLY_ACC
+    CALL SC_SET_OPB                 ; MBF_OPB = acc
+    CALL AEL_ADD_ADDR              ; MBF_RES = c+acc
+    LD DE,AEL_POLY_ACC
+    CALL SC_GET_RES
+    RET
+
+; ---------------------------------------------------------------------
+; AEL_EXP_NY_TO_INT16 — AEL_EXP_NY(単精度、floor(y)で得た端数の無い
+;   厳密な整数値、符号は問わない)を符号付き16bit(DE)へ変換する。
+;   常駐部のMBF_ROUND_TO_INT16(run.asm)と同じ「value=M24*2^(exp-152)、
+;   shift=152-exp」の式(TRUNC_TO_SINGLEの152定数と同じ導出)を使うが、
+;   端数が無い(floor済み)ことが構造上保証されているため丸め処理
+;   (端数ビットの判定)は不要——MBF_UNPACK_A相当の展開だけを
+;   自己完結にやり直す(bank0.asm 冒頭コメント「AEL_ROUND_ADDR」参照、
+;   常駐呼び出しにすると窓の外に収まらなくなったための判断)。
+;   |ny|は呼び出し元(AEL_EXP_IMPL)のy.exp<0o210(136)判定により
+;   256未満に収まる(shift>=16、24bitマンティッサの上位バイトは
+;   シフトの末に必ず0になり16bitに収まる)。破壊: 全レジスタ。
+; ---------------------------------------------------------------------
+AEL_EXP_NY_TO_INT16:
+    LD A,(AEL_EXP_NY+3)
+    OR A
+    JP NZ,_aeni_nonzero
+    LD DE,0
+    RET
+_aeni_nonzero:
+    LD C,A                       ; C = 指数バイト
+    LD A,(AEL_EXP_NY+2)
+    AND 0x7F
+    OR 0x80
+    LD B,A                       ; B:D:E = 24bit仮数(implicit先頭1含む、MSB=B)
+    LD A,(AEL_EXP_NY+1)
+    LD D,A
+    LD A,(AEL_EXP_NY)
+    LD E,A
+    LD A,152
+    SUB C
+    LD (AEL_TMP_SHIFT),A
+_aeni_shift_loop:
+    LD A,(AEL_TMP_SHIFT)
+    OR A
+    JP Z,_aeni_shift_done
+    SRL B
+    RR D
+    RR E
+    DEC A
+    LD (AEL_TMP_SHIFT),A
+    JP _aeni_shift_loop
+_aeni_shift_done:
+    ; (D:E) = 符号なし整数値(16bit、Bは0のはず)
+    LD A,(AEL_EXP_NY+2)
+    AND 0x80
+    JP Z,_aeni_pos
+    XOR A
+    SUB E
+    LD E,A
+    LD A,0
+    SBC A,D
+    LD D,A
+_aeni_pos:
+    RET                            ; DE = 結果(符号付き16bit)
+
+; ---------------------------------------------------------------------
+; AEL_ATN_IMPL — l4_mbf_oracle_v10_m9.py atn_impl。
+;   入力: MBF_OPA=x(単精度)。出力: MBF_RES=atn(x)。破壊: 全レジスタ。
+; ---------------------------------------------------------------------
+AEL_ATN_IMPL:
+    ; neg = x.is_negative(); xx = |x|
+    LD A,(MBF_OPA+2)
+    AND 0x80
+    JP Z,_ael_atn_pos
+    LD A,1
+    LD (AEL_ATN_NEG),A
+    CALL AEL_NEG_ADDR             ; MBF_RES = -x = |x|
+    LD DE,AEL_ATN_X
+    CALL SC_GET_RES
+    JP _ael_atn_have_x
+_ael_atn_pos:
+    XOR A
+    LD (AEL_ATN_NEG),A
+    LD HL,MBF_OPA
+    LD DE,AEL_ATN_X
+    CALL SC_COPY4
+_ael_atn_have_x:
+    ; need_pi2 = xx.exp!=0 かつ xx.exp>=0o201(129)
+    LD A,(AEL_ATN_X+3)
+    OR A
+    JP Z,_ael_atn_no_pi2
+    CP 129
+    JP C,_ael_atn_no_pi2
+    LD A,1
+    LD (AEL_ATN_PI2),A
+    LD HL,SC_ONE_SINGLE            ; ONE_S(=1.0、SIN/COSと共通)
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPB
+    CALL AEL_DIV_ADDR              ; MBF_RES = 1/xx
+    LD DE,AEL_ATN_X
+    CALL SC_GET_RES                ; xx = 1/xx
+    JP _ael_atn_have_pi2
+_ael_atn_no_pi2:
+    XOR A
+    LD (AEL_ATN_PI2),A
+_ael_atn_have_pi2:
+    ; need_pi6 = xx.exact() > TAN_PI12.exact() (実値比較、MBF_CMP)
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPA
+    LD HL,AEL_TAN_PI12
+    CALL SC_SET_OPB
+    CALL AEL_CMP_ADDR
+    LD A,(MBF_OUT_CMP)
+    CP 1
+    JP NZ,_ael_atn_no_pi6
+    LD A,1
+    LD (AEL_ATN_PI6),A
+    ; xps = xx + sqrt(3)
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPA
+    LD HL,AEL_SQRT3
+    CALL SC_SET_OPB
+    CALL AEL_ADD_ADDR
+    LD DE,AEL_ATN_XPS
+    CALL SC_GET_RES
+    ; num = poly_eval(xx, ATNC1) = acc(ATNC1[0]); acc=away_mul(acc,xx); acc=away_add(ATNC1[1],acc)
+    LD HL,AEL_ATN_X
+    LD DE,AEL_POLY_VAR
+    CALL SC_COPY4
+    LD HL,AEL_ATNC1_0
+    LD DE,AEL_POLY_ACC
+    CALL SC_COPY4
+    LD HL,AEL_ATNC1_1
+    CALL AEL_POLY_STEP
+    LD HL,AEL_POLY_ACC
+    LD DE,AEL_ATN_NUM
+    CALL SC_COPY4
+    ; xx = num / xps
+    LD HL,AEL_ATN_NUM
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_XPS
+    CALL SC_SET_OPB
+    CALL AEL_DIV_ADDR
+    LD DE,AEL_ATN_X
+    CALL SC_GET_RES
+    JP _ael_atn_after_pi6
+_ael_atn_no_pi6:
+    XOR A
+    LD (AEL_ATN_PI6),A
+_ael_atn_after_pi6:
+    ; result = polyx_eval(xx, ATNC2): x2=away_mul(xx,xx); p=poly_eval(x2,ATNC2); result=away_mul(p,xx)
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPB
+    CALL AEL_MUL_ADDR              ; MBF_RES = xx^2
+    LD DE,AEL_POLY_VAR
+    CALL SC_GET_RES
+    LD HL,AEL_ATNC2_0
+    LD DE,AEL_POLY_ACC
+    CALL SC_COPY4
+    LD HL,AEL_ATNC2_1
+    CALL AEL_POLY_STEP
+    LD HL,AEL_ATNC2_2
+    CALL AEL_POLY_STEP
+    LD HL,AEL_ATNC2_3
+    CALL AEL_POLY_STEP
+    LD HL,AEL_POLY_ACC
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_X
+    CALL SC_SET_OPB
+    CALL AEL_MUL_ADDR              ; MBF_RES = p*xx
+    LD DE,AEL_ATN_RESULT
+    CALL SC_GET_RES
+    ; if need_pi6: result = PI6 + result
+    LD A,(AEL_ATN_PI6)
+    OR A
+    JP Z,_ael_atn_skip_pi6add
+    LD HL,AEL_PI6
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_RESULT
+    CALL SC_SET_OPB
+    CALL AEL_ADD_ADDR
+    LD DE,AEL_ATN_RESULT
+    CALL SC_GET_RES
+_ael_atn_skip_pi6add:
+    ; if need_pi2: result = PI2 - result
+    LD A,(AEL_ATN_PI2)
+    OR A
+    JP Z,_ael_atn_skip_pi2sub
+    LD HL,SC_PI2
+    CALL SC_SET_OPA
+    LD HL,AEL_ATN_RESULT
+    CALL SC_SET_OPB
+    CALL AEL_SUB_ADDR
+    LD DE,AEL_ATN_RESULT
+    CALL SC_GET_RES
+_ael_atn_skip_pi2sub:
+    ; if neg: result = -result
+    LD A,(AEL_ATN_NEG)
+    OR A
+    JP Z,_ael_atn_finish
+    LD HL,AEL_ATN_RESULT
+    CALL SC_SET_OPA
+    CALL AEL_NEG_ADDR
+    LD DE,AEL_ATN_RESULT
+    CALL SC_GET_RES
+_ael_atn_finish:
+    LD HL,AEL_ATN_RESULT
+    LD DE,MBF_RES
+    JP SC_COPY4
+
+; ---------------------------------------------------------------------
+; AEL_EXP_IMPL — l4_mbf_oracle_v10_m9.py exp_impl。
+;   入力: MBF_OPA=x(単精度)。出力: MBF_RES=exp(x)、
+;   MBF_STATUS(0=正常/1=オーバーフロー、interp.asm FTNF_DO_EXPが
+;   VAL_CHECK_MBF_STATUSで判定)。破壊: 全レジスタ。
+; ---------------------------------------------------------------------
+AEL_EXP_IMPL:
+    ; y = x*LOG2E (MBF_OPA==x、呼び出し元設定済み)
+    LD HL,AEL_LOG2E
+    CALL SC_SET_OPB
+    CALL AEL_MUL_ADDR
+    ; l4_mbf_oracle_v10_m9.py exp_impl: away_binop(x,LOG2E,"*")自体が
+    ; 単精度の表現域を超えれば、y.exp>=0o210の判定に届く前にそこで
+    ; Overflowを投げる(xが単精度の最大値付近で|x|*log2(e)が単精度の
+    ; 指数バイト255を超える場合、l4_atnexplog_bank_conform.pyの
+    ; 境界値照合〔最大負〕で実際に踏んだ)。MBF_MULが既に立てた
+    ; MBF_STATUSを先に見て、ここで即座に戻る(この後の「y.exp>=136なら
+    ; 負→0」分岐は、乗算自体は正常に収まったが値が大きい場合だけの話
+    ; ——乗算そのものが表現域を超えた場合と混同しない)。
+    LD A,(MBF_STATUS)
+    OR A
+    RET NZ                          ; MBF_STATUS=1のまま戻る(Overflow)
+    LD DE,AEL_EXP_Y
+    CALL SC_GET_RES
+    ; y.exp!=0 かつ y.exp>=0o210(136) なら: 負→0、正→Overflow
+    LD A,(AEL_EXP_Y+3)
+    OR A
+    JP Z,_ael_exp_check_small
+    CP 136
+    JP C,_ael_exp_check_small
+    LD A,(AEL_EXP_Y+2)
+    AND 0x80
+    JP Z,_ael_exp_overflow
+    XOR A
+    LD (MBF_RES),A
+    LD (MBF_RES+1),A
+    LD (MBF_RES+2),A
+    LD (MBF_RES+3),A
+    XOR A
+    LD (MBF_STATUS),A
+    RET
+_ael_exp_overflow:
+    LD A,1
+    LD (MBF_STATUS),A
+    RET
+_ael_exp_check_small:
+    ; y.exp==0 または y.exp<0o150(104) なら 1.0
+    LD A,(AEL_EXP_Y+3)
+    OR A
+    JP Z,_ael_exp_return_one
+    CP 104
+    JP NC,_ael_exp_body
+_ael_exp_return_one:
+    LD HL,SC_ONE_SINGLE
+    LD DE,MBF_RES
+    CALL SC_COPY4
+    XOR A
+    LD (MBF_STATUS),A
+    RET
+_ael_exp_body:
+    ; ny_single = floor(y)
+    LD HL,AEL_EXP_Y
+    CALL SC_SET_OPA
+    CALL AEL_FLOOR
+    LD DE,AEL_EXP_NY
+    CALL SC_GET_RES
+    ; frac = y - ny_single
+    LD HL,AEL_EXP_Y
+    CALL SC_SET_OPA
+    LD HL,AEL_EXP_NY
+    CALL SC_SET_OPB
+    CALL AEL_SUB_ADDR
+    LD DE,AEL_EXP_FRAC
+    CALL SC_GET_RES
+    ; poly_result = poly_eval(frac, EXPCN)(7係数、Horner)
+    LD HL,AEL_EXP_FRAC
+    LD DE,AEL_POLY_VAR
+    CALL SC_COPY4
+    LD HL,AEL_EXPCN0
+    LD DE,AEL_POLY_ACC
+    CALL SC_COPY4
+    LD HL,AEL_EXPCN1
+    CALL AEL_POLY_STEP
+    LD HL,AEL_EXPCN2
+    CALL AEL_POLY_STEP
+    LD HL,AEL_EXPCN3
+    CALL AEL_POLY_STEP
+    LD HL,AEL_EXPCN4
+    CALL AEL_POLY_STEP
+    LD HL,AEL_EXPCN5
+    CALL AEL_POLY_STEP
+    LD HL,AEL_EXPCN6
+    CALL AEL_POLY_STEP
+    LD HL,AEL_POLY_ACC
+    LD DE,AEL_EXP_POLY
+    CALL SC_COPY4
+    ; ny(整数、DE) = ny_single の整数値(floor済みで端数0なので厳密)
+    CALL AEL_EXP_NY_TO_INT16       ; DE = ny(符号付き16bit)、自己完結
+                                     ; (AEL_TMP_SHIFT EQUのコメント参照)
+    ; exp2 = ny+129
+    LD HL,129
+    ADD HL,DE
+    LD A,H
+    OR A
+    JP NZ,_ael_exp_check_hi
+    LD A,L
+    OR A
+    JP Z,_ael_exp_underflow         ; exp2==0 -> <1 -> 0
+    LD (AEL_EXP_POW2+3),A           ; 1<=exp2<=255
+    JP _ael_exp_pow2_ready
+_ael_exp_check_hi:
+    BIT 7,H
+    JP NZ,_ael_exp_underflow        ; exp2<0 -> <1 -> 0
+    LD A,1
+    LD (MBF_STATUS),A               ; exp2>255 -> Overflow
+    RET
+_ael_exp_underflow:
+    XOR A
+    LD (MBF_RES),A
+    LD (MBF_RES+1),A
+    LD (MBF_RES+2),A
+    LD (MBF_RES+3),A
+    XOR A
+    LD (MBF_STATUS),A
+    RET
+_ael_exp_pow2_ready:
+    XOR A
+    LD (AEL_EXP_POW2),A
+    LD (AEL_EXP_POW2+1),A
+    LD (AEL_EXP_POW2+2),A            ; 仮数0(=1.0xxx)、符号0
+    ; result = poly_result * 2^ny
+    LD HL,AEL_EXP_POLY
+    CALL SC_SET_OPA
+    LD HL,AEL_EXP_POW2
+    CALL SC_SET_OPB
+    JP AEL_MUL_ADDR                  ; MBF_RES = result、MBF_STATUS=0(末尾呼び出し)
+
+; ---------------------------------------------------------------------
+; AEL_LOG_IMPL — l4_mbf_oracle_v10_m9.py log_impl。x<=0の判定は
+;   呼び出し元(interp.asm FTNF_DO_LOG)がEXT_BANK_CALL前に済ませる
+;   (FTNF_DO_SQRの負数判定と同じ手法)ため、ここはx>0のみを前提にする。
+;   入力: MBF_OPA=x(単精度、x>0)。出力: MBF_RES=log(x)。破壊: 全レジスタ。
+; ---------------------------------------------------------------------
+AEL_LOG_IMPL:
+    ; x.exact()==1 なら 0.0 (MBF_CMPでSC_ONE_SINGLEと比較)
+    LD HL,MBF_OPA
+    CALL SC_SET_OPA
+    LD HL,SC_ONE_SINGLE
+    CALL SC_SET_OPB
+    CALL AEL_CMP_ADDR
+    LD A,(MBF_OUT_CMP)
+    OR A
+    JP NZ,_ael_log_notone
+    XOR A
+    LD (MBF_RES),A
+    LD (MBF_RES+1),A
+    LD (MBF_RES+2),A
+    LD (MBF_RES+3),A
+    RET
+_ael_log_notone:
+    ; e_raw = x.exp-128 (符号付き)、e_float = float(e_raw)
+    LD A,(MBF_OPA+3)
+    SUB 128
+    LD L,A
+    LD H,0
+    BIT 7,L
+    JP Z,_ael_log_eraw_pos
+    LD H,0xFF
+_ael_log_eraw_pos:
+    LD (MBF_IN_INT),HL
+    CALL AEL_ITOS_ADDR              ; MBF_RES = float(e_raw)
+    LD DE,AEL_LOG_EFLOAT
+    CALL SC_GET_RES
+    ; m = 仮数はxのまま(byte0-2)、指数だけ128(0x80)に固定
+    LD HL,MBF_OPA
+    LD DE,AEL_LOG_M
+    LD BC,3
+    LDIR
+    LD A,0x80
+    LD (AEL_LOG_M+3),A
+    ; p = poly_eval(m, LOGP)(4係数)
+    LD HL,AEL_LOG_M
+    LD DE,AEL_POLY_VAR
+    CALL SC_COPY4
+    LD HL,AEL_LOGP0
+    LD DE,AEL_POLY_ACC
+    CALL SC_COPY4
+    LD HL,AEL_LOGP1
+    CALL AEL_POLY_STEP
+    LD HL,AEL_LOGP2
+    CALL AEL_POLY_STEP
+    LD HL,AEL_LOGP3
+    CALL AEL_POLY_STEP
+    LD HL,AEL_POLY_ACC
+    LD DE,AEL_LOG_P
+    CALL SC_COPY4
+    ; q = poly_eval(m, LOGQ)(4係数、AEL_POLY_VAR=mは変わらず共有)
+    LD HL,AEL_LOGQ0
+    LD DE,AEL_POLY_ACC
+    CALL SC_COPY4
+    LD HL,AEL_LOGQ1
+    CALL AEL_POLY_STEP
+    LD HL,AEL_LOGQ2
+    CALL AEL_POLY_STEP
+    LD HL,AEL_LOGQ3
+    CALL AEL_POLY_STEP
+    LD HL,AEL_POLY_ACC
+    LD DE,AEL_LOG_Q
+    CALL SC_COPY4
+    ; pq = p/q
+    LD HL,AEL_LOG_P
+    CALL SC_SET_OPA
+    LD HL,AEL_LOG_Q
+    CALL SC_SET_OPB
+    CALL AEL_DIV_ADDR
+    LD DE,AEL_LOG_PQ
+    CALL SC_GET_RES
+    ; log2x = e_float + pq
+    LD HL,AEL_LOG_EFLOAT
+    CALL SC_SET_OPA
+    LD HL,AEL_LOG_PQ
+    CALL SC_SET_OPB
+    CALL AEL_ADD_ADDR
+    LD DE,AEL_LOG_LOG2X
+    CALL SC_GET_RES
+    ; result = log2x * LN2
+    LD HL,AEL_LOG_LOG2X
+    CALL SC_SET_OPA
+    LD HL,AEL_LN2
+    CALL SC_SET_OPB
+    JP AEL_MUL_ADDR                  ; MBF_RES = result(末尾呼び出し)

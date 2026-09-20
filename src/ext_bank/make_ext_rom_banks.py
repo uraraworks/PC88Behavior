@@ -73,6 +73,11 @@ NO_ORG_FAULT_SUBS = (
     ("    ORG 0x6200\n", "    ORG 0x0200\n"),
     ("    ORG 0x6210\n", "    ORG 0x0210\n"),
     ("    ORG 0x6220\n", "    ORG 0x0220\n"),
+    # 2026-09-20追記(ATN/EXP/LOG、EXT_BANK0_ATN_ENTRY/EXP_ENTRY/
+    # LOG_ENTRY): 同じ理由。
+    ("    ORG 0x6230\n", "    ORG 0x0230\n"),
+    ("    ORG 0x6240\n", "    ORG 0x0240\n"),
+    ("    ORG 0x6250\n", "    ORG 0x0250\n"),
 )
 
 # bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の

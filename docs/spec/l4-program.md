@@ -706,9 +706,47 @@ more-arms-preregistration.md`＋結果ノート）で各12腕（+対照2腕）�
     `n-y`(異符号減算、上位2byteが一致し最下位byteだけ僅差という
     条件を高頻度で作る)で顕在化した。修正後も既存の
     `tools/l4_mbf_z80_selftest.sh`は全項目OKのまま(退行なし)。
-- `ATN`・`EXP`・`LOG`は、第4.16b節で範囲縮約・多項式係数・分岐が
-  確定しているにもかかわらず、本段階ではまだ`bank0.asm`に実装して
-  いない（未着手、次の段階の対象）。
+- `ATN`・`EXP`・`LOG`は2026-09-20さらに追記で実装した。第4.16b節
+  (`l4-s6h`で確定したround-half-away丸め)のとおり`src/ext_bank/
+  bank0.asm` `EXT_BANK0_ATN_ENTRY`/`EXP_ENTRY`/`LOG_ENTRY`(オフセット
+  0x0230/0x0240/0x0250固定)に実装した。SIN/COS/TANと同じく常駐部
+  (`mbf_single.asm`)の単精度四則(`MBF_ADD`/`MBF_SUB`/`MBF_MUL`/
+  `MBF_DIV`/`MBF_NEG`/`MBF_CMP`)と`TRUNC_TO_SINGLE`をそのままCALLする
+  構成(演算自体は再実装しない)。係数・定数(`LOG2E`・`LN2`・
+  `TAN_PI12`・`SQRT3`・`PI6`・`EXPCN[0-6]`・`ATNC1[0-1]`・`ATNC2[0-3]`・
+  `LOGP[0-3]`・`LOGQ[0-3]`)は`tools/l4_mbf_oracle_v3.py`の値(GW-BASIC
+  MIT公開ソースMATH1.ASM/MATH2.ASMのインライン即値、当てはめは行って
+  いない)。`PI2`・`ONE_S`(1.0)はSIN/COS用の既存定数(`SC_PI2`・
+  `SC_ONE_SINGLE`)を再利用した。
+  - `LOG`のx<=0判定(Illegal function call、5)は`interp.asm
+    FTNF_DO_LOG`がEXT_BANK_CALLの前に行う(`FTNF_DO_SQR`の負数判定と
+    同じ手法)。`EXP`のオーバーフロー(引数が大きすぎる/2^nyのげたが
+    255超)は`bank0.asm`側がMBF_STATUSを直接1に立てて戻り、
+    `interp.asm FTNF_DO_EXP`は既存の`VAL_CHECK_MBF_STATUS`をそのまま
+    使う。`ATN`は誤りを返さない。
+  - `EXP`のny(`floor(y)`の整数化、`2^ny`構成用)は、常駐部の
+    `MBF_ROUND_TO_INT16`(run.asm)を呼ぶ案だと、ATN/EXP/LOG追加で
+    N88.ROM総バイト数が伸びたためその番地がちょうど拡張ROMバンクの窓
+    (0x6000以上)へ入ってしまうと判明し(`docs/spec/ext-rom-bank.md`
+    第2節制約3(a)違反)、`bank0.asm AEL_EXP_NY_TO_INT16`として
+    自己完結に実装し直した(端数を持たない厳密な整数の展開のみのため
+    丸め処理は不要)。
+  - ATN/EXP/LOG追加でN88.ROM総バイト数がQUASI88の機種判定予約番地
+    0x79D7(`build_main_rom.py` `ROM_VERSION_RESERVED_ADDR`)へ届く
+    ようになったため、`src/l4_basic/run.asm`
+    `AEL_ROM_LAYOUT_PAD`(RESTORE_STMT直前、340byte)で埋め草を挿入し
+    レイアウトを分けた(実測で決めた量、機能的な意味はない)。
+  - `tools/l4_atnexplog_bank_conform.py`で各関数2000件(境界値+乱数、
+    ATN/EXP/LOGとも1000件×2シード)の照合、不一致0(陰性対照6種で検出力
+    を確認済み——係数破壊2種・分岐/閾値破壊2種)。
+    `tools/l4_atnexplog_endtoend_selftest.sh`でBASIC呼び出し経路の
+    通し検査(`print atn(.5)`・`exp(1)`・`log(2)`・誤りの腕`log(0)`、
+    陰性対照つき)も確認済み。`tools/conform_l4.sh`(l4-c8)の公式ROM
+    期待値(`ATN1`〜`12`・`EXP1`〜`14`・`LOG1`〜`14`)は、`ATN10`
+    (`atn(0.42)`)の1腕を除き全腕conform——原因は第8節21項目(e)参照
+    (ATNの計算自体はFINが渡した値に対して正しいと確認済みで、
+    ATN/EXP/LOG本体〔本節〕の対象外の既存モジュール側に原因があると
+    みられる)。
 
 ## 5. 観測 — 画面の命令（`CLS`・`LOCATE`・`COLOR`・`WIDTH`・スクロール）
 
@@ -1064,9 +1102,23 @@ Q1〜Q8。
     ものは未解決)、(d) `SQR`自体の近似精度の限界（`l4-s6g`のZ31・Z35
     で内部丸め方式に依らず既知実装からULP単位でずれ、`l4-s6h`でも
     約76000通りの計算探索でM0/M9の予測が割れる入力が見つからなかった。
-    GW-BASICのニュートン法反復手順そのものは未特定のまま）。
+    GW-BASICのニュートン法反復手順そのものは未特定のまま）、(e)
+    `ATN(0.42)`（l4-c8 TRANS場面ATN10、2026-09-20のATN/EXP/LOG実装時に
+    判明）は自作ROM上で`print cdbl(atn(0.42))`のセル数が公式ROM(16)と
+    食い違う(17)。バンクルーチン単体をFINを経由せず直接値注入で
+    `tools/l4_mbf_oracle_v10_m9.py atn_impl`と照合すると一致するが、
+    実際に「0.42」をFINが解釈した値(実測、単精度4byte末尾が
+    `3F 0A 57 7F`)を同じatn_implへ渡すと自作ROMの実際の出力
+    (`E7 95 4B 7F`)と一致する——つまりATNの計算自体はFINが渡した値に
+    対して正しく、原因はATNではなくFIN(十進小数の解釈)またはCDBL/PRINT
+    (桁生成)側で公式ROMと自作ROMの間に何らかの差があることを示唆する
+    (dump/runのフレーム数を大きくしても解消しないため、写しのタイミング
+    の問題ではないことも確認済み)。ATN/EXP/LOG本体の実装(第4.16b節)の
+    対象外の既存モジュール(FIN・PRINT/CDBL)に原因があるとみられるため、
+    本節の未解決事項として残す。
     拡張ROMバンクでこれらを実装する前に、倍精度専用経路の有無・
-    ATNの`|x|=1`の1ULP差の原因・SQRの反復手順を狙った追加測定が要る。
+    ATNの`|x|=1`の1ULP差の原因・SQRの反復手順・`ATN(0.42)`のFIN/PRINT
+    側の原因を狙った追加測定が要る。
 22. **`WIDTH 40`のテキストVRAMの並び（第5.6節、第6版で追加）。**
     `l4-s5f`のF7は、`WIDTH 80,25`と同じ120バイト/行のストライドという
     前提では出力位置を一意に特定できず、この前提が`WIDTH 40`には

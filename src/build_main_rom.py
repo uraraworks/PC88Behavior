@@ -274,6 +274,13 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
     # (呼び出し箇所はいずれも被演算子が非負であることが構造上保証されて
     # いるため、0方向切り捨て=floorとして使える)。
     "TRUNC_TO_SINGLE",
+    # 2026-09-20追記(ATN/EXP/LOG、第4.16b節): MBF_CMP(既にリストにある)に
+    # 加え、LOGのe_raw→単精度化にMBF_INT_TO_SINGLE(既にリストにある)を
+    # 新規に使う。EXPのny→整数化はMBF_ROUND_TO_INT16(run.asm)を呼ぶと
+    # その番地がちょうど窓(0x6000以上)へ入ってしまう(ATN/EXP/LOG追加で
+    # N88.ROMの総バイト数が伸びたため)ことが分かったため、bank0.asm
+    # 側でAEL_EXP_NY_TO_INT16として自己完結に実装し直した(常駐呼び出し
+    # にしない、二重実装ではあるが窓外の空きが尽きているための判断)。
 )
 
 # EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
@@ -295,6 +302,19 @@ EXT_BANK0_SINCOS_ADDR_LABELS = {
     "SIN_DIV_ADDR": "MBF_DIV",
     "SIN_NEG_ADDR": "MBF_NEG",
     "SIN_TRUNC_ADDR": "TRUNC_TO_SINGLE",
+}
+
+# EXT_BANK0_ATN_ENTRY/EXP_ENTRY/LOG_ENTRY(bank0.asm、第4.16b節)が参照する
+# 常駐ラベル→bank0.asm側EQU名の対応。EXT_BANK0_SINCOS_ADDR_LABELSと同じ手法。
+EXT_BANK0_ATNEXPLOG_ADDR_LABELS = {
+    "AEL_ADD_ADDR": "MBF_ADD",
+    "AEL_SUB_ADDR": "MBF_SUB",
+    "AEL_MUL_ADDR": "MBF_MUL",
+    "AEL_DIV_ADDR": "MBF_DIV",
+    "AEL_NEG_ADDR": "MBF_NEG",
+    "AEL_CMP_ADDR": "MBF_CMP",
+    "AEL_TRUNC_ADDR": "TRUNC_TO_SINGLE",
+    "AEL_ITOS_ADDR": "MBF_INT_TO_SINGLE",
 }
 
 # 故障注入(自己検査の陰性対照専用、2026-09-20): EXT_BANK_CALLが
@@ -837,6 +857,10 @@ def main():
             if addr is not None:
                 addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK0_SINCOS_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK0_ATNEXPLOG_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr

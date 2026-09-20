@@ -1174,6 +1174,21 @@ FTNF_TABLE:
     DB 3
     DB "TAN"
     DW FTNF_DO_TAN
+    ; 2026-09-20追記: ATN・EXP・LOG(第4.16b節、`l4-s6h`で確定した
+    ; round-half-away丸め)。SIN/COS/TANと同じくVAL_LOAD_CUR_TO_OPAで
+    ; 単精度へ強制してから拡張ROMバンク0(bank0.asm EXT_BANK0_ATN_ENTRY/
+    ; EXP_ENTRY/LOG_ENTRY、オフセット0x0230/0x0240/0x0250固定)を
+    ; EXT_BANK_CALL経由で呼ぶ。LOGのx<=0判定はFTNF_DO_SQRの負数判定と
+    ; 同じ手法でここ(呼び出し前)に置く。
+    DB 3
+    DB "ATN"
+    DW FTNF_DO_ATN
+    DB 3
+    DB "EXP"
+    DW FTNF_DO_EXP
+    DB 3
+    DB "LOG"
+    DW FTNF_DO_LOG
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1539,6 +1554,76 @@ _vcmst_divzero:
     RET
 _vcmst_ok:
     JP VAL_SET_SINGLE_FROM_RES
+
+; ---------------------------------------------------------------------
+; FTNF_DO_ATN — 2026-09-20追記。ATN(<数値式>)、第4.16b節(`l4-s6h`で
+;   確定したround-half-away丸め)。SIN/COS/TANと同じくVAL_LOAD_CUR_TO_OPA
+;   で単精度へ強制してから拡張ROMバンク0(bank0.asm EXT_BANK0_ATN_ENTRY、
+;   オフセット0x0230固定)をEXT_BANK_CALL経由で呼ぶ。ATNは有限入力に
+;   対し誤りを返さない(l4_mbf_oracle_v10_m9.py atn_implはGwErrorを
+;   投げない、SIN/COSと同じくMBF_STATUSは確認しない)。
+; ---------------------------------------------------------------------
+FTNF_DO_ATN:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6230                 ; EXT_BANK0_ATN_ENTRY(bank0.asm、オフセット0x0230固定)
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+
+; ---------------------------------------------------------------------
+; FTNF_DO_EXP — 2026-09-20追記。EXP(<数値式>)、第4.16b節。SIN/COS/TANと
+;   同じ経路(拡張ROMバンク0 EXT_BANK0_EXP_ENTRY、オフセット0x0240固定)。
+;   EXPはbank0.asm AEL_EXP_IMPLがオーバーフロー(引数が大きすぎる/
+;   2^nyの指数げたが255を超える)を検出するとMBF_STATUSを1へ直接立てて
+;   戻ってくるため、既存のVAL_CHECK_MBF_STATUS(MBF_STATUS!=0なら
+;   Overflow、6、第7.1節)をそのまま使う(TANのVAL_CHECK_MBF_STATUS_TAN
+;   のような専用ラッパーは不要——EXPの誤りはOverflowだけで0除算はない)。
+; ---------------------------------------------------------------------
+FTNF_DO_EXP:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6240                 ; EXT_BANK0_EXP_ENTRY(bank0.asm、オフセット0x0240固定)
+    CALL EXT_BANK_CALL
+    JP VAL_CHECK_MBF_STATUS
+
+; ---------------------------------------------------------------------
+; FTNF_DO_LOG — 2026-09-20追記。LOG(<数値式>)、第4.16b節。x<=0の判定は
+;   FTNF_DO_SQRの負数判定(VAL_CUR_SIGN/VAL_CUR_IS_ZEROと同じMBF_OPAの
+;   バイト直読み規則)と同じ手法でEXT_BANK_CALL前にここで行う
+;   (Illegal function call、5、第7.1節・l4-s6a LOG(0)・LOG(-1))。
+;   x>0が確定した後だけ拡張ROMバンク0(bank0.asm EXT_BANK0_LOG_ENTRY、
+;   オフセット0x0250固定)をEXT_BANK_CALL経由で呼ぶ。
+; ---------------------------------------------------------------------
+FTNF_DO_LOG:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    LD A,(MBF_OPA+3)          ; 単精度指数バイト(0=値0、VAL_CUR_IS_ZEROと同じ規則)
+    OR A
+    JR Z,_log_illegal
+    LD A,(MBF_OPA+2)
+    AND 0x80                  ; 単精度符号ビット(VAL_CUR_SIGNと同じ規則)
+    JR NZ,_log_illegal
+    XOR A                        ; A=0(バンク0)
+    LD HL,0x6250                 ; EXT_BANK0_LOG_ENTRY(bank0.asm、オフセット0x0250固定)
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+_log_illegal:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,5
+    LD (ERROR_KIND),A
+    RET
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し

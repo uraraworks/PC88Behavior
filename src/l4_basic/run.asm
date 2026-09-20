@@ -5064,6 +5064,40 @@ _read_syntax:
     LD (ERROR_KIND),A
     RET
 
+; AEL_ROM_LAYOUT_PAD — 2026-09-20追記(ATN/EXP/LOG、第4.16b節)。
+;   ATN/EXP/LOGの追加でN88.ROM全体の総バイト数が伸び、QUASI88の機種判定
+;   予約番地0x79D7(build_main_rom.py ROM_VERSION_RESERVED_ADDR、同ファイル
+;   のコメント参照)に実命令の1バイトが偶然かかるようになった
+;   (docs/PLAN.mdの方針どおりレイアウトをここで分ける——同予約番地の
+;   コメントが指示する「この番地の手前でレイアウトを分けること」の
+;   実施)。RESTORE_STMTの直前(予約番地のすぐ手前)に置くことで、他の
+;   モジュール(L1 IPL・ext_bank等)の故障注入・selftestフラグ
+;   (run_all_selftests.shが使うもの、いずれもRESTORE_STMTより前方の
+;   モジュールにしか触れない)によるバイト数の増減があっても、この
+;   埋め草との相対位置がほぼ保たれる(interp.asm側の離れた位置に置くと、
+;   予約番地に自然に来る0バイトが孤立点で、フラグの組み合わせごとに
+;   再調整が要ることが実測で分かった)。340バイトという量自体は、
+;   --inject-ext-bank-window-fault(この埋め草より手前のモジュールの
+;   内容を差し替えるため、他のフラグより相対位置のずれが大きい
+;   ——実測で最大約290バイト)を含む全フラグの組み合わせで
+;   AEL_ROM_LAYOUT_PADのバイト範囲が予約番地0x79D7を覆うように実測で
+;   決めた値(build_main_rom.pyの --enable-l4-selftest・
+;   --enable-ext-bank-selftest・--inject-ext-bank-bcde-fault・
+;   --inject-address-fault・--inject-l4-sign-space-fault・
+;   --inject-l3-space-fault・--enable-vsync-regcheck・
+;   --inject-vsync-no-save-fault・--inject-key-repeat-fault・
+;   --inject-editkey-home-clr-fault・--inject-l4-missing-operand-fault・
+;   --inject-cursor-fault・--inject-key-table-fault・--inject-shift-fault・
+;   --inject-default-attr-fault・--inject-scroll-range-fault・
+;   --inject-l4-zone-width-fault・--inject-l4-token-fault・
+;   --inject-ext-bank-no-org-fault・--inject-ext-bank-mbf-addr-fault・
+;   --inject-ext-bank-window-fault を1つずつ単独で当てて実測、
+;   --inject-ext-bank-window-faultは意図どおりcheck_ext_bank_relay_
+;   below_windowで落ちる〔ROM_VERSION検査より後段〕ことも確認済み)。
+;   機能的な意味は無く、純粋にレイアウト調整用。
+AEL_ROM_LAYOUT_PAD:
+    DS 340
+
 ; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
 ;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
 RESTORE_STMT:
