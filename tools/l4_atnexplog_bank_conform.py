@@ -33,6 +33,7 @@ from fractions import Fraction
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
+import l4_bank_dup_equ as bank_dup_equ  # noqa: E402
 import l4_mbf_oracle_v2 as oracle  # noqa: E402
 import l4_mbf_oracle_v3 as v3  # noqa: E402
 import l4_mbf_oracle_v10_m9 as m9  # noqa: E402
@@ -292,22 +293,12 @@ FAULTS = {
 }
 
 
-DUP_EQU_LINES = (
-    "MBF_OPA EQU 0xC000",
-    "MBF_OPB EQU 0xC004",
-    "MBF_RES EQU 0xC008",
-    "MBF_STATUS EQU 0xC00C",
-    "MBF_IN_INT EQU 0xC00D",
-    "MBF_OUT_CMP EQU 0xC00F",
-)
-
-
-def load_bank0_src(fault: str | None) -> str:
+def load_bank0_src(fault: str | None, mbf_src: str) -> str:
     text = BANK0_ASM.read_text()
-    for line in DUP_EQU_LINES:
-        old = line + "\n"
-        if text.count(old) == 1:
-            text = text.replace(old, "", 1)
+    # EQU重複除去はtools/l4_bank_dup_equ.pyへ集約した(2026-09-20、
+    # 経緯は同モジュールのdocstring参照。以前は3照合器へ手書きリストを
+    # 複製していたのが退行の原因だった)。
+    text = bank_dup_equ.strip_dup_equ(mbf_src, text)
     if fault:
         old, new = FAULTS[fault]
         if old not in text:
@@ -338,7 +329,19 @@ def resolve_addrs(prefix: str, mbf_src: str, bank0_src_placeholder: str,
     sys.path.insert(0, str(REPO / "tools" / "asm"))
     import z80text  # noqa: E402
     asm = z80text.Assembler()
-    asm.assemble(asm_path)
+    try:
+        asm.assemble(asm_path)
+    except Exception as e:
+        # l4-s7c(2026-09-20、親からの指摘)対応: この1回目のassemble
+        # (番地決定のprobe pass)が失敗すると照合が1件も走らないまま
+        # 終わってしまい、run_allの表示だけでは「不一致が見つかった」
+        # のか「そもそも組み立てが通っていない」のか区別しづらかった。
+        # 一言で分かるようにSystemExitで明示する(下のtracebackで詳細
+        # は見える)。
+        raise SystemExit(
+            f"エラー: アセンブル失敗のため照合0件(組み立てエラー、"
+            f"番地決定のprobe passで発生): {e}"
+        ) from e
     addrs = {}
     for eq_name, label in ADDR_LABELS.items():
         addr = asm.labels.get(label)
@@ -362,7 +365,7 @@ def patch_bank0(text: str, addrs: dict) -> str:
 def build_rom(vecs, func: str, fault: str | None, workdir: pathlib.Path) -> pathlib.Path:
     entry, _ = FUNCS[func]
     mbf_src = MBF_SINGLE_ASM.read_text() + "\n" + MBF_DOUBLE_ASM.read_text()
-    bank0_src = load_bank0_src(fault)
+    bank0_src = load_bank0_src(fault, mbf_src)
     prefix = driver_prefix(len(vecs), entry)
     addrs = resolve_addrs(prefix, mbf_src, bank0_src, workdir)
     bank0_src = patch_bank0(bank0_src, addrs)

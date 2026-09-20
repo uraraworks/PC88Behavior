@@ -40,6 +40,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
+import l4_bank_dup_equ as bank_dup_equ  # noqa: E402
 import l4_mbf_oracle_v2 as oracle  # noqa: E402
 import l4_mbf_oracle_v10_m9 as m9  # noqa: E402
 
@@ -49,7 +50,7 @@ BANK0_ASM = REPO / "src" / "ext_bank" / "bank0.asm"
 FRONTEND = REPO / "tools" / "harness" / "frontend" / "q88measure"
 VENDOR = REPO.parent / "vendor" / "quasi88-libretro"
 
-VEC_TABLE_ADDR = 0x6700     # bank0.asmの実測終端より少し先。2026-09-20
+VEC_TABLE_ADDR = 0x7000     # bank0.asmの実測終端より少し先。2026-09-20
                              # 追記: SIN/COS/TAN実装(EXT_BANK0_SIN_ENTRY等、
                              # オフセット0x0200-0x0220台)でbank0.asmが伸び、
                              # 旧値0x6120では実際のコード終端(実測0x64BD
@@ -60,6 +61,18 @@ VEC_TABLE_ADDR = 0x6700     # bank0.asmの実測終端より少し先。2026-09-
                              # 同じ理由で値を上げる(SQR側は0x6900だと
                              # -n既定値1900がcapを超えるため、0x6900より
                              # 少し詰めた0x6700にする)。
+                             # 2026-09-20さらに追記(l4-s7c、親からの指摘):
+                             # ATN/EXP/LOG実装(b00bf21)でbank0.asmが
+                             # さらに伸び、0x6700でも「org が既に書いた
+                             # 領域より手前」で再発した(EQU重複除去の
+                             # バグ〔l4_bank_dup_equ.py参照〕でこのエラー
+                             # 自体には到達していなかった)。
+                             # tools/l4_atnexplog_bank_conform.pyが同じ
+                             # bank0.asmに対して既に0x6F00で通っている
+                             # ことを踏まえ、さらに余裕を持たせて0x7000に
+                             # 上げた(cap=(N88_SIZE-VEC_TABLE_ADDR)/4は
+                             # 0x7000で1024、本ファイルが使う最大n=250に
+                             # 十分な余裕がある)。
 N88_SIZE = 0x8000            # 32KB(実機のROM窓と同じ)。2026-09-20の
                               # デバッグで、48KB(0xC000)にしたところ
                               # n=1536件目から突然「別の固定値が繰り返し
@@ -204,26 +217,12 @@ FAULTS = {
 }
 
 
-DUP_EQU_LINES = (
-    "MBF_OPA EQU 0xC000",
-    "MBF_OPB EQU 0xC004",
-    "MBF_RES EQU 0xC008",
-)
-
-
-def load_bank0_src(fault: str | None) -> str:
+def load_bank0_src(fault: str | None, mbf_src: str) -> str:
     text = BANK0_ASM.read_text()
-    # bank0.asmは本番ビルドで単独assembleされる前提でMBF_OPA/OPB/RESを
-    # 自前でEQU宣言している(値はmbf_single.asmと同じ)。この照合器は
-    # mbf_single.asm/mbf_double.asm/bank0.asmを1本の.asmとして連結して
-    # assembleするため、同名EQUの重複定義になってしまう(値は同一、
-    # z80textはラベル重複をエラーにする)。mbf_single.asm側の定義を
-    # 生かし、bank0.asm側の重複行だけをこの照合器専用に取り除く
-    # (bank0.asm本体は変更しない、二重実装の解消であって挙動は変えない)。
-    for line in DUP_EQU_LINES:
-        old = line + "\n"
-        if text.count(old) == 1:
-            text = text.replace(old, "", 1)
+    # EQU重複除去はtools/l4_bank_dup_equ.pyへ集約した(2026-09-20、
+    # 経緯は同モジュールのdocstring参照。以前は3照合器へ手書きリストを
+    # 複製していたのが退行の原因だった)。
+    text = bank_dup_equ.strip_dup_equ(mbf_src, text)
     if fault:
         old, new = FAULTS[fault]
         if old not in text:
@@ -267,7 +266,19 @@ def resolve_addrs(driver_prefix: str, mbf_src: str, bank0_src_placeholder: str,
     sys.path.insert(0, str(REPO / "tools" / "asm"))
     import z80text  # noqa: E402
     asm = z80text.Assembler()
-    asm.assemble(asm_path)
+    try:
+        asm.assemble(asm_path)
+    except Exception as e:
+        # l4-s7c(2026-09-20、親からの指摘)対応: この1回目のassemble
+        # (番地決定のprobe pass)が失敗すると照合が1件も走らないまま
+        # 終わってしまい、run_allの表示だけでは「不一致が見つかった」
+        # のか「そもそも組み立てが通っていない」のか区別しづらかった。
+        # 一言で分かるようにSystemExitで明示する(下のtracebackで詳細
+        # は見える)。
+        raise SystemExit(
+            f"エラー: アセンブル失敗のため照合0件(組み立てエラー、"
+            f"番地決定のprobe passで発生): {e}"
+        ) from e
     addrs = {}
     for eq_name, label in ADDR_LABELS.items():
         addr = asm.labels.get(label)
@@ -290,7 +301,7 @@ def patch_bank0(text: str, addrs: dict) -> str:
 
 def build_rom(vecs, fault: str | None, workdir: pathlib.Path) -> pathlib.Path:
     mbf_src = MBF_SINGLE_ASM.read_text() + "\n" + MBF_DOUBLE_ASM.read_text()
-    bank0_src = load_bank0_src(fault)
+    bank0_src = load_bank0_src(fault, mbf_src)
     prefix = driver_prefix(len(vecs))
     addrs = resolve_addrs(prefix, mbf_src, bank0_src, workdir)
     bank0_src = patch_bank0(bank0_src, addrs)
