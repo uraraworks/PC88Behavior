@@ -1,0 +1,13 @@
+frozen	yes
+timeout_limit	65535
+a0_frames	600
+a1_frames	600
+a2_frames	600
+a3_frames	600
+a4_frames	600
+a5_frames	6000
+a5_registers	AF,BC,DE,HL,IX,IY
+key_scenario	base_Q
+screen_line_count	3
+screen_char_count	20
+screen_sha256	580684fbac954c32feb596092a55859a03090d0030a2297c8bb39a3424583f8e
