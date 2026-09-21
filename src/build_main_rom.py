@@ -53,6 +53,7 @@ SCREEN_ASM = REPO / "src" / "l3_main" / "screen.asm"
 KEYBOARD_ASM = REPO / "src" / "l3_main" / "keyboard.asm"
 VSYNC_REGCHECK_ASM = REPO / "src" / "l3_main" / "vsync_regcheck.asm"
 KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
+MAIN_SUB_READ_ASM = REPO / "src" / "l3_main" / "main_sub_read.asm"
 
 # M7段階3b: BASIC核(直接モードPRINT)。src/l4_basic/*.asm・生成物。
 L4_TOKENS_ASM = REPO / "src" / "l4_basic" / "tokens.asm"
@@ -351,6 +352,46 @@ EXT_BANK_BCDE_RESTORE_FAULT_NEW = (
     "; 故障注入(--inject-ext-bank-bcde-fault): POP DE/POP BCを削る(対)。"
 )
 
+# main<->sub単一セクタREADの陰性対照。各置換はバイト数を維持し、
+# 該当するコード列だけを変える。所定のNOP列は故障箇所通過印の書込みへ置換する。
+MAIN_SUB_WAIT_FAULT_OLD = (
+    "_ms_send_wait_before_site:\n"
+    "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n"
+    "    LD C,002h\n"
+    "    CALL MAIN_SUB_WAIT_SET"
+)
+MAIN_SUB_WAIT_FAULT_NEW = (
+    "_ms_send_wait_before_site:\n"
+    "    LD A,001h\n"
+    "    LD (MAIN_SUB_MARK_FAULT_WAIT),A\n"
+    "    LD C,002h\n"
+    "    CALL MAIN_SUB_WAIT_CLEAR"
+)
+MAIN_SUB_CONT_FAULT_OLD = (
+    "_ms_cont_call_site:\n"
+    "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n"
+    "    CALL MAIN_SUB_SEND_CONT"
+)
+MAIN_SUB_CONT_FAULT_NEW = (
+    "_ms_cont_call_site:\n"
+    "    PUSH AF\n"
+    "    LD A,001h\n"
+    "    LD (MAIN_SUB_MARK_FAULT_CONT),A\n"
+    "    POP AF\n"
+    "    CALL MAIN_SUB_SEND"
+)
+MAIN_SUB_PAIR_FAULT_OLD = (
+    "_ms_pair_call_site:\n"
+    "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n"
+    "    CALL MAIN_SUB_RECV_PAIR"
+)
+MAIN_SUB_PAIR_FAULT_NEW = (
+    "_ms_pair_call_site:\n"
+    "    LD A,001h\n"
+    "    LD (MAIN_SUB_MARK_FAULT_PAIR),A\n"
+    "    CALL MAIN_SUB_RECV_PAIR_BROKEN"
+)
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -370,7 +411,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_ext_bank_window_fault: bool = False,
                         inject_ext_bank_bcde_fault: bool = False,
                         enable_vsync_regcheck: bool = False,
-                        inject_vsync_no_save_fault: bool = False) -> str:
+                        inject_vsync_no_save_fault: bool = False,
+                        enable_main_sub_read: bool = False,
+                        inject_main_sub_wait_fault: bool = False,
+                        inject_main_sub_cont_fault: bool = False,
+                        inject_main_sub_pair_fault: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -393,6 +438,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
     # (無条件で呼ぶとL1適合検査のOUT件数・サイクル数が変わる)。
     ext_bank_selftest_call = "    CALL EXT_BANK_SELFTEST\n" if enable_ext_bank_selftest else ""
+    main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n" if enable_main_sub_read else ""
     # 拡張ROMバンク: EXT_BANK_BUSY(再入検出フラグ)の初期化は
     # selftestフラグの有無と無関係に必ず行う(src/ext_bank/relay.asmの
     # EXT_BANK_INITコメント参照。RAMがゼロ初期化される保証が無いため、
@@ -401,7 +447,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     ipl_text = ipl_text.replace(
         INSERT_MARK,
         "    CALL SCREEN_MAIN\n    CALL EXT_BANK_INIT\n"
-        + l4_selftest_call + ext_bank_selftest_call + INSERT_MARK)
+        + l4_selftest_call + ext_bank_selftest_call + main_sub_init_call + INSERT_MARK)
 
     # STEADY_WAIT(IM2/I/EI設定済みの定常状態)へ入った直後に呼ぶ自己検査
     # 呼び出し列。複数のフラグが同時に立っても1回のtext置換で済むよう、
@@ -420,6 +466,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         steady_wait_calls += "    CALL EXT_BANK_LOOP_TEST\n"
     if enable_vsync_regcheck:
         steady_wait_calls += "    CALL VSYNC_REGCHECK\n"
+    if enable_main_sub_read:
+        steady_wait_calls += "    CALL MAIN_SUB_READ_BOOT_ONCE\n"
     if steady_wait_calls:
         if STEADY_WAIT_MARK not in ipl_text:
             raise SystemExit(f"STEADY_WAITの挿入点が見つからない: {STEADY_WAIT_MARK!r}")
@@ -599,6 +647,24 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     if inject_ext_bank_window_fault:
         combined += ext_bank_relay_include
     combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
+    if enable_main_sub_read:
+        main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")
+        for enabled, old, new, name in (
+            (inject_main_sub_wait_fault, MAIN_SUB_WAIT_FAULT_OLD,
+             MAIN_SUB_WAIT_FAULT_NEW, "待ちビット判定"),
+            (inject_main_sub_cont_fault, MAIN_SUB_CONT_FAULT_OLD,
+             MAIN_SUB_CONT_FAULT_NEW, "継続SEND"),
+            (inject_main_sub_pair_fault, MAIN_SUB_PAIR_FAULT_OLD,
+             MAIN_SUB_PAIR_FAULT_NEW, "2位置PAIR"),
+        ):
+            if enabled:
+                if main_sub_read_text.count(old) != 1:
+                    raise SystemExit(
+                        f"main<->sub {name}故障注入の対象が一意に見つからない")
+                main_sub_read_text = main_sub_read_text.replace(old, new)
+        main_sub_read_path = work / "main_sub_read_gen.asm"
+        main_sub_read_path.write_text(main_sub_read_text, encoding="utf-8")
+        combined += f'\nINCLUDE "{main_sub_read_path}"\n'
     return combined
 
 
@@ -613,6 +679,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 # 使われる)」状態で通っているため、コードが伸びてここへ命令の1バイトが
 # 来ると機種が偶然変わり、原因の分かりにくい食い違いを生む。
 ROM_VERSION_RESERVED_ADDR = 0x79D7
+MAIN_SUB_LINK_MAX_SIZE = 1160
 
 
 def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]":
@@ -634,6 +701,16 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
             "コード/表がここへ届き、QUASI88の機種判定(memory.h ROM_VERSION)が"
             "偶然変わってしまう。この番地の手前でレイアウトを分けること。"
         )
+    link_start = asm.labels.get("MAIN_SUB_LINK_START")
+    link_end = asm.labels.get("MAIN_SUB_LINK_END")
+    if (link_start is None) != (link_end is None):
+        raise SystemExit("main<->sub常駐部の境界ラベルが片方しかない")
+    if link_start is not None:
+        link_size = link_end - link_start
+        if link_size > MAIN_SUB_LINK_MAX_SIZE:
+            raise SystemExit(
+                f"main<->sub常駐部が末尾空き1160Bを超えた: "
+                f"{link_size} > {MAIN_SUB_LINK_MAX_SIZE}")
     check_ext_bank_relay_below_window(asm)
     check_ext_bank_callable_labels_below_window(asm)
     return bytes(rom), asm
@@ -794,6 +871,18 @@ def main():
                      help="故障注入: bank0.asmへ渡すMBF_ADDの絶対番地を1バイトずらし、"
                           "EXT_BANK0_MBF_TEST_ENTRYが誤った番地をCALLするようにする"
                           "（自己検査の陰性対照専用）")
+    ap.add_argument("--enable-main-sub-read", action="store_true",
+                    help="検査用ビルドにmain<->sub通信と既知1セクタREAD入口を入れ、"
+                         "定常状態でドライブAを1回読む（配布ビルドは既定off）")
+    ap.add_argument("--inject-main-sub-wait-fault", action="store_true",
+                    help="故障注入: SEND前のbit1待ちを反対(bit1=0)にする。"
+                         "main-sub READを暗黙に有効化する")
+    ap.add_argument("--inject-main-sub-cont-fault", action="store_true",
+                    help="故障注入: 5位置すべてでOUT $FF,0Fを出す。"
+                         "main-sub READを暗黙に有効化する")
+    ap.add_argument("--inject-main-sub-pair-fault", action="store_true",
+                    help="故障注入: 2位置PAIRを単発RECV 2回へ置換する。"
+                         "main-sub READを暗黙に有効化する")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -803,6 +892,11 @@ def main():
     ap.add_argument("--keep-work", action="store_true",
                      help="--work-dir を指定しない場合でも中間ファイルを残す")
     args = ap.parse_args()
+
+    main_sub_fault_enabled = (
+        args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
+        or args.inject_main_sub_pair_fault)
+    enable_main_sub_read = args.enable_main_sub_read or main_sub_fault_enabled
 
     if args.extra_lines < 0 or args.extra_lines > 255:
         raise SystemExit("--extra-lines は 0-255")
@@ -832,7 +926,11 @@ def main():
                                        inject_ext_bank_window_fault=args.inject_ext_bank_window_fault,
                                        inject_ext_bank_bcde_fault=args.inject_ext_bank_bcde_fault,
                                        enable_vsync_regcheck=args.enable_vsync_regcheck,
-                                       inject_vsync_no_save_fault=args.inject_vsync_no_save_fault)
+                                       inject_vsync_no_save_fault=args.inject_vsync_no_save_fault,
+                                       enable_main_sub_read=enable_main_sub_read,
+                                       inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
+                                       inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
+                                       inject_main_sub_pair_fault=args.inject_main_sub_pair_fault)
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
