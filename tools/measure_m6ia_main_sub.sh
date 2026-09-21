@@ -243,5 +243,6 @@ if [ "$arm" = A5 ]; then
 fi
 python3 "$ANALYZE" --arm "$arm" --memlog "$WORK/${arm}.mem.txt" \
   --iolog "$WORK/${arm}.io.txt" --report "$WORK/${arm}.report.txt" \
-  --srm-before "$srm_before" --srm-after "$srm_after" "${extra[@]}" | tee "$result"
+  --srm-before "$srm_before" --srm-after "$srm_after" \
+  ${extra[@]+"${extra[@]}"} | tee "$result"
 exit "${PIPESTATUS[0]}"

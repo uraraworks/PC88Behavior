@@ -132,6 +132,53 @@ else
   ok "画面本文・データ列を標準出力／標準エラーへ出さない"
 fi
 
+# macOS標準Bash 3.2では、set -u下の空配列を単純に "${a[@]}" と展開すると
+# unbound variableになる。A0〜A3はextraが空、A5だけ2組4引数、A4は専用分岐
+# なので、実ドライバと同じ腕別組立てを/bin/bashで評価する。
+/bin/bash -c '
+set -u
+for arm in A0 A1 A2 A3 A4 A5; do
+  extra=()
+  if [ "$arm" = A5 ]; then
+    extra+=(--intlog synthetic.int --screen-expected synthetic.signature)
+  fi
+  if [ "$arm" = A4 ]; then
+    set -- --arm A4 --a4-special
+    [ "$#" -eq 3 ] || exit 1
+    continue
+  fi
+  set -- --arm "$arm" ${extra[@]+"${extra[@]}"}
+  if [ "$arm" = A5 ]; then
+    [ "$#" -eq 6 ] || exit 1
+  else
+    [ "$#" -eq 2 ] || exit 1
+  fi
+done
+' >"$WORK/bash32-array-safe.out" 2>"$WORK/bash32-array-safe.err"
+array_safe_rc=$?
+if [ "$array_safe_rc" -eq 0 ]; then
+  ok "Bash 3.2互換: A0〜A5の空/非空extra引数組立てがset -u下で完走"
+else
+  ng "Bash 3.2互換の腕別extra引数組立てが失敗(rc=${array_safe_rc})"
+fi
+
+# 陰性対照: 修正前そのものの単純展開はmacOS Bash 3.2で失敗する。
+bash_major="$(/bin/bash -c 'echo "${BASH_VERSINFO[0]}"')"
+bash_minor="$(/bin/bash -c 'echo "${BASH_VERSINFO[1]}"')"
+/bin/bash -c 'set -u; extra=(); set -- "${extra[@]}"' \
+  >"$WORK/bash32-array-unsafe.out" 2>"$WORK/bash32-array-unsafe.err"
+array_unsafe_rc=$?
+if [ "$bash_major" -eq 3 ] && [ "$bash_minor" -eq 2 ]; then
+  if [ "$array_unsafe_rc" -ne 0 ] \
+     && grep -q 'unbound variable' "$WORK/bash32-array-unsafe.err"; then
+    ok "陰性対照: 修正前の空extra展開はBash 3.2でunbound variable"
+  else
+    ng "陰性対照の修正前展開がBash 3.2で失敗しない(rc=${array_unsafe_rc})"
+  fi
+else
+  echo "SKIP: /bin/bashは3.2でないため空配列の陰性実挙動確認なし"
+fi
+
 if [ "$rc" -eq 0 ]; then
   echo "G7: rc=0"
 else
