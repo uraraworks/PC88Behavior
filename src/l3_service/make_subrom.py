@@ -1037,6 +1037,8 @@ def build_subrom(break_write_ack=False,
                   probe_mode=None,
                   inject_m6ib_b1=False,
                   inject_m6ib_b2=False,
+                  inject_m6ib_b3=False,
+                  inject_m6ib_b4=False,
                   inject_m6ib_b5=False,
                   align_padding_bytes=0):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
@@ -1491,7 +1493,8 @@ def build_subrom(break_write_ack=False,
     a.out_imm(0xFF, BOOT_FF_VALUE)         # 手順2: OUT $FF,0x91
     a.in_port(P_PIO_C)                     # 手順3: IN $FE（単発、読み捨て）
     a.in_port(P_PIO_C)                     # 手順4: IN $FE（単発、読み捨て）
-    a.call("RECV_BYTE")                    # 手順5: RECVプリミティブ1回（応答なし）
+    if not inject_m6ib_b3:
+        a.call("RECV_BYTE")                # 手順5: RECVプリミティブ1回（応答なし）
     a.out_imm(P_F8, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_F8, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     # 割り込みモードはI/Oログから未確定なので、ベクタを1箇所だけ確保すれば
@@ -1580,6 +1583,15 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_RECALIBRATE")                 # 保持中のドライブ1
     #      batch7: RECALIBRATE（ドライブ2）。
     a.ld_e(0x02); a.call("FDC_RECALIBRATE")   # ドライブ2
+    if inject_m6ib_b3:
+        # 状態直交化専用介入。公式起動でa→b順が許されるとは主張しない。
+        # 初期化7 batchを終えた後、通常SEND開始まで停止し、解除後に
+        # 起動専用として保留していたRECVを1回だけ行う。
+        _emit_m6ib_release_gate("M6IB_B3_AFTER_INIT_GATE")
+        a.call("RECV_BYTE")
+    if inject_m6ib_b4:
+        # 通常順b→aは完了済み。MAIN_LOOPへ入ってラウンド#0を始める直前。
+        _emit_m6ib_release_gate("M6IB_B4_BEFORE_ROUND0_GATE")
     a.jp("MAIN_LOOP")
 
     # ====================================================================
@@ -3519,6 +3531,8 @@ def build(break_write_ack=False,
           probe_mode=None,
           inject_m6ib_b1=False,
           inject_m6ib_b2=False,
+          inject_m6ib_b3=False,
+          inject_m6ib_b4=False,
           inject_m6ib_b5=False,
           metadata=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
@@ -3556,6 +3570,8 @@ def build(break_write_ack=False,
                           probe_mode=probe_mode,
                           inject_m6ib_b1=inject_m6ib_b1,
                           inject_m6ib_b2=inject_m6ib_b2,
+                          inject_m6ib_b3=inject_m6ib_b3,
+                          inject_m6ib_b4=inject_m6ib_b4,
                           inject_m6ib_b5=inject_m6ib_b5,
                           align_padding_bytes=align_padding_bytes)
         a.resolve()
@@ -3724,6 +3740,10 @@ def main():
                     help="m6i-b B1: リセット入口で通常SEND開始まで停止する")
     ap.add_argument("--inject-m6ib-b2", action="store_true",
                     help="m6i-b B2: 起動RECV後、最初のFDC初期化I/O直前で停止する")
+    ap.add_argument("--inject-m6ib-b3", action="store_true",
+                    help="m6i-b B3: 起動RECVを保留し、FDC初期化7 batch後に停止する")
+    ap.add_argument("--inject-m6ib-b4", action="store_true",
+                    help="m6i-b B4: 起動RECVとFDC初期化後、ラウンド#0前に停止する")
     ap.add_argument("--inject-m6ib-b5", action="store_true",
                     help="m6i-b B5: ラウンド#0応答完了後に停止する")
     ap.add_argument("--emit-asm", type=pathlib.Path, default=None,
@@ -3731,8 +3751,9 @@ def main():
                          "（tools/asm/z80text.py で組み直せる）。既定の"
                          "ROM出力バイトには影響しない。")
     args = ap.parse_args()
-    if sum((args.inject_m6ib_b1, args.inject_m6ib_b2, args.inject_m6ib_b5)) > 1:
-        ap.error("--inject-m6ib-b1/--inject-m6ib-b2/--inject-m6ib-b5は併用不可")
+    if sum((args.inject_m6ib_b1, args.inject_m6ib_b2, args.inject_m6ib_b3,
+            args.inject_m6ib_b4, args.inject_m6ib_b5)) > 1:
+        ap.error("--inject-m6ib-b1〜--inject-m6ib-b5は併用不可")
     if (args.probe_site is None) != (args.probe_mode is None):
         ap.error("--probe-site と --probe-mode は両方指定するか、両方省略する")
     if args.error_response_candidate is not None and not (
@@ -3779,6 +3800,8 @@ def main():
                        probe_mode=args.probe_mode,
                        inject_m6ib_b1=args.inject_m6ib_b1,
                        inject_m6ib_b2=args.inject_m6ib_b2,
+                       inject_m6ib_b3=args.inject_m6ib_b3,
+                       inject_m6ib_b4=args.inject_m6ib_b4,
                        inject_m6ib_b5=args.inject_m6ib_b5,
                        metadata=metadata)
     d = pathlib.Path(args.outdir)

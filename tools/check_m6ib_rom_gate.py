@@ -31,11 +31,7 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
                                       arm: str) -> tuple[bool, bool]:
     """main介入部の両端がアセンブラの発行単位境界にあり、成果物と一致する。"""
     work.mkdir(parents=True, exist_ok=True)
-    kwargs = {"enable_main_sub_read": True}
-    if arm != "control":
-        kwargs[f"inject_m6ib_{arm.lower()}"] = True
-    text = mainrom.build_combined_asm(work, 0, False, **kwargs)
-    rom, asm = mainrom.assemble(text, work)
+    rom, asm = m6ib.assemble_main_for_arm(work, arm)
     if rom != (outdir / "N88.ROM").read_bytes():
         return False, False
     boundaries = {0, len(asm.code)}
@@ -54,7 +50,7 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
         and rom[mainrom.ROM_VERSION_RESERVED_ADDR] == mainrom.FILL
     )
     allocation_ok = True
-    if arm != "control":
+    if arm != "B0":
         expected = {
             0xE009: "M6IB_FRAME_COUNT",
             0xE00A: "M6IB_STAGE",
@@ -64,6 +60,9 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
         for addr, owner in expected.items():
             names = {name for name, value in asm.symtab.items() if value == addr}
             allocation_ok &= names == {owner}
+        if arm in m6ib.B6_BRANCHES:
+            names = {name for name, value in asm.symtab.items() if value == 0xE00D}
+            allocation_ok &= names == {"M6IB_BRANCH_TAG"}
     return boundary_ok, allocation_ok
 
 
@@ -71,8 +70,9 @@ def sub_instruction_boundaries_valid(outdir: pathlib.Path, arm: str,
                                      inject_boundary_fault: bool) -> bool:
     """subの実アセンブラ区間を使い、フェッチ窓跨ぎと窓外到達を検査する。"""
     kwargs = {}
-    if arm != "control":
-        kwargs[f"inject_m6ib_{arm.lower()}"] = True
+    sub_arm = "B0" if arm in m6ib.B6_BRANCHES else arm
+    if sub_arm != "B0":
+        kwargs[f"inject_m6ib_{sub_arm.lower()}"] = True
     rom, used = subrom.build(**kwargs)
     asm = subrom._LAST_ASM
     artifact = (outdir / "DISK.ROM").read_bytes()
@@ -101,14 +101,14 @@ def main() -> int:
     args.work_dir.mkdir(parents=True, exist_ok=True)
 
     m6ia_dir = args.work_dir / "m6ia-a0"
-    control_dir = args.work_dir / "control"
+    b0_dir = args.work_dir / "b0"
     run([sys.executable, str(REPO / "tools" / "build_m6ia_measure_rom.py"),
          str(m6ia_dir), "--arm", "A0", "--work-dir", str(args.work_dir / "asm-a0")])
     run([sys.executable, str(REPO / "tools" / "build_m6ib_measure_rom.py"),
-         str(control_dir), "--arm", "control", "--work-dir", str(args.work_dir / "asm-control")])
+         str(b0_dir), "--arm", "B0", "--work-dir", str(args.work_dir / "asm-b0")])
 
-    dirs: dict[str, pathlib.Path] = {"control": control_dir}
-    for arm in ("B1", "B2", "B5"):
+    dirs: dict[str, pathlib.Path] = {"B0": b0_dir}
+    for arm in m6ib.ARMS[1:]:
         outdir = args.work_dir / arm.lower()
         run([sys.executable, str(REPO / "tools" / "build_m6ib_measure_rom.py"),
              str(outdir), "--arm", arm, "--work-dir", str(args.work_dir / f"asm-{arm.lower()}")])
@@ -118,7 +118,7 @@ def main() -> int:
         target = dirs["B1"] / "DISK.ROM"
         target.write_bytes(target.read_bytes()[:-1])
 
-    control_matches = same_tree(m6ia_dir, control_dir)
+    control_matches = same_tree(m6ia_dir, b0_dir)
     hashes = {name: m6ib.rom_set_sha256(path) for name, path in dirs.items()}
     mutually_distinct = len(set(hashes.values())) == len(hashes)
     size_gate = all(m6ib.sizes_valid(path) for path in dirs.values())
@@ -139,7 +139,7 @@ def main() -> int:
     payload = {
         "gate": "rom_nonempty",
         "passed": passed,
-        "control_matches_m6ia_a0": control_matches,
+        "b0_matches_m6ia_a0": control_matches,
         "all_rom_sets_mutually_distinct": mutually_distinct,
         "size_gate": size_gate,
         "instruction_boundary_gate": instruction_boundary_gate,

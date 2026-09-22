@@ -392,7 +392,7 @@ MAIN_SUB_PAIR_FAULT_NEW = (
     "    CALL MAIN_SUB_RECV_PAIR_BROKEN"
 )
 
-# m6i-b（事前登録済みB1/B2/B5）のmain側介入。既定テキスト全体を
+# m6i-b（事前登録済みB1〜B5）のmain側介入。既定テキスト全体を
 # 腕専用の状態機械へ一度だけ置換する。各腕は、起動前置きの有無だけを
 # 変え、通常READ本体 MAIN_SUB_READ_KNOWN には触れない。
 M6IB_BOOT_OLD = """MAIN_SUB_READ_INIT:
@@ -418,10 +418,15 @@ M6IB_MARK_C               EQU 0E00Ch
 """
 
 # 予備走（実I/Oログ）で、STEADY_WAIT進入直後を含む呼出し55回が
-# 3腕とも通常READ先頭のframe 60に対応した。最初の2回だけ同一frame内、
-# 以後は1 frameにつき1回で、旧値0x21は3腕ともframe 38だった。
+# B1〜B5の5腕とも通常READ先頭のframe 60に対応した。最初の2回だけ同一
+# frame内、以後は1 frameにつき1回。旧値0x21ではB1/B2/B5がframe 38だった。
+# 前置きの長さは腕ごとに違うが、この計数器は待機枝でしか増えないため
+# 5腕で同じ値になる。B3・B4も流用ではなく実I/Oログで確かめた
+# （read_issue_frame=60）。
 M6IB_B1_FRAME_CALL_LIMIT = "037h"
 M6IB_B2_FRAME_CALL_LIMIT = "037h"
+M6IB_B3_FRAME_CALL_LIMIT = "037h"
+M6IB_B4_FRAME_CALL_LIMIT = "037h"
 M6IB_B5_FRAME_CALL_LIMIT = "037h"
 
 M6IB_INIT = """MAIN_SUB_READ_INIT:
@@ -477,6 +482,56 @@ _m6ib_b2_wait:
     LD (M6IB_FRAME_COUNT),A
     RET
 _m6ib_b2_issue:
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IB_BOOT_B3 = M6IB_COMMON_EQU + M6IB_INIT + f"""
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    ; 状態直交化介入中もsubへ実行権を渡す。データポートには触れない。
+    IN A,(0FEh)
+    LD A,(M6IB_FRAME_COUNT)
+    CP {M6IB_B3_FRAME_CALL_LIMIT}
+    JR Z,_m6ib_b3_issue
+    INC A
+    LD (M6IB_FRAME_COUNT),A
+    RET
+_m6ib_b3_issue:
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IB_BOOT_B4 = M6IB_COMMON_EQU + M6IB_INIT + f"""
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,(M6IB_STAGE)
+    OR A
+    JR NZ,_m6ib_b4_wait
+    XOR A
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,001h
+    LD (M6IB_MARK_B),A
+    LD (M6IB_STAGE),A
+_m6ib_b4_wait:
+    LD A,(M6IB_FRAME_COUNT)
+    CP {M6IB_B4_FRAME_CALL_LIMIT}
+    JR Z,_m6ib_b4_issue
+    INC A
+    LD (M6IB_FRAME_COUNT),A
+    RET
+_m6ib_b4_issue:
     LD A,001h
     LD (MAIN_SUB_BOOT_DONE),A
     XOR A
@@ -549,6 +604,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_main_sub_pair_fault: bool = False,
                         inject_m6ib_b1: bool = False,
                         inject_m6ib_b2: bool = False,
+                        inject_m6ib_b3: bool = False,
+                        inject_m6ib_b4: bool = False,
                         inject_m6ib_b5: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -799,11 +856,13 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         m6ib_variants = [
             (inject_m6ib_b1, M6IB_BOOT_B1, "B1"),
             (inject_m6ib_b2, M6IB_BOOT_B2, "B2"),
+            (inject_m6ib_b3, M6IB_BOOT_B3, "B3"),
+            (inject_m6ib_b4, M6IB_BOOT_B4, "B4"),
             (inject_m6ib_b5, M6IB_BOOT_B5, "B5"),
         ]
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
-            raise SystemExit("m6i-b介入はB1/B2/B5のうち1つだけ指定する")
+            raise SystemExit("m6i-b介入はB1〜B5のうち1つだけ指定する")
         if enabled_m6ib:
             replacement, arm = enabled_m6ib[0]
             if main_sub_read_text.count(M6IB_BOOT_OLD) != 1:
@@ -1037,6 +1096,10 @@ def main():
                     help="m6i-b B1: frame 60まで通信せず、subをリセット入口で停止する")
     ap.add_argument("--inject-m6ib-b2", action="store_true",
                     help="m6i-b B2: 起動専用RECV後、最初のFDC初期化I/O直前で停止する")
+    ap.add_argument("--inject-m6ib-b3", action="store_true",
+                    help="m6i-b B3: 起動専用RECVを保留してFDC初期化7 batch後に停止する")
+    ap.add_argument("--inject-m6ib-b4", action="store_true",
+                    help="m6i-b B4: 起動順b→a完了後、ラウンド#0前で停止する")
     ap.add_argument("--inject-m6ib-b5", action="store_true",
                     help="m6i-b B5: 起動順b→a→c完了後に停止する")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
@@ -1049,10 +1112,13 @@ def main():
                      help="--work-dir を指定しない場合でも中間ファイルを残す")
     args = ap.parse_args()
 
-    m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2, args.inject_m6ib_b5)
+    m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
+                   args.inject_m6ib_b3, args.inject_m6ib_b4,
+                   args.inject_m6ib_b5)
     if sum(bool(value) for value in m6ib_flags) > 1:
-        ap.error("--inject-m6ib-b1/--inject-m6ib-b2/--inject-m6ib-b5は併用不可")
-    m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags, ("B1", "B2", "B5"))
+        ap.error("--inject-m6ib-b1〜--inject-m6ib-b5は併用不可")
+    m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
+                      ("B1", "B2", "B3", "B4", "B5"))
                       if enabled), None)
     main_sub_fault_enabled = (
         args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
@@ -1094,6 +1160,8 @@ def main():
                                        inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,
                                        inject_m6ib_b1=args.inject_m6ib_b1,
                                        inject_m6ib_b2=args.inject_m6ib_b2,
+                                       inject_m6ib_b3=args.inject_m6ib_b3,
+                                       inject_m6ib_b4=args.inject_m6ib_b4,
                                        inject_m6ib_b5=args.inject_m6ib_b5)
         rom, asm = assemble(combined, work)
 
