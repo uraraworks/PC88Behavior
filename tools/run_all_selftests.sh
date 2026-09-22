@@ -148,6 +148,7 @@ SCRIPTS_EXPECTED=(
   "tools/main_sub_link_selftest.sh:0"
   "tools/analyze_m6ia_main_sub_selftest.sh:0"
   "tools/analyze_m6ib_first_request_selftest.sh:0"
+  "tools/judge_m6ib_first_request_selftest.sh:0"
   "tools/check_m6ib_rom_gate_selftest.sh:0"
   # 第16節(スクリーンエディタ・編集キー)・第17節(RETURNによる行の読み直し)
   # の自己検査。公式ROM不要（自作ROMだけで動かす）。
