@@ -3,9 +3,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRATCH="/private/tmp/claude-501/-Users-haruurara-MyProject--emulator-PC88/f621696a-188f-4769-8f74-f19993332403/scratchpad"
-mkdir -p "$SCRATCH"
-WORK="$(mktemp -d "$SCRATCH/m6ic-rom-gate.XXXXXX")"
+WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 POSITIVE="$WORK/positive"
