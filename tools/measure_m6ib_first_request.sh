@@ -3,8 +3,17 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FROZEN_CONFIG="${M6IB_FROZEN_CONFIG:-$REPO/tools/m6ib_frozen.tsv}"
+if ! python3 "$REPO/tools/check_m6ib_preregistration.py" --config "$FROZEN_CONFIG"; then
+  printf '%s\n' '{"judgment":"gate_failed","reason":"preregistration_mismatch"}'
+  exit 1
+fi
 source "$REPO/tools/lib_l3_measure.sh"
-FRONTEND="$REPO/tools/harness/frontend/q88measure"
+FRONTEND="${M6IB_FRONTEND:-$REPO/tools/harness/frontend/q88measure}"
+
+cfg() {
+  awk -F '\t' -v key="$1" '$1==key { if (++n==1) value=$2 } END { if (n==1) print value; else exit 1 }' "$FROZEN_CONFIG"
+}
 
 arm=""
 result=""
@@ -36,8 +45,10 @@ esac
 if [ -n "$fault" ] && [ "$fault" != "$expected_fault" ]; then exit 2; fi
 
 case "$arm" in
-  B6-A5) frames=6000; alarm_seconds=600 ;;
-  *) frames=600; alarm_seconds=180 ;;
+  B6-A5) frames="$(cfg b6_a5_frames)"; alarm_seconds=600 ;;
+  B6-*) frames="$(cfg b6_a0_a4_frames)"; alarm_seconds=180 ;;
+  B5) frames="$(cfg b5_frames)"; alarm_seconds=180 ;;
+  *) frames="$(cfg b0_b4_frames)"; alarm_seconds=180 ;;
 esac
 
 WORK="$(mktemp -d)"
@@ -49,7 +60,7 @@ python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/generated.d88" \
   --cylinders 40 --double-sided --sectors-per-track 16 \
   >"$WORK/disk.out" 2>"$WORK/disk.err" || exit 1
 disk_sha="$(shasum -a 256 "$WORK/generated.d88" | awk '{print $1}')"
-[ "$disk_sha" = d3becfe5051f7002d268824a2da2824f543442e71ae3226e4d22139e0adce05c ] || exit 1
+[ "$disk_sha" = "$(cfg normal_media_sha256)" ] || exit 1
 
 python3 "$REPO/tools/build_m6ib_measure_rom.py" "$WORK/rom" --arm "$arm" \
   --work-dir "$WORK/asm" >"$WORK/build.out" 2>"$WORK/build.err" || exit 1
