@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第219版 / 2026-09-14
+仕様書 第220版 / 2026-09-22
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第220版 | 2026-09-22 | **起動直後のmain第1送信・sub起動専用RECV・FDC初期化・第2送信後の応答を、伏せ済みm6gログの共通clock上で再検証し、1.65節を新設**（`src/`変更なし） | `tools/analyze_boot_start_order.py`（既存のmain SEND/RECV分類と起動時FDC初期化窓検出を再利用）により、run1/run2とも「main送信#1→sub起動専用受信1件→FDC初期化7 batch→main送信#2→sub応答→main受信」の順で、送信#2より前の応答は0件と確認した。clockは順序づけだけに使い、絶対値の精度は主張しない。通常READを許せる最早時点と、その必要条件が初期化完了・起動専用送信の消化・ラウンド#0完了のどれかは未確定のまま残す。自己検査は順序破壊と値列漏えいの陰性対照を含む。 |
 | 第219版 | 2026-09-14 | `m7lz`のB:候補8本再測（2回目）を反映し、3章の残る3項（5448・5485・5508）に第219版注記を追加。棚卸し段落に訂正を追記（`src/`変更なし。注記のみ） | WRITEに届いた3候補（disk#1・#2・#7）で公式と一致（5448）。disk#10（B:候補、5485・5508）はFDCコマンド種別列・画面署名が公式と全長一致し、残る差はmain `IN $FC`の末尾12件のみで1.58節の既知の応答値（9件のあとの1バイト、合否に使わない）に帰着した。事前登録の判定（J1=`disk10_differs`・J2=`write_differs`・J3=`read_differs`）は変えていない。棚卸しの残る項は0になった。根拠は`docs/notes/m7lz-b-candidates-recheck-results-run2.md`（追記）。 |
 | 第218版 | 2026-09-14 | **3章「未確定として残すこと」84項全項目を棚卸しし、分類の印を追加**（`src/`変更なし。注記のみ） | `docs/notes/m7ly-chapter3-inventory.md`に記録した棚卸し（読み取り専用3担当の一次分類→未確定・A要項の再検証→主セッションが改訂の記録と1.58節で確定）に基づき、72項（既に印がある12項を除く全項）へ分類（統合・外形一致・解消・区切り・B送り・A不要・統合+残・残る）を示す注記を追加した。4557（sub視点SENDプリミティブの`OUT $FF`）は、HEAD `b13f837`のconform_l3.sh全体実走ログ（リポジトリ外）で公式32本すべての`0E`がframe 42・6章要件33のバルク遷移の一部であることを確認し「解消」と分類した。残る項は3件（5448・5485・5508）、5375は到達手段が尽きた区切りとして別扱いで残した。3章冒頭に分類件数表と残る項の要旨を追記した。既存の本文は変更していない。根拠は`docs/notes/m7ly-chapter3-inventory.md`。 |
 | 第217版 | 2026-09-14 | **3章の段30`READ DATA`・自作sub異常終了の2項に、現行での解消確認を追記**（`src/`変更なし。注記のみ） | `m7lx`の追記2（`tools/compare_l3_entry_fdc.py`実走、FDCコマンド種別列一致prefix51件、入口区間unit/head差0件・結果ステータス差なし、段30 O=257/M=258・`$FB` run長分布一致）を根拠に、第112版・第116版の2項へ「第132版で解消。経緯として残す。第217版で現行を確認」の区切りと、現行再確認の段落を追記した。段4・段6のunit/head差が第138版（軸F）で0件になったことも合わせて明記した。段3・段9のシリンダ不一致（1.22節の意図的な定数0）が現行でも残るかは今回確かめていない。既存の文は変更していない。根拠は`docs/notes/m7lx-interrupt-shape-rebaseline.md`（追記2）。 |
@@ -269,8 +270,10 @@
 | 解析器 | `tools/analyze_bulk_trigger.py`（第5版で追加。`tools/cmp_io.py`のパーサを共有し、バルク区間のPC分布・`$FE`/`$FF`件数を再実行可能） |
 | 解析器 | `tools/analyze_sub_fe.py`（第6版で追加。sub の `IN $FE` をpc別に自動発見・分類し、遷移と前後の`OUT $FF`文脈を集計する。`tools/analyze_main_to_sub.py`の`wait_loop_transitions`の手法をsub視点に一般化。第10版で`--cpu {main,sub}`（main視点にも同じロジックを適用可能に一般化）と`bit_significance()`（スピンのexit値集合とloop継続値集合をビットごとに比較し、単一ビットで分離できるか機械的に判定）を追加） |
 | 解析器 | `tools/analyze_boot_exchange.py`（第9版で追加。`tools/analyze_main_to_sub.py`のパーサ・SEND/RECV分類を再利用し、共通クロック付きログでmain側SEND/RECVラウンドとsub側FDC(`$FA`/`$FB`)アクセスを時間窓で突き合わせる） |
+| 解析器 | `tools/analyze_boot_start_order.py`（第220版で追加。伏せ済み`m6g-d0-boot-run{1,2}`を対象に、既存のmain SEND/RECV分類と起動時FDC初期化窓検出を再利用し、起動直後の送信・受信・7 batch・応答の順序と件数だけを検査する。value列とclock絶対値は出力しない） |
 | 検算器 | `tools/analyze_sub_fe_selftest.sh`（第6版で追加。合成フィクスチャで`analyze_sub_fe.py`の検出力をわざと壊して確認する。`tools/run_all_selftests.sh`に登録済み。第10版で項目a2（`bit_significance()`の検出力）を追加） |
 | 検算器 | `tools/analyze_boot_exchange_selftest.sh`（第9版で追加。合成フィクスチャで`analyze_boot_exchange.py`の検出力をわざと壊して確認する。`tools/run_all_selftests.sh`に登録済み） |
+| 検算器 | `tools/analyze_boot_start_order_selftest.sh`（第220版で追加。正常合成入力、初期化完了前へ第2送信を移した陰性対照、値列／無視行の出力漏えい陰性対照、および伏せ済みm6g run1/run2の再現を確認する。`tools/run_all_selftests.sh`に登録済み） |
 | 診断ツール | `tools/diag_l3_mixed.sh`（既存。混成ROM実走のI/O列を公式基準ログと`(cpu,方向,ポート,pc)`だけで突き合わせ、最初の分岐点を診断する） |
 | 比較器 | `tools/cmp_io.py`（第2版で7列/8列両対応・`--port/--kind`モードを追加） |
 | 検算器 | `tools/verify_analyzer_corruption.py`（解析器自体をわざと壊して検出力を確認） |
@@ -3652,6 +3655,38 @@ B:へ媒体を実際に差し込み、続き（再アーム・6バイト目以�
 
 根拠: [docs/notes/m7lw-insert-after-no-disk-wait-preregistration.md](../notes/m7lw-insert-after-no-disk-wait-preregistration.md)・
 [docs/notes/m7lw-insert-after-no-disk-wait-results.md](../notes/m7lw-insert-after-no-disk-wait-results.md)。
+
+### 1.65 mainの第1送信は起動専用RECVに消費され、応答はFDC初期化後の第2送信から返る（第220版）
+
+伏せ済み共通clockログ`measurements/m6g-d0-boot-run1.iolog.txt.gz`と
+`run2`を、`tools/analyze_boot_start_order.py`で再解析した。解析器は
+`analyze_main_to_sub.py`のmain SEND/RECV分類と、
+`analyze_boot_fdc_sequence.py`の起動時FDC初期化窓・batch分割を再利用する。
+データポートの値は使わず、出力も順序・件数・合否だけである。
+
+**観測**: 2走とも、次の順序と件数が一致した。
+
+```
+main送信#1
+  → sub起動専用RECV×1
+  → 起動時FDC初期化×7 batch
+  → main送信#2
+  → sub応答×1
+  → main受信×1
+```
+
+main送信#1からmain送信#2までにsubの応答送信は0件、mainの応答受信も0件だった。
+したがって、**mainの第1送信はsubの起動専用RECVに消費され、その場では応答が
+返らない。subはそのまま1.22節のFDC初期化7 batchへ進み、mainへの最初の応答は
+初期化完了後の第2送信に対して返る。** これはイベントの順序関係についての確定である。
+共通clockの絶対値はQUASI88のCPU駆動・I/O記録実装を測った参考値にすぎないため、
+本節では出力も仕様値への採用も行わず、定量精度を主張しない。
+
+**推定・未確定として残すこと**: この観測だけから、通常READを許してよい最早時点は
+決まらない。その必要条件が、(a) FDC初期化の完了、(b) 起動専用送信1件の消化、
+(c) 第2送信への応答まで含むラウンド#0の完了、のどれであるかも切り分けていない。
+従って実装は上の観測順序を守るが、通常READの一般的な許可条件をこの3候補のいずれかと
+推定してはならない。
 
 ## 2. 明示的に「採用できない」こと
 

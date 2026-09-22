@@ -54,6 +54,7 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_sub_fe_selftest.sh:0"
   "tools/analyze_sub_interrupt_shape_selftest.sh:0"
   "tools/analyze_boot_exchange_selftest.sh:0"
+  "tools/analyze_boot_start_order_selftest.sh:0"
   "tools/analyze_common_clock_three_questions_selftest.sh:0"
   "tools/analyze_run_boundary_selftest.sh:0"
   "tools/run_cutter_positive_selftest.sh:0"
