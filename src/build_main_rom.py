@@ -392,6 +392,137 @@ MAIN_SUB_PAIR_FAULT_NEW = (
     "    CALL MAIN_SUB_RECV_PAIR_BROKEN"
 )
 
+# m6i-b（事前登録済みB1/B2/B5）のmain側介入。既定テキスト全体を
+# 腕専用の状態機械へ一度だけ置換する。各腕は、起動前置きの有無だけを
+# 変え、通常READ本体 MAIN_SUB_READ_KNOWN には触れない。
+M6IB_BOOT_OLD = """MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    RET
+
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IB_COMMON_EQU = """M6IB_FRAME_COUNT          EQU 0E009h
+M6IB_STAGE                EQU 0E00Ah
+M6IB_MARK_B               EQU 0E00Bh
+M6IB_MARK_C               EQU 0E00Ch
+"""
+
+# 予備走（実I/Oログ）で、STEADY_WAIT進入直後を含む呼出し55回が
+# 3腕とも通常READ先頭のframe 60に対応した。最初の2回だけ同一frame内、
+# 以後は1 frameにつき1回で、旧値0x21は3腕ともframe 38だった。
+M6IB_B1_FRAME_CALL_LIMIT = "037h"
+M6IB_B2_FRAME_CALL_LIMIT = "037h"
+M6IB_B5_FRAME_CALL_LIMIT = "037h"
+
+M6IB_INIT = """MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD (M6IB_FRAME_COUNT),A
+    LD (M6IB_STAGE),A
+    LD (M6IB_MARK_B),A
+    LD (M6IB_MARK_C),A
+    RET
+"""
+
+# FRAME_COUNTの閾値は実エミュレータのI/Oログで通常READ先頭がframe 60に
+# なる値を腕ごとに固定する。STEADY_WAIT進入直後の呼出しも1回と数える。
+M6IB_BOOT_B1 = M6IB_COMMON_EQU + M6IB_INIT + f"""
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,(M6IB_FRAME_COUNT)
+    CP {M6IB_B1_FRAME_CALL_LIMIT}
+    JR Z,_m6ib_b1_issue
+    INC A
+    LD (M6IB_FRAME_COUNT),A
+    RET
+_m6ib_b1_issue:
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IB_BOOT_B2 = M6IB_COMMON_EQU + M6IB_INIT + f"""
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,(M6IB_STAGE)
+    OR A
+    JR NZ,_m6ib_b2_wait
+    XOR A
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,001h
+    LD (M6IB_MARK_B),A
+    LD (M6IB_STAGE),A
+_m6ib_b2_wait:
+    LD A,(M6IB_FRAME_COUNT)
+    CP {M6IB_B2_FRAME_CALL_LIMIT}
+    JR Z,_m6ib_b2_issue
+    INC A
+    LD (M6IB_FRAME_COUNT),A
+    RET
+_m6ib_b2_issue:
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IB_BOOT_B5 = M6IB_COMMON_EQU + M6IB_INIT + f"""
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,(M6IB_STAGE)
+    OR A
+    JR NZ,_m6ib_b5_wait
+    XOR A
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,001h
+    LD (M6IB_MARK_B),A
+    XOR A
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,007h
+    CALL MAIN_SUB_SEND_CONT
+    RET C
+    CALL MAIN_SUB_RECV
+    RET C
+    LD A,001h
+    LD (M6IB_MARK_C),A
+    LD (M6IB_STAGE),A
+_m6ib_b5_wait:
+    LD A,(M6IB_FRAME_COUNT)
+    CP {M6IB_B5_FRAME_CALL_LIMIT}
+    JR Z,_m6ib_b5_issue
+    INC A
+    LD (M6IB_FRAME_COUNT),A
+    RET
+_m6ib_b5_issue:
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -415,7 +546,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         enable_main_sub_read: bool = False,
                         inject_main_sub_wait_fault: bool = False,
                         inject_main_sub_cont_fault: bool = False,
-                        inject_main_sub_pair_fault: bool = False) -> str:
+                        inject_main_sub_pair_fault: bool = False,
+                        inject_m6ib_b1: bool = False,
+                        inject_m6ib_b2: bool = False,
+                        inject_m6ib_b5: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -662,6 +796,19 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                     raise SystemExit(
                         f"main<->sub {name}故障注入の対象が一意に見つからない")
                 main_sub_read_text = main_sub_read_text.replace(old, new)
+        m6ib_variants = [
+            (inject_m6ib_b1, M6IB_BOOT_B1, "B1"),
+            (inject_m6ib_b2, M6IB_BOOT_B2, "B2"),
+            (inject_m6ib_b5, M6IB_BOOT_B5, "B5"),
+        ]
+        enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
+        if len(enabled_m6ib) > 1:
+            raise SystemExit("m6i-b介入はB1/B2/B5のうち1つだけ指定する")
+        if enabled_m6ib:
+            replacement, arm = enabled_m6ib[0]
+            if main_sub_read_text.count(M6IB_BOOT_OLD) != 1:
+                raise SystemExit(f"m6i-b {arm} main介入の対象が一意に見つからない")
+            main_sub_read_text = main_sub_read_text.replace(M6IB_BOOT_OLD, replacement)
         main_sub_read_path = work / "main_sub_read_gen.asm"
         main_sub_read_path.write_text(main_sub_read_text, encoding="utf-8")
         combined += f'\nINCLUDE "{main_sub_read_path}"\n'
@@ -764,9 +911,12 @@ def check_ext_bank_callable_labels_below_window(asm: "z80text.Assembler"):
         )
 
 
-def build_disk_rom(outdir: pathlib.Path):
+def build_disk_rom(outdir: pathlib.Path, m6ib_arm: str | None = None):
+    cmd = [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)]
+    if m6ib_arm is not None:
+        cmd.append(f"--inject-m6ib-{m6ib_arm.lower()}")
     subprocess.run(
-        [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)],
+        cmd,
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -883,6 +1033,12 @@ def main():
     ap.add_argument("--inject-main-sub-pair-fault", action="store_true",
                     help="故障注入: 2位置PAIRを単発RECV 2回へ置換する。"
                          "main-sub READを暗黙に有効化する")
+    ap.add_argument("--inject-m6ib-b1", action="store_true",
+                    help="m6i-b B1: frame 60まで通信せず、subをリセット入口で停止する")
+    ap.add_argument("--inject-m6ib-b2", action="store_true",
+                    help="m6i-b B2: 起動専用RECV後、最初のFDC初期化I/O直前で停止する")
+    ap.add_argument("--inject-m6ib-b5", action="store_true",
+                    help="m6i-b B5: 起動順b→a→c完了後に停止する")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -893,9 +1049,14 @@ def main():
                      help="--work-dir を指定しない場合でも中間ファイルを残す")
     args = ap.parse_args()
 
+    m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2, args.inject_m6ib_b5)
+    if sum(bool(value) for value in m6ib_flags) > 1:
+        ap.error("--inject-m6ib-b1/--inject-m6ib-b2/--inject-m6ib-b5は併用不可")
+    m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags, ("B1", "B2", "B5"))
+                      if enabled), None)
     main_sub_fault_enabled = (
         args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
-        or args.inject_main_sub_pair_fault)
+        or args.inject_main_sub_pair_fault or m6ib_arm is not None)
     enable_main_sub_read = args.enable_main_sub_read or main_sub_fault_enabled
 
     if args.extra_lines < 0 or args.extra_lines > 255:
@@ -930,12 +1091,15 @@ def main():
                                        enable_main_sub_read=enable_main_sub_read,
                                        inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
                                        inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
-                                       inject_main_sub_pair_fault=args.inject_main_sub_pair_fault)
+                                       inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,
+                                       inject_m6ib_b1=args.inject_m6ib_b1,
+                                       inject_m6ib_b2=args.inject_m6ib_b2,
+                                       inject_m6ib_b5=args.inject_m6ib_b5)
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
-        build_disk_rom(args.outdir)
+        build_disk_rom(args.outdir, m6ib_arm=m6ib_arm)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
         mbf_add_addr = asm.labels.get("MBF_ADD")
         if args.inject_ext_bank_mbf_addr_fault and mbf_add_addr is not None:
