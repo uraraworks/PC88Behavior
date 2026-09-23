@@ -167,6 +167,10 @@ SCRIPTS_EXPECTED=(
   "tools/analyze_m6ig_selftest.sh:0"
   "tools/judge_m6ig_selftest.sh:0"
   "tools/check_m6ih_rom_gate_selftest.sh:0"
+  "tools/disk_read_retry_selftest.sh:0"
+  # READ再試行ルーチンをスタブと自作ROMへ組み込み、q88measureの実Z80コアで
+  # ドライブA/Bの引継ぎ・呼出回数・戻りCYを検査する。公式ROM・私物不要。
+  "tools/disk_read_retry_z80_selftest.sh:0"
   "tools/check_m6ih_preregistration_selftest.sh:0"
   "tools/analyze_m6ih_selftest.sh:0"
   "tools/judge_m6ih_selftest.sh:0"

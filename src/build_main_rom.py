@@ -54,6 +54,7 @@ KEYBOARD_ASM = REPO / "src" / "l3_main" / "keyboard.asm"
 VSYNC_REGCHECK_ASM = REPO / "src" / "l3_main" / "vsync_regcheck.asm"
 KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
 MAIN_SUB_READ_ASM = REPO / "src" / "l3_main" / "main_sub_read.asm"
+DISK_READ_RETRY_ASM = REPO / "src" / "l3_main" / "disk_read_retry.asm"
 
 # M7段階3b: BASIC核(直接モードPRINT)。src/l4_basic/*.asm・生成物。
 L4_TOKENS_ASM = REPO / "src" / "l4_basic" / "tokens.asm"
@@ -648,6 +649,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         enable_vsync_regcheck: bool = False,
                         inject_vsync_no_save_fault: bool = False,
                         enable_main_sub_read: bool = False,
+                        enable_disk_read_retry: bool = False,
                         inject_main_sub_wait_fault: bool = False,
                         inject_main_sub_cont_fault: bool = False,
                         inject_main_sub_pair_fault: bool = False,
@@ -680,7 +682,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
     # (無条件で呼ぶとL1適合検査のOUT件数・サイクル数が変わる)。
     ext_bank_selftest_call = "    CALL EXT_BANK_SELFTEST\n" if enable_ext_bank_selftest else ""
-    main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n" if enable_main_sub_read else ""
+    if enable_disk_read_retry:
+        main_sub_init_call = "    CALL DISK_READ_RETRY_INIT\n"
+    else:
+        main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n" if enable_main_sub_read else ""
     # 拡張ROMバンク: EXT_BANK_BUSY(再入検出フラグ)の初期化は
     # selftestフラグの有無と無関係に必ず行う(src/ext_bank/relay.asmの
     # EXT_BANK_INITコメント参照。RAMがゼロ初期化される保証が無いため、
@@ -708,7 +713,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         steady_wait_calls += "    CALL EXT_BANK_LOOP_TEST\n"
     if enable_vsync_regcheck:
         steady_wait_calls += "    CALL VSYNC_REGCHECK\n"
-    if enable_main_sub_read:
+    if enable_disk_read_retry:
+        steady_wait_calls += "    CALL DISK_READ_RETRY_BOOT_ONCE\n"
+    elif enable_main_sub_read:
         steady_wait_calls += "    CALL MAIN_SUB_READ_BOOT_ONCE\n"
     if steady_wait_calls:
         if STEADY_WAIT_MARK not in ipl_text:
@@ -924,6 +931,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         main_sub_read_path = work / "main_sub_read_gen.asm"
         main_sub_read_path.write_text(main_sub_read_text, encoding="utf-8")
         combined += f'\nINCLUDE "{main_sub_read_path}"\n'
+    if enable_disk_read_retry:
+        combined += f'\nINCLUDE "{DISK_READ_RETRY_ASM}"\n'
     return combined
 
 
@@ -1142,6 +1151,8 @@ def main():
     ap.add_argument("--enable-main-sub-read", action="store_true",
                     help="検査用ビルドにmain<->sub通信と既知1セクタREAD入口を入れ、"
                          "定常状態でドライブAを1回読む（配布ビルドは既定off）")
+    ap.add_argument("--enable-disk-read-retry", action="store_true",
+                    help="既知1セクタREADを待ち・空送信なし、失敗時1回だけ再試行する")
     ap.add_argument("--inject-main-sub-wait-fault", action="store_true",
                     help="故障注入: SEND前のbit1待ちを反対(bit1=0)にする。"
                          "main-sub READを暗黙に有効化する")
@@ -1187,6 +1198,8 @@ def main():
                        args.inject_m6ie_nops_only)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-hの挿入フラグは併用不可")
+    if args.enable_disk_read_retry and any((*m6ib_flags, *m6ih_flags)):
+        ap.error("--enable-disk-read-retryはm6i-b/m6i-hの挿入フラグと併用不可")
     m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
                       ("B1", "B2", "B3", "B4", "B5"))
                       if enabled), None)
@@ -1195,7 +1208,8 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
-    enable_main_sub_read = args.enable_main_sub_read or main_sub_fault_enabled
+    enable_main_sub_read = (args.enable_main_sub_read or args.enable_disk_read_retry
+                            or main_sub_fault_enabled)
 
     if args.extra_lines < 0 or args.extra_lines > 255:
         raise SystemExit("--extra-lines は 0-255")
@@ -1227,6 +1241,7 @@ def main():
                                        enable_vsync_regcheck=args.enable_vsync_regcheck,
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault,
                                        enable_main_sub_read=enable_main_sub_read,
+                                       enable_disk_read_retry=args.enable_disk_read_retry,
                                        inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
                                        inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
                                        inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,
