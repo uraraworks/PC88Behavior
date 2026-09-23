@@ -1,0 +1,36 @@
+frozen	yes
+measurement_frames	9000
+run_timeout_seconds	300
+repetitions	2
+reference_disk	N88_FE.D88
+boot_return_frame	300
+stimulus_frame	700
+arm	F0
+arm	F1
+arm	F2
+arm	F3
+arm	F4
+arm	F5
+arm	F6
+keystrokes	F0:
+keystrokes	F1:10 END\nSAVE"QZ7A"\n
+keystrokes	F2:10 END\nSAVE"QZ7B"\n
+keystrokes	F3:10 END\nSAVE"QZ7ABC"\n
+keystrokes	F4:10 END\nSAVE"QZ7A"\nSAVE"QZ7B"\n
+keystrokes	F5:10 END\nSAVE"QZ7A"\nKILL"QZ7A"\n
+keystrokes	F6:10 OPEN"QZ7D" FOR OUTPUT AS #1\n20 FOR I=1 TO 300:PRINT #1,STRING$(200,"Z"):NEXT\n30 CLOSE #1\nRUN\n
+derivation	D1:directory_sector
+derivation	D2:name_start
+derivation	D3:entry_length
+derivation	D4:name_padding_and_length
+derivation	D5:deletion_marker
+derivation	D6:unused_entry_value
+derivation	D7:allocation_table_sector
+judgment	gate_failed
+judgment	unreached
+judgment	derived
+judgment	ambiguous
+judgment	not_found
+judgment	m6f_a_directory_located
+judgment	m6f_a_directory_ambiguous
+judgment	m6f_a_inconclusive

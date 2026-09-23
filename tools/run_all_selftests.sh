@@ -180,6 +180,12 @@ SCRIPTS_EXPECTED=(
   "tools/check_m6ii_preregistration_selftest.sh:0"
   "tools/analyze_m6ii_selftest.sh:0"
   "tools/judge_m6ii_selftest.sh:0"
+  # m6f-a（公式ディスクのSAVE差分）測定前器具。すべて合成D88/架空差分で
+  # 完結し、公式ROM・公式ディスクやprivate/には触れない。
+  "tools/d88_diff_selftest.sh:0"
+  "tools/check_m6fa_preregistration_selftest.sh:0"
+  "tools/derive_m6fa_selftest.sh:0"
+  "tools/judge_m6fa_selftest.sh:0"
   "tools/check_m6ih_preregistration_selftest.sh:0"
   "tools/analyze_m6ih_selftest.sh:0"
   "tools/judge_m6ih_selftest.sh:0"

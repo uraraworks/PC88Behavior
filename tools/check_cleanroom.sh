@@ -2,7 +2,7 @@
 # クリーンルーム防御が実際に効いている状態かを検査する。
 #
 # 規律は「書いてある」だけでは効かない。以下を機械的に確かめる:
-#   1. private/ が git から遮断されている（実際にダミーを置いて確認）
+#   1. private/ が git から遮断されている（未作成パスで確認）
 #   2. リポジトリの外に置いた ROM 系ファイルも遮断される
 #   3. 追跡ファイルに ROM 由来らしきバイナリが混入していない
 #   4. permission 設定が実効位置（cwd 側）から見えている
@@ -25,12 +25,11 @@ WORK_CR="$(mktemp -d)"
 trap 'rm -rf "$WORK_CR"' EXIT
 
 # --- 1. private/ の遮断 -------------------------------------------------
-mkdir -p private
+# private/ 自体に触れないよう、--no-index で未作成パスの
+# ignore規則だけを問い合わせる。
 probe="private/.__probe__"
-: > "$probe"
-if git check-ignore -q "$probe"; then ok "private/ は git から遮断されている"
+if git check-ignore -q --no-index "$probe"; then ok "private/ は git から遮断されている"
 else ng "private/ が git に見えている（.gitignore を確認）"; fi
-rm -f "$probe"
 
 # --- 2. private/ の外に置いた ROM 系も遮断されるか ----------------------
 stray=".__probe__.rom"
