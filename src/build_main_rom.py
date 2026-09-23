@@ -970,10 +970,16 @@ def check_ext_bank_callable_labels_below_window(asm: "z80text.Assembler"):
         )
 
 
-def build_disk_rom(outdir: pathlib.Path, m6ib_arm: str | None = None):
+def build_disk_rom(outdir: pathlib.Path, m6ib_arm: str | None = None,
+                   inject_m6ie_single_read: bool = False,
+                   inject_m6ie_nops_only: bool = False):
     cmd = [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)]
     if m6ib_arm is not None:
         cmd.append(f"--inject-m6ib-{m6ib_arm.lower()}")
+    if inject_m6ie_single_read:
+        cmd.append("--inject-m6ie-single-read")
+    if inject_m6ie_nops_only:
+        cmd.append("--inject-m6ie-nops-only")
     subprocess.run(
         cmd,
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1102,6 +1108,10 @@ def main():
                     help="m6i-b B4: 起動順b→a完了後、ラウンド#0前で停止する")
     ap.add_argument("--inject-m6ib-b5", action="store_true",
                     help="m6i-b B5: 起動順b→a→c完了後に停止する")
+    ap.add_argument("--inject-m6ie-single-read", action="store_true",
+                    help="m6i-e E2: B5と同じmainでsubへIN $FEとNOP 4個を挿入する")
+    ap.add_argument("--inject-m6ie-nops-only", action="store_true",
+                    help="m6i-e E3: B5と同じmainでsubへNOP 6個を挿入する")
     ap.add_argument("--work-dir", type=pathlib.Path, default=None,
                      help="中間.asmファイルの置き場（既定は一時ディレクトリ、後始末しない）")
     ap.add_argument("--unscii-hex", type=pathlib.Path,
@@ -1115,14 +1125,17 @@ def main():
     m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
                    args.inject_m6ib_b3, args.inject_m6ib_b4,
                    args.inject_m6ib_b5)
-    if sum(bool(value) for value in m6ib_flags) > 1:
-        ap.error("--inject-m6ib-b1〜--inject-m6ib-b5は併用不可")
+    insertion_flags = (*m6ib_flags, args.inject_m6ie_single_read,
+                       args.inject_m6ie_nops_only)
+    if sum(bool(value) for value in insertion_flags) > 1:
+        ap.error("m6i-b/m6i-eの挿入フラグは併用不可")
     m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
                       ("B1", "B2", "B3", "B4", "B5"))
                       if enabled), None)
     main_sub_fault_enabled = (
         args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
-        or args.inject_main_sub_pair_fault or m6ib_arm is not None)
+        or args.inject_main_sub_pair_fault or m6ib_arm is not None
+        or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     enable_main_sub_read = args.enable_main_sub_read or main_sub_fault_enabled
 
     if args.extra_lines < 0 or args.extra_lines > 255:
@@ -1162,12 +1175,16 @@ def main():
                                        inject_m6ib_b2=args.inject_m6ib_b2,
                                        inject_m6ib_b3=args.inject_m6ib_b3,
                                        inject_m6ib_b4=args.inject_m6ib_b4,
-                                       inject_m6ib_b5=args.inject_m6ib_b5)
+                                       inject_m6ib_b5=(args.inject_m6ib_b5
+                                                        or args.inject_m6ie_single_read
+                                                        or args.inject_m6ie_nops_only))
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
-        build_disk_rom(args.outdir, m6ib_arm=m6ib_arm)
+        build_disk_rom(args.outdir, m6ib_arm=m6ib_arm,
+                       inject_m6ie_single_read=args.inject_m6ie_single_read,
+                       inject_m6ie_nops_only=args.inject_m6ie_nops_only)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
         mbf_add_addr = asm.labels.get("MBF_ADD")
         if args.inject_ext_bank_mbf_addr_fault and mbf_add_addr is not None:

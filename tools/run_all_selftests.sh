@@ -158,6 +158,10 @@ SCRIPTS_EXPECTED=(
   "tools/check_m6id_preregistration_selftest.sh:0"
   "tools/analyze_m6id_selftest.sh:0"
   "tools/judge_m6id_selftest.sh:0"
+  "tools/check_m6ie_rom_gate_selftest.sh:0"
+  "tools/check_m6ie_preregistration_selftest.sh:0"
+  "tools/analyze_m6ie_selftest.sh:0"
+  "tools/judge_m6ie_selftest.sh:0"
   # 第16節(スクリーンエディタ・編集キー)・第17節(RETURNによる行の読み直し)
   # の自己検査。公式ROM不要（自作ROMだけで動かす）。
   "tools/l3_screen_editor_selftest.sh:0"
