@@ -20,8 +20,10 @@ case "$arm" in I-S|I-F-H|I-F-D|I-F-R|I-F-RETRY) ;; *) exit 2 ;; esac
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cfg() { awk -F '\t' -v key="$1" '$1==key {if (++n==1) v=$2} END {if (n==1) print v; else exit 1}' "$CONFIG"; }
 
-# G1/G2。ここを通る前にfrontendへ触れない。
-"$REPO/tools/run_all_selftests.sh" >"$WORK/g1.out" 2>"$WORK/g1.err" || gate_failed G1
+# G1（run_all_selftests.sh 全体、約20分）はここでは回さない。m6i-c/g/h と同じく、
+# 腕を回す前に親セッションで1回通す運用とする。1走ごとに回すと10走で3時間を超え、
+# しかも事前登録が要求するのは「腕の前に真であること」であって毎走の再実行ではない。
+# G2（クリーンルーム検査）は軽いので毎走ここで通す。ここを通る前にfrontendへ触れない。
 "$REPO/tools/check_cleanroom.sh" >"$WORK/g2.out" 2>"$WORK/g2.err" || gate_failed G2
 
 GEOM=(--cylinders 40 --double-sided --sectors-per-track 16)
