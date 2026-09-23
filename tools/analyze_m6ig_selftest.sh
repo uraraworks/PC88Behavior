@@ -41,7 +41,7 @@ obs=a.observe_state(shape,preamble_rows(1,1),marker_mem(1,1),40)
 if obs.counts!=(1,1,1) or not obs.independent or not obs.event_counts_consistent:
     raise SystemExit('G7 独立性')
 
-# G10: 修正前の observe_state(None, ...) に同じ2入力を与え、どちらも整合性が偽になることを実走確認済み。
+# G10: 各追補前のstate_event_countsを一時monkeypatchし、既存2件は追補1前、新規1件は追補2前に失敗することを実走確認済み。
 sub_start=[m2s.Ev(1,10,1,'sub','OUT','00FD',0,'0000')]
 if not a.observe_state(None,sub_start,[],40).event_counts_consistent:
     raise SystemExit('G10 初期化なしsub起動OUT')
@@ -50,6 +50,13 @@ startup_send,_,round0_response=a.state_event_counts(None,main_start,40)
 if startup_send!=1 or round0_response is not None \
         or not a.observe_state(None,main_start,marker_mem(b=1),40).event_counts_consistent:
     raise SystemExit('G10 初期化なしmain起動SEND')
+late_shape=(7,50,60,1,2)
+post_issue=[m2s.Ev(1,45,1,'main','OUT','00FD',0,'0000'),
+            m2s.Ev(2,46,1,'sub','IN','00FC',0,'0000')]
+startup_send,startup_recv,round0_response=a.state_event_counts(late_shape,post_issue,40)
+if (startup_send,startup_recv)!=(0,0) or round0_response is not None \
+        or not a.observe_state(late_shape,post_issue,[],40).event_counts_consistent:
+    raise SystemExit('G10 発行後初期化main送信除外')
 
 # G5: 腕ごとの異なる発行フレームと状態を同じ入口で照合する。
 for arm in a.ARMS:
@@ -86,5 +93,5 @@ rom_dir=scratch/'rom'; rom_dir.mkdir()
 for name,size in roms.EXPECTED_SIZES.items(): (rom_dir/name).write_bytes(bytes(size))
 before=a.rom_digest(rom_dir); (rom_dir/'generated.srm').write_bytes(b'synthetic')
 if a.rom_digest(rom_dir)!=before: raise SystemExit('G8自己汚染')
-print('analyze_m6ig_selftest: 項目数=21、G5=8・前置きrun除外=1・G6=5・G7=4・G8=1・G10=2 OK')
+print('analyze_m6ig_selftest: 項目数=22、G5=8・前置きrun除外=1・G6=5・G7=4・G8=1・G10=3 OK')
 PY

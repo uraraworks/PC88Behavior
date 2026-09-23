@@ -37,14 +37,16 @@ def state_event_counts(shape: tuple[int, int, int, int, int] | None,
                        rows: list[m2s.Ev], issue_clock: int) -> tuple[int, int, int | None]:
     """初期化の有無から意味的な窓を選び、前置きI/Oを数える。"""
     if shape is None:
-        startup_rows = [row for row in rows if row.clock < issue_clock]
+        startup_end = issue_clock
         round0_response = None
     else:
         init_start, init_end = shape[1], shape[2]
-        startup_rows = [row for row in rows if row.clock < init_start]
-        round0_response = sum(row.cpu == "sub" and row.kind == "OUT"
-                              and row.port == "00FD"
-                              and init_end < row.clock < issue_clock for row in rows)
+        startup_end = min(init_start, issue_clock)
+        round0_response = (sum(row.cpu == "sub" and row.kind == "OUT"
+                               and row.port == "00FD"
+                               and init_end < row.clock < issue_clock for row in rows)
+                           if init_end < issue_clock else None)
+    startup_rows = [row for row in rows if row.clock < startup_end]
     startup_send = sum(row.cpu == "main" and row.kind == "OUT"
                        and row.port == "00FD" for row in startup_rows)
     startup_recv = sum(row.cpu == "sub" and row.kind == "IN"
