@@ -175,6 +175,11 @@ SCRIPTS_EXPECTED=(
   # 要求5位置と再試行時A/D/E保存を検査する。公式ROM・私物不要。
   "tools/disk_read_chr_selftest.sh:0"
   "tools/disk_read_chr_z80_selftest.sh:0"
+  # m6i-i測定前器具。掃引/故障注入、凍結、3値解析、全判定を合成入力で固定する。
+  "tools/m6ii_build_selftest.sh:0"
+  "tools/check_m6ii_preregistration_selftest.sh:0"
+  "tools/analyze_m6ii_selftest.sh:0"
+  "tools/judge_m6ii_selftest.sh:0"
   "tools/check_m6ih_preregistration_selftest.sh:0"
   "tools/analyze_m6ih_selftest.sh:0"
   "tools/judge_m6ih_selftest.sh:0"

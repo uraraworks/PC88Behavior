@@ -629,6 +629,107 @@ MAIN_SUB_READ_BOOT_ONCE:
     RET
 """
 
+# m6i-i: 任意座標READの11行掃引。各READの直前に行番号を0xE038へ書く。
+# 0xE038は既存の測定用RAM（M6IA_REPEAT_LEFT=0xE036、2バイト）の直後で、
+# tools/check_m6ii_preregistration.py が全EQUとの非衝突を機械検査する。
+M6II_ROW_MARKER_ADDRESS = 0xE038
+M6II_BOOT_SWEEP = f"""M6II_ROW_MARKER          EQU 0{M6II_ROW_MARKER_ADDRESS:04X}h
+MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD (M6II_ROW_MARKER),A
+    RET
+
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD HL,M6II_SWEEP_TABLE
+    LD B,00Bh
+_m6ii_sweep_loop:
+    LD A,(HL)
+    LD (M6II_ROW_MARKER),A
+    INC HL
+    LD A,(HL)
+    INC HL
+    LD D,(HL)
+    INC HL
+    LD E,(HL)
+    INC HL
+    CALL MAIN_SUB_READ_CHR_RETRY
+    DJNZ _m6ii_sweep_loop
+    RET
+
+; 行番号, drive, 論理track(C*2+H), R。事前登録の順序を固定する。
+M6II_SWEEP_TABLE:
+    DB 01h,00h,00h,01h
+    DB 02h,00h,01h,01h
+    DB 03h,00h,02h,01h
+    DB 04h,00h,00h,10h
+    DB 05h,00h,4Fh,10h
+    DB 06h,00h,28h,08h
+    DB 07h,00h,0Bh,0Bh
+    DB 08h,01h,00h,01h
+    DB 09h,01h,01h,01h
+    DB 0Ah,01h,4Fh,10h
+    DB 0Bh,00h,00h,01h
+"""
+
+# m6i-i故障注入。いずれも一般READの原文へだけ適用し、置換点が一意で
+# なければビルドを止める。既定および--enable-disk-read-chr単独は不変。
+M6II_H_FAULT_OLD = "    LD A,D\n    LD (MAIN_SUB_CHR_LOGICAL_TRACK),A"
+M6II_H_FAULT_NEW = "    LD A,D\n    AND 0FEh\n    LD (MAIN_SUB_CHR_LOGICAL_TRACK),A"
+M6II_D_FAULT_OLD = "    AND 001h\n    LD (MAIN_SUB_DRIVE_SELECT),A"
+M6II_D_FAULT_NEW = "    XOR A\n    LD (MAIN_SUB_DRIVE_SELECT),A"
+M6II_R_FAULT_OLD = (
+    "    LD A,(MAIN_SUB_CHR_SECTOR)\n"
+    "    CALL MAIN_SUB_SEND_REQUEST_CONT"
+)
+M6II_R_FAULT_NEW = (
+    "    LD A,(MAIN_SUB_CHR_SECTOR)\n"
+    "    INC A\n"
+    "    CALL MAIN_SUB_SEND_REQUEST_CONT"
+)
+M6II_RETRY_FAULT_OLD = """MAIN_SUB_READ_CHR_RETRY:
+    PUSH AF
+    PUSH DE
+    CALL MAIN_SUB_READ_CHR
+    LD A,(MAIN_SUB_MARK_SUCCESS)
+    OR A
+    JR NZ,_ms_chr_retry_first_success
+    POP DE                       ; 入口D/Eを2回目へ戻す
+    POP AF                       ; 入口Aとフラグを2回目へ戻す
+    CALL MAIN_SUB_READ_CHR
+    LD A,(MAIN_SUB_MARK_SUCCESS)
+    OR A                         ; 成功時CY=0を明示
+    RET NZ
+    SCF
+    RET
+_ms_chr_retry_first_success:
+    POP DE
+    POP AF
+    OR A                         ; 保存されていたCYに依存せず成功CY=0
+    RET"""
+M6II_RETRY_FAULT_NEW = """MAIN_SUB_READ_CHR_RETRY:
+    PUSH DE
+    CALL MAIN_SUB_READ_CHR
+    LD A,(MAIN_SUB_MARK_SUCCESS)
+    OR A
+    JR NZ,_ms_chr_retry_first_success
+    POP DE                       ; D/Eだけを2回目へ戻し、Aは保存しない
+    CALL MAIN_SUB_READ_CHR
+    LD A,(MAIN_SUB_MARK_SUCCESS)
+    OR A                         ; 成功時CY=0を明示
+    RET NZ
+    SCF
+    RET
+_ms_chr_retry_first_success:
+    POP DE
+    OR A                         ; 保存されていたCYに依存せず成功CY=0
+    RET"""
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -661,7 +762,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_m6ib_b4: bool = False,
                         inject_m6ib_b5: bool = False,
                         inject_m6ih_a: bool = False,
-                        inject_m6ih_b: bool = False) -> str:
+                        inject_m6ih_b: bool = False,
+                        inject_m6ii_sweep: bool = False,
+                        inject_m6ii_fault_h: bool = False,
+                        inject_m6ii_fault_d: bool = False,
+                        inject_m6ii_fault_r: bool = False,
+                        inject_m6ii_fault_retry: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -921,10 +1027,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             (inject_m6ib_b5, M6IB_BOOT_B5, "B5"),
             (inject_m6ih_a, M6IH_BOOT_A, "H-A"),
             (inject_m6ih_b, M6IH_BOOT_B, "H-B"),
+            (inject_m6ii_sweep, M6II_BOOT_SWEEP, "I-S"),
         ]
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
-            raise SystemExit("m6i-b/m6i-h main介入は1つだけ指定する")
+            raise SystemExit("m6i-b/m6i-h/m6i-i main介入は1つだけ指定する")
         if enabled_m6ib:
             replacement, arm = enabled_m6ib[0]
             if main_sub_read_text.count(M6IB_BOOT_OLD) != 1:
@@ -936,7 +1043,26 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     if enable_disk_read_retry:
         combined += f'\nINCLUDE "{DISK_READ_RETRY_ASM}"\n'
     if enable_disk_read_chr:
-        combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
+        main_sub_chr_text = MAIN_SUB_READ_CHR_ASM.read_text(encoding="utf-8")
+        chr_fault_enabled = any((inject_m6ii_fault_h, inject_m6ii_fault_d,
+                                 inject_m6ii_fault_r, inject_m6ii_fault_retry))
+        for enabled, old, new, name in (
+            (inject_m6ii_fault_h, M6II_H_FAULT_OLD, M6II_H_FAULT_NEW, "I-F-H"),
+            (inject_m6ii_fault_d, M6II_D_FAULT_OLD, M6II_D_FAULT_NEW, "I-F-D"),
+            (inject_m6ii_fault_r, M6II_R_FAULT_OLD, M6II_R_FAULT_NEW, "I-F-R"),
+            (inject_m6ii_fault_retry, M6II_RETRY_FAULT_OLD,
+             M6II_RETRY_FAULT_NEW, "I-F-RETRY"),
+        ):
+            if enabled:
+                if main_sub_chr_text.count(old) != 1:
+                    raise SystemExit(f"m6i-i {name}故障注入の対象が一意に見つからない")
+                main_sub_chr_text = main_sub_chr_text.replace(old, new)
+        if chr_fault_enabled:
+            main_sub_chr_path = work / "main_sub_read_chr_gen.asm"
+            main_sub_chr_path.write_text(main_sub_chr_text, encoding="utf-8")
+            combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
+        else:
+            combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
     return combined
 
 
@@ -1182,6 +1308,16 @@ def main():
                     help="m6i-h H-A: 起動専用SEND直後、固定待ちなしでREADする")
     ap.add_argument("--inject-m6ih-b", action="store_true",
                     help="m6i-h H-B: 固定待ちなしでREADし、失敗時だけ1回再試行する")
+    ap.add_argument("--inject-m6ii-sweep", action="store_true",
+                    help="m6i-i I-S: 任意座標READの登録済11行を起動時に掃引する")
+    ap.add_argument("--inject-m6ii-fault-h", action="store_true",
+                    help="m6i-i I-F-H: 論理トラックbit0を落とす")
+    ap.add_argument("--inject-m6ii-fault-d", action="store_true",
+                    help="m6i-i I-F-D: ドライブ選択を0に固定する")
+    ap.add_argument("--inject-m6ii-fault-r", action="store_true",
+                    help="m6i-i I-F-R: 送信するRに1を足す")
+    ap.add_argument("--inject-m6ii-fault-retry", action="store_true",
+                    help="m6i-i I-F-RETRY: 再試行口の入力A退避・復元を外す")
     ap.add_argument("--inject-m6ie-single-read", action="store_true",
                     help="m6i-e E2: B5と同じmainでsubへIN $FEとNOP 4個を挿入する")
     ap.add_argument("--inject-m6ie-nops-only", action="store_true",
@@ -1200,10 +1336,16 @@ def main():
                    args.inject_m6ib_b3, args.inject_m6ib_b4,
                    args.inject_m6ib_b5)
     m6ih_flags = (args.inject_m6ih_a, args.inject_m6ih_b)
+    m6ii_fault_flags = (args.inject_m6ii_fault_h, args.inject_m6ii_fault_d,
+                         args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
-                       args.inject_m6ie_nops_only)
+                       args.inject_m6ie_nops_only, args.inject_m6ii_sweep)
     if sum(bool(value) for value in insertion_flags) > 1:
-        ap.error("m6i-b/m6i-e/m6i-hの挿入フラグは併用不可")
+        ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
+    if sum(bool(value) for value in m6ii_fault_flags) > 1:
+        ap.error("m6i-iの故障注入は1種類だけ指定する")
+    if any(m6ii_fault_flags) and not args.inject_m6ii_sweep:
+        ap.error("m6i-iの故障注入は--inject-m6ii-sweepと併用する")
     if args.enable_disk_read_retry and any((*m6ib_flags, *m6ih_flags)):
         ap.error("--enable-disk-read-retryはm6i-b/m6i-hの挿入フラグと併用不可")
     m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
@@ -1213,9 +1355,10 @@ def main():
         args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
+        or args.inject_m6ii_sweep
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     enable_main_sub_read = (args.enable_main_sub_read or args.enable_disk_read_retry
-                            or args.enable_disk_read_chr
+                            or args.enable_disk_read_chr or args.inject_m6ii_sweep
                             or main_sub_fault_enabled)
 
     if args.extra_lines < 0 or args.extra_lines > 255:
@@ -1249,7 +1392,8 @@ def main():
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault,
                                        enable_main_sub_read=enable_main_sub_read,
                                        enable_disk_read_retry=args.enable_disk_read_retry,
-                                       enable_disk_read_chr=args.enable_disk_read_chr,
+                                       enable_disk_read_chr=(args.enable_disk_read_chr
+                                                             or args.inject_m6ii_sweep),
                                        inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
                                        inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
                                        inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,
@@ -1261,7 +1405,12 @@ def main():
                                                         or args.inject_m6ie_single_read
                                                         or args.inject_m6ie_nops_only),
                                        inject_m6ih_a=args.inject_m6ih_a,
-                                       inject_m6ih_b=args.inject_m6ih_b)
+                                       inject_m6ih_b=args.inject_m6ih_b,
+                                       inject_m6ii_sweep=args.inject_m6ii_sweep,
+                                       inject_m6ii_fault_h=args.inject_m6ii_fault_h,
+                                       inject_m6ii_fault_d=args.inject_m6ii_fault_d,
+                                       inject_m6ii_fault_r=args.inject_m6ii_fault_r,
+                                       inject_m6ii_fault_retry=args.inject_m6ii_fault_retry)
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
