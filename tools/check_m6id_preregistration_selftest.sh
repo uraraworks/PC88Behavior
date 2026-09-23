@@ -33,8 +33,9 @@ mutate arm_frames 599 "$WORK/frame.tsv"
 expect_fail frame python3 "$CHECK" --config "$WORK/frame.tsv"
 mutate repetitions 3 "$WORK/repetitions.tsv"
 expect_fail repetitions python3 "$CHECK" --config "$WORK/repetitions.tsv"
-mutate gate_run_min_length 33 "$WORK/gate-min.tsv"
-expect_fail gate_min python3 "$CHECK" --config "$WORK/gate-min.tsv"
+awk -F '\t' 'BEGIN {OFS="\t"} $1=="gate_label" && $2=="D-B3=M6IB_B3_AFTER_INIT_GATE" \
+  {$2="D-B3=M6IB_B4_BEFORE_ROUND0_GATE"} {print}' "$CONFIG" >"$WORK/gate-label.tsv"
+expect_fail gate_label python3 "$CHECK" --config "$WORK/gate-label.tsv"
 mutate normal_media_sha256 "$(printf '0%.0s' {1..64})" "$WORK/media.tsv"
 expect_fail media python3 "$CHECK" --config "$WORK/media.tsv"
 awk -F '\t' '$1!="arm" || $2!="D-B3"' "$CONFIG" >"$WORK/arm.tsv"
@@ -53,7 +54,7 @@ exit 99
 SH
 chmod +x "$WORK/fake_frontend"
 set +e
-M6ID_FROZEN_CONFIG="$WORK/frame.tsv" M6ID_FRONTEND="$WORK/fake_frontend" \
+M6ID_FROZEN_CONFIG="$WORK/gate-label.tsv" M6ID_FRONTEND="$WORK/fake_frontend" \
 M6ID_FRONTEND_SENTINEL="$WORK/started" \
   "$REPO/tools/measure_m6id.sh" --arm D-B0 --result "$WORK/result.json" \
   >"$WORK/measure.out" 2>"$WORK/measure.err"

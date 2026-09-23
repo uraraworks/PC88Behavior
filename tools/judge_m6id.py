@@ -22,7 +22,7 @@ OVERALL = (
 SURVIVAL = ("m6i_b_b2_b4_survive", "m6i_b_b2_b4_do_not_survive")
 REGISTERED = ("gate_failed", "unreached", *ARM_RESULTS, *CONTROL_RESULTS,
               *OVERALL, *SURVIVAL)
-GATES = ("G1", "G2", "G3", "G4", "G5", "G7")
+GATES = ("G1", "G2", "G3", "G4", "G5", "G7", "G8")
 
 
 class InputError(Exception):
@@ -68,11 +68,11 @@ def validate_run(arm: str, row: dict[str, object]) -> tuple[str, str]:
         return "unreached", digest
     entered = _bool(row.get("gate_entered"))
     released = _bool(row.get("gate_released"))
-    runs = _count(row.get("gate_run_count"))
-    maximum = _count(row.get("gate_run_max_length"))
-    if entered != (runs > 0) or released and not entered:
+    gate_count = _count(row.get("gate_io_count"))
+    post_count = _count(row.get("post_gate_io_count"))
+    if entered != (gate_count > 0) or released != (post_count > 0):
         raise InputError
-    if (runs == 0) != (maximum == 0):
+    if post_count > 0 and gate_count == 0:
         raise InputError
     if arm in CONTROL_ARMS:
         return ("control_gate_run_observed" if entered else "control_no_gate_run",

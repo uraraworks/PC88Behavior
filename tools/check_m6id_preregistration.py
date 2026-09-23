@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""m6i-d の G3/G7 を事前登録・m6i-b/c凍結表・実装間で照合する。"""
+"""m6i-d の G3/G7 を事前登録・追補・凍結表・実装間で照合する。"""
 from __future__ import annotations
 
 import argparse
@@ -95,18 +95,19 @@ def main() -> int:
                     default=REPO / "docs/notes/m6i-d-gate-release-audit-preregistration.md")
     ap.add_argument("--addendum", type=Path,
                     default=REPO / "docs/notes/m6i-d-addendum1-unverified-arms.md")
+    ap.add_argument("--addendum2", type=Path,
+                    default=REPO / "docs/notes/m6i-d-addendum2-pc-anchored-observation.md")
     ap.add_argument("--m6ib-config", type=Path, default=REPO / "tools/m6ib_frozen.tsv")
-    ap.add_argument("--m6ic-config", type=Path, default=REPO / "tools/m6ic_frozen.tsv")
     args = ap.parse_args()
     try:
         config = load_tsv(args.config)
         m6ib = load_tsv(args.m6ib_config)
-        m6ic = load_tsv(args.m6ic_config)
         prereg = read(args.prereg)
         addendum = read(args.addendum)
+        addendum2 = read(args.addendum2)
         scalar_keys = {"frozen", "arm_frames", "repetitions",
-                       "gate_run_min_length", "normal_media_sha256"}
-        if set(config) != scalar_keys | {"arm", "judgment"}:
+                       "normal_media_sha256"}
+        if set(config) != scalar_keys | {"arm", "gate_label", "judgment"}:
             raise GateError("設定キーに不足または余分がある")
         if one(config, "frozen") != "yes":
             raise GateError("G7不一致: frozen")
@@ -117,10 +118,7 @@ def main() -> int:
         for key in ("repetitions", "normal_media_sha256"):
             if one(config, key) != one(m6ib, key):
                 raise GateError(f"G3不一致: {key}")
-        if one(config, "gate_run_min_length") != "32" \
-                or one(config, "gate_run_min_length") != one(m6ic, "gate_run_min_length"):
-            raise GateError("G3/G7不一致: gate_run_min_length")
-        if "各腕2走" not in prereg or "（32）" not in prereg \
+        if "各腕2走" not in prereg \
                 or "m6i-b の凍結値をそのまま使う" not in prereg:
             raise GateError("事前登録の凍結記述を確認できない")
 
@@ -134,6 +132,21 @@ def main() -> int:
         analyzer = load_module(REPO / "tools/analyze_m6id.py", "m6id_analyzer_gate")
         if tuple(judge.ARMS) != arms or tuple(analyzer.ARMS) != arms:
             raise GateError("G7不一致: 実装の腕一覧")
+        expected_gate_rows = tuple(
+            f"{arm}={label or '-'}"
+            for arm, label in analyzer.GATE_LABELS.items()
+        )
+        if tuple(config.get("gate_label", ())) != expected_gate_rows:
+            raise GateError("G7不一致: ゲートラベル対応")
+        if not all(label in addendum2 for label in analyzer.ALL_GATE_LABELS) \
+                or "D-B0, D-B6-A0" not in addendum2 \
+                or "gate_run_min_length" not in addendum2:
+            raise GateError("追補2のゲートラベル対応を確認できない")
+        try:
+            for arm in arms:
+                analyzer.gate_address_for_arm(arm, args.config)
+        except (OSError, UnicodeError, ValueError, SystemExit) as exc:
+            raise GateError("G7不一致: sub ROMのゲートラベル") from exc
         judgments = tuple(config.get("judgment", ()))
         if len(judgments) != len(set(judgments)):
             raise GateError("G7不一致: 判定名の重複")

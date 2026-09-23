@@ -31,8 +31,8 @@ def dataset(never=(), not_entered=()):
         row = {
             "arm": arm, "reached": True,
             "gate_entered": entered, "gate_released": released,
-            "gate_run_count": int(entered),
-            "gate_run_max_length": 32 if entered else 0,
+            "gate_io_count": int(entered),
+            "post_gate_io_count": int(released),
             "rom_set_sha256": DIGEST,
         }
         rows[arm] = [copy.deepcopy(row), copy.deepcopy(row)]
@@ -67,7 +67,7 @@ cases = {}
 unusable = dataset()
 for row in unusable["D-B0"]:
     row.update(gate_entered=True, gate_released=False,
-               gate_run_count=1, gate_run_max_length=32)
+               gate_io_count=1, post_gate_io_count=0)
 cases["m6i_d_observation_unusable"] = unusable
 inconclusive = dataset()
 for row in inconclusive["D-B3"]:
@@ -130,14 +130,14 @@ if rc != 0 or not expected_arm_names <= present(result, (*j.ARM_RESULTS, *j.CONT
 rows = dataset()
 for row in rows["D-B6-A0"]:
     row.update(gate_entered=True, gate_released=False,
-               gate_run_count=1, gate_run_max_length=32)
+               gate_io_count=1, post_gate_io_count=0)
 rc, result = run(rows)
 if rc != 0 or not result["control_gate_run_observed"]["present"]:
     raise SystemExit("対照run観測を出せない")
 
 # 観測またはROM SHAの2走不一致はいずれもunreached。
 rows = dataset()
-rows["D-B4"][1].update(gate_released=False)
+rows["D-B4"][1].update(gate_released=False, post_gate_io_count=0)
 rc, result = run(rows)
 if rc != 0 or not result["unreached"]["present"] \
         or not result["m6i_d_inconclusive"]["present"]:

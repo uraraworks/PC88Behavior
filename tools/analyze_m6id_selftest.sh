@@ -1,53 +1,64 @@
 #!/usr/bin/env bash
-# m6i-d G5: 全区間のゲートrun 3状態と、最後のrun基準の陰性対照。
+# m6i-d G5: PC錨づけの3状態と誤検出陰性対照。G8: ROMディレクトリ自己汚染。
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-python3 - "$REPO" <<'PY'
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+python3 - "$REPO" "$WORK" <<'PY'
 from pathlib import Path
 import sys
 
-repo = Path(sys.argv[1])
+repo, scratch = map(Path, sys.argv[1:])
 sys.path.insert(0, str(repo / "tools"))
 import analyze_main_to_sub as m2s
 import analyze_m6id as a
+import build_m6ib_measure_rom as m6ib
 
 
-def event(seq, clock, cpu, kind, port):
-    return m2s.Ev(seq, clock, 1, cpu, kind, port, 0, "0000")
+def event(seq, clock, pc, kind="IN", port="00FE"):
+    return m2s.Ev(seq, clock, 1, "sub", kind, port, 0, pc)
 
 
-# 32未満はゲートrunではない。
-no_run = [event(i + 1, i + 1, "sub", "IN", "00FE") for i in range(31)]
-runs, released = a.gate_observation(no_run, 32)
-if runs or released:
-    raise SystemExit("G5ゲートrunなしを識別できない")
+GATE = 0x1234
 
-# m6i-cならラウンド#0応答より前として除外した位置にrunを置く。
-# m6i-dは全区間を見るため、この早いrunも検出し、その後のsub I/Oで解除とする。
-early = [event(i + 1, 10 + i, "sub", "IN", "00FE") for i in range(32)]
-early += [event(33, 50, "sub", "OUT", "00FD"),
-          event(34, 60, "sub", "OUT", "00F8")]
-runs, released = a.gate_observation(early, 32)
-if len(runs) != 1 or runs[0].length != 32 or not released:
-    raise SystemExit("G5全区間の解除runを識別できない")
+# (1) 別PCに長い IN $FE 連続があっても、ゲート入場ではない。
+other_pc_spin = [event(i + 1, i + 1, "BEEF") for i in range(128)]
+if a.gate_observation(other_pc_spin, GATE) != (False, False, 0, 0):
+    raise SystemExit("G5別PCの長い連続をゲートと誤認した")
+if a.gate_observation(other_pc_spin, None) != (False, False, 0, 0):
+    raise SystemExit("G6ゲートなし腕で入場を誤認した")
 
-permanent = [event(i + 1, 10 + i, "sub", "IN", "00FE") for i in range(32)]
-runs, released = a.gate_observation(permanent, 32)
-if len(runs) != 1 or released:
-    raise SystemExit("G5最後まで未解除のrunを識別できない")
+# (2) ゲートPCのI/O後に別PCのsub I/Oがあれば解除。
+released_rows = [event(1, 10, "1234"), event(2, 20, "5678", "OUT", "00F8")]
+if a.gate_observation(released_rows, GATE) != (True, True, 1, 1):
+    raise SystemExit("G5解除状態を識別できない")
 
-# 1本目だけ解除され、2本目は最後まで続く。最後のrun基準なら未解除である。
-two = [event(i + 1, 10 + i, "sub", "IN", "00FE") for i in range(32)]
-two.append(event(33, 50, "sub", "OUT", "00F8"))
-two.extend(event(34 + i, 60 + i, "sub", "IN", "00FE") for i in range(32))
-runs, released = a.gate_observation(two, 32)
-old_released = any(
-    row.cpu == "sub" and not (row.kind == "IN" and row.port == "00FE")
-    and row.clock > run.end_clock for run in runs for row in two
-)
-if len(runs) != 2 or released or not old_released:
-    raise SystemExit("G5最後のrun基準の陰性対照を検出できない")
+# (3) ゲートPCのI/Oがあり、その後に別PCのsub I/Oがなければ未解除。
+held_rows = [event(1, 10, "1234"), event(2, 20, "1234")]
+if a.gate_observation(held_rows, GATE) != (True, False, 2, 0):
+    raise SystemExit("G5未解除状態を識別できない")
 
-print("analyze_m6id_selftest: 項目数=4、G5の3状態・最後のrun陰性対照 OK")
+# 途中で別PCへ進んでも、最後のゲートI/O後に進まなければ未解除。
+last_gate_rows = [event(1, 10, "1234"), event(2, 20, "5678"),
+                  event(3, 30, "1234")]
+if a.gate_observation(last_gate_rows, GATE) != (True, False, 2, 0):
+    raise SystemExit("G5最後のゲートI/O基準になっていない")
+
+# G8: 走が生成しうる余分なファイルを置いても、到達判定は変わらない。
+rom_dir = scratch / "rom"
+rom_dir.mkdir()
+for name, size in m6ib.EXPECTED_SIZES.items():
+    (rom_dir / name).write_bytes(bytes(size))
+digest = m6ib.rom_set_sha256(rom_dir)
+rows = [event(1, 1, "9999")]
+before = a.summarize("D-B0", rows, 0, rom_dir, digest, None)
+(rom_dir / "generated.srm").write_bytes(b"synthetic")
+if m6ib.sizes_valid(rom_dir):
+    raise SystemExit("G8陰性対照が旧条件を壊していない")
+after = a.summarize("D-B0", rows, 0, rom_dir, digest, None)
+if not before["reached"] or not after["reached"] or before != after:
+    raise SystemExit("G8余分なファイルで到達判定が変化した")
+
+print("analyze_m6id_selftest: 項目数=5、G5=4・G8=1 OK（別PC長時間連続の陰性対照あり）")
 PY

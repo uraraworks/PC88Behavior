@@ -1,7 +1,6 @@
 frozen	yes
 arm_frames	600
 repetitions	2
-gate_run_min_length	32
 normal_media_sha256	d3becfe5051f7002d268824a2da2824f543442e71ae3226e4d22139e0adce05c
 arm	D-B0
 arm	D-B1
@@ -10,6 +9,13 @@ arm	D-B3
 arm	D-B4
 arm	D-B5
 arm	D-B6-A0
+gate_label	D-B0=-
+gate_label	D-B1=M6IB_B1_RESET_GATE
+gate_label	D-B2=M6IB_B2_BEFORE_FDC_GATE
+gate_label	D-B3=M6IB_B3_AFTER_INIT_GATE
+gate_label	D-B4=M6IB_B4_BEFORE_ROUND0_GATE
+gate_label	D-B5=M6IB_B5_AFTER_ROUND0_GATE
+gate_label	D-B6-A0=-
 judgment	gate_failed
 judgment	unreached
 judgment	arm_gate_released
