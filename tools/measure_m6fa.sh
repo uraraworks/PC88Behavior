@@ -76,7 +76,10 @@ boot_frame="$(cfg boot_return_frame)"; stimulus_frame="$(cfg stimulus_frame)"
 reference_sha="$(sha256 "$REFERENCE")" || gate_failed reference_sha
 
 run_one() {
-  local arm="$1" run="$2" disk="$WORK/$arm-r$run.d88"
+  # bash 3.2 では同じ local 文の中で先に代入した変数を参照できない（外側の値を見る）。
+  # arm と run を先に確定させてから、それを使う変数を別の local 文で宣言する。
+  local arm="$1" run="$2"
+  local disk="$WORK/$arm-r$run.d88"
   local iolog="$WORK/$arm-r$run.iolog.txt" report="$WORK/$arm-r$run.report.txt"
   local stdout="$WORK/$arm-r$run.stdout.txt" stderr="$WORK/$arm-r$run.stderr.txt"
   local raw="$raw_dir/$arm-r$run.diff.json" safe="$WORK/$arm-r$run.safe.json"
