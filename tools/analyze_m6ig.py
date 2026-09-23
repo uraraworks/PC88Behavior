@@ -33,6 +33,25 @@ class StateObservation:
     event_counts_consistent: bool
 
 
+def state_event_counts(shape: tuple[int, int, int, int, int] | None,
+                       rows: list[m2s.Ev], issue_clock: int) -> tuple[int, int, int | None]:
+    """初期化の有無から意味的な窓を選び、前置きI/Oを数える。"""
+    if shape is None:
+        startup_rows = [row for row in rows if row.clock < issue_clock]
+        round0_response = None
+    else:
+        init_start, init_end = shape[1], shape[2]
+        startup_rows = [row for row in rows if row.clock < init_start]
+        round0_response = sum(row.cpu == "sub" and row.kind == "OUT"
+                              and row.port == "00FD"
+                              and init_end < row.clock < issue_clock for row in rows)
+    startup_send = sum(row.cpu == "main" and row.kind == "OUT"
+                       and row.port == "00FD" for row in startup_rows)
+    startup_recv = sum(row.cpu == "sub" and row.kind == "IN"
+                       and row.port == "00FC" for row in startup_rows)
+    return startup_send, startup_recv, round0_response
+
+
 def observe_state(shape: tuple[int, int, int, int, int] | None,
                   rows: list[m2s.Ev], memory: list[m6ia.MemEvent],
                   issue_clock: int) -> StateObservation:
@@ -47,19 +66,13 @@ def observe_state(shape: tuple[int, int, int, int, int] | None,
     groups = (a_sources, b_sources, c_sources)
     independent = all(groups[i].isdisjoint(groups[j])
                       for i in range(3) for j in range(i + 1, 3))
-    init_start = shape[1] if shape is not None else -1
-    init_end = shape[2] if shape is not None else -1
-    startup_send = sum(row.cpu == "main" and row.kind == "OUT"
-                       and row.port == "00FD" and row.clock < init_start for row in rows)
-    startup_recv = sum(row.cpu == "sub" and row.kind == "IN"
-                       and row.port == "00FC" and row.clock < init_start for row in rows)
-    round0_response = sum(row.cpu == "sub" and row.kind == "OUT"
-                          and row.port == "00FD"
-                          and init_end < row.clock < issue_clock for row in rows)
+    startup_send, startup_recv, round0_response = state_event_counts(
+        shape, rows, issue_clock)
     b_count = m6ia.one_writes(memory, 0xE00B)
     c_count = m6ia.one_writes(memory, 0xE00C)
     consistent = (startup_send == startup_recv == b_count
-                  and round0_response == c_count)
+                  and (c_count == 0 if round0_response is None
+                       else round0_response == c_count))
     return StateObservation((len(a_sources), b_count, c_count),
                             independent, consistent)
 

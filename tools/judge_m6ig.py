@@ -29,11 +29,11 @@ def parse_gates(entries: list[str]) -> dict[str, bool]:
     result: dict[str, bool] = {}
     for entry in entries:
         name, sep, value = entry.partition("=")
-        if sep != "=" or name not in {f"G{i}" for i in range(1, 10)} \
+        if sep != "=" or name not in {f"G{i}" for i in range(1, 11)} \
                 or name in result or value not in ("true", "false"):
             raise InputError
         result[name] = value == "true"
-    if set(result) != {f"G{i}" for i in range(1, 10)}:
+    if set(result) != {f"G{i}" for i in range(1, 11)}:
         raise InputError
     return result
 

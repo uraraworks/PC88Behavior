@@ -20,7 +20,7 @@ def dataset(l0,l1,gn=False,l2=True):
 def run(rows,failed=None):
     with tempfile.TemporaryDirectory(dir=scratch) as raw:
         tmp=Path(raw); cmd=[sys.executable,str(repo/'tools/judge_m6ig.py')]
-        for n in range(1,10): cmd += ['--gate',f'G{n}={"false" if failed==f"G{n}" else "true"}']
+        for n in range(1,11): cmd += ['--gate',f'G{n}={"false" if failed==f"G{n}" else "true"}']
         i=0
         for arm in j.ARMS:
             for row in rows[arm]:
@@ -40,7 +40,7 @@ for expected,rows in cases.items():
 rows=dataset(False,True); rows['G-L1'][1]['result']='failure'
 rc,present=run(rows)
 if rc!=0 or 'unreached' not in present or 'm6i_g_inconclusive' not in present: raise SystemExit('2走不一致')
-rc,present=run(dataset(False,True),'G4')
+rc,present=run(dataset(False,True),'G10')
 if rc!=1 or 'gate_failed' not in present: raise SystemExit('関門偽')
 print('judge_m6ig_selftest: 項目数=6、総合4種・2走不一致・関門偽 OK')
 PY
