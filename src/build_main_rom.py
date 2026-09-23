@@ -578,6 +578,55 @@ _m6ib_b5_issue:
     RET
 """
 
+# m6i-h（固定フレーム待ちを持たない2腕）。0xE00Dはm6i-bの共通領域で
+# 未使用の1バイトであり、H-Bが2回目のREADを呼んだ事実だけに割り当てる。
+M6IH_COMMON_EQU = M6IB_COMMON_EQU + "M6IH_MARK_RETRY          EQU 0E00Dh\n"
+
+M6IH_BOOT_A = M6IH_COMMON_EQU + """MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD (M6IB_MARK_B),A
+    RET
+
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    XOR A
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,001h
+    LD (M6IB_MARK_B),A
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
+M6IH_BOOT_B = M6IH_COMMON_EQU + """MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD (M6IH_MARK_RETRY),A
+    RET
+
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    LD A,001h
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    LD A,(MAIN_SUB_MARK_SUCCESS)
+    OR A
+    RET NZ
+    LD A,001h
+    LD (M6IH_MARK_RETRY),A
+    XOR A
+    CALL MAIN_SUB_READ_KNOWN
+    RET
+"""
+
 
 def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_cursor_fault: bool = False,
@@ -606,7 +655,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_m6ib_b2: bool = False,
                         inject_m6ib_b3: bool = False,
                         inject_m6ib_b4: bool = False,
-                        inject_m6ib_b5: bool = False) -> str:
+                        inject_m6ib_b5: bool = False,
+                        inject_m6ih_a: bool = False,
+                        inject_m6ih_b: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -859,10 +910,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             (inject_m6ib_b3, M6IB_BOOT_B3, "B3"),
             (inject_m6ib_b4, M6IB_BOOT_B4, "B4"),
             (inject_m6ib_b5, M6IB_BOOT_B5, "B5"),
+            (inject_m6ih_a, M6IH_BOOT_A, "H-A"),
+            (inject_m6ih_b, M6IH_BOOT_B, "H-B"),
         ]
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
-            raise SystemExit("m6i-b介入はB1〜B5のうち1つだけ指定する")
+            raise SystemExit("m6i-b/m6i-h main介入は1つだけ指定する")
         if enabled_m6ib:
             replacement, arm = enabled_m6ib[0]
             if main_sub_read_text.count(M6IB_BOOT_OLD) != 1:
@@ -1108,6 +1161,10 @@ def main():
                     help="m6i-b B4: 起動順b→a完了後、ラウンド#0前で停止する")
     ap.add_argument("--inject-m6ib-b5", action="store_true",
                     help="m6i-b B5: 起動順b→a→c完了後に停止する")
+    ap.add_argument("--inject-m6ih-a", action="store_true",
+                    help="m6i-h H-A: 起動専用SEND直後、固定待ちなしでREADする")
+    ap.add_argument("--inject-m6ih-b", action="store_true",
+                    help="m6i-h H-B: 固定待ちなしでREADし、失敗時だけ1回再試行する")
     ap.add_argument("--inject-m6ie-single-read", action="store_true",
                     help="m6i-e E2: B5と同じmainでsubへIN $FEとNOP 4個を挿入する")
     ap.add_argument("--inject-m6ie-nops-only", action="store_true",
@@ -1125,16 +1182,18 @@ def main():
     m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
                    args.inject_m6ib_b3, args.inject_m6ib_b4,
                    args.inject_m6ib_b5)
-    insertion_flags = (*m6ib_flags, args.inject_m6ie_single_read,
+    m6ih_flags = (args.inject_m6ih_a, args.inject_m6ih_b)
+    insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only)
     if sum(bool(value) for value in insertion_flags) > 1:
-        ap.error("m6i-b/m6i-eの挿入フラグは併用不可")
+        ap.error("m6i-b/m6i-e/m6i-hの挿入フラグは併用不可")
     m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
                       ("B1", "B2", "B3", "B4", "B5"))
                       if enabled), None)
     main_sub_fault_enabled = (
         args.inject_main_sub_wait_fault or args.inject_main_sub_cont_fault
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
+        or any(m6ih_flags)
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     enable_main_sub_read = args.enable_main_sub_read or main_sub_fault_enabled
 
@@ -1177,7 +1236,9 @@ def main():
                                        inject_m6ib_b4=args.inject_m6ib_b4,
                                        inject_m6ib_b5=(args.inject_m6ib_b5
                                                         or args.inject_m6ie_single_read
-                                                        or args.inject_m6ie_nops_only))
+                                                        or args.inject_m6ie_nops_only),
+                                       inject_m6ih_a=args.inject_m6ih_a,
+                                       inject_m6ih_b=args.inject_m6ih_b)
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
