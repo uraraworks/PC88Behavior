@@ -55,6 +55,7 @@ VSYNC_REGCHECK_ASM = REPO / "src" / "l3_main" / "vsync_regcheck.asm"
 KEY_TABLE_ASM = REPO / "src" / "l3_main" / "key_table_gen.asm"
 MAIN_SUB_READ_ASM = REPO / "src" / "l3_main" / "main_sub_read.asm"
 DISK_READ_RETRY_ASM = REPO / "src" / "l3_main" / "disk_read_retry.asm"
+MAIN_SUB_READ_CHR_ASM = REPO / "src" / "l3_main" / "main_sub_read_chr.asm"
 
 # M7段階3b: BASIC核(直接モードPRINT)。src/l4_basic/*.asm・生成物。
 L4_TOKENS_ASM = REPO / "src" / "l4_basic" / "tokens.asm"
@@ -650,6 +651,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_vsync_no_save_fault: bool = False,
                         enable_main_sub_read: bool = False,
                         enable_disk_read_retry: bool = False,
+                        enable_disk_read_chr: bool = False,
                         inject_main_sub_wait_fault: bool = False,
                         inject_main_sub_cont_fault: bool = False,
                         inject_main_sub_pair_fault: bool = False,
@@ -933,6 +935,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         combined += f'\nINCLUDE "{main_sub_read_path}"\n'
     if enable_disk_read_retry:
         combined += f'\nINCLUDE "{DISK_READ_RETRY_ASM}"\n'
+    if enable_disk_read_chr:
+        combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
     return combined
 
 
@@ -1153,6 +1157,8 @@ def main():
                          "定常状態でドライブAを1回読む（配布ビルドは既定off）")
     ap.add_argument("--enable-disk-read-retry", action="store_true",
                     help="既知1セクタREADを待ち・空送信なし、失敗時1回だけ再試行する")
+    ap.add_argument("--enable-disk-read-chr", action="store_true",
+                    help="任意のドライブ・論理トラック・Rを読む入口と再試行口を連結する")
     ap.add_argument("--inject-main-sub-wait-fault", action="store_true",
                     help="故障注入: SEND前のbit1待ちを反対(bit1=0)にする。"
                          "main-sub READを暗黙に有効化する")
@@ -1209,6 +1215,7 @@ def main():
         or any(m6ih_flags)
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     enable_main_sub_read = (args.enable_main_sub_read or args.enable_disk_read_retry
+                            or args.enable_disk_read_chr
                             or main_sub_fault_enabled)
 
     if args.extra_lines < 0 or args.extra_lines > 255:
@@ -1242,6 +1249,7 @@ def main():
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault,
                                        enable_main_sub_read=enable_main_sub_read,
                                        enable_disk_read_retry=args.enable_disk_read_retry,
+                                       enable_disk_read_chr=args.enable_disk_read_chr,
                                        inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
                                        inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
                                        inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,

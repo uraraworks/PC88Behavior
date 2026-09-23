@@ -279,6 +279,7 @@ MAIN_SUB_READ_KNOWN:
     LD A,001h                   ; 位置5=R 1
     CALL MAIN_SUB_SEND_REQUEST_CONT
     JP C,_ms_read_timeout
+MAIN_SUB_READ_AFTER_REQUEST:
     LD A,001h
     LD (MAIN_SUB_MARK_REQUEST),A
 

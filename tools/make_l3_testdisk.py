@@ -3,7 +3,7 @@
 make_l3_testdisk.py — L3 検証用の自作 D88 ディスクイメージを作る
 
 **公式ディスクの内容は一切含まない。** 全セクタの中身は下の
-`sector_pattern()` という単純な式から機械的に生成する（ルールから
+`sector_pattern()` または `coord_header_pattern()` という単純な式から機械的に生成する（ルールから
 生成する。禁止事項4「ROM/ディスク由来のバイト列をダンプしない」に
 対応する、CLAUDE.md「やってよいこと」のとおりの作り方）。
 
@@ -60,11 +60,24 @@ DISK_DELETED_TRUE = 0x10
 # DISK_DENSITY_SINGLE・fdc.c の sector_density_mismatch）。
 DISK_DENSITY_DOUBLE = 0x00
 DISK_DENSITY_SINGLE = 0x40
+CONTENT_RULE_LEGACY = "legacy"
+CONTENT_RULE_COORD_HEADER = "coord-header"
+CONTENT_RULES = (CONTENT_RULE_LEGACY, CONTENT_RULE_COORD_HEADER)
 
 
 def sector_pattern(cyl: int, sec: int) -> bytes:
     """このセクタの256バイトを機械的に生成する（ROM/ディスク由来ではない）。"""
     return bytes(((cyl * 97 + sec * 57 + i * 7 + 13) & 0xFF) for i in range(SECTOR_SIZE))
+
+
+def coord_header_pattern(disk_id: int, cyl: int, head: int, sec: int) -> bytes:
+    """先頭に識別子と座標を書き、残りもその4値から機械的に生成する。"""
+    prefix = bytes((disk_id, cyl, head, sec))
+    padding = bytes(
+        ((disk_id * 131 + cyl * 97 + head * 71 + sec * 57 + i * 7 + 13) & 0xFF)
+        for i in range(4, SECTOR_SIZE)
+    )
+    return prefix + padding
 
 
 def build_track(
@@ -73,6 +86,8 @@ def build_track(
     status: int = STATUS_NORMAL,
     deleted: int = DISK_DELETED_FALSE,
     density: int = DISK_DENSITY_DOUBLE,
+    content_rule: str = CONTENT_RULE_LEGACY,
+    disk_id: int = 0,
 ) -> bytes:
     body = bytearray()
     for sec in range(sector_base, sector_base + sectors_per_track):
@@ -91,7 +106,12 @@ def build_track(
         hdr[14] = size & 0xFF
         hdr[15] = (size >> 8) & 0xFF
         body += hdr
-        body += sector_pattern(cyl, sec)
+        if content_rule == CONTENT_RULE_LEGACY:
+            body += sector_pattern(cyl, sec)
+        elif content_rule == CONTENT_RULE_COORD_HEADER:
+            body += coord_header_pattern(disk_id, cyl, head, sec)
+        else:
+            raise ValueError(f"未知の内容規則: {content_rule}")
     return bytes(body)
 
 
@@ -103,6 +123,8 @@ def build_d88(
     status: int = STATUS_NORMAL,
     deleted: int = DISK_DELETED_FALSE,
     density: int = DISK_DENSITY_DOUBLE,
+    content_rule: str = CONTENT_RULE_LEGACY,
+    disk_id: int = 0,
 ) -> bytes:
     """トラック表は「物理トラック番号 = シリンダ*2+ヘッド」で引かれる
     （vendor src/fdc.c `disk_now_track(i, ncn[i]*2+hd)`）。実測で確かめた
@@ -124,7 +146,8 @@ def build_d88(
     for c in range(n_cylinders):
         for h in range(heads):
             trk = build_track(c, sectors_per_track, head=h, sector_base=sector_base,
-                              status=status, deleted=deleted, density=density)
+                              status=status, deleted=deleted, density=density,
+                              content_rule=content_rule, disk_id=disk_id)
             phys = c * 2 + h
             struct.pack_into("<I", track_table, phys * 4, offset)
             body += trk
@@ -213,6 +236,21 @@ def main():
         action="store_true",
         help="全セクタを単密度(D88の密度0x40)にする。倍密度のREAD DATAからは見えなくなる。既定は倍密度",
     )
+    ap.add_argument(
+        "--content-rule",
+        choices=CONTENT_RULES,
+        default=CONTENT_RULE_LEGACY,
+        help=(
+            "セクタ内容の生成規則。legacy（既定）は従来どおり、"
+            "coord-header は先頭4バイトを [disk_id,C,H,R] にする"
+        ),
+    )
+    ap.add_argument(
+        "--disk-id",
+        type=lambda v: int(v, 0),
+        default=0,
+        help="coord-header規則のディスク識別値（0〜255、既定0）",
+    )
     args = ap.parse_args()
 
     if args.double_sided:
@@ -260,6 +298,10 @@ def main():
         )
         return 1
 
+    if not (0 <= args.disk_id <= 0xFF):
+        print("エラー: --disk-id は0〜255で指定すること", file=sys.stderr)
+        return 1
+
     # track_table は164エントリ固定。両面時は phys の最大値が
     # (n_cyl-1)*2+(heads-1) になるので、範囲外になるならここで落とす。
     max_phys = (n_cyl - 1) * 2 + (heads - 1)
@@ -282,7 +324,8 @@ def main():
     deleted = DISK_DELETED_TRUE if args.deleted_data else DISK_DELETED_FALSE
     density = DISK_DENSITY_SINGLE if args.single_density else DISK_DENSITY_DOUBLE
     data = build_d88(n, n_cyl, heads, sector_base=base, status=status,
-                     deleted=deleted, density=density)
+                     deleted=deleted, density=density,
+                     content_rule=args.content_rule, disk_id=args.disk_id)
     p = pathlib.Path(args.outfile)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
