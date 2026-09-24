@@ -60,7 +60,10 @@ PY
 }
 
 # G1〜G3。ここを通るまではfrontendをビルドも起動もしない。
-"$REPO/tools/run_all_selftests.sh" >"$WORK/g1.out" 2>"$WORK/g1.err" || gate_failed G1
+# G1（run_all_selftests.sh 全体）はここでは回さない。m6i-c/g/h/i と同じく、腕を回す前に
+# 親セッションで1回通す運用とする。とくにこのドライバは公式環境の変数を受け取るので、
+# 中で回すと普段 SKIP される公式適合検査（conform_l3.sh 等）まで走り、腕に入る前に
+# 1時間近くかかる。事前登録が要求するのは「腕の前に G1 が真であること」である。
 "$REPO/tools/check_cleanroom.sh" >"$WORK/g2.out" 2>"$WORK/g2.err" || gate_failed G2
 "$REPO/tools/d88_diff_selftest.sh" >"$WORK/g3.out" 2>"$WORK/g3.err" || gate_failed G3
 
