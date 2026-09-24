@@ -92,6 +92,20 @@ run_one() {
   chmod u+w "$disk" || gate_failed copy_mode
   initial="$(sha256 "$disk")" || gate_failed copy_sha
   [ "$initial" = "$reference_sha" ] || gate_failed G5
+  # 追補3: 参照 diskA の像は書き込み保護付きなので、conform_l3.sh と同じく複製の
+  # D88 ヘッダ26バイト目へ 0x00 を書いて保護を外す。書くだけで元の値は読まない。
+  printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none \
+    || gate_failed clear_write_protect
+  # G5b: 複製と参照で違うバイトの「位置だけ」を数え、無いかオフセット26だけであること。
+  python3 - "$REFERENCE" "$disk" <<'PY_G5B' || gate_failed G5b
+import sys
+a = open(sys.argv[1], "rb").read(); b = open(sys.argv[2], "rb").read()
+if len(a) != len(b):
+    raise SystemExit(1)
+offsets = [i for i in range(len(a)) if a[i] != b[i]]
+if offsets not in ([], [26]):
+    raise SystemExit(1)
+PY_G5B
   local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk"
     --save-to-disk-image --frames "$frames" --io-log "$iolog" --out "$report"
     --type-at "$boot_frame" --type '\n')
