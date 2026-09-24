@@ -58,7 +58,11 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 "$REPO/tools/check_m6fc_markers_selftest.sh" >"$WORK/g3c.out" 2>&1 || gate_failed G3_markers
 
 source "$REPO/tools/lib_l3_measure.sh"
-CORE="$(find_l3_core)"; [ -n "$CORE" ] || gate_failed core_missing
+# 試験用の口(既定は無効): M6FC_TEST_CORE を設定すると find_l3_core の結果を
+# 上書きできる。tools/measure_m6fc_driver_selftest.sh がコア不在環境で
+# 偽フロントエンドを差し込むために使う。未設定時は従来どおり find_l3_core
+# の結果をそのまま使うので、本番の挙動は変わらない。
+CORE="${M6FC_TEST_CORE:-$(find_l3_core)}"; [ -n "$CORE" ] || gate_failed core_missing
 if [ "$FRONTEND" = "$REPO/tools/harness/frontend/q88measure" ]; then
   ensure_l3_frontend || gate_failed frontend_missing
 else
@@ -71,9 +75,9 @@ TIMEOUT="$(m6f_cfg "$CONFIG" run_timeout_seconds)"
 
 # G5: 生成器の決定性(測定に使う値そのものではなく、任意の(V,F)組で確認する)。
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5a.d88" --fat-value 0xAA --filler 0x55 \
-  "${boot_fill_args[@]}" >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
+  ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5b.d88" --fat-value 0xAA --filler 0x55 \
-  "${boot_fill_args[@]}" >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
+  ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
 [ "$(m6f_sha256 "$WORK/g5a.d88")" = "$(m6f_sha256 "$WORK/g5b.d88")" ] || gate_failed G5
 
 mfc_frames() {
@@ -91,8 +95,13 @@ import sys
 repo, arm = sys.argv[1], sys.argv[2]
 sys.path.insert(0, repo + "/tools")
 import check_m6fc_preregistration as c
+# 本物の改行を含んだまま1行に出すと、bash の read で切れて Enter の打鍵が
+# 失われる（2回目の本測定まで GB が陽性にならなかった原因）。ハーネスが
+# Enter と解釈する「\\n」の2文字へ戻してから出す。凍結表と同じ書き方。
 for frame, text in c.resolve_segments(arm):
-    print(f"{frame}\t{text}")
+    if "\t" in text or "\r" in text or "\\n" in text:
+        raise SystemExit(3)
+    print(f"{frame}\t" + text.replace("\n", "\\n"))
 PY
 }
 
@@ -110,16 +119,22 @@ mfc_run_one() {
   frames="$(mfc_frames "$arm")" || gate_failed frames_resolve
   [ -e "$disk" ] && gate_failed disk_exists
   python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk" --fat-value "$fat" --filler "$filler" \
-    "${boot_fill_args[@]}" >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
+    ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
   local initial_sha; initial_sha="$(m6f_sha256 "$disk")" || gate_failed initial_sha
 
   local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk"
     --save-to-disk-image --frames "$frames" --io-log "$iolog" --out "$report"
     --type-at "$BOOT_FRAME" --type '\n')
+  local nadded=0
   while IFS=$'\t' read -r seg_frame seg_text; do
     [ -n "$seg_frame" ] || continue
+    case "$seg_frame" in *[!0-9]*) gate_failed segment_frame ;; esac
     qargs+=(--type-at "$seg_frame" --type "$seg_text")
+    nadded=$((nadded + 1))
   done < <(mfc_segments "$arm")
+  # 守り: 渡した区間の数が凍結表の区間の数と一致すること。
+  local nseg; nseg="$(mfc_segments "$arm" | wc -l | tr -d ' ')" || gate_failed segments_resolve
+  [ "$nadded" -eq "$nseg" ] || gate_failed segments_count
 
   /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" "$FRONTEND" "${qargs[@]}" \
     >"$WORK/$arm-r$rep.stdout.txt" 2>"$WORK/$arm-r$rep.stderr.txt" || gate_failed emulator_run
@@ -249,7 +264,12 @@ if [ "$f_star" = "blocked" ]; then
 fi
 
 # --- 段階1: SW(空きの印の掃引、256腕) --------------------------------------
-for v in $(seq 0 255); do
+# 試験用の口(既定は無効): M6FC_TEST_SW_MAX を設定すると掃引の上限を狭められる
+# (既定255=v=0..255の全腕。未設定時は従来と同じ範囲になる)。
+# tools/measure_m6fc_driver_selftest.sh が偽フロントエンドで全256腕×2走を
+# 回すと重いため、1腕だけに絞るのに使う。
+SW_MAX="${M6FC_TEST_SW_MAX:-255}"
+for v in $(seq 0 "$SW_MAX"); do
   hex="$(printf '%02X' "$v")"
   mfc_run_one "SW-$hex" 1 "$v" "$f_star"
   mfc_run_one "SW-$hex" 2 "$v" "$f_star"
@@ -293,6 +313,12 @@ PY
 for arm in A1 A1b A2 A3 A4-1 A4-3 A4-6 A4-10 A4-17 A5 A5b; do
   mfc_run_one "$arm" 1 "$v_star" "$f_star"
   mfc_run_one "$arm" 2 "$v_star" "$f_star"
+  # 試験用の口(既定は無効): M6FC_TEST_STOP_AFTER_ARM を設定すると、
+  # 一致した腕を2走終えた時点で打ち切る(未設定時は従来どおり最後まで回る)。
+  if [ -n "${M6FC_TEST_STOP_AFTER_ARM:-}" ] && [ "$arm" = "$M6FC_TEST_STOP_AFTER_ARM" ]; then
+    printf 'm6f-c measurement selftest: stopped after arm=%s\n' "$arm"
+    exit 0
+  fi
 done
 mfc_run_one A6 1 "$v_star" "$f_prime"
 mfc_run_one A6 2 "$v_star" "$f_prime"

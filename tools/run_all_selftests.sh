@@ -311,6 +311,10 @@ SCRIPTS_EXPECTED=(
   # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
   "tools/check_m6fc_boot_preregistration_selftest.sh:0"
   "tools/derive_m6fc_boot_selftest.sh:0"
+  # m6f-c 測定ドライバ(tools/measure_m6fc.sh)自体の自己検査。偽フロントエンド
+  # (一時python)と空の一時ROMディレクトリだけで完結し、公式ROM・公式ディスク・
+  # 本物のq88measure・vendor/・private/には一切触れない。SKIPは無く常にrc=0を期待する。
+  "tools/measure_m6fc_driver_selftest.sh:0"
 )
 
 overall=0
