@@ -179,6 +179,28 @@ else
   ng "不正な結果JSONの拒否がrc=1でない(rc=$bad_rc)"
 fi
 
+# 追補3 §3.1: 目印なし・abort は Wclear に入れず no_marker_or_abort に列挙する。
+if python3 - "$REPO" <<'PY2'
+import sys; sys.path.insert(0, sys.argv[1] + "/tools")
+import derive_m6fc_protect as d
+def run(w, rep, markers=None, abort=False):
+    r = {"sector": "P13", "w": w, "repetition": rep, "markers": markers or [], "reads": [], "writes": []}
+    if abort: r["abort"] = True
+    return r
+er61 = [{"tag": "er", "numbers": [61, 20], "row": 1}]
+ok_ = [{"tag": "ok", "numbers": [], "row": 1}]
+runs = [run(0,1,er61), run(0,2,er61), run(1,1), run(1,2), run(2,1,abort=True), run(2,2,abort=True),
+        run(3,1,ok_), run(3,2,ok_)]
+out = d.wclear_for_sweep({"runs": runs}, "P13")
+assert out.get("value") == [3], out
+assert out["no_marker_or_abort"] == [1, 2], out
+PY2
+then
+  ok "目印なし・abort の W を Wclear に入れず no_marker_or_abort に列挙した"
+else
+  ng "目印なし・abort の扱いが追補3 §3.1 と違う"
+fi
+
 echo
 if [ "$rc" -eq 0 ]; then
   echo "全項目 OK"

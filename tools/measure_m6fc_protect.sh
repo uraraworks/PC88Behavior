@@ -125,13 +125,34 @@ mfp_run_one() {
   local disk1_initial_sha; disk1_initial_sha="$(m6f_sha256 "$disk1")" || gate_failed disk1_sha
   [ "$disk1_initial_sha" = "$REF_SHA" ] || gate_failed disk1_copy_mismatch
 
+  # 追補3 §3.1: 引数は本測定ドライバとそろえる（--save-to-disk-image）。
   local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk1" --disk2 "$disk2"
-    --frames "$FRAMES" --io-log "$iolog" --out "$report"
+    --save-to-disk-image --frames "$FRAMES" --io-log "$iolog" --out "$report"
     --type-at "$BOOT_FRAME" --type '\n'
     --type-at "$STIMULUS_FRAME" --type "$KEYSTROKES")
 
-  /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${qargs[@]}" \
-    >"$WORK/$arm-r$rep.stdout.txt" 2>"$WORK/$arm-r$rep.stderr.txt" || gate_failed emulator_run
+  # 追補3 §3.1: コアの abort（rc=134）は非決定的に起きた。最大2回まで回し直し、
+  # 回し直すたびに媒体を作り直す。3回とも abort なら abort の走として記録する。
+  local attempt=0 rc=0 aborts=0
+  while :; do
+    rc=0
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${qargs[@]}" \
+      >"$WORK/$arm-r$rep.stdout.txt" 2>"$WORK/$arm-r$rep.stderr.txt" || rc=$?
+    [ "$rc" = 0 ] && break
+    [ "$rc" = 134 ] || gate_failed "emulator_run_${arm}_r${rep}_rc${rc}"
+    aborts=$((aborts + 1))
+    if [ "$aborts" -ge 3 ]; then
+      printf '{"sector":"%s","w":%s,"repetition":%s,"abort":true,"abort_retries":%s,"markers":[],"reads":[],"writes":[],"write_data_count":0}\n' \
+        "$sweep" "$w" "$rep" "$aborts" >> "$RUNS_JSON"
+      return 0
+    fi
+    rm -f "$disk1" "$disk2" "$iolog" "$report"
+    python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk2" --fat-value 0xFF --filler 0xFF \
+      --sector-fill "$coord=$w" >/dev/null 2>>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
+    cp "$REF_DISK" "$disk1" || gate_failed disk1_copy
+    chmod u+w "$disk1" || gate_failed disk1_mode
+  done
+  ABORT_RETRIES="$aborts"
   [ -e "$report" ] && [ -s "$iolog" ] || gate_failed measurement_artifact
 
   # G8: 参照ディスクの使い捨て複製(ドライブ1)は測定後も複製直後と同じ。
@@ -143,7 +164,7 @@ mfp_run_one() {
   local markers_json; markers_json="$(python3 "$REPO/tools/check_m6fc_markers.py" \
     --report "$report")" || gate_failed markers
 
-  python3 - "$REPO" "$sweep" "$w" "$rep" "$iolog" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
+  ABORT_RETRIES="$ABORT_RETRIES" python3 - "$REPO" "$sweep" "$w" "$rep" "$iolog" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
 import json, sys
 from pathlib import Path
 repo, sweep, w, rep, iolog = sys.argv[1:]
@@ -172,6 +193,7 @@ reads, writes = split["reads"], split["writes"]
 
 body = {
     "sector": sweep, "w": int(w), "repetition": int(rep),
+    "abort_retries": int(__import__("os").environ.get("ABORT_RETRIES", "0")),
     "reads": reads, "writes": writes,
     "write_data_count": split["write_data_count"],
     "drive1_read_count": split["drive1_read_count"],

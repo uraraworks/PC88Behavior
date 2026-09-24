@@ -55,6 +55,8 @@ def _classify(run: dict[str, Any] | None) -> dict[str, Any]:
     """1走ぶんの分類。tag(ok/ng/er/none)とer時のERR/ERLを返す。"""
     if run is None:
         return {"tag": "none"}
+    if run.get("abort"):
+        return {"tag": "abort"}
     tags_present = {m["tag"]: m for m in run.get("markers", [])}
     for tag in ("ok", "ng", "er"):
         if tag in tags_present:
@@ -90,6 +92,7 @@ def wclear_for_sweep(result: dict[str, Any], sweep: str) -> dict[str, Any]:
     runs_by_key = _runs_by_key(result)
     wclear: list[int] = []
     disagreement: list[int] = []
+    no_marker: list[int] = []
     for w in _all_w(result, sweep):
         r1 = runs_by_key.get((sweep, w, 1))
         r2 = runs_by_key.get((sweep, w, 2))
@@ -100,9 +103,14 @@ def wclear_for_sweep(result: dict[str, Any], sweep: str) -> dict[str, Any]:
         if blocked1 != blocked2:
             disagreement.append(w)
             continue
+        # 追補3 §3.1: 目印なし・abort は「外れた」に数えない（別に列挙する）。
+        if c1["tag"] in ("none", "abort") or c2["tag"] in ("none", "abort"):
+            no_marker.append(w)
+            continue
         if not blocked1:
             wclear.append(w)
-    out: dict[str, Any] = {"run_disagreement": sorted(disagreement)}
+    out: dict[str, Any] = {"run_disagreement": sorted(disagreement),
+                           "no_marker_or_abort": sorted(no_marker)}
     if not wclear:
         out["status"] = "not_found"
     else:

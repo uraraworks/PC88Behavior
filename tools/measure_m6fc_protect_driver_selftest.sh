@@ -48,6 +48,15 @@ def _find(argv, name):
 
 def main() -> int:
     argv = sys.argv[1:]
+    # 追補3 §3.1 の回し直しの経路を通すため、指定回数だけ rc を返して落ちる。
+    fail_n = int(os.environ.get("M6FC_PROTECT_SELFTEST_FAIL_FIRST_N", "0") or 0)
+    fail_rc = int(os.environ.get("M6FC_PROTECT_SELFTEST_FAIL_RC", "134") or 134)
+    counter = os.environ.get("M6FC_PROTECT_SELFTEST_FAIL_COUNTER")
+    if fail_n and counter:
+        n = int(open(counter).read() or 0) if os.path.exists(counter) else 0
+        if n < fail_n:
+            open(counter, "w").write(str(n + 1))
+            return fail_rc
     out_path = _find(argv, "--out")
     iolog_path = _find(argv, "--io-log")
     disk1_path = _find(argv, "--disk")
@@ -229,6 +238,48 @@ if [ "$(cat "$WORK/refdisk/N88_FE.D88")" = "FAKE-REFERENCE-DISK-FOR-SELFTEST" ];
   ok "G8陰性対照: 参照ディスク本体は書き換わっていない(複製だけが壊れた)"
 else
   ng "G8陰性対照: 参照ディスク本体まで書き換わってしまった"
+fi
+
+# --- 5. 追補3 §3.1: abort の回し直し ----------------------------------------
+run_fail() { # $1=tag $2=fail_n $3=fail_rc
+  : > "$WORK/cnt_$1"
+  env M6FC_FRONTEND="$FAKE" PC88_REF_ROM_DIR="$WORK/rom" PC88_REF_DISK_DIR="$WORK/refdisk" \
+    M6FC_PROTECT_TEST_CORE="selftest-core" M6FC_PROTECT_TEST_W_MAX=0 \
+    M6FC_PROTECT_TEST_STOP_AFTER_SWEEP=P13 M6FC_PROTECT_SELFTEST_REPO="$REPO" \
+    M6FC_PROTECT_SELFTEST_FAIL_FIRST_N="$2" M6FC_PROTECT_SELFTEST_FAIL_RC="$3" \
+    M6FC_PROTECT_SELFTEST_FAIL_COUNTER="$WORK/cnt_$1" \
+    "$REPO/tools/measure_m6fc_protect.sh" --raw-dir "$WORK/raw_$1" --result "$WORK/result_$1.json" \
+    >"$WORK/$1.stdout.txt" 2>"$WORK/$1.stderr.txt"
+}
+run_fail once 1 134; once_rc=$?
+if [ "$once_rc" -eq 0 ] && grep -q '"abort_retries": *1' "$WORK"/*once* "$WORK/raw_once"/* 2>/dev/null; then
+  ok "回し直し: 1回の abort の後に完走し、abort_retries=1 を記録した"
+elif [ "$once_rc" -eq 0 ] && python3 - "$WORK" <<'PY2'
+import json,sys,glob
+hits=[l for f in glob.glob(sys.argv[1]+"/**/*",recursive=True) if f.endswith((".json",".ndjson")) for l in open(f,errors="replace") if '"abort_retries": 1' in l or '"abort_retries":1' in l]
+raise SystemExit(0 if hits else 1)
+PY2
+then
+  ok "回し直し: 1回の abort の後に完走し、abort_retries=1 を記録した"
+else
+  ng "回し直し: 1回の abort で完走しなかった、または回数が記録されていない(rc=$once_rc)"
+fi
+run_fail always 99 134; always_rc=$?
+if [ "$always_rc" -eq 0 ] && python3 - "$WORK" <<'PY2'
+import sys,glob
+hits=[l for f in glob.glob(sys.argv[1]+"/**/*",recursive=True) if f.endswith((".json",".ndjson")) for l in open(f,errors="replace") if '"abort": true' in l or '"abort":true' in l]
+raise SystemExit(0 if hits else 1)
+PY2
+then
+  ok "回し直し: 3回とも abort の走を abort として記録した"
+else
+  ng "回し直し: 毎回 abort の走を abort として記録できなかった(rc=$always_rc)"
+fi
+run_fail other 1 7; other_rc=$?
+if [ "$other_rc" -ne 0 ] && grep -q 'emulator_run_' "$WORK/other.stdout.txt"; then
+  ok "陰性対照: 134 以外の異常終了は gate_failed になった"
+else
+  ng "陰性対照: 134 以外の異常終了を gate_failed にできなかった(rc=$other_rc)"
 fi
 
 echo
