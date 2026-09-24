@@ -34,7 +34,18 @@
 # わざと壊して検出力を確認するための自己検査は
 # tools/run_all_selftests_selftest.sh を参照（このラッパ自体の selftest）。
 #
+# m6f-c 事前登録
+# (docs/notes/m6f-c-blank-disk-acceptance-preregistration.md 第6節 G1)。
+# tools/harness/disk2_selftest.sh と tools/harness/insert_disk2_selftest.sh は
+# 禁止した生成器 make_n88_blank_disk を参照している（ファイル名のgrepで
+# 確認、中身は開いていない）ため、実行禁止のもとでは回せない。環境変数
+# PC88_SELFTEST_EXCLUDE（空白区切りのスクリプトパス。SCRIPTS_EXPECTED の
+# 登録名と同じ表記）で除外できるようにする。除外したスクリプトは実行せず
+# rcにも影響させない。登録に無い名前を除外指定したら、打ち間違いで黙って
+# 通らないよう、その名前をNGとして表に出しoverall=1にする。
+#
 # 使い方: tools/run_all_selftests.sh
+#        PC88_SELFTEST_EXCLUDE="tools/harness/disk2_selftest.sh tools/harness/insert_disk2_selftest.sh" tools/run_all_selftests.sh
 
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -287,15 +298,50 @@ SCRIPTS_EXPECTED=(
   # q88measureのmem-write-logだけで完結するので公式ROM・私物は不要、
   # SKIPは無く常にrc=0を期待する。
   "tools/vsync_regcheck_selftest.sh:0"
+  # m6f-c（空の公式形式ディスクの生成器・目印判定器）。合成D88・合成レポートだけで
+  # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
+  "tools/make_m6fc_blank_disk_selftest.sh:0"
+  "tools/check_m6fc_markers_selftest.sh:0"
+  # m6f-c 続き（凍結表照合・導出器・判定器）。合成TSV/JSON/D88だけで完結し、
+  # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
+  "tools/check_m6fc_preregistration_selftest.sh:0"
+  "tools/derive_m6fc_selftest.sh:0"
+  "tools/judge_m6fc_selftest.sh:0"
 )
 
 overall=0
+excluded_count=0
+EXCLUDE_NAMES="${PC88_SELFTEST_EXCLUDE:-}"
+
+is_excluded() {
+  local target="$1" e
+  for e in $EXCLUDE_NAMES; do
+    [ "$e" = "$target" ] && return 0
+  done
+  return 1
+}
+
+is_registered() {
+  local target="$1" entry s
+  for entry in "${SCRIPTS_EXPECTED[@]}"; do
+    s="${entry%%:*}"
+    [ "$s" = "$target" ] && return 0
+  done
+  return 1
+}
+
 printf '%-45s %6s %6s %8s %s\n' "script" "C" "UTF-8" "期待rc" "判定"
 printf '%-45s %6s %6s %8s %s\n' "------" "-" "-----" "------" "----"
 
 for entry in "${SCRIPTS_EXPECTED[@]}"; do
   s="${entry%%:*}"
   expected="${entry##*:}"
+
+  if is_excluded "$s"; then
+    printf '%-45s %6s %6s %8s %s\n' "$s" "-" "-" "$expected" "除外(PC88_SELFTEST_EXCLUDE)"
+    excluded_count=$((excluded_count+1))
+    continue
+  fi
 
   if [ ! -x "$s" ] && [ ! -f "$s" ]; then
     printf '%-45s %6s %6s %8s %s\n' "$s" "-" "-" "$expected" "NG(見つからない)"
@@ -348,9 +394,21 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
   rm -f /tmp/rst_c.$$ /tmp/rst_u.$$
 done
 
+for e in $EXCLUDE_NAMES; do
+  if ! is_registered "$e"; then
+    printf '%-45s %6s %6s %8s %s\n' "$e" "-" "-" "-" "NG(除外指定が登録に無い)"
+    overall=1
+  fi
+done
+
 if [ "$overall" != "0" ]; then
   echo
   echo "NG: 上記のいずれかがロケール不一致または期待rcとの不一致。詳細は表を参照。"
+fi
+
+if [ "$excluded_count" -gt 0 ]; then
+  echo
+  echo "除外あり: ${excluded_count}件"
 fi
 
 exit "$overall"

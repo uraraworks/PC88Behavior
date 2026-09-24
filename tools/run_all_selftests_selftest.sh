@@ -20,11 +20,31 @@
 #   f-4. 同じダミー(rc=1)を「期待rc=0」で誤って宣言すると、
 #        ラッパはNG(rc=1)を返す(宣言と実際の食い違いを検出する)
 #   f-5. conform_l3.shが公式本体をSKIPした場合、OKでなくSKIPと表示する
+#   f-6. m6f-c: PC88_SELFTEST_EXCLUDE で指定した(登録済みの)ダミーは
+#        実行されず、rcに影響しない(必ず失敗するダミーを除外するとOK)
+#   f-7. m6f-c: PC88_SELFTEST_EXCLUDE に登録に無い名前を指定すると、
+#        その名前がNGとして表に出てラッパはNG(rc=1)を返す
+#        (打ち間違いで黙って通らないことの確認。陰性対照: 除外なしなら
+#        同じダミー構成でOKになることも確認する)
+#
+# f-6・f-7 は make_variant が複数エントリの置換で使うawk実装（BWK awk）が
+# -v の値に埋め込み改行を含めると失敗する制約があるため、既存のf-1〜f-5と
+# 同じ「1エントリだけのvariant」を使い、環境変数だけで挙動を切り替える
+# 軽い方法で検査する（本体を丸ごと回す必要はない）。
 #
 # 使い方: tools/run_all_selftests_selftest.sh
 # 全項目 OK なら終了コード 0、1つでも落ちたら 1。
 
 set -u
+
+# m6f-c: このselftest自身が「PC88_SELFTEST_EXCLUDE付きのrun_all_selftests.sh」
+# から呼ばれると、環境変数がそのまま子プロセスへ継承されてしまう。以下の
+# variant群は登録がDUMMY_*だけの小さな配列なので、継承された除外名
+# （例: tools/harness/disk2_selftest.sh）が「登録に無い」としてNG化し、
+# 本来rc=0になるべきf-2/f-3/f-5や、f-7の陰性対照(除外なし)が偽のNGになる
+# （2026-09-24 実測、run_all_selftests.sh本体からの入れ子実行で発覚）。
+# この selftest はその継承を受けない前提で書くので、ここで明示的に切る。
+unset PC88_SELFTEST_EXCLUDE
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -142,6 +162,33 @@ if [[ "$rc4" == "1" ]]; then
     pass "f-4. 期待rc=0と誤って宣言したダミー(実際rc=1)でラッパがNGを返した(宣言と実際の食い違いを検出できた)"
 else
     ng "f-4. 期待rcを実際と違えて宣言したのにラッパがrc=$rc4(食い違いを検出できていない)"
+fi
+
+# f-6: 必ず失敗するダミー1本を「除外」して実行 → ラッパはOK(rc=0)
+V6="$WORK/variant_excluded_fail.sh"
+make_variant "$V6" "$DUMMY_FAIL:0"
+rc6_excluded="$(PC88_SELFTEST_EXCLUDE="$DUMMY_FAIL" bash "$V6" >/dev/null 2>&1; echo $?)"
+rc6_included="$(bash "$V6" >/dev/null 2>&1; echo $?)"
+if [[ "$rc6_excluded" == "0" ]] && [[ "$rc6_included" == "1" ]]; then
+    pass "f-6. 除外指定したダミー(必ず失敗)は実行されずラッパがOK(rc=0)を返した(除外なしではNGになることも確認済み)"
+else
+    ng "f-6. 除外指定の効果を確認できない(除外時rc=${rc6_excluded}、除外なしrc=${rc6_included})"
+fi
+
+# f-7: PC88_SELFTEST_EXCLUDE に登録に無い名前を指定 → ラッパはNG(rc=1)。
+# 陰性対照として、除外なし(同じ構成、必ず成功するダミーのみ)ならOKになる
+# ことも確認する。
+V7="$WORK/variant_unknown_exclude.sh"
+make_variant "$V7" "$DUMMY_PASS:0"
+UNKNOWN_NAME="$WORK/tools/not_registered_selftest.sh"
+rc7_unknown="$(PC88_SELFTEST_EXCLUDE="$UNKNOWN_NAME" bash "$V7" >/dev/null 2>&1; echo $?)"
+out7_unknown="$(PC88_SELFTEST_EXCLUDE="$UNKNOWN_NAME" bash "$V7" 2>&1)"
+rc7_none="$(bash "$V7" >/dev/null 2>&1; echo $?)"
+if [[ "$rc7_unknown" == "1" ]] && grep -q "NG(除外指定が登録に無い)" <<<"$out7_unknown" \
+   && [[ "$rc7_none" == "0" ]]; then
+    pass "f-7. 登録に無い除外名を指定するとNGとして表に出てラッパがNG(rc=1)を返した(陰性対照: 除外なしはOK)"
+else
+    ng "f-7. 登録に無い除外名の検出ができない(除外指定時rc=${rc7_unknown}、陰性対照rc=${rc7_none})"
 fi
 
 echo
