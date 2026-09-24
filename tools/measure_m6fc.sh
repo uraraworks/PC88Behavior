@@ -17,15 +17,26 @@ python3 "$REPO/tools/check_m6fc_preregistration.py" --config "$CONFIG" >/dev/nul
   || gate_failed preregistration_mismatch
 source "$REPO/tools/lib_m6f_measure.sh"
 
-raw_dir=""; result=""
+raw_dir=""; result=""; boot_fill=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --raw-dir) raw_dir="${2:-}"; shift 2 ;;
     --result) result="${2:-}"; shift 2 ;;
+    --boot-fill) boot_fill="${2:-}"; shift 2 ;;
     *) exit 2 ;;
   esac
 done
 [ -n "$raw_dir" ] && [ -n "$result" ] || exit 2
+# --boot-fill 追補1(m6f-c-addendum1-boot-sector-sweep.md 第4節)の再走用。
+# 指定時は0〜255(10進 or 0x接頭辞)、全腕の媒体で起動用セクタ(0,0,1)を
+# その値にする。省略時はNoneのまま(全腕の生成器呼び出しに--boot-fillを渡さない)。
+boot_fill_args=()
+boot_fill_record=""
+if [ -n "$boot_fill" ]; then
+  boot_fill_record="$(python3 -c "import sys; v=int(sys.argv[1],0); assert 0<=v<=255; print(v)" \
+    "$boot_fill")" || gate_failed boot_fill_range
+  boot_fill_args=(--boot-fill "$boot_fill_record")
+fi
 
 # 公式ディスクは使わない(媒体は自作生成器で作る)。PC88_REF_DISK_DIRは見ない。
 [ -n "${PC88_REF_ROM_DIR:-}" ] || gate_failed PC88_REF_ROM_DIR_missing
@@ -60,9 +71,9 @@ TIMEOUT="$(m6f_cfg "$CONFIG" run_timeout_seconds)"
 
 # G5: 生成器の決定性(測定に使う値そのものではなく、任意の(V,F)組で確認する)。
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5a.d88" --fat-value 0xAA --filler 0x55 \
-  >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
+  "${boot_fill_args[@]}" >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5b.d88" --fat-value 0xAA --filler 0x55 \
-  >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
+  "${boot_fill_args[@]}" >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
 [ "$(m6f_sha256 "$WORK/g5a.d88")" = "$(m6f_sha256 "$WORK/g5b.d88")" ] || gate_failed G5
 
 mfc_frames() {
@@ -99,7 +110,7 @@ mfc_run_one() {
   frames="$(mfc_frames "$arm")" || gate_failed frames_resolve
   [ -e "$disk" ] && gate_failed disk_exists
   python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk" --fat-value "$fat" --filler "$filler" \
-    >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
+    "${boot_fill_args[@]}" >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
   local initial_sha; initial_sha="$(m6f_sha256 "$disk")" || gate_failed initial_sha
 
   local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk"
@@ -126,10 +137,10 @@ mfc_run_one() {
   fi
 
   python3 - "$REPO" "$arm" "$rep" "$fat" "$filler" "$iolog" "$STIMULUS_FRAME" \
-    "$initial_sha" "$final_sha" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
+    "$initial_sha" "$final_sha" "$boot_fill_record" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
 import json, sys
 from pathlib import Path
-repo, arm, rep, fat, filler, iolog, stim, isha, fsha = sys.argv[1:]
+repo, arm, rep, fat, filler, iolog, stim, isha, fsha, boot_fill_raw = sys.argv[1:]
 sys.path.insert(0, str(Path(repo) / "tools"))
 from analyze_main_to_sub import parse_iolog
 from analyze_write_path import parse_commands, WRITE_OPCODES
@@ -169,8 +180,11 @@ for c in commands:
 
 write_data_count = sum(1 for c in commands if c.opcode == 0x05 and c.frame >= stim)
 
+boot_fill_value = int(boot_fill_raw) if boot_fill_raw != "" else None
+
 body = {
     "arm": arm, "repetition": int(rep), "fat_value": int(fat), "filler": int(filler),
+    "boot_fill": boot_fill_value,
     "initial_sha": isha, "final_sha": fsha,
     "reads": reads, "writes": writes, "write_data_count": write_data_count,
 }

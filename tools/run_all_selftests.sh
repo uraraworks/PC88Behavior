@@ -307,6 +307,10 @@ SCRIPTS_EXPECTED=(
   "tools/check_m6fc_preregistration_selftest.sh:0"
   "tools/derive_m6fc_selftest.sh:0"
   "tools/judge_m6fc_selftest.sh:0"
+  # m6f-c 追補1（起動用セクタの一様値の掃引）。合成TSV/JSONだけで完結し、
+  # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
+  "tools/check_m6fc_boot_preregistration_selftest.sh:0"
+  "tools/derive_m6fc_boot_selftest.sh:0"
 )
 
 overall=0

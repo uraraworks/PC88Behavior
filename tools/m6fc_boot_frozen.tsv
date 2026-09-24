@@ -1,0 +1,13 @@
+frozen	yes
+repetitions	2
+frames	3000
+boot_return_frame	300
+stimulus_frame	700
+keystrokes	print chr$(90);chr$(81);"bt"\n
+arm_prefix	BX
+derivation	B1:boot_capable_values
+derivation	B2:next_read
+judgment	gate_failed
+judgment	derived
+judgment	not_found
+judgment	m6f_c_boot_addendum1_ok

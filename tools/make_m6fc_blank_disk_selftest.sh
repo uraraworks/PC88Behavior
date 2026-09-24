@@ -12,6 +12,12 @@
 #   5. --fat-value / --filler の範囲外指定はrc=2。
 #   6. 陰性対照: 割り当て表の外の1セクタ内の1バイトを壊すと検査がNGになる。
 #   7. 陰性対照: 割り当て表3セクタのうち1つを別の値で塗り潰すと検査がNGになる。
+#   8. 追補1: --boot-fill 省略時の生成物は、追補1より前の規則（旧生成器と同じ規則）で
+#      独立に組み立てた像とSHA-256が一致する（既定の出力は変更前とバイト一致）。
+#   9. 追補1: --boot-fill 指定時、(0,0,1) の256バイトすべてがその値になる。
+#  10. 追補1 陰性対照: --boot-fill 指定時、(0,0,1) 以外の全セクタが
+#      --boot-fill 無指定の生成物と一致する（起動用セクタ以外は変わっていない）。
+#  11. --boot-fill 範囲外指定はrc=2。
 #
 # 使い方: tools/make_m6fc_blank_disk_selftest.sh
 
@@ -72,6 +78,23 @@ if [ "$rc_bad2" -eq 2 ] && [ ! -e "$WORK/bad2.d88" ]; then
   ok "--filler 範囲外をrc=2で拒否した"
 else
   ng "--filler 範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_bad2)"
+fi
+
+python3 "$GEN" "$WORK/bad3.d88" --fat-value 0x00 --filler 0x00 --boot-fill 256 \
+  >/dev/null 2>"$WORK/bad3.err"
+rc_bad3=$?
+if [ "$rc_bad3" -eq 2 ] && [ ! -e "$WORK/bad3.d88" ]; then
+  ok "--boot-fill 範囲外をrc=2で拒否した"
+else
+  ng "--boot-fill 範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_bad3)"
+fi
+
+# --- 8〜10. 追補1: boot-fill 省略時のバイト一致・指定時の本文・陰性対照 ---
+if python3 "$GEN" "$WORK/d3.d88" --fat-value 0xAA --filler 0x55 --boot-fill 0x77 \
+  >/dev/null 2>"$WORK/d3.err"; then
+  ok "--boot-fill 指定で生成できる"
+else
+  ng "--boot-fill 指定の生成に失敗した: $(cat "$WORK/d3.err")"
 fi
 
 # --- 本文検査・陰性対照（Python、独立読み手 d88_read_sector.py を使う） ---
@@ -157,6 +180,111 @@ if [ "$py_rc" -eq 0 ]; then
   ok "本文検査・陰性対照（独立読み手ベース）がすべて通った"
 else
   ng "本文検査・陰性対照のいずれかが落ちた"
+fi
+
+# --- 追補1: boot-fill のバイト一致・本文・陰性対照(独立読み手ベース) -------
+boot_out="$(REPO="$REPO" WORK="$WORK" python3 - <<'PY'
+import os
+import pathlib
+import sys
+
+repo = pathlib.Path(os.environ["REPO"])
+work = pathlib.Path(os.environ["WORK"])
+sys.path.insert(0, str(repo / "tools"))
+from d88_read_sector import D88Reader  # noqa: E402
+
+CYLINDERS = 40
+HEADS = 2
+SECTORS_PER_TRACK = 16
+ALLOC = {(18, 1, 14), (18, 1, 15), (18, 1, 16)}
+BOOT = (0, 0, 1)
+
+
+def independent_build(fat_value: int, filler: int) -> bytes:
+    """追補1より前の規則(旧生成器と同じ)を、本自己検査の中で独立に組み立てる。
+    make_m6fc_blank_disk.build_blank_disk はimportせず、d88_read_sector経由でも
+    生成器そのものでもない、ヘッダ・トラック表・セクタ本体を素手で並べる版。"""
+    import struct
+    N_CODE = 1
+    SECTOR_SIZE = 256
+    DISK_DENSITY_DOUBLE = 0x00
+    DISK_DELETED_FALSE = 0x00
+    STATUS_NORMAL = 0x00
+    DISK_PROTECT_FALSE = 0x00
+    DISK_TYPE_2D = 0x00
+    TRACK_COUNT = 164
+
+    header = bytearray(32)
+    header[26] = DISK_PROTECT_FALSE
+    header[27] = DISK_TYPE_2D
+    track_table = bytearray(TRACK_COUNT * 4)
+    body = bytearray()
+    offset = 32 + TRACK_COUNT * 4
+    for c in range(CYLINDERS):
+        for h in range(HEADS):
+            trk = bytearray()
+            for r in range(1, SECTORS_PER_TRACK + 1):
+                hdr = bytearray(16)
+                hdr[0] = c & 0xFF
+                hdr[1] = h & 0xFF
+                hdr[2] = r & 0xFF
+                hdr[3] = N_CODE
+                hdr[4] = SECTORS_PER_TRACK & 0xFF
+                hdr[5] = (SECTORS_PER_TRACK >> 8) & 0xFF
+                hdr[6] = DISK_DENSITY_DOUBLE
+                hdr[7] = DISK_DELETED_FALSE
+                hdr[8] = STATUS_NORMAL
+                hdr[14] = SECTOR_SIZE & 0xFF
+                hdr[15] = (SECTOR_SIZE >> 8) & 0xFF
+                trk += hdr
+                value = fat_value if (c, h, r) in ALLOC else filler
+                trk += bytes([value]) * SECTOR_SIZE
+            phys = c * 2 + h
+            struct.pack_into("<I", track_table, phys * 4, offset)
+            body += trk
+            offset += len(trk)
+    struct.pack_into("<I", header, 28, offset)
+    return bytes(header) + bytes(track_table) + bytes(body)
+
+
+results = {}
+
+# 8. 既定(boot-fill省略)の生成物は、旧規則で独立に組んだ像とSHA一致する。
+default_img = (work / "d1.d88").read_bytes()  # --fat-value 0xAA --filler 0x55、--boot-fill無指定
+independent = independent_build(0xAA, 0x55)
+results["default_matches_independent_pre_addendum1_build"] = (default_img == independent)
+
+# 9. boot-fill指定時、(0,0,1)の256バイトすべてがその値になる。
+boot_img = (work / "d3.d88").read_bytes()  # --fat-value 0xAA --filler 0x55 --boot-fill 0x77
+reader = D88Reader(boot_img)
+boot_payload = reader.read_sector(*BOOT)
+results["boot_fill_applied"] = (boot_payload == bytes([0x77]) * 256)
+
+# 10. 陰性対照: (0,0,1)以外の全セクタは、boot-fill無指定の生成物(=fat=0xAA/filler=0x55)と
+#     一致する(起動用セクタ以外は変わっていない)。
+reader_default = D88Reader(default_img)
+all_other_match = True
+for c in range(CYLINDERS):
+    for h in range(HEADS):
+        for r in range(1, SECTORS_PER_TRACK + 1):
+            if (c, h, r) == BOOT:
+                continue
+            if reader.read_sector(c, h, r) != reader_default.read_sector(c, h, r):
+                all_other_match = False
+results["boot_fill_does_not_touch_other_sectors"] = all_other_match
+
+bad = [k for k, v in results.items() if not v]
+for k, v in results.items():
+    print(f"{k}={'ok' if v else 'ng'}")
+sys.exit(1 if bad else 0)
+PY
+)"
+boot_rc=$?
+printf '%s\n' "$boot_out"
+if [ "$boot_rc" -eq 0 ]; then
+  ok "追補1: boot-fillのバイト一致・本文・陰性対照がすべて通った"
+else
+  ng "追補1: boot-fill検査のいずれかが落ちた"
 fi
 
 echo
