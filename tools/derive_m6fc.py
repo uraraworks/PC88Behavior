@@ -357,7 +357,7 @@ def derive_a3_like(reader: D88Reader, v_star: int, arm: str) -> dict[str, Any]:
         for hit in entry_hits:
             union |= set(entry_head_field(reader, hit, k_sequence[0]))
         entry_head_matches = sorted(union)
-    body_in_track18 = any(coord[0] == 18 and coord[1] == 1 for coord, _num in body)
+    body_in_track18 = any(coord[0] == 18 for coord, _num in body)  # §5.1: 両ヘッド
     return {
         "body": [{"c": c[0], "h": c[1], "r": c[2], "number": n} for c, n in body],
         "body_linear": body_linear, "p_positions": sorted(p_positions),
