@@ -21,6 +21,16 @@ result JSON の markers/reads/writes に加え、raw-dir に保存された段�
   - C9 の探索範囲はトラック18の全16セクタ（割り当て表3セクタを含む。
     エントリのバイト列 `Q`+3桁+空白5 等が割り当て表の一様値と一致する
     確率は事実上無いため、除外の要否は測定結果側で確認する）。
+
+追補2(docs/notes/m6f-c-addendum2-blank-disk-in-drive2.md、
+ドライブ1に参照ディスク・ドライブ2に自作媒体を入れて測る構成)の反映により、
+本導出器へ渡る result JSON の runs[].reads/writes/write_data_count は
+測定ドライバ側（tools/measure_m6fc.sh、tools/m6fc_fdc_by_drive.py）で
+既に装置番号1（ドライブ2）だけに絞り込まれている。本導出器の規則
+（C0〜C11、下記の関数群）自体は変えていない——「書いたセクタ」「読んだ
+セクタ」の定義（事前登録 §5）は、装置番号1に絞られた reads/writes を
+そのまま指すという前提に読み替わる。raw-dir に保存される段階2の媒体も
+ドライブ2の像（追補2 §2 の3）。
 """
 from __future__ import annotations
 

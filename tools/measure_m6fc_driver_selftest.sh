@@ -73,12 +73,21 @@ def main() -> int:
     argv = sys.argv[1:]
     out_path = _find(argv, "--out")
     iolog_path = _find(argv, "--io-log")
+    disk1_path = _find(argv, "--disk")
     typed = [argv[i + 1] for i, a in enumerate(argv) if a == "--type" and i + 1 < len(argv)]
 
     log_path = os.environ.get("M6FC_SELFTEST_ARGV_LOG")
     if log_path:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"argv": argv}, ensure_ascii=False) + "\n")
+
+    # G8陰性対照専用: 指定時だけ、コアがドライブ1(書き込み保護のはずの
+    # 参照複製)を書き換えてしまった場合を模す。既定は無効(本番の挙動は
+    # 変えない)。
+    if os.environ.get("M6FC_SELFTEST_CORRUPT_DISK1") and disk1_path:
+        with open(disk1_path, "r+b") as f:
+            f.seek(0)
+            f.write(b"\xff")
 
     if iolog_path:
         with open(iolog_path, "w", encoding="utf-8") as f:
@@ -91,7 +100,7 @@ def main() -> int:
             tag = "bt"
         if tag is None:
             for t in typed:
-                if t.startswith('10 on error goto 90:f$=chr$(81)+chr$(90)+chr$(55)+chr$(65)'):
+                if t.startswith('10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(65)'):
                     tag = "ok"
                     break
         if tag is None:
@@ -111,14 +120,20 @@ if __name__ == "__main__":
 PYEOF
 chmod +x "$FAKE"
 
-mkdir -p "$WORK/rom" "$WORK/raw"
+mkdir -p "$WORK/rom" "$WORK/raw" "$WORK/refdisk"
 ARGVLOG="$WORK/argv.jsonl"
 : > "$ARGVLOG"
+
+# 追補2(ドライブ2で測る): 参照ディスク(ドライブ1)は凍結表の reference_disk
+# (N88_FE.D88)という名前の合成ファイルを使い捨てで用意する。中身は公式
+# ディスクではなく、この自己検査だけが読み書きする合成バイト列。
+printf 'FAKE-REFERENCE-DISK-FOR-SELFTEST' > "$WORK/refdisk/N88_FE.D88"
 
 # --- 1. 陽性側: 修正済みドライバを偽フロントエンドで、GB→SW-00→A2まで回す ----
 env \
   M6FC_FRONTEND="$FAKE" \
   PC88_REF_ROM_DIR="$WORK/rom" \
+  PC88_REF_DISK_DIR="$WORK/refdisk" \
   M6FC_TEST_CORE="selftest-core" \
   M6FC_TEST_SW_MAX=0 \
   M6FC_TEST_STOP_AFTER_ARM=A2 \
@@ -170,8 +185,11 @@ DISK_RE = re.compile(r"^(?P<arm>.+)-r(?P<rep>\d+)\.d88$")
 
 
 def arm_of(argv):
+    # 追補2(ドライブ2で測る): --disk はドライブ1の参照ディスク複製
+    # (ファイル名は ARM-rN.drive1.d88)、--disk2 が生成器の媒体
+    # (ファイル名は ARM-rN.d88)。腕名は --disk2 から取る。
     for i, a in enumerate(argv):
-        if a == "--disk" and i + 1 < len(argv):
+        if a == "--disk2" and i + 1 < len(argv):
             m = DISK_RE.match(Path(argv[i + 1]).name)
             if m:
                 return m.group("arm")
@@ -236,6 +254,17 @@ else:
             if got != text:
                 fails.append(f"A2の--type-at {frame}直後の--typeが凍結表と不一致")
 
+# --- 2b. 全呼び出しが --disk(ドライブ1) と --disk2(ドライブ2) の両方を
+#         受け取っていること(追補2: ドライブ1に参照ディスク・ドライブ2に
+#         自作媒体)。
+def has_both_disks(argv):
+    return "--disk" in argv and "--disk2" in argv
+
+
+missing_disk_args = [argv for argv in calls if not has_both_disks(argv)]
+if missing_disk_args:
+    fails.append(f"--diskまたは--disk2を欠いた呼び出しが{len(missing_disk_args)}件ある")
+
 # --- 3. どの引数にも本物の改行文字が含まれないこと ---------------------------
 leaked = False
 for argv in calls:
@@ -295,6 +324,7 @@ chmod +x "$BROKEN"
 env \
   M6FC_FRONTEND="$FAKE" \
   PC88_REF_ROM_DIR="$WORK/rom" \
+  PC88_REF_DISK_DIR="$WORK/refdisk" \
   M6FC_TEST_CORE="selftest-core" \
   M6FC_TEST_SW_MAX=0 \
   M6FC_TEST_STOP_AFTER_ARM=A2 \
@@ -313,6 +343,34 @@ if [ "$calls_after_broken" -eq 0 ]; then
   ok "陰性対照: 偽フロントエンドが一度も呼ばれずGB-FFの区間数チェックで止まった"
 else
   ng "陰性対照: 偽フロントエンドが${calls_after_broken}回呼ばれてしまった(想定は0回)"
+fi
+
+# --- 5. G8陰性対照: 偽フロントエンドがドライブ1(参照複製)を書き換えたら
+#        ドライバがgate_failed G8で止まること -----------------------------
+env \
+  M6FC_FRONTEND="$FAKE" \
+  PC88_REF_ROM_DIR="$WORK/rom" \
+  PC88_REF_DISK_DIR="$WORK/refdisk" \
+  M6FC_TEST_CORE="selftest-core" \
+  M6FC_TEST_SW_MAX=0 \
+  M6FC_TEST_STOP_AFTER_ARM=A2 \
+  M6FC_SELFTEST_CORRUPT_DISK1=1 \
+  "$REPO/tools/measure_m6fc.sh" --raw-dir "$WORK/raw_g8" --result "$WORK/result_g8.json" \
+  >"$WORK/g8.stdout.txt" 2>"$WORK/g8.stderr.txt"
+g8_rc=$?
+
+if [ "$g8_rc" -ne 0 ] && grep -q '"reason":"G8"' "$WORK/g8.stdout.txt"; then
+  ok "G8陰性対照: ドライブ1の書き換えをgate_failed G8として検出した"
+else
+  ng "G8陰性対照: ドライブ1の書き換えを検出できなかった(rc=$g8_rc, stdout=$(cat "$WORK/g8.stdout.txt"))"
+fi
+
+# 参照ディスク本体が、この検査のせいで壊れていないことも確かめる
+# (書き換えたのは複製 --disk のパスであり、参照ディスクそのものではない)。
+if [ "$(cat "$WORK/refdisk/N88_FE.D88")" = "FAKE-REFERENCE-DISK-FOR-SELFTEST" ]; then
+  ok "G8陰性対照: 参照ディスク本体は書き換わっていない(複製だけが壊れた)"
+else
+  ng "G8陰性対照: 参照ディスク本体まで書き換わってしまった"
 fi
 
 echo

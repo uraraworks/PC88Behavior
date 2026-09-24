@@ -315,6 +315,10 @@ SCRIPTS_EXPECTED=(
   # (一時python)と空の一時ROMディレクトリだけで完結し、公式ROM・公式ディスク・
   # 本物のq88measure・vendor/・private/には一切触れない。SKIPは無く常にrc=0を期待する。
   "tools/measure_m6fc_driver_selftest.sh:0"
+  # m6f-c 追補2（ドライブ2で測る）。FDCコマンドを装置番号で仕分ける共通部品の
+  # 単体検査。合成データだけで完結し、公式ROM・公式ディスク・private/には
+  # 触れない。SKIPは無く常にrc=0を期待する。
+  "tools/m6fc_fdc_by_drive_selftest.sh:0"
 )
 
 overall=0

@@ -38,9 +38,18 @@ if [ -n "$boot_fill" ]; then
   boot_fill_args=(--boot-fill "$boot_fill_record")
 fi
 
-# 公式ディスクは使わない(媒体は自作生成器で作る)。PC88_REF_DISK_DIRは見ない。
 [ -n "${PC88_REF_ROM_DIR:-}" ] || gate_failed PC88_REF_ROM_DIR_missing
 [ -d "$PC88_REF_ROM_DIR" ] || gate_failed reference_rom_dir_missing
+
+# 追補2(docs/notes/m6f-c-addendum2-blank-disk-in-drive2.md §2):
+# 全腕でドライブ1に参照diskAの使い捨て複製(書き込み保護は解除しない)を
+# 入れて起動し、ドライブ2に生成器の媒体を入れる。
+[ -n "${PC88_REF_DISK_DIR:-}" ] || gate_failed PC88_REF_DISK_DIR_missing
+[ -d "$PC88_REF_DISK_DIR" ] || gate_failed reference_disk_dir_missing
+REF_DISK_NAME="$(m6f_cfg "$CONFIG" reference_disk)" || gate_failed reference_disk_config
+REF_DISK="$PC88_REF_DISK_DIR/$REF_DISK_NAME"
+[ -f "$REF_DISK" ] || gate_failed reference_disk_missing
+REF_SHA="$(m6f_sha256 "$REF_DISK")" || gate_failed reference_sha
 
 # G6: 生の像・差分・入出力ログはリポジトリ外だけに置く。
 m6f_check_output_paths "$REPO" "$raw_dir" "$result" || gate_failed G6
@@ -112,17 +121,28 @@ SAVE_DISK_ARMS=" A0 A1 A1b A2 A3 A4-1 A4-3 A4-6 A4-10 A4-17 A5 A5b A6 "
 # $1=arm $2=rep $3=fat_value(10進) $4=filler(10進)
 mfc_run_one() {
   local arm="$1" rep="$2" fat="$3" filler="$4"
-  local disk="$WORK/$arm-r$rep.d88"
+  local disk2="$WORK/$arm-r$rep.d88"
+  local disk1="$WORK/$arm-r$rep.drive1.d88"
   local iolog="$WORK/$arm-r$rep.iolog.txt"
   local report="$WORK/$arm-r$rep.report.txt"
   local frames
   frames="$(mfc_frames "$arm")" || gate_failed frames_resolve
-  [ -e "$disk" ] && gate_failed disk_exists
-  python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk" --fat-value "$fat" --filler "$filler" \
+  [ -e "$disk2" ] && gate_failed disk_exists
+  python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk2" --fat-value "$fat" --filler "$filler" \
     ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
-  local initial_sha; initial_sha="$(m6f_sha256 "$disk")" || gate_failed initial_sha
+  local initial_sha; initial_sha="$(m6f_sha256 "$disk2")" || gate_failed initial_sha
 
-  local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk"
+  # ドライブ1: 参照ディスクの使い捨て複製。書き込み保護は解除しない
+  # (D88ヘッダの保護バイトには触れない。ファイルの書き込み権限だけ
+  # chmod u+wで確保するのは、実際には書けないはずのものが書けて
+  # しまわないかをG8で確かめるための入れ物にすぎない)。
+  [ -e "$disk1" ] && gate_failed disk1_exists
+  cp "$REF_DISK" "$disk1" || gate_failed disk1_copy
+  chmod u+w "$disk1" || gate_failed disk1_mode
+  local disk1_initial_sha; disk1_initial_sha="$(m6f_sha256 "$disk1")" || gate_failed disk1_sha
+  [ "$disk1_initial_sha" = "$REF_SHA" ] || gate_failed disk1_copy_mismatch
+
+  local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk1" --disk2 "$disk2"
     --save-to-disk-image --frames "$frames" --io-log "$iolog" --out "$report"
     --type-at "$BOOT_FRAME" --type '\n')
   local nadded=0
@@ -140,7 +160,14 @@ mfc_run_one() {
     >"$WORK/$arm-r$rep.stdout.txt" 2>"$WORK/$arm-r$rep.stderr.txt" || gate_failed emulator_run
   [ -e "$report" ] && [ -s "$iolog" ] || gate_failed measurement_artifact
 
-  local final_sha; final_sha="$(m6f_sha256 "$disk")" || gate_failed final_sha
+  # G8: 参照ディスクの使い捨て複製(ドライブ1)は、測定後も複製直後と
+  # 同じであること。参照ディスク本体も変わっていないこと。
+  local disk1_final_sha; disk1_final_sha="$(m6f_sha256 "$disk1")" || gate_failed disk1_final_sha
+  [ "$disk1_final_sha" = "$REF_SHA" ] || gate_failed G8
+  local ref_sha_after; ref_sha_after="$(m6f_sha256 "$REF_DISK")" || gate_failed reference_sha_after
+  [ "$ref_sha_after" = "$REF_SHA" ] || gate_failed G8
+
+  local final_sha; final_sha="$(m6f_sha256 "$disk2")" || gate_failed final_sha
 
   local markers_json; markers_json="$(python3 "$REPO/tools/check_m6fc_markers.py" \
     --report "$report" --name QZ7A --name QZ7B)" || gate_failed markers
@@ -148,7 +175,9 @@ mfc_run_one() {
   local keep_disk=0
   case "$SAVE_DISK_ARMS" in *" $arm "*) keep_disk=1 ;; esac
   if [ "$keep_disk" -eq 1 ]; then
-    cp "$disk" "$raw_dir/$arm-r$rep.d88" || gate_failed save_disk
+    # 測定後の媒体として保存するのはドライブ2の像だけ(ドライブ1は
+    # 参照diskAの使い捨て複製で、公式ディスクの中身なので保存しない)。
+    cp "$disk2" "$raw_dir/$arm-r$rep.d88" || gate_failed save_disk
   fi
 
   python3 - "$REPO" "$arm" "$rep" "$fat" "$filler" "$iolog" "$STIMULUS_FRAME" \
@@ -158,7 +187,8 @@ from pathlib import Path
 repo, arm, rep, fat, filler, iolog, stim, isha, fsha, boot_fill_raw = sys.argv[1:]
 sys.path.insert(0, str(Path(repo) / "tools"))
 from analyze_main_to_sub import parse_iolog
-from analyze_write_path import parse_commands, WRITE_OPCODES
+from analyze_write_path import parse_commands
+from m6fc_fdc_by_drive import split_by_drive
 
 rows, masked = parse_iolog(Path(iolog))
 if sum(masked.values()):
@@ -177,23 +207,13 @@ if dropped_total:
 
 commands = parse_commands(rows)
 stim = int(stim)
-reads, writes = [], []
-for c in commands:
-    if c.frame < stim or c.param_values is None or len(c.param_values) < 4:
-        continue
-    base_c, base_h, base_r = c.param_values[1], c.param_values[2], c.param_values[3]
-    if c.opcode == 0x06:  # READ DATA
-        nsec = max(1, (c.result_bytes - 7) // 256) if c.result_bytes > 7 else 1
-        target = reads
-    elif c.opcode == 0x05:  # WRITE DATA
-        nsec = max(1, (c.data_bytes // 256)) if c.data_bytes else 1
-        target = writes
-    else:
-        continue
-    for i in range(nsec):
-        target.append({"c": base_c, "h": base_h, "r": base_r + i})
-
-write_data_count = sum(1 for c in commands if c.opcode == 0x05 and c.frame >= stim)
+# 追補2: 書いたセクタ・読んだセクタは装置番号1(ドライブ2)だけを数える。
+# 装置番号0(ドライブ1)の件数はdrive1_read_count/drive1_write_countへ。
+split = split_by_drive(commands, stim)
+reads, writes = split["reads"], split["writes"]
+write_data_count = split["write_data_count"]
+drive1_read_count = split["drive1_read_count"]
+drive1_write_count = split["drive1_write_count"]
 
 boot_fill_value = int(boot_fill_raw) if boot_fill_raw != "" else None
 
@@ -202,6 +222,7 @@ body = {
     "boot_fill": boot_fill_value,
     "initial_sha": isha, "final_sha": fsha,
     "reads": reads, "writes": writes, "write_data_count": write_data_count,
+    "drive1_read_count": drive1_read_count, "drive1_write_count": drive1_write_count,
 }
 print(json.dumps(body, sort_keys=True, separators=(",", ":")))
 PYEOF
@@ -230,7 +251,8 @@ import json, sys
 from pathlib import Path
 work, out, overall = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 runs = [json.loads(line) for line in (work / "runs.ndjson").read_text(encoding="utf-8").splitlines() if line]
-body = {"schema": 1, "runs": runs, "overall": overall}
+body = {"schema": 1, "runs": runs, "overall": overall,
+        "drive_layout": "drive1=reference_copy_protected;drive2=generated"}
 with out.open("x", encoding="utf-8") as f:
     json.dump(body, f, sort_keys=True, separators=(",", ":")); f.write("\n")
 PY
@@ -305,7 +327,8 @@ python3 - "$RUNS_JSON" <<'PY' || gate_failed G4
 import json, sys
 runs = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
 a0 = [r for r in runs if r["arm"] == "A0"]
-ok = all(r["write_data_count"] == 0 and not r["writes"] and not r["markers"] for r in a0)
+ok = all(r["write_data_count"] == 0 and not r["writes"] and not r["markers"]
+         and r["initial_sha"] == r["final_sha"] for r in a0)
 sys.exit(0 if ok else 1)
 PY
 
@@ -329,7 +352,8 @@ import json, sys
 from pathlib import Path
 work, out = Path(sys.argv[1]), Path(sys.argv[2])
 runs = [json.loads(line) for line in (work / "runs.ndjson").read_text(encoding="utf-8").splitlines() if line]
-body = {"schema": 1, "runs": runs}
+body = {"schema": 1, "runs": runs,
+        "drive_layout": "drive1=reference_copy_protected;drive2=generated"}
 with out.open("x", encoding="utf-8") as f:
     json.dump(body, f, sort_keys=True, separators=(",", ":")); f.write("\n")
 PY

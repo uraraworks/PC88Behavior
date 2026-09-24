@@ -65,6 +65,26 @@ else
   ng "陰性対照: 腕の欠落が素通りした"
 fi
 
+# --- 追補2(ドライブ2で測る)の凍結値の改ざん ---------------------------------
+sed 's/^reference_disk\tN88_FE\.D88$/reference_disk\tN88_FD.D88/' "$CONFIG" > "$WORK/mutant_refdisk.tsv"
+python3 "$CHECK" --config "$WORK/mutant_refdisk.tsv" >/dev/null 2>"$WORK/rd.err"
+rc_rd=$?
+if [ "$rc_rd" -ne 0 ]; then
+  ok "陰性対照: reference_diskの改ざんを拒否した"
+else
+  ng "陰性対照: reference_diskの改ざんが素通りした"
+fi
+
+sed 's/^drive_layout\t.*$/drive_layout\tdrive1=generated;drive2=reference_copy_protected/' "$CONFIG" \
+  > "$WORK/mutant_layout.tsv"
+python3 "$CHECK" --config "$WORK/mutant_layout.tsv" >/dev/null 2>"$WORK/dl.err"
+rc_dl=$?
+if [ "$rc_dl" -ne 0 ]; then
+  ok "陰性対照: drive_layoutの改ざんを拒否した"
+else
+  ng "陰性対照: drive_layoutの改ざんが素通りした"
+fi
+
 # --- 512打鍵超過 -------------------------------------------------------------
 python3 - "$CONFIG" "$WORK/mutant_long.tsv" <<'PY'
 import sys

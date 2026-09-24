@@ -23,7 +23,7 @@ class GateError(ValueError):
 
 
 def rec_tpl(n: int) -> str:
-    return ('10 on error goto 90:f$=chr$(81)+chr$(90)+chr$(55)+chr$(66):n=%d\n'
+    return ('10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=%d\n'
             '20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);'
             'string$(120,"v"):next:close #1\n'
             '30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n'
@@ -33,25 +33,25 @@ def rec_tpl(n: int) -> str:
 
 
 BT = 'print chr$(90);chr$(81);"bt"\n'
-SW = ('10 on error goto 90:f$=chr$(81)+chr$(90)+chr$(55)+chr$(65)\n'
+SW = ('10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(65)\n'
       '20 open f$ for output as #1:print #1,"x":close #1\n'
       '30 open f$ for input as #1:input #1,a$:close #1\n'
       '40 if a$="x" then print chr$(90);chr$(81);"ok":end\n'
       '50 print chr$(90);chr$(81);"ng":end\n'
       '90 print chr$(90);chr$(81);"er";err;erl:end\n'
       'run\n')
-A1_TEXT = ('10 on error goto 90:files:print chr$(90);chr$(81);"ok":end\n'
+A1_TEXT = ('10 on error goto 90:files 2:print chr$(90);chr$(81);"ok":end\n'
            '90 print chr$(90);chr$(81);"er";err;erl:end\n'
            'run\n')
-A1B_TEXT = ('10 on error goto 90:f$=chr$(81)+chr$(90)+chr$(55)+chr$(65)\n'
+A1B_TEXT = ('10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(65)\n'
             '20 open f$ for output as #1:print #1,"x":close #1\n'
-            '30 files:print chr$(90);chr$(81);"ok":end\n'
+            '30 files 2:print chr$(90);chr$(81);"ok":end\n'
             '90 print chr$(90);chr$(81);"er";err;erl:end\n'
             'run\n')
-A2_1 = '10 print chr$(90);chr$(81);"ld"\nsave"q7l"\n'
-A2_2 = 'new\nload"q7l"\n'
+A2_1 = '10 print chr$(90);chr$(81);"ld"\nsave"2:q7l"\n'
+A2_2 = 'new\nload"2:q7l"\n'
 A2_3 = 'run\n'
-A5_TEXT = ('10 on error goto 90:for n=1 to 400:f$=chr$(81)+right$(str$(1000+n),3):'
+A5_TEXT = ('10 on error goto 90:for n=1 to 400:f$="2:"+chr$(81)+right$(str$(1000+n),3):'
            'open f$ for output as #1:close #1:next:print chr$(90);chr$(81);"ok";n:end\n'
            '90 print chr$(90);chr$(81);"er";err;n:end\n'
            'run\n')
@@ -89,6 +89,10 @@ SINGLETONS = {
     "frozen": "yes", "repetitions": "2", "run_timeout_seconds": "300",
     "boot_return_frame": "300", "stimulus_frame": "700",
     "fat_sectors": "18,1,14;18,1,15;18,1,16",
+    # 追補2(docs/notes/m6f-c-addendum2-blank-disk-in-drive2.md §2): 起動は
+    # ドライブ1の参照ディスク(公式diskAの使い捨て複製)、自作媒体はドライブ2。
+    "reference_disk": "N88_FE.D88",
+    "drive_layout": "drive1=reference_copy_protected;drive2=generated",
 }
 
 JUDGMENTS = [
@@ -188,6 +192,8 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=HERE / "m6fc_frozen.tsv")
     ap.add_argument("--prereg", type=Path,
                     default=REPO / "docs/notes/m6f-c-blank-disk-acceptance-preregistration.md")
+    ap.add_argument("--addendum2", type=Path,
+                    default=REPO / "docs/notes/m6f-c-addendum2-blank-disk-in-drive2.md")
     args = ap.parse_args()
     try:
         cfg = load_tsv(args.config)
@@ -260,6 +266,13 @@ def main() -> int:
             raise GateError("事前登録本文")
         if any(f"`{name}`" not in prereg for name in judge.OVERALL):
             raise GateError("事前登録の総合判定名")
+
+        addendum2 = args.addendum2.read_text(encoding="utf-8")
+        required_addendum2 = (
+            "ドライブ2で測る",
+        )
+        if any(item not in addendum2 for item in required_addendum2):
+            raise GateError("追補2本文")
     except (OSError, UnicodeError, ValueError, GateError) as exc:
         print(f"gate_failed: {exc}", file=sys.stderr)
         return 1
