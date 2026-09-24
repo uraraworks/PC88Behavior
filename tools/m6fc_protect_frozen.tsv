@@ -1,0 +1,19 @@
+frozen	yes
+repetitions	2
+frames	8000
+boot_return_frame	300
+stimulus_frame	700
+reference_disk	N88_FE.D88
+drive_layout	drive1=reference_copy_protected;drive2=generated
+keystrokes	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(65)\n20 open f$ for output as #1:print #1,"x":close #1\n30 open f$ for input as #1:input #1,a$:close #1\n40 if a$="x" then print chr$(90);chr$(81);"ok":end\n50 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+target	P13:18,1,13
+target	P1:18,1,1
+derivation	Q1:wclear_for_sweep
+derivation	Q2:protect_sector
+derivation	Q3:classification_and_io_sequence
+judgment	gate_failed
+judgment	derived
+judgment	not_found
+judgment	run_disagreement
+judgment	m6f_c_protect_sector_derived
+judgment	protect_sector_not_found

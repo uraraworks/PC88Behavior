@@ -373,6 +373,50 @@ else
   ng "G8陰性対照: 参照ディスク本体まで書き換わってしまった"
 fi
 
+# --- 6. 追補3再走対応: --sector-fill が全媒体(GB・SW・段階2)へ渡ること --------
+# (docs/notes/m6f-c-addendum3-write-protect-sectors.md 第4節)。A2はSAVE_DISK_ARMS
+# に含まれるので、保存されたドライブ2の像を独立読み手で読み、対象セクタが
+# 指定値で塗られていることを確認する。
+: > "$ARGVLOG"
+env \
+  M6FC_FRONTEND="$FAKE" \
+  PC88_REF_ROM_DIR="$WORK/rom" \
+  PC88_REF_DISK_DIR="$WORK/refdisk" \
+  M6FC_TEST_CORE="selftest-core" \
+  M6FC_TEST_SW_MAX=0 \
+  M6FC_TEST_STOP_AFTER_ARM=A2 \
+  M6FC_SELFTEST_ARGV_LOG="$ARGVLOG" \
+  "$REPO/tools/measure_m6fc.sh" --raw-dir "$WORK/raw_sf" --result "$WORK/result_sf.json" \
+  --sector-fill 5,1,7=0x42 \
+  >"$WORK/sf.stdout.txt" 2>"$WORK/sf.stderr.txt"
+sf_rc=$?
+
+if [ "$sf_rc" -eq 0 ] && [ -e "$WORK/raw_sf/A2-r1.d88" ]; then
+  sector_out="$(REPO="$REPO" WORK="$WORK" python3 - <<'PY'
+import os
+import sys
+from pathlib import Path
+
+repo = Path(os.environ["REPO"])
+work = Path(os.environ["WORK"])
+sys.path.insert(0, str(repo / "tools"))
+from d88_read_sector import D88Reader
+
+reader = D88Reader((work / "raw_sf" / "A2-r1.d88").read_bytes())
+payload = reader.read_sector(5, 1, 7)
+sys.exit(0 if payload == bytes([0x42]) * 256 else 1)
+PY
+)"
+  sector_rc=$?
+  if [ "$sector_rc" -eq 0 ]; then
+    ok "--sector-fill: GB→SW→段階2の媒体すべてに規則が渡り、指定セクタが塗られた"
+  else
+    ng "--sector-fill: 保存済み媒体の指定セクタが塗られていない"
+  fi
+else
+  ng "--sector-fill: ドライバがrc=0で完走しなかった、または媒体が保存されなかった(rc=$sf_rc)"
+fi
+
 echo
 if [ "$rc" -eq 0 ]; then
   echo "全項目 OK"

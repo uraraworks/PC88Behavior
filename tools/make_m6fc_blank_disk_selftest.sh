@@ -287,6 +287,142 @@ else
   ng "追補1: boot-fill検査のいずれかが落ちた"
 fi
 
+# --- 追補3: --sector-fill の本文・優先順位・陰性対照・rc=2各種 -------------
+if python3 "$GEN" "$WORK/d4.d88" --fat-value 0xAA --filler 0x55 \
+  --sector-fill 0,0,1=0xC0 --sector-fill 5,1,7=0x33 >/dev/null 2>"$WORK/d4.err"; then
+  ok "--sector-fill 複数指定で生成できる"
+else
+  ng "--sector-fill 複数指定の生成に失敗した: $(cat "$WORK/d4.err")"
+fi
+
+# --boot-fill と --sector-fill を同じ起動用セクタに与えた場合、sector-fillが勝つ。
+if python3 "$GEN" "$WORK/d5.d88" --fat-value 0xAA --filler 0x55 --boot-fill 0x77 \
+  --sector-fill 0,0,1=0xC0 >/dev/null 2>"$WORK/d5.err"; then
+  ok "--boot-fill と --sector-fill(同一座標)の併用で生成できる"
+else
+  ng "--boot-fill と --sector-fill(同一座標)の併用に失敗した: $(cat "$WORK/d5.err")"
+fi
+
+sector_fill_out="$(REPO="$REPO" WORK="$WORK" python3 - <<'PY'
+import os
+import pathlib
+import sys
+
+repo = pathlib.Path(os.environ["REPO"])
+work = pathlib.Path(os.environ["WORK"])
+sys.path.insert(0, str(repo / "tools"))
+from d88_read_sector import D88Reader  # noqa: E402
+
+CYLINDERS = 40
+HEADS = 2
+SECTORS_PER_TRACK = 16
+BOOT = (0, 0, 1)
+
+results = {}
+
+# 9. 指定セクタだけが値になっている。
+d4 = D88Reader((work / "d4.d88").read_bytes())
+results["sector_fill_0_0_1_applied"] = d4.read_sector(0, 0, 1) == bytes([0xC0]) * 256
+results["sector_fill_5_1_7_applied"] = d4.read_sector(5, 1, 7) == bytes([0x33]) * 256
+
+# 指定セクタ以外はboot-fill無指定・sector-fill無指定の既定生成物(d1.d88、
+# --fat-value 0xAA --filler 0x55)と一致する(指定セクタだけが変わること)。
+base = D88Reader((work / "d1.d88").read_bytes())
+touched = {BOOT, (5, 1, 7)}
+all_other_match = True
+for c in range(CYLINDERS):
+    for h in range(HEADS):
+        for r in range(1, SECTORS_PER_TRACK + 1):
+            if (c, h, r) in touched:
+                continue
+            if d4.read_sector(c, h, r) != base.read_sector(c, h, r):
+                all_other_match = False
+results["sector_fill_does_not_touch_other_sectors"] = all_other_match
+
+# 10. 優先順位: --sector-fill が --boot-fill より勝つ(同一座標指定時)。
+d5 = D88Reader((work / "d5.d88").read_bytes())
+results["sector_fill_wins_over_boot_fill"] = d5.read_sector(0, 0, 1) == bytes([0xC0]) * 256
+
+bad = [k for k, v in results.items() if not v]
+for k, v in results.items():
+    print(f"{k}={'ok' if v else 'ng'}")
+sys.exit(1 if bad else 0)
+PY
+)"
+sf_rc=$?
+printf '%s\n' "$sector_fill_out"
+if [ "$sf_rc" -eq 0 ]; then
+  ok "追補3: --sector-fill の本文・優先順位がすべて通った"
+else
+  ng "追補3: --sector-fill 検査のいずれかが落ちた"
+fi
+
+# 既定(--sector-fill無指定)の生成物は、追補3より前の生成物(d1.d88)とバイト一致する。
+sha_d1="$(shasum -a 256 "$WORK/d1.d88" | awk '{print $1}')"
+python3 "$GEN" "$WORK/d6.d88" --fat-value 0xAA --filler 0x55 >/dev/null 2>"$WORK/d6.err"
+sha_d6="$(shasum -a 256 "$WORK/d6.d88" | awk '{print $1}')"
+if [ "$sha_d1" = "$sha_d6" ]; then
+  ok "追補3: --sector-fill無指定の既定生成物は追補3より前とバイト一致する"
+else
+  ng "追補3: --sector-fill無指定の既定生成物がバイト一致しない"
+fi
+
+# 陰性対照: 範囲外座標・範囲外値・形式不正・重複指定・割り当て表セクタ指定は
+# すべてrc=2で出力を作らない。
+python3 "$GEN" "$WORK/bad4.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill 40,0,1=0xC0 >/dev/null 2>"$WORK/bad4.err"
+rc_bad4=$?
+if [ "$rc_bad4" -eq 2 ] && [ ! -e "$WORK/bad4.d88" ]; then
+  ok "--sector-fill のC範囲外をrc=2で拒否した"
+else
+  ng "--sector-fill のC範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_bad4)"
+fi
+
+python3 "$GEN" "$WORK/bad5.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill 0,0,0=0xC0 >/dev/null 2>"$WORK/bad5.err"
+rc_bad5=$?
+if [ "$rc_bad5" -eq 2 ] && [ ! -e "$WORK/bad5.d88" ]; then
+  ok "--sector-fill のR範囲外(0)をrc=2で拒否した"
+else
+  ng "--sector-fill のR範囲外(0)の拒否がrc=2でない、または出力が作られた(rc=$rc_bad5)"
+fi
+
+python3 "$GEN" "$WORK/bad6.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill 0,0,1=0x100 >/dev/null 2>"$WORK/bad6.err"
+rc_bad6=$?
+if [ "$rc_bad6" -eq 2 ] && [ ! -e "$WORK/bad6.d88" ]; then
+  ok "--sector-fill の値範囲外をrc=2で拒否した"
+else
+  ng "--sector-fill の値範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_bad6)"
+fi
+
+python3 "$GEN" "$WORK/bad7.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill "bogus" >/dev/null 2>"$WORK/bad7.err"
+rc_bad7=$?
+if [ "$rc_bad7" -eq 2 ] && [ ! -e "$WORK/bad7.d88" ]; then
+  ok "--sector-fill の形式不正をrc=2で拒否した"
+else
+  ng "--sector-fill の形式不正の拒否がrc=2でない、または出力が作られた(rc=$rc_bad7)"
+fi
+
+python3 "$GEN" "$WORK/bad8.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill 0,0,1=0xAA --sector-fill 0,0,1=0xBB >/dev/null 2>"$WORK/bad8.err"
+rc_bad8=$?
+if [ "$rc_bad8" -eq 2 ] && [ ! -e "$WORK/bad8.d88" ]; then
+  ok "--sector-fill の座標重複をrc=2で拒否した"
+else
+  ng "--sector-fill の座標重複の拒否がrc=2でない、または出力が作られた(rc=$rc_bad8)"
+fi
+
+python3 "$GEN" "$WORK/bad9.d88" --fat-value 0x00 --filler 0x00 \
+  --sector-fill 18,1,14=0xAA >/dev/null 2>"$WORK/bad9.err"
+rc_bad9=$?
+if [ "$rc_bad9" -eq 2 ] && [ ! -e "$WORK/bad9.d88" ]; then
+  ok "--sector-fill の割り当て表セクタ指定をrc=2で拒否した"
+else
+  ng "--sector-fill の割り当て表セクタ指定の拒否がrc=2でない、または出力が作られた(rc=$rc_bad9)"
+fi
+
 echo
 if [ "$rc" -eq 0 ]; then
   echo "全項目 OK"

@@ -18,11 +18,13 @@ python3 "$REPO/tools/check_m6fc_preregistration.py" --config "$CONFIG" >/dev/nul
 source "$REPO/tools/lib_m6f_measure.sh"
 
 raw_dir=""; result=""; boot_fill=""
+sector_fill_raw=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --raw-dir) raw_dir="${2:-}"; shift 2 ;;
     --result) result="${2:-}"; shift 2 ;;
     --boot-fill) boot_fill="${2:-}"; shift 2 ;;
+    --sector-fill) sector_fill_raw+=("${2:-}"); shift 2 ;;
     *) exit 2 ;;
   esac
 done
@@ -36,6 +38,26 @@ if [ -n "$boot_fill" ]; then
   boot_fill_record="$(python3 -c "import sys; v=int(sys.argv[1],0); assert 0<=v<=255; print(v)" \
     "$boot_fill")" || gate_failed boot_fill_range
   boot_fill_args=(--boot-fill "$boot_fill_record")
+fi
+
+# --sector-fill 追補3(m6f-c-addendum3-write-protect-sectors.md 第4節)の再走用。
+# 指定時(複数可)、ドライブ2の全媒体(GB・SW・段階2・A6決定性検査)に同じ規則を
+# 足す(make_m6fc_blank_disk.pyへそのまま複数回渡す)。形式・範囲・割り当て表
+# セクタとの衝突・重複はmake_m6fc_blank_disk.py側の検査に委ね、ここでは形式が
+# 明らかに壊れている場合だけ早期にgate_failedにする。省略時はNoneのまま
+# (導出規則は変わらない)。
+sector_fill_args=()
+sector_fill_record=""
+if [ "${#sector_fill_raw[@]}" -gt 0 ]; then
+  for sf in "${sector_fill_raw[@]}"; do
+    case "$sf" in
+      *=*) : ;;
+      *) gate_failed sector_fill_format ;;
+    esac
+    sector_fill_args+=(--sector-fill "$sf")
+  done
+  sector_fill_record="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1:]))" \
+    "${sector_fill_raw[@]}")" || gate_failed sector_fill_record
 fi
 
 [ -n "${PC88_REF_ROM_DIR:-}" ] || gate_failed PC88_REF_ROM_DIR_missing
@@ -84,9 +106,9 @@ TIMEOUT="$(m6f_cfg "$CONFIG" run_timeout_seconds)"
 
 # G5: 生成器の決定性(測定に使う値そのものではなく、任意の(V,F)組で確認する)。
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5a.d88" --fat-value 0xAA --filler 0x55 \
-  ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
+  ${boot_fill_args[@]+"${boot_fill_args[@]}"} ${sector_fill_args[@]+"${sector_fill_args[@]}"} >/dev/null 2>"$WORK/g5.err" || gate_failed G5_generate
 python3 "$REPO/tools/make_m6fc_blank_disk.py" "$WORK/g5b.d88" --fat-value 0xAA --filler 0x55 \
-  ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
+  ${boot_fill_args[@]+"${boot_fill_args[@]}"} ${sector_fill_args[@]+"${sector_fill_args[@]}"} >/dev/null 2>>"$WORK/g5.err" || gate_failed G5_generate
 [ "$(m6f_sha256 "$WORK/g5a.d88")" = "$(m6f_sha256 "$WORK/g5b.d88")" ] || gate_failed G5
 
 mfc_frames() {
@@ -129,7 +151,7 @@ mfc_run_one() {
   frames="$(mfc_frames "$arm")" || gate_failed frames_resolve
   [ -e "$disk2" ] && gate_failed disk_exists
   python3 "$REPO/tools/make_m6fc_blank_disk.py" "$disk2" --fat-value "$fat" --filler "$filler" \
-    ${boot_fill_args[@]+"${boot_fill_args[@]}"} >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
+    ${boot_fill_args[@]+"${boot_fill_args[@]}"} ${sector_fill_args[@]+"${sector_fill_args[@]}"} >/dev/null 2>"$WORK/$arm-r$rep.gen.err" || gate_failed generate_disk
   local initial_sha; initial_sha="$(m6f_sha256 "$disk2")" || gate_failed initial_sha
 
   # ドライブ1: 参照ディスクの使い捨て複製。書き込み保護は解除しない
@@ -181,10 +203,11 @@ mfc_run_one() {
   fi
 
   python3 - "$REPO" "$arm" "$rep" "$fat" "$filler" "$iolog" "$STIMULUS_FRAME" \
-    "$initial_sha" "$final_sha" "$boot_fill_record" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
+    "$initial_sha" "$final_sha" "$boot_fill_record" "${sector_fill_record:-}" \
+    <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
 import json, sys
 from pathlib import Path
-repo, arm, rep, fat, filler, iolog, stim, isha, fsha, boot_fill_raw = sys.argv[1:]
+repo, arm, rep, fat, filler, iolog, stim, isha, fsha, boot_fill_raw, sector_fill_raw = sys.argv[1:]
 sys.path.insert(0, str(Path(repo) / "tools"))
 from analyze_main_to_sub import parse_iolog
 from analyze_write_path import parse_commands
@@ -216,10 +239,13 @@ drive1_read_count = split["drive1_read_count"]
 drive1_write_count = split["drive1_write_count"]
 
 boot_fill_value = int(boot_fill_raw) if boot_fill_raw != "" else None
+# --sector-fill 追補3(m6f-c-addendum3-write-protect-sectors.md 第4節)の再走用。
+# sector_fill_raw は空、またはbashが渡したJSON配列文字列("C,H,R=0xNN"の列)。
+sector_fills_value = json.loads(sector_fill_raw) if sector_fill_raw else []
 
 body = {
     "arm": arm, "repetition": int(rep), "fat_value": int(fat), "filler": int(filler),
-    "boot_fill": boot_fill_value,
+    "boot_fill": boot_fill_value, "sector_fills": sector_fills_value,
     "initial_sha": isha, "final_sha": fsha,
     "reads": reads, "writes": writes, "write_data_count": write_data_count,
     "drive1_read_count": drive1_read_count, "drive1_write_count": drive1_write_count,

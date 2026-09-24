@@ -319,6 +319,13 @@ SCRIPTS_EXPECTED=(
   # 単体検査。合成データだけで完結し、公式ROM・公式ディスク・private/には
   # 触れない。SKIPは無く常にrc=0を期待する。
   "tools/m6fc_fdc_by_drive_selftest.sh:0"
+  # m6f-c 追補3（「書き込み禁止」を決めているセクタの掃引）。導出器・凍結表
+  # 照合器・測定ドライバの自己検査。合成TSV/JSON/D88と偽フロントエンドだけで
+  # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を
+  # 期待する。
+  "tools/derive_m6fc_protect_selftest.sh:0"
+  "tools/check_m6fc_protect_preregistration_selftest.sh:0"
+  "tools/measure_m6fc_protect_driver_selftest.sh:0"
 )
 
 overall=0
