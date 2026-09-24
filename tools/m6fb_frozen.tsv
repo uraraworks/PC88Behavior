@@ -1,0 +1,46 @@
+frozen	yes
+measurement_frames	9000
+run_timeout_seconds	300
+repetitions	2
+reference_disk	N88_FE.D88
+boot_return_frame	300
+stimulus_frame	700
+directory_sector	18,1,3
+arm	G0
+arm	G1
+arm	G2
+arm	G3
+arm	G4
+arm	G5
+arm	G6
+arm	G7
+arm	G8
+keystrokes	G0:
+keystrokes	G1:10 F$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(65):OPEN F$ FOR OUTPUT AS #1:PRINT #1,"X":CLOSE #1\nRUN\n
+keystrokes	G2:10 F$=CHR$(113)+CHR$(122)+CHR$(55)+CHR$(97):OPEN F$ FOR OUTPUT AS #1:PRINT #1,"Y":CLOSE #1\nRUN\n
+keystrokes	G3:10 OPEN "QZ7A" FOR OUTPUT AS #1:PRINT #1,"W":CLOSE #1\nRUN\n
+keystrokes	G4:10 F$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(65):G$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(66):OPEN F$ FOR OUTPUT AS #1:PRINT #1,"X":CLOSE #1:OPEN G$ FOR OUTPUT AS #1:PRINT #1,"X":CLOSE #1\nRUN\n
+keystrokes	G5:10 F$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(65):OPEN F$ FOR OUTPUT AS #1:PRINT #1,"X":CLOSE #1:KILL F$\nRUN\n
+keystrokes	G6:10 F$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(65)+CHR$(66)+CHR$(67):OPEN F$ FOR OUTPUT AS #1:PRINT #1,"X":CLOSE #1\nRUN\n
+keystrokes	G7:10 F$=CHR$(81)+CHR$(90)+CHR$(55)+CHR$(68):OPEN F$ FOR OUTPUT AS #1:FOR I=1 TO 300:PRINT #1,STRING$(200,"V"):NEXT:CLOSE #1\nRUN\n
+keystrokes	G8:10 END\nSAVE"QZ7E"\n
+derivation	E1:case_handling
+derivation	E2:name_start
+derivation	E3:entry_length
+derivation	E4:name_padding_and_length
+derivation	E5:deletion_marker
+derivation	E6:unused_entry_value
+derivation	E7:allocation_table_sectors
+derivation	E8:program_data_difference
+judgment	gate_failed
+judgment	unreached
+judgment	derived
+judgment	ambiguous
+judgment	not_found
+judgment	case_stored_as_given
+judgment	case_folded_to_lower
+judgment	case_folded_to_upper
+judgment	case_other
+judgment	m6f_b_entry_fields_derived
+judgment	m6f_b_entry_fields_incomplete
+judgment	m6f_b_inconclusive

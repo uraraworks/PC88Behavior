@@ -186,6 +186,11 @@ SCRIPTS_EXPECTED=(
   "tools/check_m6fa_preregistration_selftest.sh:0"
   "tools/derive_m6fa_selftest.sh:0"
   "tools/judge_m6fa_selftest.sh:0"
+  # m6f-b（ディレクトリエントリ欄と大小文字）の測定前器具。公式形式を
+  # 仮定しない架空の差分JSONだけで凍結・導出・判定を検査する。
+  "tools/check_m6fb_preregistration_selftest.sh:0"
+  "tools/derive_m6fb_selftest.sh:0"
+  "tools/judge_m6fb_selftest.sh:0"
   "tools/check_m6ih_preregistration_selftest.sh:0"
   "tools/analyze_m6ih_selftest.sh:0"
   "tools/judge_m6ih_selftest.sh:0"

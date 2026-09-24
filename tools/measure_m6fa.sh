@@ -9,6 +9,7 @@ gate_failed() { printf '{"judgment":"gate_failed","reason":"%s"}\n' "$1"; exit 1
 # G7は引数解釈や環境参照より先に固定値を照合する。
 python3 "$REPO/tools/check_m6fa_preregistration.py" --config "$CONFIG" >/dev/null 2>&1 \
   || gate_failed preregistration_mismatch
+source "$REPO/tools/lib_m6f_measure.sh"
 
 raw_dir="${HOME:?HOMEが未設定}/_claude_work/m6fa-raw"; result=""
 while [ "$#" -gt 0 ]; do
@@ -28,16 +29,7 @@ REFERENCE="$PC88_REF_DISK_DIR/$disk_name"
 [ -f "$REFERENCE" ] || gate_failed reference_disk_missing
 
 # 生差分と安全な結果のどちらもrepo内へ書かない。実体パスで判定する。
-python3 - "$REPO" "$raw_dir" "$result" <<'PY' || gate_failed G6
-import sys
-from pathlib import Path
-repo=Path(sys.argv[1]).resolve()
-for raw in sys.argv[2:]:
-    path=Path(raw).resolve(strict=False)
-    try: path.relative_to(repo)
-    except ValueError: continue
-    raise SystemExit(1)
-PY
+m6f_check_output_paths "$REPO" "$raw_dir" "$result" || gate_failed G6
 mkdir -p "$raw_dir" || gate_failed raw_dir
 [ -d "$(dirname "$result")" ] || gate_failed result_parent
 [ ! -e "$result" ] || gate_failed result_exists
@@ -48,16 +40,8 @@ for arm in F0 F1 F2 F3 F4 F5 F6; do
 done
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-cfg() { awk -F '\t' -v key="$1" '$1==key {if (++n==1) v=$2} END {if (n==1) print v; else exit 1}' "$CONFIG"; }
-keyed_cfg() { awk -F '\t' -v key="$1" -v subkey="$2" '$1==key && index($2,subkey ":")==1 {if (++n==1) print substr($2,length(subkey)+2)} END {if (n!=1) exit 1}' "$CONFIG"; }
-sha256() { python3 - "$1" <<'PY'
-import hashlib,sys
-h=hashlib.sha256()
-with open(sys.argv[1],'rb') as f:
-    for block in iter(lambda:f.read(1024*1024),b''): h.update(block)
-print(h.hexdigest())
-PY
-}
+cfg() { m6f_cfg "$CONFIG" "$1"; }
+sha256() { m6f_sha256 "$1"; }
 
 # G1〜G3。ここを通るまではfrontendをビルドも起動もしない。
 # G1（run_all_selftests.sh 全体）はここでは回さない。m6i-c/g/h/i と同じく、腕を回す前に
@@ -78,70 +62,14 @@ frames="$(cfg measurement_frames)"; timeout="$(cfg run_timeout_seconds)"
 boot_frame="$(cfg boot_return_frame)"; stimulus_frame="$(cfg stimulus_frame)"
 reference_sha="$(sha256 "$REFERENCE")" || gate_failed reference_sha
 
+M6F_REPO="$REPO"; M6F_CONFIG="$CONFIG"; M6F_FRONTEND="$FRONTEND"
+M6F_WORK="$WORK"; M6F_RAW_DIR="$raw_dir"; M6F_REFERENCE="$REFERENCE"
+M6F_REFERENCE_SHA="$reference_sha"; M6F_CORE="$CORE"; M6F_FRAMES="$frames"
+M6F_TIMEOUT="$timeout"; M6F_BOOT_FRAME="$boot_frame"
+M6F_STIMULUS_FRAME="$stimulus_frame"; M6F_CONTROL_ARM="F0"
+
 run_one() {
-  # bash 3.2 では同じ local 文の中で先に代入した変数を参照できない（外側の値を見る）。
-  # arm と run を先に確定させてから、それを使う変数を別の local 文で宣言する。
-  local arm="$1" run="$2"
-  local disk="$WORK/$arm-r$run.d88"
-  local iolog="$WORK/$arm-r$run.iolog.txt" report="$WORK/$arm-r$run.report.txt"
-  local stdout="$WORK/$arm-r$run.stdout.txt" stderr="$WORK/$arm-r$run.stderr.txt"
-  local raw="$raw_dir/$arm-r$run.diff.json" safe="$WORK/$arm-r$run.safe.json"
-  local stimulus initial after_ref
-  stimulus="$(keyed_cfg keystrokes "$arm")" || gate_failed stimulus
-  cp "$REFERENCE" "$disk" || gate_failed copy
-  chmod u+w "$disk" || gate_failed copy_mode
-  initial="$(sha256 "$disk")" || gate_failed copy_sha
-  [ "$initial" = "$reference_sha" ] || gate_failed G5
-  # 追補3: 参照 diskA の像は書き込み保護付きなので、conform_l3.sh と同じく複製の
-  # D88 ヘッダ26バイト目へ 0x00 を書いて保護を外す。書くだけで元の値は読まない。
-  printf '\x00' | dd of="$disk" bs=1 seek=26 count=1 conv=notrunc status=none \
-    || gate_failed clear_write_protect
-  # G5b: 複製と参照で違うバイトの「位置だけ」を数え、無いかオフセット26だけであること。
-  python3 - "$REFERENCE" "$disk" <<'PY_G5B' || gate_failed G5b
-import sys
-a = open(sys.argv[1], "rb").read(); b = open(sys.argv[2], "rb").read()
-if len(a) != len(b):
-    raise SystemExit(1)
-offsets = [i for i in range(len(a)) if a[i] != b[i]]
-if offsets not in ([], [26]):
-    raise SystemExit(1)
-PY_G5B
-  local qargs=(--core "$CORE" --rom-dir "$PC88_REF_ROM_DIR" --disk "$disk"
-    --save-to-disk-image --frames "$frames" --io-log "$iolog" --out "$report"
-    --type-at "$boot_frame" --type '\n')
-  if [ -n "$stimulus" ]; then
-    qargs+=(--type-at "$stimulus_frame" --type "$stimulus")
-  fi
-  /usr/bin/perl -e 'alarm shift; exec @ARGV' "$timeout" "$FRONTEND" "${qargs[@]}" \
-    >"$stdout" 2>"$stderr" || gate_failed emulator_run
-  # reportは存在だけを確認し、中身は一切開かない。
-  [ -e "$report" ] && [ -s "$iolog" ] || gate_failed measurement_artifact
-  after_ref="$(sha256 "$REFERENCE")" || gate_failed reference_sha_after
-  [ "$after_ref" = "$reference_sha" ] || gate_failed reference_changed
-  python3 "$REPO/tools/d88_diff.py" "$REFERENCE" "$disk" --output "$raw" \
-    || gate_failed G6_diff
-  python3 - "$REPO" "$arm" "$run" "$iolog" "$raw" "$safe" \
-    "$reference_sha" "$initial" "$(sha256 "$disk")" <<'PY' || gate_failed safe_summary
-import hashlib,json,sys
-from pathlib import Path
-repo=Path(sys.argv[1]); sys.path.insert(0,str(repo/'tools'))
-from analyze_main_to_sub import parse_iolog
-from analyze_write_path import parse_commands
-arm,run,iolog,raw,out,refsha,initial,final=sys.argv[2:]
-rows,masked=parse_iolog(Path(iolog))
-if sum(masked.values()): raise SystemExit(1)
-commands=parse_commands(rows); writes=sum(c.opcode==0x05 for c in commands)
-diff=json.load(open(raw,encoding='utf-8'))
-sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
-changed_sectors=int(diff['changed_sectors']); changed_bytes=int(diff['changed_bytes'])
-reached=True if arm=='F0' else writes>0 and changed_bytes>0
-body={'arm':arm,'repetition':int(run),'write_data_count':writes,
-      'changed_sector_count':changed_sectors,'changed_byte_count':changed_bytes,
-      'reached':reached,'reference_unchanged':refsha==initial,
-      'reference_sha256':refsha,'copy_initial_sha256':initial,
-      'copy_final_sha256':final,'diff_sha256':sha(raw),'iolog_sha256':sha(iolog)}
-with open(out,'x',encoding='utf-8') as f: json.dump(body,f,sort_keys=True,separators=(',',':'))
-PY
+  m6f_run_one "$1" "$2"
 }
 
 # F0を先に2走し、G4を通らなければ刺激腕へ進まない。
