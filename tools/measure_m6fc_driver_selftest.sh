@@ -92,6 +92,11 @@ def main() -> int:
     if iolog_path:
         with open(iolog_path, "w", encoding="utf-8") as f:
             f.write("# fake iolog (measure_m6fc_driver_selftest)\n")
+            # 事前登録 §5.2 の試験: 指定した腕のログに取りこぼしの行を書く。
+            drop_arms = os.environ.get("M6FC_SELFTEST_DROP_ARMS", "").split()
+            arm_name = os.path.basename(out_path or "").split("-r")[0]
+            if arm_name in drop_arms:
+                f.write("# 取りこぼし: 5件 / 総イベント数: 10件\n")
 
     if out_path:
         bt = 'print chr$(90);chr$(81);"bt"\\n'
@@ -415,6 +420,35 @@ PY
   fi
 else
   ng "--sector-fill: ドライバがrc=0で完走しなかった、または媒体が保存されなかった(rc=$sf_rc)"
+fi
+
+# --- 事前登録 §5.2: A5・A5b だけは取りこぼしで止めず記録する ---------------
+run_drop() { # $1=tag $2=drop_arms $3=stop_arm
+  env M6FC_FRONTEND="$FAKE" PC88_REF_ROM_DIR="$WORK/rom" PC88_REF_DISK_DIR="$WORK/refdisk" \
+    M6FC_TEST_CORE="selftest-core" M6FC_TEST_SW_MAX=0 M6FC_TEST_STOP_AFTER_ARM="$3" \
+    M6FC_SELFTEST_DROP_ARMS="$2" M6FC_TEST_RUNS_COPY="$WORK/runs_$1.ndjson" \
+    "$REPO/tools/measure_m6fc.sh" --raw-dir "$WORK/raw_$1" --result "$WORK/result_$1.json" \
+    >"$WORK/$1.stdout.txt" 2>"$WORK/$1.stderr.txt"
+}
+run_drop dropok "A5b" A5b; drop_rc=$?
+if [ "$drop_rc" -eq 0 ] && python3 - "$WORK/runs_dropok.ndjson" <<'PY2'
+import json,sys
+rows=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+a5b=[r for r in rows if r["arm"]=="A5b"]
+others=[r for r in rows if r["arm"]!="A5b"]
+assert len(a5b)==2 and all(r["iolog_dropped"]==5 and r["writes"] is None and r["reads"] is None for r in a5b), a5b
+assert all(r["iolog_dropped"]==0 and isinstance(r["writes"], list) for r in others if r["arm"] not in ("A5",)), "others"
+PY2
+then
+  ok "§5.2: A5b の取りこぼしで止まらず、取りこぼし数と座標なし(null)を記録した"
+else
+  ng "§5.2: A5b の取りこぼしの扱いが違う(rc=$drop_rc)"
+fi
+run_drop dropng "A3" A3; dropng_rc=$?
+if [ "$dropng_rc" -ne 0 ] && grep -q 'run_summary' "$WORK/dropng.stdout.txt"; then
+  ok "§5.2 陰性対照: A3 の取りこぼしは gate_failed で止まった"
+else
+  ng "§5.2 陰性対照: A3 の取りこぼしで止まらなかった(rc=$dropng_rc)"
 fi
 
 echo

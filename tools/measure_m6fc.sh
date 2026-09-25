@@ -224,19 +224,27 @@ import re
 dropped_total = 0
 for m in re.finditer(r"取りこぼし:\s*(\d+)件", text):
     dropped_total += int(m.group(1))
-if dropped_total:
+# 事前登録 §5.2（測定前の補足）: A5・A5b の入出力ログは導出に使わない（C9 は測定後の
+# 媒体と目印だけを使う）。この2腕だけは取りこぼしで止めず、取りこぼし数を記録し、
+# 読み書きの座標は「記録なし」(null) にする。他の腕は従来どおり止める。
+FDC_NOT_USED_ARMS = ("A5", "A5b")
+if dropped_total and arm not in FDC_NOT_USED_ARMS:
     print(f"エラー: I/Oログに取りこぼしが{dropped_total}件ある", file=sys.stderr)
     sys.exit(1)
 
-commands = parse_commands(rows)
 stim = int(stim)
-# 追補2: 書いたセクタ・読んだセクタは装置番号1(ドライブ2)だけを数える。
-# 装置番号0(ドライブ1)の件数はdrive1_read_count/drive1_write_countへ。
-split = split_by_drive(commands, stim)
-reads, writes = split["reads"], split["writes"]
-write_data_count = split["write_data_count"]
-drive1_read_count = split["drive1_read_count"]
-drive1_write_count = split["drive1_write_count"]
+if arm in FDC_NOT_USED_ARMS:
+    reads = writes = write_data_count = None
+    drive1_read_count = drive1_write_count = None
+else:
+    commands = parse_commands(rows)
+    # 追補2: 書いたセクタ・読んだセクタは装置番号1(ドライブ2)だけを数える。
+    # 装置番号0(ドライブ1)の件数はdrive1_read_count/drive1_write_countへ。
+    split = split_by_drive(commands, stim)
+    reads, writes = split["reads"], split["writes"]
+    write_data_count = split["write_data_count"]
+    drive1_read_count = split["drive1_read_count"]
+    drive1_write_count = split["drive1_write_count"]
 
 boot_fill_value = int(boot_fill_raw) if boot_fill_raw != "" else None
 # --sector-fill 追補3(m6f-c-addendum3-write-protect-sectors.md 第4節)の再走用。
@@ -249,6 +257,7 @@ body = {
     "initial_sha": isha, "final_sha": fsha,
     "reads": reads, "writes": writes, "write_data_count": write_data_count,
     "drive1_read_count": drive1_read_count, "drive1_write_count": drive1_write_count,
+    "iolog_dropped": dropped_total,
 }
 print(json.dumps(body, sort_keys=True, separators=(",", ":")))
 PYEOF
@@ -366,6 +375,8 @@ for arm in A1 A1b A2 A3 A4-1 A4-3 A4-6 A4-10 A4-17 A5 A5b; do
   # 一致した腕を2走終えた時点で打ち切る(未設定時は従来どおり最後まで回る)。
   if [ -n "${M6FC_TEST_STOP_AFTER_ARM:-}" ] && [ "$arm" = "$M6FC_TEST_STOP_AFTER_ARM" ]; then
     printf 'm6f-c measurement selftest: stopped after arm=%s\n' "$arm"
+    # 試験用の口(既定は無効): 打ち切り時に走の記録を写す。
+    if [ -n "${M6FC_TEST_RUNS_COPY:-}" ]; then cp "$RUNS_JSON" "$M6FC_TEST_RUNS_COPY"; fi
     exit 0
   fi
 done
