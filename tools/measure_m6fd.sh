@@ -271,6 +271,9 @@ PYEOF
     cp "$disk2" "$raw_dir/$image_name" || gate_failed save_disk
   fi
 
+  # entry_fieldsは名前をキーにした辞書 {name: fields|null} で記録する
+  # (docs/notes/m6f-d-addendum1-terminal-and-reserve.md §2 措置1)。
+  # derive_m6fd.py は run.get("entry_fields", {}).get(name) の形で読む。
   local entry_fields_json="null"
   if [ -n "$entry_name" ]; then
     if [ -n "${M6FD_TEST_SKIP_ENTRY_FIELDS:-}" ]; then
@@ -284,7 +287,7 @@ try:
     fields = m6fd_entry.entry_fields(Path(disk2).read_bytes(), name.encode("ascii"))
 except ImportError:
     fields = None
-print(json.dumps(fields, sort_keys=True, separators=(",", ":")))
+print(json.dumps({name: fields}, sort_keys=True, separators=(",", ":")))
 PY
 )" || gate_failed entry_fields
     else
@@ -295,7 +298,7 @@ repo, disk2, name = sys.argv[1:]
 sys.path.insert(0, str(Path(repo) / "tools"))
 import m6fd_entry
 fields = m6fd_entry.entry_fields(Path(disk2).read_bytes(), name.encode("ascii"))
-print(json.dumps(fields, sort_keys=True, separators=(",", ":")))
+print(json.dumps({name: fields}, sort_keys=True, separators=(",", ":")))
 PY
 )" || gate_failed entry_fields_missing_module
     fi

@@ -310,6 +310,13 @@ SCRIPTS_EXPECTED=(
   "tools/judge_m6fd_selftest.sh:0"
   "tools/check_m6fd_preregistration_selftest.sh:0"
   "tools/measure_m6fd_driver_selftest.sh:0"
+  # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
+  # entry_fieldsの名前キー化・包み直し・D3'/D7'/D8の導出器・凍結表照合・
+  # 追補1測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
+  "tools/m6fd_rewrap_add1_selftest.sh:0"
+  "tools/check_m6fd_add1_preregistration_selftest.sh:0"
+  "tools/derive_m6fd_add1_selftest.sh:0"
+  "tools/measure_m6fd_add1_driver_selftest.sh:0"
   "tools/check_m6fc_markers_selftest.sh:0"
   # m6f-c 続き（凍結表照合・導出器・判定器）。合成TSV/JSON/D88だけで完結し、
   # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。

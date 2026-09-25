@@ -120,6 +120,18 @@ def _entry_name_at(img, coord=(18, 1, 1)):
     return bytes(img[off:off + 9]).rstrip(b" ").decode("ascii", "replace")
 
 
+def _write_head_entry(img, name, coord, unit):
+    """IV-R系(SW打鍵、QZ7Aを開く)用: エントリの10バイト目(0始まりのentry[10])に
+    unitを書くだけの最小構造。鎖・本体は関係ない(D7はentry_fieldsの
+    bytes9_15だけを見る)。"""
+    off = _sector_offset(*coord)
+    entry = bytearray(16)
+    padded = (name + " " * 9)[:9].encode("ascii")
+    entry[0:9] = padded
+    entry[10] = unit
+    img[off:off + 16] = entry
+
+
 def main() -> int:
     argv = sys.argv[1:]
     out_path = _find(argv, "--out")
@@ -160,6 +172,11 @@ def main() -> int:
     is_stage1_write = any('chr$(81)+chr$(90)+chr$(55)+chr$(66)' in t for t in typed)
     is_dir_read = any('chr$(81)+chr$(68)' in t for t in typed)
     is_save_q7l = any('save"2:q7l"' in t for t in typed)
+    # IV-R系(SW打鍵): QZ7Aを開く打鍵を検知したら、entry[10]=20の最小エントリを
+    # 書いて"ok"を出す(M6FD_SELFTEST_IVR_SKIP_ARMSに列挙した腕は書かず
+    # gate_failed用の陰性対照に使う)。
+    is_ivr_write = any('chr$(81)+chr$(90)+chr$(55)+chr$(65)' in t for t in typed)
+    ivr_skip_arms = os.environ.get("M6FD_SELFTEST_IVR_SKIP_ARMS", "").split()
 
     # 1段目: 生成器が既に作った媒体へ、m6fd_relocate.pyが読める最小限の
     # エントリ+鎖を書き込む(実際のBASICのファイル書き込みの代用)。
@@ -183,6 +200,15 @@ def main() -> int:
             f.write(bytes(img))
 
     ok_tag = None
+    if is_ivr_write and disk2_path and os.path.exists(disk2_path):
+        skip = any(arm_hint.startswith(a + "-") for a in ivr_skip_arms)
+        if not skip:
+            img = bytearray(open(disk2_path, "rb").read())
+            _write_head_entry(img, "QZ7A", (18, 1, 1), 20)
+            with open(disk2_path, "r+b") as f:
+                f.seek(0)
+                f.write(bytes(img))
+            ok_tag = "ok"
     if is_stage2_read:
         name_at_dir = None
         if disk2_path and os.path.exists(disk2_path):
@@ -465,6 +491,112 @@ if [ "$dropng_rc" -ne 0 ] && grep -q '"reason":"run_summary_I-1_' "$WORK/dropng.
   ok "(f) I-1の取りこぼしはgate_failed(run_summary)で止まった"
 else
   ng "(f) I-1の取りこぼしで止まらなかった(rc=$dropng_rc, stdout=$(cat "$WORK/dropng.stdout.txt"))"
+fi
+
+# --- (g) 逃げ道なしでエントリ読み取り→R*導出までを通す ------------------------
+# m6f-d 追補1 §2 措置1: M6FD_TEST_SKIP_ENTRY_FIELDS・M6FD_TEST_R_STAR を
+# 使わず、偽フロントエンドがIV-Rの2段目媒体にQZ7A・10バイト目=20の
+# エントリを書き、ドライバがtools/m6fd_entry.entry_fields(実物)で読み、
+# 結果JSONのentry_fieldsが名前キーで入り、tools/derive_m6fd.r_star(result,
+# raw_dir)が呼べて値(またはNone)を返すところまでを確認する。
+env \
+  M6FD_FRONTEND="$FAKE" PC88_REF_ROM_DIR="$WORK/rom" PC88_REF_DISK_DIR="$WORK/refdisk" \
+  M6FD_TEST_CORE="selftest-core" \
+  M6FD_TEST_III_MAX=1 M6FD_TEST_IV_R_MAX=1 \
+  "$REPO/tools/measure_m6fd.sh" --raw-dir "$WORK/raw_noskip" --result "$WORK/result_noskip.json" \
+  >"$WORK/noskip.stdout.txt" 2>"$WORK/noskip.stderr.txt"
+noskip_rc=$?
+if [ "$noskip_rc" -eq 0 ] && grep -q 'measurement complete' "$WORK/noskip.stdout.txt"; then
+  ok "(g) 逃げ道なし: ドライバがrc=0で完走した(entry_fields実物・R*導出実物)"
+else
+  ng "(g) 逃げ道なしの完走に失敗した(rc=$noskip_rc): $(tail -c 400 "$WORK/noskip.stderr.txt")"
+fi
+
+NOSKIP_VERIFY="$WORK/noskip_verify.py"
+cat > "$NOSKIP_VERIFY" <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+
+repo, result_path = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(repo / "tools"))
+import derive_m6fd
+
+doc = json.loads(result_path.read_text(encoding="utf-8"))
+fails = []
+
+ivr_runs = [r for r in doc.get("runs", []) if r.get("arm", "").startswith("IV-R-")]
+if len(ivr_runs) != 4:  # R=00,01 * 2走
+    fails.append(f"IV-Rの走数が想定外: {len(ivr_runs)}")
+for r in ivr_runs:
+    ef = r.get("entry_fields")
+    if not isinstance(ef, dict) or "QZ7A" not in ef:
+        fails.append(f"entry_fieldsが名前キーで入っていない: arm={r.get('arm')} entry_fields={ef!r}")
+        continue
+    fields = ef["QZ7A"]
+    if not fields or fields.get("bytes9_15", [None] * 7)[1] != 20:
+        fails.append(f"エントリの10バイト目が20でない: arm={r.get('arm')} fields={fields!r}")
+    if not any(m.get("tag") == "ok" for m in r.get("markers", [])):
+        fails.append(f"IV-R走にokマーカーが無い: arm={r.get('arm')}")
+
+raw_dir = result_path.parent / "raw_noskip"
+r_star = derive_m6fd.r_star(doc, raw_dir)
+if r_star != 0:
+    fails.append(f"r_starが想定(0)と異なる: {r_star!r}")
+
+if fails:
+    for m in fails:
+        print("NG: " + m)
+    sys.exit(1)
+print(f"OK: entry_fieldsが名前キー・10バイト目=20・okマーカー確認、derive_m6fd.r_star={r_star}")
+sys.exit(0)
+PYEOF
+noskip_verify_out="$(python3 "$NOSKIP_VERIFY" "$REPO" "$WORK/result_noskip.json" 2>&1)"
+noskip_verify_rc=$?
+printf '%s\n' "$noskip_verify_out"
+if [ "$noskip_verify_rc" -eq 0 ]; then
+  ok "(g) entry_fieldsの名前キー化とderive_m6fd.r_starの実物呼び出しを確認した"
+else
+  ng "(g) entry_fields/r_starの検査が失敗した"
+fi
+
+# --- (g') 陰性対照: 名前キーなしの形(直す前)に戻すとRusedが空になる ----------
+NEG_VERIFY="$WORK/neg_verify.py"
+cat > "$NEG_VERIFY" <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+
+repo, result_path = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(repo / "tools"))
+import derive_m6fd
+
+doc = json.loads(result_path.read_text(encoding="utf-8"))
+# 直す前の形(名前キーなし、欄そのもの)に戻した一時コピーを作る。
+broken_runs = []
+for r in doc.get("runs", []):
+    r2 = dict(r)
+    ef = r.get("entry_fields")
+    if isinstance(ef, dict) and "QZ7A" in ef and ef["QZ7A"] is not None:
+        r2["entry_fields"] = ef["QZ7A"]  # 名前キーを外して欄そのものにする(直す前の形)
+    broken_runs.append(r2)
+broken = {"schema": 1, "runs": broken_runs}
+
+runs_by_key = {(r["arm"], r["repetition"]): r for r in broken_runs}
+d7 = derive_m6fd.d7_reserved_value(runs_by_key, {"status": "not_found"})
+if d7["rused"] != []:
+    print(f"NG: 直す前の形でもRusedが空にならなかった: {d7}")
+    sys.exit(1)
+print(f"OK: 直す前の形(名前キーなし)ではRusedが空になった: {d7}")
+sys.exit(0)
+PYEOF
+neg_verify_out="$(python3 "$NEG_VERIFY" "$REPO" "$WORK/result_noskip.json" 2>&1)"
+neg_verify_rc=$?
+printf '%s\n' "$neg_verify_out"
+if [ "$neg_verify_rc" -eq 0 ]; then
+  ok "(g') 陰性対照: 名前キーなしの形に戻すとRusedが空になることを確認した"
+else
+  ng "(g') 陰性対照が想定どおりでない"
 fi
 
 echo

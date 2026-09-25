@@ -1,0 +1,44 @@
+frozen	yes
+repetitions	2
+run_timeout_seconds	300
+boot_return_frame	300
+stimulus_frame	700
+reference_disk	N88_FE.D88
+drive_layout_default	drive1=reference_copy_protected;drive2=generated
+arm	E-2
+arm	E-4
+arm	E-8
+arm	E-12
+arm	E-20
+arm	E-33
+arm	IV-fill-free
+arm	IV-fill-res
+frame	E-2	12000
+frame	E-4	12000
+frame	E-8	12000
+frame	E-12	12000
+frame	E-20	12000
+frame	E-33	12000
+frame	IV-fill-free	60000
+frame	IV-fill-res	60000
+segment	E-2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=2\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	E-4	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=4\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	E-8	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=8\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	E-12	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=12\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	E-20	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=20\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	E-33	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=33\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	IV-fill-free	700	10 on error goto 90:for n=1 to 200:f$="2:"+chr$(81)+right$(str$(1000+n),3):open f$ for output as #1:print #1,"x":close #1:next\n20 print chr$(90);chr$(81);"nf":goto 100\n90 print chr$(90);chr$(81);"fe";err;n:resume 100\n100 on error goto 190:f$="2:"+chr$(81)+"001":open f$ for input as #1:input #1,a$:close #1:print chr$(90);chr$(81);"ck";-(a$="x"):end\n190 print chr$(90);chr$(81);"cx";err:end\nrun\n
+segment	IV-fill-res	700	10 on error goto 90:for n=1 to 200:f$="2:"+chr$(81)+right$(str$(1000+n),3):open f$ for output as #1:print #1,"x":close #1:next\n20 print chr$(90);chr$(81);"nf":goto 100\n90 print chr$(90);chr$(81);"fe";err;n:resume 100\n100 on error goto 190:f$="2:"+chr$(81)+"001":open f$ for input as #1:input #1,a$:close #1:print chr$(90);chr$(81);"ck";-(a$="x"):end\n190 print chr$(90);chr$(81);"cx";err:end\nrun\n
+judgment	gate_failed
+judgment	derived
+judgment	ambiguous
+judgment	not_found
+judgment	end_plus_used_sectors
+judgment	end_constant
+judgment	end_other
+judgment	chain_broken
+judgment	reserve_needed
+judgment	reserve_not_needed
+judgment	reserve_other
+judgment	m6f_d_add1_rules_confirmed
+judgment	m6f_d_add1_incomplete
