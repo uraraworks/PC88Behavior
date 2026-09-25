@@ -8,7 +8,7 @@
 [事前登録](m6f-c-blank-disk-acceptance-preregistration.md)どおりに測定ドライバを回した
 （器具 `a9ea861`・`84dd0ba`、G1 は除外2件で 137 項 OK）。**総合判定は `m6f_c_boot_blocked`。**
 GB-FF・GB-00 の4走とも目印 `ZQbt` が出ず、WRITE DATA は0件、媒体は不変だった。
-結果 JSON は `~/_claude_work/m6fc-run-2026-09-24/result.json`（リポジトリ外）。
+結果 JSON は `PC88/tmp/m6-work/m6fc-run-2026-09-24/result.json`（リポジトリ外）。
 
 事前登録外の診断として、同じ打鍵を1走ずつ試した（`~/_claude_work` 外の作業領域、記録のみ）:
 
@@ -60,7 +60,7 @@ GB-FF・GB-00 の4走とも目印 `ZQbt` が出ず、WRITE DATA は0件、媒体
 ## 6. 結果（2026-09-24 追記）
 
 器具 `3390b50`、G1 は除外2件で rc=0（腕の前に親が1回）。256 腕 × 2 走。
-結果 JSON・導出は `~/_claude_work/m6fc-boot-2026-09-24/`（リポジトリ外）。
+結果 JSON・導出は `PC88/tmp/m6-work/m6fc-boot-2026-09-24/`（リポジトリ外）。
 導出の出力の SHA-256（入力 result の SHA）は `66a43540e797a854b0e7e3fda077c6c28ff4fcf2158eea8c103938775197442b`。
 
 - **B1 `derived`: Xboot = {0xC0, 0xC9, 0xD0, 0xE0, 0xF0}。** 2走の食い違いは無し。

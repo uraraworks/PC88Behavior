@@ -19,7 +19,7 @@
 | **6** | ＋(18,1,13)=0x00、§5.2 | **`m6f_c_blank_disk_accepted`** | — |
 
 6回目の器具は `71a2a27`、G1（全自己検査、`make_n88_blank_disk` を参照する2本を除外）は
-腕の前に親が1回通して rc=0。結果・導出・判定は `~/_claude_work/m6fc-run6-2026-09-25/`、
+腕の前に親が1回通して rc=0。結果・導出・判定は `PC88/tmp/m6-work/m6fc-run6-2026-09-25/`、
 測定後の像は `~/_claude_work/m6fc-raw6/`（いずれもリポジトリ外）。
 result の SHA-256 は `34051b7f18d1b57e6c6f1ecc25caf2b36a1a3f5f99668dbca49f76a3511d9316`、
 判定器出力の SHA-256 は `ab1a7ceb30230f987ee30e06f3badcfc282514df086b314504a26dff66eb2fb5`。

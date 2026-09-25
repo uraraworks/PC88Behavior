@@ -11,7 +11,7 @@ python3 "$REPO/tools/check_m6fa_preregistration.py" --config "$CONFIG" >/dev/nul
   || gate_failed preregistration_mismatch
 source "$REPO/tools/lib_m6f_measure.sh"
 
-raw_dir="${HOME:?HOMEが未設定}/_claude_work/m6fa-raw"; result=""
+raw_dir="$REPO/../tmp/m6-work/m6fa-raw"; result=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --raw-dir) raw_dir="${2:-}"; shift 2 ;;

@@ -18,7 +18,7 @@
 
 判定器出力の SHA-256 は
 `dc3f608fb7da7e047bdcecf2b5bba3e2bcf32ab8452635b1e0f47d0ae2da1cfa`。
-結果 JSON 8本と判定器出力は `~/_claude_work/m6ig-results-2026-09-23/` に退避した。
+結果 JSON 8本と判定器出力は `PC88/tmp/m6-work/m6ig-results-2026-09-23/` に退避した。
 
 全4腕を各2走、計8走を実施した。**いずれの腕も2走が同じ形になった。**
 

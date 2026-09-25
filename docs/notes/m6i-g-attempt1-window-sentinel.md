@@ -8,7 +8,7 @@
 
 判定器出力の SHA-256 は
 `c60d379a69abb71cafab1161de801b5cbdfc6829b1608211bfa2a6621ce4e064`。
-結果 JSON 8本と判定器出力は `~/_claude_work/m6ig-attempt1-2026-09-23/` に退避した。
+結果 JSON 8本と判定器出力は `PC88/tmp/m6-work/m6ig-attempt1-2026-09-23/` に退避した。
 
 ## 1. 関門と結果
 
