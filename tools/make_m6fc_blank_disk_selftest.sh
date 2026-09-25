@@ -423,6 +423,233 @@ else
   ng "--sector-fill の割り当て表セクタ指定の拒否がrc=2でない、または出力が作られた(rc=$rc_bad9)"
 fi
 
+# --- m6f-d: 既定(--fat-position/--boot-sector-mode無指定)はバイト一致 -----
+python3 "$GEN" "$WORK/d7.d88" --fat-value 0xAA --filler 0x55 >/dev/null 2>"$WORK/d7.err"
+sha_d7="$(shasum -a 256 "$WORK/d7.d88" | awk '{print $1}')"
+if [ "$sha_d1" = "$sha_d7" ]; then
+  ok "m6f-d: --fat-position/--boot-sector-mode無指定の既定生成物はm6f-d以前とバイト一致する"
+else
+  ng "m6f-d: --fat-position/--boot-sector-mode無指定の既定生成物がバイト一致しない"
+fi
+
+# --- m6f-d: --fat-position の本文・優先順位・陰性対照・rc=2各種 -----------
+if python3 "$GEN" "$WORK/d8.d88" --fat-value 0xFF --filler 0xFF \
+  --fat-position 5=0xAA --fat-position 200=0xBB >/dev/null 2>"$WORK/d8.err"; then
+  ok "--fat-position 複数指定で生成できる"
+else
+  ng "--fat-position 複数指定の生成に失敗した: $(cat "$WORK/d8.err")"
+fi
+
+fat_position_out="$(REPO="$REPO" WORK="$WORK" python3 - <<'PY'
+import os
+import pathlib
+import sys
+
+repo = pathlib.Path(os.environ["REPO"])
+work = pathlib.Path(os.environ["WORK"])
+sys.path.insert(0, str(repo / "tools"))
+from d88_read_sector import D88Reader  # noqa: E402
+
+ALLOC = [(18, 1, 14), (18, 1, 15), (18, 1, 16)]
+
+results = {}
+d8 = D88Reader((work / "d8.d88").read_bytes())
+ok_all = True
+for coord in ALLOC:
+    payload = d8.read_sector(*coord)
+    if payload[5] != 0xAA or payload[200] != 0xBB:
+        ok_all = False
+    # 指定していない位置はfat-valueのまま。
+    if payload[0] != 0xFF or payload[6] != 0xFF or payload[199] != 0xFF:
+        ok_all = False
+results["fat_position_applied_to_all_three_sectors"] = ok_all
+
+# 陰性対照: 指定していない位置(例えば4)を書き換えて壊すと不一致になる検査。
+tampered_ok = True
+for coord in ALLOC:
+    payload = bytearray(d8.read_sector(*coord))
+    payload[4] = 0x11  # fat-value(0xFF)のはずの位置を壊す
+    if payload[4] == 0xFF:
+        tampered_ok = False
+results["tamper_changes_value"] = tampered_ok
+
+bad = [k for k, v in results.items() if not v]
+for k, v in results.items():
+    print(f"{k}={'ok' if v else 'ng'}")
+sys.exit(1 if bad else 0)
+PY
+)"
+fp_rc=$?
+printf '%s\n' "$fat_position_out"
+if [ "$fp_rc" -eq 0 ]; then
+  ok "m6f-d: --fat-position の本文・陰性対照がすべて通った"
+else
+  ng "m6f-d: --fat-position 検査のいずれかが落ちた"
+fi
+
+python3 "$GEN" "$WORK/badfp1.d88" --fat-value 0x00 --filler 0x00 \
+  --fat-position 256=0xAA >/dev/null 2>"$WORK/badfp1.err"
+rc_badfp1=$?
+if [ "$rc_badfp1" -eq 2 ] && [ ! -e "$WORK/badfp1.d88" ]; then
+  ok "--fat-position の位置範囲外をrc=2で拒否した"
+else
+  ng "--fat-position の位置範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_badfp1)"
+fi
+
+python3 "$GEN" "$WORK/badfp2.d88" --fat-value 0x00 --filler 0x00 \
+  --fat-position 5=0x100 >/dev/null 2>"$WORK/badfp2.err"
+rc_badfp2=$?
+if [ "$rc_badfp2" -eq 2 ] && [ ! -e "$WORK/badfp2.d88" ]; then
+  ok "--fat-position の値範囲外をrc=2で拒否した"
+else
+  ng "--fat-position の値範囲外の拒否がrc=2でない、または出力が作られた(rc=$rc_badfp2)"
+fi
+
+python3 "$GEN" "$WORK/badfp3.d88" --fat-value 0x00 --filler 0x00 \
+  --fat-position "bogus" >/dev/null 2>"$WORK/badfp3.err"
+rc_badfp3=$?
+if [ "$rc_badfp3" -eq 2 ] && [ ! -e "$WORK/badfp3.d88" ]; then
+  ok "--fat-position の形式不正をrc=2で拒否した"
+else
+  ng "--fat-position の形式不正の拒否がrc=2でない、または出力が作られた(rc=$rc_badfp3)"
+fi
+
+python3 "$GEN" "$WORK/badfp4.d88" --fat-value 0x00 --filler 0x00 \
+  --fat-position 5=0xAA --fat-position 5=0xBB >/dev/null 2>"$WORK/badfp4.err"
+rc_badfp4=$?
+if [ "$rc_badfp4" -eq 2 ] && [ ! -e "$WORK/badfp4.d88" ]; then
+  ok "--fat-position の位置重複をrc=2で拒否した"
+else
+  ng "--fat-position の位置重複の拒否がrc=2でない、または出力が作られた(rc=$rc_badfp4)"
+fi
+
+# --- m6f-d: --boot-sector-mode の本文・陰性対照・rc=2各種 -----------------
+for mode in missing crc deleted single; do
+  if python3 "$GEN" "$WORK/bsm_$mode.d88" --fat-value 0xAA --filler 0x55 \
+    --boot-sector-mode "$mode" >/dev/null 2>"$WORK/bsm_$mode.err"; then
+    ok "--boot-sector-mode $mode で生成できる"
+  else
+    ng "--boot-sector-mode $mode の生成に失敗した: $(cat "$WORK/bsm_$mode.err")"
+  fi
+done
+
+bsm_out="$(REPO="$REPO" WORK="$WORK" python3 - <<'PY'
+import os
+import pathlib
+import struct
+import sys
+
+repo = pathlib.Path(os.environ["REPO"])
+work = pathlib.Path(os.environ["WORK"])
+sys.path.insert(0, str(repo / "tools"))
+from d88_read_sector import D88Error, D88Reader  # noqa: E402
+
+HEADER = 32
+TRACK_TABLE_OFFSET = HEADER
+TRACK_COUNT = 164
+
+
+def track_offset(img: bytes, c: int, h: int) -> int:
+    phys = c * 2 + h
+    return struct.unpack_from("<I", img, TRACK_TABLE_OFFSET + phys * 4)[0]
+
+
+def track_headers(img: bytes, c: int, h: int):
+    """(0,0)トラックの各セクタヘッダ16バイトを、独立にID順で素手で読む。"""
+    start = track_offset(img, c, h)
+    # 次トラック(0,1)の開始位置を終端に使う。
+    end = track_offset(img, c, h + 1) if h == 0 else len(img)
+    pos = start
+    headers = []
+    while pos < end:
+        hdr = img[pos:pos + 16]
+        size = struct.unpack_from("<H", hdr, 14)[0]
+        headers.append(hdr)
+        pos += 16 + size
+    return headers
+
+
+results = {}
+
+base = (work / "d1.d88").read_bytes()  # --fat-value 0xAA --filler 0x55 (既定、None相当)
+base_headers = track_headers(base, 0, 0)
+results["default_boot_track_has_16_sectors"] = len(base_headers) == 16
+
+# missing: トラックが15セクタ、各ヘッダの「セクタ数」欄も15、R=1が無い、
+# D88Readerでは(0,0,1)が読めない。
+missing = (work / "bsm_missing.d88").read_bytes()
+missing_headers = track_headers(missing, 0, 0)
+results["missing_track_has_15_sectors"] = len(missing_headers) == 15
+count_field_ok = all(struct.unpack_from("<H", h, 4)[0] == 15 for h in missing_headers)
+results["missing_sector_count_field_is_15"] = count_field_ok
+results["missing_no_r1_header"] = all(h[2] != 1 for h in missing_headers)
+try:
+    D88Reader(missing).read_sector(0, 0, 1)
+    results["missing_read_sector_fails"] = False
+except D88Error:
+    results["missing_read_sector_fails"] = True
+
+# crc/deleted/single: (0,0,1)のヘッダの該当バイトだけが変わり、他は既定と同じ。
+def boot_header(img: bytes) -> bytes:
+    for h in track_headers(img, 0, 0):
+        if h[2] == 1:
+            return h
+    raise AssertionError("(0,0,1)のヘッダが見つからない")
+
+base_boot = boot_header(base)
+
+crc_boot = boot_header((work / "bsm_crc.d88").read_bytes())
+results["crc_status_is_data_crc_error"] = crc_boot[8] == 0xB0
+results["crc_other_id_fields_unchanged"] = (crc_boot[0:8] == base_boot[0:8]
+                                             and crc_boot[9:16] == base_boot[9:16])
+
+deleted_boot = boot_header((work / "bsm_deleted.d88").read_bytes())
+results["deleted_flag_is_set"] = deleted_boot[7] == 0x10
+results["deleted_other_id_fields_unchanged"] = (
+    deleted_boot[0:7] == base_boot[0:7] and deleted_boot[8:16] == base_boot[8:16])
+
+single_boot = boot_header((work / "bsm_single.d88").read_bytes())
+results["single_density_is_set"] = single_boot[6] == 0x40
+results["single_other_id_fields_unchanged"] = (
+    single_boot[0:6] == base_boot[0:6] and single_boot[7:16] == base_boot[7:16])
+
+# 陰性対照: crc/deleted/singleの本体セクタ数はどれも16のまま(missingだけが15)。
+for mode in ("crc", "deleted", "single"):
+    img = (work / f"bsm_{mode}.d88").read_bytes()
+    results[f"{mode}_track_still_has_16_sectors"] = len(track_headers(img, 0, 0)) == 16
+
+# 陰性対照: crc/deleted/single のいずれも他のトラックには影響しない
+# (18,1,14) の割り当て表セクタが既定(base)と一致する。
+for mode in ("crc", "deleted", "single", "missing"):
+    img = (work / f"bsm_{mode}.d88").read_bytes()
+    reader = D88Reader(img)
+    reader_base = D88Reader(base)
+    results[f"{mode}_fat_sector_unchanged"] = (
+        reader.read_sector(18, 1, 14) == reader_base.read_sector(18, 1, 14))
+
+bad = [k for k, v in results.items() if not v]
+for k, v in results.items():
+    print(f"{k}={'ok' if v else 'ng'}")
+sys.exit(1 if bad else 0)
+PY
+)"
+bsm_rc=$?
+printf '%s\n' "$bsm_out"
+if [ "$bsm_rc" -eq 0 ]; then
+  ok "m6f-d: --boot-sector-mode の本文・陰性対照がすべて通った"
+else
+  ng "m6f-d: --boot-sector-mode 検査のいずれかが落ちた"
+fi
+
+python3 "$GEN" "$WORK/badbsm1.d88" --fat-value 0x00 --filler 0x00 \
+  --boot-sector-mode bogus >/dev/null 2>"$WORK/badbsm1.err"
+rc_badbsm1=$?
+if [ "$rc_badbsm1" -ge 2 ] && [ ! -e "$WORK/badbsm1.d88" ]; then
+  ok "--boot-sector-mode の不正な値を拒否した(argparseのchoices、rc>=2)"
+else
+  ng "--boot-sector-mode の不正な値の拒否がrc>=2でない、または出力が作られた(rc=$rc_badbsm1)"
+fi
+
 echo
 if [ "$rc" -eq 0 ]; then
   echo "全項目 OK"

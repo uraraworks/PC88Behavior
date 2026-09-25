@@ -44,11 +44,14 @@ import sys
 
 from make_l3_testdisk import (
     DISK_DELETED_FALSE,
+    DISK_DELETED_TRUE,
     DISK_DENSITY_DOUBLE,
+    DISK_DENSITY_SINGLE,
     DISK_PROTECT_FALSE,
     DISK_TYPE_2D,
     N_CODE,
     SECTOR_SIZE,
+    STATUS_DATA_CRC_ERROR,
     STATUS_NORMAL,
 )
 
@@ -63,13 +66,21 @@ ALLOCATION_TABLE_COORDS = frozenset({(18, 1, 14), (18, 1, 15), (18, 1, 16)})
 # 追補1 第2節: 起動用セクタの座標。
 BOOT_SECTOR_COORD = (0, 0, 1)
 
+# m6f-d §4.2/§4.5: --boot-sector-mode の取りうる値。
+BOOT_SECTOR_MODES = frozenset({"missing", "crc", "deleted", "single"})
+
 
 def _sector_payload(c: int, h: int, r: int, fat_value: int, filler: int,
                      boot_fill: int | None = None,
-                     sector_fills: dict[tuple[int, int, int], int] | None = None) -> bytes:
+                     sector_fills: dict[tuple[int, int, int], int] | None = None,
+                     fat_positions: dict[int, int] | None = None) -> bytes:
     coord = (c, h, r)
     if coord in ALLOCATION_TABLE_COORDS:
-        value = fat_value
+        data = bytearray([fat_value]) * SECTOR_SIZE
+        if fat_positions:
+            for pos, value in fat_positions.items():
+                data[pos] = value
+        return bytes(data)
     elif sector_fills is not None and coord in sector_fills:
         value = sector_fills[coord]
     elif boot_fill is not None and coord == BOOT_SECTOR_COORD:
@@ -81,39 +92,70 @@ def _sector_payload(c: int, h: int, r: int, fat_value: int, filler: int,
 
 def build_track(c: int, h: int, fat_value: int, filler: int,
                  boot_fill: int | None = None,
-                 sector_fills: dict[tuple[int, int, int], int] | None = None) -> bytes:
-    """1トラック分（16セクタ）を、make_l3_testdisk.build_track と同じID書式で作る。"""
+                 sector_fills: dict[tuple[int, int, int], int] | None = None,
+                 fat_positions: dict[int, int] | None = None,
+                 boot_sector_mode: str | None = None) -> bytes:
+    """1トラック分を、make_l3_testdisk.build_track と同じID書式で作る。
+
+    boot_sector_mode は (C=0,H=0) のトラックにだけ作用する（m6f-d §4.2/§4.5）:
+      - "missing": R=1のセクタを除く(そのトラックは15セクタ。ID「セクタ数」欄も15)。
+      - "crc": (0,0,1)のセクタ状態をデータCRCエラー(0xB0)にする。
+      - "deleted": (0,0,1)に削除フラグ(0x10)を立てる。
+      - "single": (0,0,1)を単密度(0x40)にする。
+    それ以外のトラック・None のときは既定どおり16セクタ・倍密度・正常状態。
+    """
+    is_boot_track = (c == 0 and h == 0)
+    missing_boot = is_boot_track and boot_sector_mode == "missing"
+    sector_count = (SECTORS_PER_TRACK - 1) if missing_boot else SECTORS_PER_TRACK
+
     body = bytearray()
     for r in range(SECTOR_BASE, SECTOR_BASE + SECTORS_PER_TRACK):
+        if missing_boot and r == SECTOR_BASE:
+            continue  # R=1のセクタそのものを除く
+        is_boot_sector = is_boot_track and (c, h, r) == BOOT_SECTOR_COORD
+        density = DISK_DENSITY_DOUBLE
+        deleted = DISK_DELETED_FALSE
+        status = STATUS_NORMAL
+        if is_boot_sector and boot_sector_mode == "crc":
+            status = STATUS_DATA_CRC_ERROR
+        elif is_boot_sector and boot_sector_mode == "deleted":
+            deleted = DISK_DELETED_TRUE
+        elif is_boot_sector and boot_sector_mode == "single":
+            density = DISK_DENSITY_SINGLE
+
         hdr = bytearray(16)
         hdr[0] = c & 0xFF  # C
         hdr[1] = h & 0xFF  # H
         hdr[2] = r & 0xFF  # R
         hdr[3] = N_CODE  # N
-        hdr[4] = SECTORS_PER_TRACK & 0xFF  # セクタ数(下位)
-        hdr[5] = (SECTORS_PER_TRACK >> 8) & 0xFF  # セクタ数(上位)
-        hdr[6] = DISK_DENSITY_DOUBLE
-        hdr[7] = DISK_DELETED_FALSE
-        hdr[8] = STATUS_NORMAL
+        hdr[4] = sector_count & 0xFF  # セクタ数(下位)
+        hdr[5] = (sector_count >> 8) & 0xFF  # セクタ数(上位)
+        hdr[6] = density
+        hdr[7] = deleted
+        hdr[8] = status
         # 9-13 reserved = 0
         hdr[14] = SECTOR_SIZE & 0xFF
         hdr[15] = (SECTOR_SIZE >> 8) & 0xFF
         body += hdr
-        body += _sector_payload(c, h, r, fat_value, filler, boot_fill, sector_fills)
+        body += _sector_payload(c, h, r, fat_value, filler, boot_fill, sector_fills, fat_positions)
     return bytes(body)
 
 
 def build_blank_disk(fat_value: int, filler: int, boot_fill: int | None = None,
-                      sector_fills: dict[tuple[int, int, int], int] | None = None) -> bytes:
+                      sector_fills: dict[tuple[int, int, int], int] | None = None,
+                      fat_positions: dict[int, int] | None = None,
+                      boot_sector_mode: str | None = None) -> bytes:
     """事前登録 第2節の規則（＋追補1 第2節の起動用セクタ規則、＋追補3 第2節の
-    任意セクタ規則）で公開D88像を作る。
+    任意セクタ規則、＋m6f-d §4.2/§4.5 の割り当て表位置指定・起動用セクタの
+    異常形状）で公開D88像を作る。
 
-    boot_fill が None のとき、(0,0,1) は詰め物のまま扱われる。このときの
-    生成物は、追補1より前の生成器（boot_fill引数を持たない版）とバイト一致する
-    （本モジュールの自己検査で確認する）。sector_fills が None または空の
-    ときも同様に、追補3より前の生成器とバイト一致する。
+    boot_fill が None、sector_fills が空、fat_positions が空、boot_sector_mode が
+    None のとき、生成物は m6f-d 以前の生成器とバイト一致する
+    （本モジュールの自己検査で確認する）。
 
-    優先順位: 割り当て表3セクタ(fat_value) > sector_fills > boot_fill > filler。
+    優先順位: 割り当て表3セクタ(fat_value、fat_positionsで指定した位置はさらに
+    それが勝つ) > sector_fills > boot_fill > filler。boot_sector_mode は
+    セクタの中身ではなくID/構造だけを変える（中身の値の優先順位とは独立）。
     """
     if not (0 <= fat_value <= 0xFF):
         raise ValueError("fat_value は0〜255で指定すること")
@@ -130,6 +172,14 @@ def build_blank_disk(fat_value: int, filler: int, boot_fill: int | None = None,
                 raise ValueError(f"sector_fills の値が範囲外: {coord}={value}")
             if coord in ALLOCATION_TABLE_COORDS:
                 raise ValueError(f"sector_fills に割り当て表3セクタを指定できない: {coord}")
+    if fat_positions:
+        for pos, value in fat_positions.items():
+            if not (0 <= pos <= 0xFF):
+                raise ValueError(f"fat_positions の位置が範囲外: {pos}")
+            if not (0 <= value <= 0xFF):
+                raise ValueError(f"fat_positions の値が範囲外: {pos}={value}")
+    if boot_sector_mode is not None and boot_sector_mode not in BOOT_SECTOR_MODES:
+        raise ValueError(f"boot_sector_mode が不正: {boot_sector_mode!r}")
 
     header = bytearray(32)
     # header[0:17] name = 0埋め、[17:26] reserved = 0
@@ -142,7 +192,8 @@ def build_blank_disk(fat_value: int, filler: int, boot_fill: int | None = None,
     offset = 32 + TRACK_COUNT * 4
     for c in range(CYLINDERS):
         for h in range(HEADS):
-            trk = build_track(c, h, fat_value, filler, boot_fill, sector_fills)
+            trk = build_track(c, h, fat_value, filler, boot_fill, sector_fills,
+                               fat_positions, boot_sector_mode)
             phys = c * 2 + h
             struct.pack_into("<I", track_table, phys * 4, offset)
             body += trk
@@ -167,6 +218,19 @@ def parse_sector_fill_arg(raw: str) -> tuple[tuple[int, int, int], int]:
     except ValueError as exc:
         raise ValueError(f"--sector-fill の数値変換に失敗: {raw!r}") from exc
     return (c, h, r), value
+
+
+def parse_fat_position_arg(raw: str) -> tuple[int, int]:
+    """`--fat-position K=0xNN` の1つ分をパースする。形式不正はValueError。"""
+    pos_part, sep, value_part = raw.partition("=")
+    if not sep:
+        raise ValueError(f"--fat-position の形式が不正(=が無い): {raw!r}")
+    try:
+        pos = int(pos_part, 0)
+        value = int(value_part, 0)
+    except ValueError as exc:
+        raise ValueError(f"--fat-position の数値変換に失敗: {raw!r}") from exc
+    return pos, value
 
 
 def main() -> int:
@@ -197,6 +261,19 @@ def main() -> int:
         metavar="C,H,R=0xNN",
         help="任意セクタの値(複数可)。範囲外・重複・割り当て表3セクタの指定はrc=2(追補3)",
     )
+    parser.add_argument(
+        "--fat-position",
+        action="append",
+        default=[],
+        metavar="K=0xNN",
+        help="割り当て表3セクタの位置Kだけを値Vにする(複数可、fat-valueより優先)(m6f-d)",
+    )
+    parser.add_argument(
+        "--boot-sector-mode",
+        default=None,
+        choices=sorted(BOOT_SECTOR_MODES),
+        help="起動用セクタ(0,0,1)を異常形状にする: missing/crc/deleted/single(m6f-d)",
+    )
     args = parser.parse_args()
 
     if not (0 <= args.fat_value <= 0xFF):
@@ -221,12 +298,31 @@ def main() -> int:
             return 2
         sector_fills[coord] = value
 
+    fat_positions: dict[int, int] = {}
+    for raw in args.fat_position:
+        try:
+            pos, value = parse_fat_position_arg(raw)
+        except ValueError as exc:
+            print(f"エラー: {exc}", file=sys.stderr)
+            return 2
+        if not (0 <= pos <= 0xFF):
+            print(f"エラー: --fat-position の位置が範囲外: {pos}", file=sys.stderr)
+            return 2
+        if not (0 <= value <= 0xFF):
+            print(f"エラー: --fat-position の値が範囲外: {pos}={value}", file=sys.stderr)
+            return 2
+        if pos in fat_positions:
+            print(f"エラー: --fat-position の位置が重複している: {pos}", file=sys.stderr)
+            return 2
+        fat_positions[pos] = value
+
     if args.outfile.exists():
         print(f"エラー: 出力先が既に存在する（上書きしない）: {args.outfile}", file=sys.stderr)
         return 2
 
     try:
-        data = build_blank_disk(args.fat_value, args.filler, args.boot_fill, sector_fills or None)
+        data = build_blank_disk(args.fat_value, args.filler, args.boot_fill, sector_fills or None,
+                                 fat_positions or None, args.boot_sector_mode)
     except ValueError as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         return 2

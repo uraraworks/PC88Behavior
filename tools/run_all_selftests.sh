@@ -301,6 +301,7 @@ SCRIPTS_EXPECTED=(
   # m6f-c（空の公式形式ディスクの生成器・目印判定器）。合成D88・合成レポートだけで
   # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
   "tools/make_m6fc_blank_disk_selftest.sh:0"
+  "tools/m6fd_relocate_selftest.sh:0"
   "tools/check_m6fc_markers_selftest.sh:0"
   # m6f-c 続き（凍結表照合・導出器・判定器）。合成TSV/JSON/D88だけで完結し、
   # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
