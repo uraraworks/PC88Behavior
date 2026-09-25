@@ -174,7 +174,7 @@ mfd_exec_and_record() {
     [ "$rc" = 134 ] || gate_failed "emulator_run_${arm}_rc${rc}"
     aborts=$((aborts + 1))
     if [ "$aborts" -ge 3 ]; then
-      python3 - "$arm" "$phase" "$rep" "$aborts" <<'PY' >> "$RUNS_JSON" || gate_failed run_summary
+      python3 - "$arm" "$phase" "$rep" "$aborts" <<'PY' >> "$RUNS_JSON" || gate_failed "run_summary_${arm}_r${rep}"
 import json, sys
 arm, phase, rep, aborts = sys.argv[1:]
 body = {"arm": arm, "phase": (int(phase) if phase else None), "repetition": int(rep), "abort": True,
@@ -209,7 +209,7 @@ PY
 
   # 取りこぼし検出とFDC座標の抽出。
   python3 - "$REPO" "$arm" "$phase" "$rep" "$iolog" "$STIMULUS_FRAME" "$fdc_unit" \
-    "$drive1_sha_ok" <<'PYEOF' >> "$RUNS_JSON" || gate_failed run_summary
+    "$drive1_sha_ok" <<'PYEOF' >> "$RUNS_JSON" || gate_failed "run_summary_${arm}_p${phase:-0}_r${rep}"
 import json, re, sys
 from pathlib import Path
 repo, arm, phase, rep, iolog, stim, fdc_unit, drive1_sha_ok = sys.argv[1:]
@@ -230,13 +230,15 @@ for m in re.finditer(r"取りこぼし:\s*(\d+)件", text):
 # IV-fill-free/IV-fill-resは事前登録どおり入出力ログを導出に使わないため、
 # 取りこぼしの有無にかかわらず座標は記録しない(null)。他の腕は取りこぼしで
 # 止める(事前登録に取りこぼし許容の明記が無いため)。
-DROP_TOLERANT_ARMS = ("IV-fill-free", "IV-fill-res")
-FDC_NOT_USED_ARMS = ("IV-fill-free", "IV-fill-res")
-if dropped_total and arm not in DROP_TOLERANT_ARMS:
-    print(f"エラー: I/Oログに取りこぼしが{dropped_total}件ある", file=sys.stderr)
+# 事前登録 §5.1（測定前の補足）: 入出力ログの座標を導出に使うのは I-* の腕だけ
+# （D3 の u）。取りこぼしで止めるのは I-* だけにし、他の腕は取りこぼし数を記録して
+# 座標を null にする。
+FDC_USED = arm.startswith("I-")
+if dropped_total and FDC_USED:
+    print(f"エラー: I/Oログに取りこぼしが{dropped_total}件ある({arm} phase={phase} r{rep})", file=sys.stderr)
     sys.exit(1)
 
-if arm in FDC_NOT_USED_ARMS:
+if arm in ("IV-fill-free", "IV-fill-res") or (dropped_total and not FDC_USED):
     reads_list = writes_list = None
     write_data_count = None
 else:
@@ -299,7 +301,7 @@ PY
     fi
   fi
 
-  python3 - "$RUNS_JSON" "$markers_json" "$image_name" "$entry_fields_json" <<'PY' || gate_failed run_summary_merge
+  python3 - "$RUNS_JSON" "$markers_json" "$image_name" "$entry_fields_json" <<'PY' || gate_failed "run_summary_merge_${arm}_r${rep}"
 import json, sys
 path, markers_raw, image_name, entry_fields_raw = sys.argv[1:]
 lines = open(path, encoding="utf-8").read().splitlines()

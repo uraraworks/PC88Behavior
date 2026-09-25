@@ -435,7 +435,7 @@ env \
   M6FD_FRONTEND="$FAKE" PC88_REF_ROM_DIR="$WORK/rom" PC88_REF_DISK_DIR="$WORK/refdisk" \
   M6FD_TEST_CORE="selftest-core" M6FD_TEST_R_STAR="none" M6FD_TEST_SKIP_ENTRY_FIELDS=1 \
   M6FD_TEST_III_MAX=1 M6FD_TEST_IV_R_MAX=0 M6FD_TEST_STOP_AFTER_ARM=IV-fill \
-  M6FD_SELFTEST_DROP_ARMS="IV-fill-free" \
+  M6FD_SELFTEST_DROP_ARMS="IV-fill-free II-d" \
   M6FD_TEST_RUNS_COPY="$WORK/runs_dropok.ndjson" \
   "$REPO/tools/measure_m6fd.sh" --raw-dir "$WORK/raw_dropok" --result "$WORK/result_dropok.json" \
   >"$WORK/dropok.stdout.txt" 2>"$WORK/dropok.stderr.txt"
@@ -445,8 +445,10 @@ import json
 rows=[json.loads(l) for l in open('$WORK/runs_dropok.ndjson') if l.strip()]
 fillfree=[r for r in rows if r['arm']=='IV-fill-free']
 assert len(fillfree)==2 and all(r['iolog_dropped']==3 and r['reads'] is None for r in fillfree), fillfree
+iid=[r for r in rows if r['arm']=='II-d']
+assert len(iid)>=2 and all(r['iolog_dropped']==3 and r['reads'] is None for r in iid), iid  # §5.1: I 以外は続行
 " 2>"$WORK/dropok_check.err"; then
-  ok "(f) IV-fill-freeの取りこぼしで止まらず、件数を記録し座標はnullにした"
+  ok "(f) IV-fill-free・II-d（I 以外）の取りこぼしで止まらず、件数を記録し座標はnullにした"
 else
   ng "(f) IV-fillの取りこぼし継続が想定と違う(rc=$dropok_rc): $(cat "$WORK/dropok_check.err" 2>/dev/null)"
 fi
@@ -459,7 +461,7 @@ env \
   "$REPO/tools/measure_m6fd.sh" --raw-dir "$WORK/raw_dropng" --result "$WORK/result_dropng.json" \
   >"$WORK/dropng.stdout.txt" 2>"$WORK/dropng.stderr.txt"
 dropng_rc=$?
-if [ "$dropng_rc" -ne 0 ] && grep -q '"reason":"run_summary"' "$WORK/dropng.stdout.txt"; then
+if [ "$dropng_rc" -ne 0 ] && grep -q '"reason":"run_summary_I-1_' "$WORK/dropng.stdout.txt"; then
   ok "(f) I-1の取りこぼしはgate_failed(run_summary)で止まった"
 else
   ng "(f) I-1の取りこぼしで止まらなかった(rc=$dropng_rc, stdout=$(cat "$WORK/dropng.stdout.txt"))"
