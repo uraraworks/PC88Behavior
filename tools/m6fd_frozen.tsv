@@ -1,0 +1,414 @@
+frozen	yes
+repetitions	2
+run_timeout_seconds	300
+boot_return_frame	300
+stimulus_frame	700
+reference_disk	N88_FE.D88
+drive_layout_default	drive1=reference_copy_protected;drive2=generated
+drive_layout_V	drive1=generated;drive2=none
+arm	I-250
+arm	I-1
+arm	I-3
+arm	I-6
+arm	I-10
+arm	I-17
+arm	II-d
+arm	II-p
+arm	II-neg1
+arm	II-neg2
+arm	III-FF-01
+arm	III-FF-02
+arm	III-FF-03
+arm	III-FF-04
+arm	III-FF-05
+arm	III-FF-06
+arm	III-FF-07
+arm	III-FF-08
+arm	III-FF-09
+arm	III-FF-10
+arm	III-FF-11
+arm	III-FF-12
+arm	III-00-01
+arm	III-00-02
+arm	III-00-03
+arm	III-00-04
+arm	III-00-05
+arm	III-00-06
+arm	III-00-07
+arm	III-00-08
+arm	III-00-09
+arm	III-00-10
+arm	III-00-11
+arm	III-00-12
+arm	III-none
+arm	IV-R-00
+arm	IV-R-01
+arm	IV-R-02
+arm	IV-R-03
+arm	IV-R-04
+arm	IV-R-05
+arm	IV-R-06
+arm	IV-R-07
+arm	IV-R-08
+arm	IV-R-09
+arm	IV-R-0A
+arm	IV-R-0B
+arm	IV-R-0C
+arm	IV-R-0D
+arm	IV-R-0E
+arm	IV-R-0F
+arm	IV-R-10
+arm	IV-R-11
+arm	IV-R-12
+arm	IV-R-13
+arm	IV-R-14
+arm	IV-R-15
+arm	IV-R-16
+arm	IV-R-17
+arm	IV-R-18
+arm	IV-R-19
+arm	IV-R-1A
+arm	IV-R-1B
+arm	IV-R-1C
+arm	IV-R-1D
+arm	IV-R-1E
+arm	IV-R-1F
+arm	IV-R-20
+arm	IV-R-21
+arm	IV-R-22
+arm	IV-R-23
+arm	IV-R-24
+arm	IV-R-25
+arm	IV-R-26
+arm	IV-R-27
+arm	IV-R-28
+arm	IV-R-29
+arm	IV-R-2A
+arm	IV-R-2B
+arm	IV-R-2C
+arm	IV-R-2D
+arm	IV-R-2E
+arm	IV-R-2F
+arm	IV-R-30
+arm	IV-R-31
+arm	IV-R-32
+arm	IV-R-33
+arm	IV-R-34
+arm	IV-R-35
+arm	IV-R-36
+arm	IV-R-37
+arm	IV-R-38
+arm	IV-R-39
+arm	IV-R-3A
+arm	IV-R-3B
+arm	IV-R-3C
+arm	IV-R-3D
+arm	IV-R-3E
+arm	IV-R-3F
+arm	IV-R-40
+arm	IV-R-41
+arm	IV-R-42
+arm	IV-R-43
+arm	IV-R-44
+arm	IV-R-45
+arm	IV-R-46
+arm	IV-R-47
+arm	IV-R-48
+arm	IV-R-49
+arm	IV-R-4A
+arm	IV-R-4B
+arm	IV-R-4C
+arm	IV-R-4D
+arm	IV-R-4E
+arm	IV-R-4F
+arm	IV-R-50
+arm	IV-R-51
+arm	IV-R-52
+arm	IV-R-53
+arm	IV-R-54
+arm	IV-R-55
+arm	IV-R-56
+arm	IV-R-57
+arm	IV-R-58
+arm	IV-R-59
+arm	IV-R-5A
+arm	IV-R-5B
+arm	IV-R-5C
+arm	IV-R-5D
+arm	IV-R-5E
+arm	IV-R-5F
+arm	IV-R-60
+arm	IV-R-61
+arm	IV-R-62
+arm	IV-R-63
+arm	IV-R-64
+arm	IV-R-65
+arm	IV-R-66
+arm	IV-R-67
+arm	IV-R-68
+arm	IV-R-69
+arm	IV-R-6A
+arm	IV-R-6B
+arm	IV-R-6C
+arm	IV-R-6D
+arm	IV-R-6E
+arm	IV-R-6F
+arm	IV-R-70
+arm	IV-R-71
+arm	IV-R-72
+arm	IV-R-73
+arm	IV-R-74
+arm	IV-R-75
+arm	IV-R-76
+arm	IV-R-77
+arm	IV-R-78
+arm	IV-R-79
+arm	IV-R-7A
+arm	IV-R-7B
+arm	IV-R-7C
+arm	IV-R-7D
+arm	IV-R-7E
+arm	IV-R-7F
+arm	IV-R-80
+arm	IV-R-81
+arm	IV-R-82
+arm	IV-R-83
+arm	IV-R-84
+arm	IV-R-85
+arm	IV-R-86
+arm	IV-R-87
+arm	IV-R-88
+arm	IV-R-89
+arm	IV-R-8A
+arm	IV-R-8B
+arm	IV-R-8C
+arm	IV-R-8D
+arm	IV-R-8E
+arm	IV-R-8F
+arm	IV-R-90
+arm	IV-R-91
+arm	IV-R-92
+arm	IV-R-93
+arm	IV-R-94
+arm	IV-R-95
+arm	IV-R-96
+arm	IV-R-97
+arm	IV-R-98
+arm	IV-R-99
+arm	IV-R-9A
+arm	IV-R-9B
+arm	IV-R-9C
+arm	IV-R-9D
+arm	IV-R-9E
+arm	IV-R-9F
+arm	IV-R-A0
+arm	IV-R-A1
+arm	IV-R-A2
+arm	IV-R-A3
+arm	IV-R-A4
+arm	IV-R-A5
+arm	IV-R-A6
+arm	IV-R-A7
+arm	IV-R-A8
+arm	IV-R-A9
+arm	IV-R-AA
+arm	IV-R-AB
+arm	IV-R-AC
+arm	IV-R-AD
+arm	IV-R-AE
+arm	IV-R-AF
+arm	IV-R-B0
+arm	IV-R-B1
+arm	IV-R-B2
+arm	IV-R-B3
+arm	IV-R-B4
+arm	IV-R-B5
+arm	IV-R-B6
+arm	IV-R-B7
+arm	IV-R-B8
+arm	IV-R-B9
+arm	IV-R-BA
+arm	IV-R-BB
+arm	IV-R-BC
+arm	IV-R-BD
+arm	IV-R-BE
+arm	IV-R-BF
+arm	IV-R-C0
+arm	IV-R-C1
+arm	IV-R-C2
+arm	IV-R-C3
+arm	IV-R-C4
+arm	IV-R-C5
+arm	IV-R-C6
+arm	IV-R-C7
+arm	IV-R-C8
+arm	IV-R-C9
+arm	IV-R-CA
+arm	IV-R-CB
+arm	IV-R-CC
+arm	IV-R-CD
+arm	IV-R-CE
+arm	IV-R-CF
+arm	IV-R-D0
+arm	IV-R-D1
+arm	IV-R-D2
+arm	IV-R-D3
+arm	IV-R-D4
+arm	IV-R-D5
+arm	IV-R-D6
+arm	IV-R-D7
+arm	IV-R-D8
+arm	IV-R-D9
+arm	IV-R-DA
+arm	IV-R-DB
+arm	IV-R-DC
+arm	IV-R-DD
+arm	IV-R-DE
+arm	IV-R-DF
+arm	IV-R-E0
+arm	IV-R-E1
+arm	IV-R-E2
+arm	IV-R-E3
+arm	IV-R-E4
+arm	IV-R-E5
+arm	IV-R-E6
+arm	IV-R-E7
+arm	IV-R-E8
+arm	IV-R-E9
+arm	IV-R-EA
+arm	IV-R-EB
+arm	IV-R-EC
+arm	IV-R-ED
+arm	IV-R-EE
+arm	IV-R-EF
+arm	IV-R-F0
+arm	IV-R-F1
+arm	IV-R-F2
+arm	IV-R-F3
+arm	IV-R-F4
+arm	IV-R-F5
+arm	IV-R-F6
+arm	IV-R-F7
+arm	IV-R-F8
+arm	IV-R-F9
+arm	IV-R-FA
+arm	IV-R-FB
+arm	IV-R-FC
+arm	IV-R-FD
+arm	IV-R-FE
+arm	IV-R-FF
+arm	IV-fill-free
+arm	IV-fill-res
+arm	V-missing
+arm	V-crc
+arm	V-deleted
+arm	V-single
+arm	V-ff
+arm	V-c9
+frame	I-250		30000
+frame	I-1		12000
+frame	I-3		12000
+frame	I-6		12000
+frame	I-10		12000
+frame	I-17		12000
+frame	III-none		8000
+frame	IV-R		8000
+frame	IV-fill-free		60000
+frame	IV-fill-res		60000
+frame	V-missing		8000
+frame	V-crc		8000
+frame	V-deleted		8000
+frame	V-single		8000
+frame	V-ff		8000
+frame	V-c9		8000
+frame	II-d	1	12000
+frame	II-neg1	1	12000
+frame	II-neg2	1	12000
+frame	II-p	1	8000
+frame	III-FF	1	12000
+frame	III-00	1	12000
+frame	II-d	2	12000
+frame	II-neg1	2	12000
+frame	II-neg2	2	12000
+frame	II-p	2	8000
+frame	III-FF	2	8000
+frame	III-00	2	8000
+segment	I-250		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=250\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	I-1		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=1\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	I-3		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=3\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	I-6		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=6\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	I-10		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=10\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	I-17		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=17\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-d	1	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=17\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-d	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(82):n=17\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-neg1	1	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=17\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-neg1	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(82):n=17\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-neg2	1	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=17\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-neg2	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(82):n=17\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	II-p	1	700	10 print chr$(90);chr$(81);"ld"\nsave"2:q7l"\n
+segment	II-p	2	700	load"2:q7r"\n
+segment	II-p	2	2000	run\n
+segment	III-FF	1	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=1\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00	1	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(66):n=1\n20 open f$ for output as #1:for i=1 to n:print #1,right$(str$(100000!+i),5);string$(120,"v"):next:close #1\n30 open f$ for input as #1:m=0:for i=1 to n:input #1,a$:if val(left$(a$,5))<>i then m=m+1\n40 next:close #1:print chr$(90);chr$(81);"rb";m:end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-01	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"01":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-02	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"02":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-03	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"03":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-04	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"04":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-05	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"05":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-06	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"06":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-07	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"07":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-08	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"08":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-09	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"09":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-10	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"10":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-11	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"11":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-FF-12	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"12":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-01	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"01":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-02	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"02":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-03	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"03":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-04	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"04":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-05	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"05":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-06	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"06":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-07	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"07":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-08	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"08":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-09	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"09":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-10	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"10":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-11	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"11":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-00-12	2	700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"12":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	III-none		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(68)+"01":open f$ for input as #1:input #1,a$:close #1:if val(left$(a$,5))=1 then print chr$(90);chr$(81);"ok":end\n20 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	IV-R		700	10 on error goto 90:f$="2:"+chr$(81)+chr$(90)+chr$(55)+chr$(65)\n20 open f$ for output as #1:print #1,"x":close #1\n30 open f$ for input as #1:input #1,a$:close #1\n40 if a$="x" then print chr$(90);chr$(81);"ok":end\n50 print chr$(90);chr$(81);"ng":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	IV-fill-free		700	10 on error goto 90:for n=1 to 200:f$="2:"+chr$(81)+right$(str$(1000+n),3):open f$ for output as #1:print #1,"x":close #1:next\n20 print chr$(90);chr$(81);"nf":goto 100\n90 print chr$(90);chr$(81);"fe";err;n:resume 100\n100 on error goto 190:f$="2:"+chr$(81)+"001":open f$ for input as #1:input #1,a$:close #1:print chr$(90);chr$(81);"ck";-(a$="x"):end\n190 print chr$(90);chr$(81);"cx";err:end\nrun\n
+segment	IV-fill-res		700	10 on error goto 90:for n=1 to 200:f$="2:"+chr$(81)+right$(str$(1000+n),3):open f$ for output as #1:print #1,"x":close #1:next\n20 print chr$(90);chr$(81);"nf":goto 100\n90 print chr$(90);chr$(81);"fe";err;n:resume 100\n100 on error goto 190:f$="2:"+chr$(81)+"001":open f$ for input as #1:input #1,a$:close #1:print chr$(90);chr$(81);"ck";-(a$="x"):end\n190 print chr$(90);chr$(81);"cx";err:end\nrun\n
+segment	V-missing		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	V-crc		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	V-deleted		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	V-single		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	V-ff		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+segment	V-c9		700	print chr$(90);chr$(81);"bt"\n10 on error goto 90:open "qz" for output as #1:print #1,"x":close #1:print chr$(90);chr$(81);"ok":end\n90 print chr$(90);chr$(81);"er";err;erl:end\nrun\n
+derivation	D1:unit_size_and_offset
+derivation	D2:chain
+derivation	D3:terminal_value
+derivation	D4:entry_head_unit_field
+derivation	D5:relocated_readable
+derivation	D6:directory_extent
+derivation	D7:used_mark_values
+derivation	D8:reserve_mark_necessity
+derivation	D9:boot
+judgment	gate_failed
+judgment	derived
+judgment	ambiguous
+judgment	not_found
+judgment	relocated_readable
+judgment	not_readable
+judgment	control_failed
+judgment	stops_at_unused
+judgment	scans_past_unused
+judgment	reserve_needed
+judgment	reserve_not_needed
+judgment	reserve_other
+judgment	disk_basic
+judgment	nondisk_basic
+judgment	error_after_boot
+judgment	no_basic
+judgment	control_changed
+judgment	m6f_d_rules_confirmed
+judgment	m6f_d_incomplete

@@ -302,6 +302,14 @@ SCRIPTS_EXPECTED=(
   # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
   "tools/make_m6fc_blank_disk_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
+  # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
+  # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
+  "tools/m6fd_entry_selftest.sh:0"
+  "tools/derive_m6fd_selftest.sh:0"
+  "tools/derive_m6fd_realistic_selftest.sh:0"
+  "tools/judge_m6fd_selftest.sh:0"
+  "tools/check_m6fd_preregistration_selftest.sh:0"
+  "tools/measure_m6fd_driver_selftest.sh:0"
   "tools/check_m6fc_markers_selftest.sh:0"
   # m6f-c 続き（凍結表照合・導出器・判定器）。合成TSV/JSON/D88だけで完結し、
   # 公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
