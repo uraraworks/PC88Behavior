@@ -309,6 +309,9 @@ SCRIPTS_EXPECTED=(
   # m6f-e 器具C。54候補予測・E腕ERR予測・導出・判定、G4/G5/G9〜G13、
   # 漏えい監査を合成署名だけで検査する。公式ROM・公式ディスク・私物は不要。
   "tools/m6fe_predict_derive_selftest.sh:0"
+  # m6f-e 器具D。偽フロントエンドだけで15腕×2走を通し、G0〜G8の
+  # 起動前停止とG14のCLS基準陰性対照を確認する。公式ROM・私物は不要。
+  "tools/measure_m6fe_driver_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
