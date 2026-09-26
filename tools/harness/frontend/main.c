@@ -12,6 +12,7 @@
  *   q88measure --core <core.so|dylib> --rom-dir <dir> [--disk <a.d88>]
  *              [--disk2 <b.d88>]
  *              [--insert-disk2 <b.d88> --insert-disk2-at FRAME]
+ *              [--swap-disk1 <b.d88> --swap-disk1-at FRAME]
  *              [--frames N] [--out <file>] [--expect-exec ADDR]...
  *
  *   --rom-dir      公式 ROM の置き場。PC88_REF_ROM_DIR でも指定できる
@@ -28,6 +29,12 @@
  *       --disk2 との同時指定、--frames 以上のFRAME指定はエラーにする。
  *       挿入直前まで filename_get_disk(1) が空であること、挿入直後に
  *       指定パスを返すことをそれぞれ末端で確認する。
+ *
+ *   --swap-disk1 / --swap-disk1-at
+ *       起動時に --disk で DRIVE_1 へ入れた媒体を、指定フレームの
+ *       retro_run() 呼び出し直前に quasi88_disk_insert() で指定像へ
+ *       差し替える。差し替え後の filename_get_disk(0) と像の SHA-256 を
+ *       末端検査し、report に frame/success のイベント1行と SHA-256 を残す。
  */
 
 #include <stdio.h>
@@ -114,7 +121,9 @@ static const char *(*p_filename_get_disk)(int);
  * src/initval.h の enum { DRIVE_1, DRIVE_2, ... } により 1 固定
  * （GPLの第三者実装のソースで、公式ROMとは無関係）。 */
 static int (*p_quasi88_disk_insert)(int, const char *, int, int);
-enum { Q88_DRIVE_2 = 1 };
+/* main.c 自身が filename_get_disk(0/1) と info[0/1] で使っている番号。
+ * 新しい値を外部実装から採らず、この既存対応を名前付きにする。 */
+enum { Q88_DRIVE_1 = 0, Q88_DRIVE_2 = 1 };
 
 /* キーマトリクス直接操作（M7段階1の器具その2）。QUASI88本体の
  * key_scan[0x10]（vendor/quasi88-libretro/src/keyboard.c、IN 00h〜0Eh。
@@ -553,6 +562,41 @@ static unsigned count_distinct_hits(const q88h_trap_t *t)
     for (i = 0; i < 0x10000; i++)
         if (t->exec_hits[i] || t->data_hits[i]) n++;
     return n;
+}
+
+/* 差し替え先が指定した自作像そのものだと、パス名だけでなく
+ * 内容でも自己検査できるようにする。SHA-256 実装は画面署名器が
+ * main.c 内ですでに使っている screen_signature.h のものだけを使う。 */
+static int sha256_file(const char *path, char hex[65])
+{
+    FILE *fp = fopen(path, "rb");
+    q88_sha256_t ctx;
+    uint8_t buffer[8192], digest[32];
+    size_t n;
+    if (!fp) return 0;
+    q88_sha256_init(&ctx);
+    while ((n = fread(buffer, 1, sizeof(buffer), fp)) != 0)
+        q88_sha256_update(&ctx, buffer, n);
+    if (ferror(fp)) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    q88_sha256_final(&ctx, digest);
+    q88_sha256_hex(digest, hex);
+    return 1;
+}
+
+static void write_swap_disk1_event(FILE *fp, bool done, unsigned frame,
+                                   bool success, const char sha256[65])
+{
+    if (!done) return;
+    /* イベント行の自由フィールドは増やさず、フレームと成否のみ。 */
+    fprintf(fp, "event\tswap_disk1\tframe=%u\tsuccess=%u\n",
+            frame, success ? 1u : 0u);
+    /* 像の同一性はイベントと分けた固定形式の1行に置く。 */
+    if (success && sha256 && sha256[0])
+        fprintf(fp, "swap_disk1_sha256\t%s\n", sha256);
 }
 
 /* ---- コアの読み込み ---------------------------------------------------- */
@@ -1259,6 +1303,8 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
                          const char *disk, const char *disk2, unsigned frames,
                          bool insert2_done, unsigned insert2_frame,
                          int insert2_rc, const char *insert2_actual,
+                         bool swap1_done, unsigned swap1_frame,
+                         bool swap1_success, const char swap1_sha256[65],
                          const kmrec_t *kmrec, int n_kmrec, bool show_screen)
 {
     int i;
@@ -1271,6 +1317,8 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
     if (insert2_done)
         fprintf(fp, "insert2   : frame=%u rc=%d actual=%s\n",
                 insert2_frame, insert2_rc, insert2_actual ? insert2_actual : "(なし)");
+    write_swap_disk1_event(fp, swap1_done, swap1_frame,
+                           swap1_success, swap1_sha256);
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
     if (show_screen) write_screen(fp); else write_screen_redacted_notice(fp);
@@ -1305,6 +1353,7 @@ static void usage(void)
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
         "                   [--disk2 <path>] [--expect-disk2-empty]\n"
         "                   [--insert-disk2 <path> --insert-disk2-at FRAME]\n"
+        "                   [--swap-disk1 <path> --swap-disk1-at FRAME]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--screen-signature-only\n"
         "                    --screen-signature-at SNAPSHOT_ID:FRAME] (最大%d個)\n"
@@ -1399,6 +1448,15 @@ int main(int argc, char **argv)
     bool insert2_done = false;
     int insert2_rc = 0;
     const char *insert2_actual = NULL;
+    /* --swap-disk1 / --swap-disk1-at。--insert-disk2 と同じ枠組みで、
+     * 対象がDRIVE_2ではなくDRIVE_1（起動時に--diskで入れた媒体）である点
+     * だけが違う。 */
+    const char *swap_disk1 = NULL;
+    unsigned swap_disk1_at = 0;
+    bool swap_disk1_at_set = false;
+    bool swap1_done = false;
+    bool swap1_success = false;
+    char swap1_sha256[65] = { 0 };
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
      * まとめて 1 つ確認しただけでは、どれが死んでいるか分からない。 */
     struct { const char *name; const uint8_t *map; size_t size; unsigned a[16]; int n; } chk[] = {
@@ -1470,6 +1528,11 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--insert-disk2-at") && i + 1 < argc) {
             insert_disk2_at = (unsigned)strtoul(argv[++i], NULL, 0);
             insert_disk2_at_set = true;
+        }
+        else if (!strcmp(argv[i], "--swap-disk1") && i + 1 < argc) swap_disk1 = argv[++i];
+        else if (!strcmp(argv[i], "--swap-disk1-at") && i + 1 < argc) {
+            swap_disk1_at = (unsigned)strtoul(argv[++i], NULL, 0);
+            swap_disk1_at_set = true;
         }
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
@@ -1866,6 +1929,27 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if ((swap_disk1 != NULL) != swap_disk1_at_set) {
+        fprintf(stderr, "[q88measure] --swap-disk1 と --swap-disk1-at は両方必須\n");
+        return 2;
+    }
+    if (swap_disk1 && !disk) {
+        fprintf(stderr, "[q88measure] --swap-disk1 には --disk"
+                        "（差し替え前にDRIVE_1へ入れる媒体）が要る\n");
+        return 2;
+    }
+    if (swap_disk1 && swap_disk1_at >= frames) {
+        fprintf(stderr, "[q88measure] --swap-disk1-at は --frames 未満で指定すること\n");
+        return 2;
+    }
+    if (swap_disk1) {
+        struct stat st;
+        if (stat(swap_disk1, &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "[q88measure] --swap-disk1 の通常ファイルを読めない: %s\n",
+                    swap_disk1);
+            return 2;
+        }
+    }
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
         return 2;
@@ -1919,10 +2003,13 @@ int main(int argc, char **argv)
     if (insert_disk2)
         fprintf(stderr, "[q88measure] insert-disk2 = %s (at frame %u)\n",
                 insert_disk2, insert_disk2_at);
+    if (swap_disk1)
+        fprintf(stderr, "[q88measure] swap-disk1 = %s (at frame %u)\n",
+                swap_disk1, swap_disk1_at);
 
     if (!load_core(core)) return 1;
-    if ((disk2 || expect_disk2_empty || insert_disk2) && !p_filename_get_disk) {
-        fprintf(stderr, "[q88measure] DRIVE_2末端状態を検査できないコア\n");
+    if ((disk2 || expect_disk2_empty || insert_disk2 || swap_disk1) && !p_filename_get_disk) {
+        fprintf(stderr, "[q88measure] DRIVE_1/2末端状態を検査できないコア\n");
         return 2;
     }
     if (disk2 && !p_load_game_special) {
@@ -1930,6 +2017,10 @@ int main(int argc, char **argv)
         return 2;
     }
     if (insert_disk2 && !p_quasi88_disk_insert) {
+        fprintf(stderr, "[q88measure] quasi88_disk_insertを持たないコア\n");
+        return 2;
+    }
+    if (swap_disk1 && !p_quasi88_disk_insert) {
         fprintf(stderr, "[q88measure] quasi88_disk_insertを持たないコア\n");
         return 2;
     }
@@ -2020,6 +2111,20 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr, "[q88measure] OK: 差し込み前のDRIVE_2空状態をコア末端で確認\n");
+    }
+    if (swap_disk1) {
+        /* 差し替え(--swap-disk1-at)より前は、--diskで入れた媒体がまだ
+         * DRIVE_1にあることを末端で確認する。差し替え直後の「actualが
+         * 指定パスに変わった」との対比が意味を持つのはここを確認してから。 */
+        const char *actual1 = p_filename_get_disk(0);
+        if (!actual1 || strcmp(actual1, disk)) {
+            fprintf(stderr, "[q88measure] NG: --swap-disk1指定なのに起動直後の"
+                            "DRIVE_1が--diskの指定と一致しない\n");
+            p_unload_game();
+            p_deinit();
+            return 1;
+        }
+        fprintf(stderr, "[q88measure] OK: 差し替え前のDRIVE_1媒体をコア末端で確認\n");
     }
 
     if (g_exchange_intervention_available) {
@@ -2278,6 +2383,48 @@ int main(int argc, char **argv)
                             " (frame=%u)\n", g_frame);
         }
 
+        /* --swap-disk1: 起動時に--diskでDRIVE_1へ入れた媒体を、指定フレームの
+         * retro_run()呼び出し直前にquasi88_disk_insert()で差し替える。
+         * insert_disk2と同じく「g_frame==FRAMEで一度だけ到達する」形。 */
+        if (swap_disk1 && !swap1_done && g_frame == swap_disk1_at) {
+            int swap1_rc;
+            const char *swap1_actual;
+#ifdef Q88MEASURE_FAULT_SKIP_SWAP_DISK1
+            /* swap_disk1_selftest.sh だけが別成果物へ有効化する故障注入。
+             * quasi88_disk_insert を実際には呼ばず「呼んだふり」だけする。
+             * 通常ビルドには入らない。 */
+            swap1_rc = 1;
+#else
+            swap1_rc = p_quasi88_disk_insert(Q88_DRIVE_1, swap_disk1, 0, 0);
+#endif
+            swap1_actual = p_filename_get_disk(0);
+            swap1_done = true;
+            swap1_success = swap1_rc && swap1_actual && !strcmp(swap1_actual, swap_disk1);
+            /* --screen-signature-only 時は write_report() 自体を呼ばないので、
+             * report本体のevent行が出ない。呼び出し側（測定ドライバ）が
+             * どちらのモードでも確認できるよう、同じ形式の行をstderrへも
+             * 出す（画面本文ではなく、この器具自身が定義した固定形式の
+             * 通知なので禁止事項7には当たらない）。 */
+            fprintf(stderr, "[q88measure] event\tswap_disk1\tframe=%u\tsuccess=%u\n",
+                    g_frame, swap1_success ? 1u : 0u);
+            if (!swap1_success) {
+                fprintf(stderr, "[q88measure] NG: DRIVE_1への実行中差し替えが末端で"
+                                "確認できない (frame=%u rc=%d)\n", g_frame, swap1_rc);
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            if (!sha256_file(swap_disk1, swap1_sha256)) {
+                fprintf(stderr, "[q88measure] NG: --swap-disk1 のSHA-256計算に失敗: %s\n",
+                        swap_disk1);
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            fprintf(stderr, "[q88measure] OK: DRIVE_1への実行中差し替えをコア末端状態で確認"
+                            " (frame=%u)\n", g_frame);
+        }
+
         p_run();
 
         if (g_trap_available && g_trap_map_path[0]) {
@@ -2343,6 +2490,7 @@ int main(int argc, char **argv)
                 write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                              disk, disk2, frames,
                              insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
+                             swap1_done, swap_disk1_at, swap1_success, swap1_sha256,
                              kmrec, n_kmrec,
                              getenv("Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT") != NULL);
             if (out) {
@@ -2370,6 +2518,7 @@ int main(int argc, char **argv)
                     write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                                  disk, disk2, frames,
                                  insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
+                                 swap1_done, swap_disk1_at, swap1_success, swap1_sha256,
                                  kmrec, n_kmrec, true);
                 }
                 fclose(fp);

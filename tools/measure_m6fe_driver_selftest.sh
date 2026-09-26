@@ -79,11 +79,16 @@ def main():
         target.write(json.dumps({"arm": arm, "argv": argv}, separators=(",", ":")) + "\n")
 
     if arm.startswith(("D-", "E-")):
-        confirm = one(argv, "--exchange-disk1-confirm")
-        if (one(argv, "--exchange-disk1-at") != "650" or confirm is None
-                or one(argv, "--exchange-disk1") is None):
+        if (one(argv, "--swap-disk1-at") != "650"
+                or one(argv, "--swap-disk1") is None):
             return 2
-        pathlib.Path(confirm).write_text("exchange_drive1=ok\n", encoding="ascii")
+        # 実物main.cのswap-disk1と同じ形式のイベント行をstderrへ出す
+        # （--screen-signature-only時はreport本体へは出ないので、
+        # 呼び出し側の確認先はstderr——実物に合わせる）。
+        success = 0 if os.environ.get("M6FE_SELFTEST_SWAP_DISK1_FAIL") else 1
+        sys.stderr.write(f"[q88measure] event\tswap_disk1\tframe=650\tsuccess={success}\n")
+        if not success:
+            return 1
     if arm == "N-wait":
         if one(argv, "--insert-disk2-at") != "1200" or "--expect-disk2-empty" not in argv:
             return 2
@@ -189,7 +194,7 @@ for call in calls:
     assert "--screen-signature-only" in argv
 for call in calls:
     if call["arm"].startswith(("D-", "E-")):
-        assert argv_value(call["argv"], "--exchange-disk1-at") == "650"
+        assert argv_value(call["argv"], "--swap-disk1-at") == "650"
 PY
 then
   ok "30走のJSON契約、D-1/D-omit READ件数、署名時点を確認した"
@@ -202,13 +207,10 @@ fi
 for gate in G0 G1 G2 G3 G4 G5 G6 G7 G8; do
   : >"$COUNTER"; : >"$ARGV_LOG"
   target="$WORK/result-$gate"
-  if [ "$gate" = G7 ]; then
-    run_driver "$target" M6FE_TEST_FAST_GATES=1 \
-      >"$WORK/$gate.out" 2>"$WORK/$gate.err"
-  else
-    run_driver "$target" M6FE_TEST_MODE=1 M6FE_TEST_FAST_GATES=1 M6FE_TEST_FAIL_GATE="$gate" \
-      >"$WORK/$gate.out" 2>"$WORK/$gate.err"
-  fi
+  # G7は実物main.cのソースに--swap-disk1/--swap-disk1-atが揃ったので、
+  # 他のゲートと同じ標準経路（M6FE_TEST_FAIL_GATEでの強制偽装）で試験する。
+  run_driver "$target" M6FE_TEST_MODE=1 M6FE_TEST_FAST_GATES=1 M6FE_TEST_FAIL_GATE="$gate" \
+    >"$WORK/$gate.out" 2>"$WORK/$gate.err"
   gate_rc=$?
   if [ "$gate_rc" -ne 0 ] && [ ! -s "$COUNTER" ] \
     && python3 - "$WORK/$gate.out" "$gate" <<'PY'
@@ -223,6 +225,23 @@ PY
     ng "$gate 陰性対照の停止条件またはNG集合が不正"
   fi
 done
+
+# G7実働: 差し替え失敗(success=0)の偽フロントエンドでは、D/E系のrunが
+# run_failedとして止まり、打鍵(--type-at 700)より後に到達した形跡
+# （--type-atのargv自体は積むが、フロントエンドが打鍵フレームへ到達する前に
+# rc!=0で終わる設計）が無いことを確認する。偽フロントエンドはreport/iologを
+# 書く前に return 1 するので、run_one側の[ -s "$report" ]判定で必ず落ちる。
+: >"$COUNTER"; : >"$ARGV_LOG"
+run_driver "$WORK/result-swapfail" M6FE_TEST_MODE=1 M6FE_TEST_FAST_GATES=1 \
+  M6FE_SELFTEST_SWAP_DISK1_FAIL=1 >"$WORK/swapfail.out" 2>"$WORK/swapfail.err"
+swapfail_rc=$?
+if [ "$swapfail_rc" -ne 0 ] \
+  && grep -q '"reason":"run_failed"' "$WORK/swapfail.out" \
+  && [ "$(wc -l <"$COUNTER" | tr -d ' ')" -ge 15 ]; then
+  ok "差し替え失敗の偽フロントエンドはD-omitでrun_failedとして止まった(打鍵前)"
+else
+  ng "差し替え失敗時の停止条件が不正(rc=$swapfail_rc)"
+fi
 
 # G14: baselineのrow5へ1文字相当の署名を足す。最初の1走で専用判定名になる。
 : >"$COUNTER"; : >"$ARGV_LOG"

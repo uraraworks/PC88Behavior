@@ -124,6 +124,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/clock_selftest.sh:0"
   "tools/harness/disk2_selftest.sh:0"
   "tools/harness/insert_disk2_selftest.sh:0"
+  "tools/harness/swap_disk1_selftest.sh:0"
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
   "tools/harness/iolog_capacity_selftest.sh:0"

@@ -30,7 +30,7 @@ G0=1; G1=1; G2=1; G3=1; G4=1; G5=1; G6=1; G7=1; G8=1
 
 # G0: このドライバが読むレビュー入力を許可リスト化する。自己検査では末尾へ
 # 禁止名を注入し、同じ検査経路を陰性対照にする。
-REVIEW_INPUTS="CLAUDE.md docs/notes/m6f-e-files-display-preregistration.md docs/notes/m6f-e-addendum1-cls-baseline.md docs/spec/l4-basic.md tools/measure_m6fd.sh tools/measure_m6fd_driver_selftest.sh tools/measure_m6fd_add1.sh tools/measure_m6fd_add1_driver_selftest.sh tools/make_m6fe_disk.py tools/make_m6fe_disk_selftest.sh tools/check_m6fe_disk.py tools/predict_m6fe.py tools/derive_m6fe.py tools/judge_m6fe.py tools/check_m6fe_candidates.py tools/compare_screen_signatures.py tools/m6fe_predict_derive_selftest.sh tools/screen_signature_selftest.sh tools/screen_signature_live_selftest.sh tools/check_l3_entry_screen.py tools/m6fc_fdc_by_drive.py tools/analyze_main_to_sub.py tools/analyze_write_path.py tools/lib_m6f_measure.sh tools/lib_l3_measure.sh tools/harness/insert_disk2_selftest.sh tools/harness/frontend/main.c tools/harness/frontend/screen_signature.h tools/run_all_selftests.sh tools/run_all_selftests_selftest.sh"
+REVIEW_INPUTS="CLAUDE.md docs/notes/m6f-e-files-display-preregistration.md docs/notes/m6f-e-addendum1-cls-baseline.md docs/spec/l4-basic.md tools/measure_m6fd.sh tools/measure_m6fd_driver_selftest.sh tools/measure_m6fd_add1.sh tools/measure_m6fd_add1_driver_selftest.sh tools/make_m6fe_disk.py tools/make_m6fe_disk_selftest.sh tools/check_m6fe_disk.py tools/predict_m6fe.py tools/derive_m6fe.py tools/judge_m6fe.py tools/check_m6fe_candidates.py tools/compare_screen_signatures.py tools/m6fe_predict_derive_selftest.sh tools/screen_signature_selftest.sh tools/screen_signature_live_selftest.sh tools/check_l3_entry_screen.py tools/m6fc_fdc_by_drive.py tools/analyze_main_to_sub.py tools/analyze_write_path.py tools/lib_m6f_measure.sh tools/lib_l3_measure.sh tools/harness/insert_disk2_selftest.sh tools/harness/swap_disk1_selftest.sh tools/harness/frontend/main.c tools/harness/frontend/screen_signature.h tools/run_all_selftests.sh tools/run_all_selftests_selftest.sh"
 if [ -n "${M6FE_TEST_FORBIDDEN_INPUT:-}" ]; then REVIEW_INPUTS="$REVIEW_INPUTS $M6FE_TEST_FORBIDDEN_INPUT"; fi
 case " $REVIEW_INPUTS " in
   *" private/"*|*" vendor/"*|*"make_n88_blank_disk.py"*|*"make_n88_blank_disk_selftest.py"*|*"m7eb"*|*" image.c"*) G0=0 ;;
@@ -74,14 +74,16 @@ if [ "${M6FE_TEST_FAST_GATES:-0}" != 1 ]; then
   [ "$G5" -eq 1 ] || G6=0
 fi
 
-# G7: 現在の実 q88measure にはドライブ1実行中交換口が無い。ソースに3引数が
-# 揃った将来だけ有効化する。偽フロントエンド通し検査は明示した試験モードで
-# 同じargv契約を受理する（実フロントエンドへの機能追加はここでは行わない）。
-if [ "${M6FE_TEST_MODE:-0}" = 1 ] && [ "$FRONTEND" != "$REPO/tools/harness/frontend/q88measure" ]; then
-  G7=1
-elif grep -q -- '"--exchange-disk1"' "$REPO/tools/harness/frontend/main.c" \
-  && grep -q -- '"--exchange-disk1-at"' "$REPO/tools/harness/frontend/main.c" \
-  && grep -q -- '"--exchange-disk1-confirm"' "$REPO/tools/harness/frontend/main.c"; then
+# G7: ドライブ1実行中差し替え口（--swap-disk1/--swap-disk1-at、
+# tools/harness/insert_disk2_selftest.shの--insert-disk2と同じ枠組み。
+# 対象読取は開かない）がq88measureのソースに揃っていること。D/E系7腕の
+# run_one()は、この口で差し替えイベントが打鍵(--type-at 700)より前の
+# フレーム(650)でsuccess=1になったことをstderrの固定形式イベント行
+# （event\tswap_disk1\tframe=...\tsuccess=...、main.c参照）で確認する
+# （run_one内、打鍵前に確認できなければその腕を止める）。ここではソースに
+# 両オプションが揃っているかだけを確認する。
+if grep -q -- '"--swap-disk1"' "$REPO/tools/harness/frontend/main.c" \
+  && grep -q -- '"--swap-disk1-at"' "$REPO/tools/harness/frontend/main.c"; then
   G7=1
 else
   G7=0
@@ -167,10 +169,10 @@ run_one() {
   local arm="$1" rep="$2" final_frame="$3"
   local run_dir="$STAGE/runs/$arm-r$rep"
   local disk1="$run_dir/drive1.d88" disk2="$run_dir/drive2.d88"
-  local exchange_disk="$run_dir/drive1-exchange.d88"
+  local swap_disk="$run_dir/drive1-swap.d88"
   local report="$run_dir/signatures.tsv" iolog="$run_dir/iolog.txt"
   local stdout="$run_dir/stdout.txt" stderr="$run_dir/stderr.txt"
-  local confirm="$run_dir/exchange.confirm" media command initial final ref_after
+  local media command initial final ref_after
   mkdir "$run_dir" || return 1
   cp "$REF_DISK" "$disk1" || return 1
   initial="$(m6f_sha256 "$disk1")" || return 1
@@ -187,9 +189,8 @@ run_one() {
     --type-at 700 --type "$command")
   case "$arm" in
     D-*|E-*)
-      cp "$STAGE/media/D1.d88" "$exchange_disk" || return 1
-      qargs+=(--disk2 "$disk2" --exchange-disk1 "$exchange_disk"
-        --exchange-disk1-at 650 --exchange-disk1-confirm "$confirm") ;;
+      cp "$STAGE/media/D1.d88" "$swap_disk" || return 1
+      qargs+=(--disk2 "$disk2" --swap-disk1 "$swap_disk" --swap-disk1-at 650) ;;
     N-wait)
       qargs+=(--expect-disk2-empty --insert-disk2 "$disk2" --insert-disk2-at 1200
         --screen-signature-at preinsert:1100) ;;
@@ -201,13 +202,24 @@ run_one() {
     attempt=$((attempt + 1)); LAUNCH_COUNT=$((LAUNCH_COUNT + 1)); run_rc=0
     /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${qargs[@]}" \
       >"$stdout" 2>"$stderr" || run_rc=$?
+    # D/E系は差し替え失敗（--swap-disk1-at=650でsuccess=0、打鍵は700なので
+    # 未達のまま)ならフロントエンドがrc!=0で止まる設計。打鍵前に止まった
+    # runは以下の[ -s "$report" ]判定で確実に落ちる（--screen-signature-only
+    # 時、reportはフレームループを最後まで走らないと書かれない）ので、
+    # ここでは通常の再試行判定だけで良い。
     [ "$run_rc" -eq 0 ] && break
     [ "$run_rc" -eq 134 ] && [ "$attempt" -lt 3 ] || return 1
-    rm -f "$report" "$iolog" "$confirm"
+    rm -f "$report" "$iolog"
   done
   [ -s "$report" ] && [ -e "$iolog" ] || return 1
   case "$arm" in
-    D-*|E-*) grep -qx 'exchange_drive1=ok' "$confirm" || return 1 ;;
+    D-*|E-*)
+      # G7: 差し替えイベントが打鍵(--type-at 700)より前のフレーム(650)で
+      # success=1だったことを、q88measure自身がstderrへ出す固定形式の
+      # イベント行（main.c write_swap_disk1_event / event行と同じ形式。
+      # 画面本文ではなくこの器具が定義した通知）で確認する。無ければ
+      # このrunをrun_failedとして扱い、以後の判定に進めない。
+      grep -qF $'event\tswap_disk1\tframe=650\tsuccess=1' "$stderr" || return 1 ;;
   esac
   final="$(m6f_sha256 "$disk1")" || return 1
   ref_after="$(m6f_sha256 "$REF_DISK")" || return 1
@@ -216,7 +228,7 @@ run_one() {
   python3 "$SUPPORT" normalize-run --report "$report" --iolog "$iolog" \
     --arm "$arm" --repetition "$rep" --reference-unchanged "$unchanged" \
     --output "$STAGE/safe/$arm-r$rep.safe.json" || return 1
-  rm -f "$disk1" "$disk2" "$exchange_disk" "$report" "$iolog" "$stdout" "$stderr" "$confirm"
+  rm -f "$disk1" "$disk2" "$swap_disk" "$report" "$iolog" "$stdout" "$stderr"
   rmdir "$run_dir" || return 1
   return 0
 }
