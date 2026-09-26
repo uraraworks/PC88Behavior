@@ -21,7 +21,7 @@ DEP     := $(TARGET).d
 
 all: $(TARGET)
 
-$(TARGET): main.c
+$(TARGET): main.c screen_signature.h
 	@test -d "$(CORE_SRC)" || { echo "コアのソースが無い: $(CORE_SRC)"; echo "先に tools/setup_harness.sh を実行すること"; exit 1; }
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 

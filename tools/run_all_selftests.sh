@@ -106,6 +106,8 @@ SCRIPTS_EXPECTED=(
   "tools/search_second_channel_rules_selftest.sh:0"
   "tools/check_5635_origin_structure_selftest.sh:0"
   "tools/check_l3_screen_output_selftest.sh:0"
+  "tools/screen_signature_selftest.sh:0"
+  "tools/screen_signature_live_selftest.sh:0"
   "tools/check_l3_entry_screen_selftest.sh:0"
   "tools/l3_entry_expected_fault_selftest.sh:0"
   "tools/conform_l3.sh:0"
@@ -301,6 +303,9 @@ SCRIPTS_EXPECTED=(
   # m6f-c（空の公式形式ディスクの生成器・目印判定器）。合成D88・合成レポートだけで
   # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
   "tools/make_m6fc_blank_disk_selftest.sh:0"
+  # m6f-e 器具B。第3版だけから9種の自作媒体と15腕manifestを作り、独立検査器の
+  # 全検査項目を項目別の陰性対照で確認する。公式ROM・公式ディスク・私物は不要。
+  "tools/make_m6fe_disk_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。

@@ -36,6 +36,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
 
@@ -52,6 +53,7 @@
 #include "q88h_intlog.h"
 #include "q88h_fontsrc.h"
 #include "q88h_screenshot.h"
+#include "screen_signature.h"
 
 /* --vram-dump / --mem-write-log の出力先安全策（禁止事項5/7）が使う、
  * このリポジトリ自身の実体パス。コンパイル時定数にはしない——
@@ -1304,6 +1306,8 @@ static void usage(void)
         "                   [--disk2 <path>] [--expect-disk2-empty]\n"
         "                   [--insert-disk2 <path> --insert-disk2-at FRAME]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
+        "                   [--screen-signature-only\n"
+        "                    --screen-signature-at SNAPSHOT_ID:FRAME] (最大%d個)\n"
         "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
         "                   [--save-to-disk-image]\n"
@@ -1332,7 +1336,49 @@ static void usage(void)
         "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n"
         "                   [--key-matrix PORT:BIT:FRAME[:HOLD]] (最大%d個,\n"
         "                    PORTは0x00-0x0E, BITは0-7。--typeとは同時指定不可)\n",
-        VRAM_DUMP_MAX, KEY_MATRIX_MAX);
+        Q88_SCREEN_SIGNATURE_MAX, VRAM_DUMP_MAX, KEY_MATRIX_MAX);
+}
+
+static int parse_screen_signature_spec(const char *spec,
+                                       q88_screen_signature_t *out)
+{
+    const char *colon = strchr(spec, ':');
+    char *end;
+    unsigned long frame;
+    size_t id_len;
+    unsigned i;
+    if (!colon || strchr(colon + 1, ':')) return 0;
+    id_len = (size_t)(colon - spec);
+    if (id_len == 0 || id_len > Q88_SCREEN_SIGNATURE_ID_MAX || colon[1] == '\0') return 0;
+    for (i = 0; i < id_len; i++) {
+        unsigned char ch = (unsigned char)spec[i];
+        if (!(ch >= 'A' && ch <= 'Z') && !(ch >= 'a' && ch <= 'z') &&
+            !(ch >= '0' && ch <= '9') && ch != '_' && ch != '.' && ch != '-') return 0;
+    }
+    for (i = 0; colon[1 + i] != '\0'; i++)
+        if (colon[1 + i] < '0' || colon[1 + i] > '9') return 0;
+    errno = 0;
+    frame = strtoul(colon + 1, &end, 10);
+    if (errno == ERANGE || *end != '\0' || frame > UINT32_MAX) return 0;
+    memcpy(out->snapshot_id, spec, id_len);
+    out->snapshot_id[id_len] = '\0';
+    out->frame = (unsigned)frame;
+    out->done = 0;
+    return 1;
+}
+
+static void capture_screen_signatures_at(q88_screen_signature_t *items, int count,
+                                         unsigned frame)
+{
+    int i;
+    for (i = 0; i < count; i++) {
+        if (!items[i].done && items[i].frame == frame) {
+            uint8_t screen[Q88_SCREEN_SIGNATURE_ROWS * Q88_SCREEN_SIGNATURE_COLS];
+            p_text(screen, Q88_SCREEN_SIGNATURE_ROWS, Q88_SCREEN_SIGNATURE_COLS,
+                   Q88H_TEXT_STRIDE);
+            q88_screen_signature_capture(&items[i], screen);
+        }
+    }
 }
 
 int main(int argc, char **argv)
@@ -1343,6 +1389,9 @@ int main(int argc, char **argv)
     unsigned io_log_from_frame = 0;
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
+    bool screen_signature_only = false;
+    q88_screen_signature_t screen_signatures[Q88_SCREEN_SIGNATURE_MAX];
+    int n_screen_signatures = 0;
     bool expect_disk2_empty = false;
     const char *insert_disk2 = NULL;
     unsigned insert_disk2_at = 0;
@@ -1455,6 +1504,29 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--key-hold")  && i + 1 < argc) key_hold= (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--key-gap")   && i + 1 < argc) key_gap = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--dump-text")) dump_text = true;
+        else if (!strcmp(argv[i], "--screen-signature-only")) screen_signature_only = true;
+        else if (!strcmp(argv[i], "--screen-signature-at") && i + 1 < argc) {
+            int j;
+            if (n_screen_signatures >= Q88_SCREEN_SIGNATURE_MAX) {
+                fprintf(stderr, "[q88measure] --screen-signature-at は最大%d個\n",
+                        Q88_SCREEN_SIGNATURE_MAX);
+                return 2;
+            }
+            if (!parse_screen_signature_spec(argv[++i],
+                                             &screen_signatures[n_screen_signatures])) {
+                fprintf(stderr, "[q88measure] --screen-signature-at は"
+                                " SNAPSHOT_ID:FRAME（IDは英数字_.-）\n");
+                return 2;
+            }
+            for (j = 0; j < n_screen_signatures; j++) {
+                if (!strcmp(screen_signatures[j].snapshot_id,
+                            screen_signatures[n_screen_signatures].snapshot_id)) {
+                    fprintf(stderr, "[q88measure] snapshot_id が重複している\n");
+                    return 2;
+                }
+            }
+            n_screen_signatures++;
+        }
         else if (!strcmp(argv[i], "--verbose")) g_verbose = true;
         else if (!strcmp(argv[i], "--trap-map") && i + 1 < argc)
             snprintf(g_trap_map_path, sizeof(g_trap_map_path), "%s", argv[++i]);
@@ -1743,6 +1815,22 @@ int main(int argc, char **argv)
         }
     }
     if (!core || !g_rom_dir[0]) { usage(); return 2; }
+    if (screen_signature_only && (!out || n_screen_signatures == 0)) {
+        fprintf(stderr, "[q88measure] --screen-signature-only には --out と"
+                        " --screen-signature-at が要る\n");
+        return 2;
+    }
+    if (!screen_signature_only && n_screen_signatures != 0) {
+        fprintf(stderr, "[q88measure] --screen-signature-at には"
+                        " --screen-signature-only が要る\n");
+        return 2;
+    }
+    for (k = 0; k < n_screen_signatures; k++) {
+        if (screen_signatures[k].frame > frames) {
+            fprintf(stderr, "[q88measure] 署名FRAMEは --frames 以下で指定すること\n");
+            return 2;
+        }
+    }
     if (disk2 && !disk) {
         fprintf(stderr, "[q88measure] --disk2 には --disk が要る\n");
         return 2;
@@ -2057,8 +2145,12 @@ int main(int argc, char **argv)
     if (g_n_keyev) {
         unsigned last = g_keyev[g_n_keyev - 1].end;
         g_typed = typed;
-        fprintf(stderr, "[q88measure] 打鍵: %s (%d キー, フレーム %u まで)\n",
-                typed, g_n_keyev, last);
+        if (screen_signature_only)
+            fprintf(stderr, "[q88measure] 打鍵: 内容非表示 (%d キー, フレーム %u まで)\n",
+                    g_n_keyev, last);
+        else
+            fprintf(stderr, "[q88measure] 打鍵: %s (%d キー, フレーム %u まで)\n",
+                    typed, g_n_keyev, last);
         if (frames <= last)
             fprintf(stderr, "[q88measure] 警告: --frames %u は打鍵の終わり %u より短い。"
                             "打ち切られる\n", frames, last);
@@ -2075,6 +2167,9 @@ int main(int argc, char **argv)
     p_trace_reset();
     if (g_trap_available && g_trap_map_path[0]) p_trap_reset();
     for (g_frame = 0; g_frame < frames; g_frame++) {
+        /* frame N はN回目の retro_run()直前の境界。frame==frames は
+         * ループ直後（全frames実行後）として下で別途採る。 */
+        capture_screen_signatures_at(screen_signatures, n_screen_signatures, g_frame);
         /* イベントに frame を載せるため、走らせる前に必ず今のフレーム番号を
          * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
         if (g_iolog_available) p_iolog_set_frame(g_frame);
@@ -2206,6 +2301,8 @@ int main(int argc, char **argv)
         }
     }
 
+    capture_screen_signatures_at(screen_signatures, n_screen_signatures, g_frame);
+
     {
         q88h_trace_t *t = p_trace();
         int failed = 0;
@@ -2242,21 +2339,39 @@ int main(int argc, char **argv)
              * tools/screen_content_leak_selftest.sh の陰性対照が
              * 検出力を持つことを確かめるためだけに使う。通常運用では
              * 設定しない。 */
-            write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
-                         disk, disk2, frames,
-                         insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
-                         kmrec, n_kmrec,
-                         getenv("Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT") != NULL);
-            if (out) {
-                FILE *fp = fopen(out, "w");
-                if (!fp) { perror(out); return 1; }
-                /* --out のファイルは既存ツール（check_l3_screen_output.py・
-                 * check_l3_entry_screen.py）が読む前提の書式なので、
-                 * show_screen は true のまま変えない。 */
-                write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
+            if (!screen_signature_only)
+                write_report(stdout, t, p_trace_sub(), tp, tps, core, g_rom_dir,
                              disk, disk2, frames,
                              insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
-                             kmrec, n_kmrec, true);
+                             kmrec, n_kmrec,
+                             getenv("Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT") != NULL);
+            if (out) {
+                FILE *fp;
+                if (screen_signature_only) {
+                    int complete = 1;
+                    for (i = 0; i < n_screen_signatures; i++)
+                        if (!screen_signatures[i].done) complete = 0;
+                    if (!complete) {
+                        fprintf(stderr, "[q88measure] 指定した画面署名フレームへ未到達\n");
+                        return 1;
+                    }
+                }
+                fp = fopen(out, "w");
+                if (!fp) { perror(out); return 1; }
+                if (screen_signature_only) {
+                    if (!q88_screen_signature_write_report(
+                            fp, screen_signatures, n_screen_signatures)) {
+                        fclose(fp);
+                        fprintf(stderr, "[q88measure] 画面署名reportを書けない\n");
+                        return 1;
+                    }
+                } else {
+                    /* 通常モードの既存形式は変えない。 */
+                    write_report(fp, t, p_trace_sub(), tp, tps, core, g_rom_dir,
+                                 disk, disk2, frames,
+                                 insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
+                                 kmrec, n_kmrec, true);
+                }
                 fclose(fp);
                 fprintf(stderr, "[q88measure] 書き出した: %s\n", out);
             }
