@@ -306,6 +306,9 @@ SCRIPTS_EXPECTED=(
   # m6f-e 器具B。第3版だけから9種の自作媒体と15腕manifestを作り、独立検査器の
   # 全検査項目を項目別の陰性対照で確認する。公式ROM・公式ディスク・私物は不要。
   "tools/make_m6fe_disk_selftest.sh:0"
+  # m6f-e 器具C。54候補予測・E腕ERR予測・導出・判定、G4/G5/G9〜G13、
+  # 漏えい監査を合成署名だけで検査する。公式ROM・公式ディスク・私物は不要。
+  "tools/m6fe_predict_derive_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。

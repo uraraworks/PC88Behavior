@@ -197,8 +197,11 @@ if raw1 != raw2:
 digest = hashlib.sha256(raw1).hexdigest()
 if (out1 / "manifest.sha256").read_text(encoding="ascii").split()[0] != digest:
     fail("manifest_digest")
-frozen_fields = (repo / "tools/m6fe_frozen.tsv").read_text(encoding="ascii").split()
-if frozen_fields != ["manifest_sha256", digest]:
+frozen_lines = (repo / "tools/m6fe_frozen.tsv").read_text(encoding="ascii").splitlines()
+frozen_fields = dict(line.split("\t") for line in frozen_lines)
+if (set(frozen_fields) != {"manifest_sha256", "candidates_sha256"}
+        or frozen_fields["manifest_sha256"] != digest
+        or len(frozen_fields["candidates_sha256"]) != 64):
     fail("manifest_frozen_value")
 wrong = subprocess.run(
     [sys.executable, str(generator), str(work / "reject"),
