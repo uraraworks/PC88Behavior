@@ -113,8 +113,8 @@ def dynamically_independent(read_function):
 
 reader_source = (repo / "tools" / "d88_read_sector.py").read_text(encoding="utf-8")
 expected = {
-    "g8_main_sha": "7646c2d418dc9f33f30670b9638368fcfb5614e67ec26000cdd7c4106b258f5d",
-    "g8_retry_sha": "dc940d77f412d2c1e14a24e9f8d1cd658d885a87f88fb0c62798411d4268faa1",
+    "g8_main_sha": "4f75d314b4e18c0d6d339977fa92fa0963c57733c389e36733ac047a18ccbe50",
+    "g8_retry_sha": "ec3247294c5dbdb33a6ca5ffcc016435380dc420157e3cd0f974f91479cfdb86",
     "g8_disk_sha": "d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070",
     "g3_default_sha": "d3becfe5051f7002d268824a2da2824f543442e71ae3226e4d22139e0adce05c",
 }

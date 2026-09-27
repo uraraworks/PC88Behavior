@@ -58,7 +58,8 @@
 ; 0xEA00-0xEDFF、スタックSP=0xF000。いずれとも重ならない)。
 
 RUN_STMT_KIND      EQU 0D000h  ; 1B (0=PRINT 1=GOTO 2=GOSUB 3=RETURN
-                                 ; 4=FOR 5=NEXT 6=END 7=STOP 8=ASSIGN)
+                                 ; 4=FOR 5=NEXT 6=END 7=STOP 8=ASSIGN、
+                                 ; 19=ON ERROR 20=RESUME 21=FILES)
 RUN_CUR_RECORD     EQU 0D001h  ; 2B 現在実行中のPROGRAM_AREAレコード先頭
 RUN_CUR_LINENO     EQU 0D003h  ; 2B 現在の行番号(エラー表示用にキャッシュ)
 RUN_CTRL           EQU 0D005h  ; 1B 0=通常続行 1=ジャンプ済み 2=停止
@@ -159,6 +160,11 @@ RUN_ARRAY_FREE_PTR      EQU 0D969h ; 2B ARRAY_FINDが記録する空きスロッ
 RUN_ARRAY_NAME          EQU 0D96Bh ; 8B 配列名(IDENT_BUFの退避)
 RUN_DIM_COUNT           EQU 0D973h ; 1B DIMの要素数(添字上限+1)
 RUN_IF_TRUE             EQU 0D974h ; 1B IF条件の真偽
+; FILESのERR 70/13をm6f-eの捕捉用プログラムから読めるようにする最小の
+; ON ERROR GOTO/ERR/RESUME状態。D975-D97Fは配列表D980直前の未使用11B。
+RUN_ERROR_HANDLER_LINE  EQU 0D975h ; 2B、0なら捕捉無効
+RUN_ERROR_ACTIVE        EQU 0D977h ; 1B、ハンドラ実行中
+RUN_LAST_ERR            EQU 0D978h ; 1B、ERRが返す番号
 
 ; ---- 配列テーブル(第4.10節・6.5節) ----
 ; レコード(298B): [NAME 8B][USED 1B][COUNT 1B][DATA(32要素*9B=288B)]
@@ -461,6 +467,29 @@ VAR_GET_OR_CREATE:
 ;   あり、型1+データ8=9バイトはこれまでどおり収まる。レコードサイズ
 ;   自体は変えていない)。
 VAR_READ_NUMERIC:
+    ; ERRは通常変数ではなく、直近にON ERROR GOTOで捕捉した番号を返す。
+    ; IDENT_BUFは大文字化・8バイト0詰め済みなので完全一致で判定する。
+    LD HL,IDENT_BUF
+    LD A,(HL)
+    CP 'E'
+    JR NZ,_vrn_normal
+    INC HL
+    LD A,(HL)
+    CP 'R'
+    JR NZ,_vrn_normal
+    INC HL
+    LD A,(HL)
+    CP 'R'
+    JR NZ,_vrn_normal
+    INC HL
+    LD A,(HL)
+    OR A
+    JR NZ,_vrn_normal
+    LD A,(RUN_LAST_ERR)
+    LD L,A
+    LD H,0
+    JP VAL_SET_INT
+_vrn_normal:
     CALL VAR_GET_OR_CREATE
     OR A
     JR Z,_vrn_oom
@@ -2639,8 +2668,32 @@ _rmsk_try_locate:
 _rmsk_try_color:
     CALL TRY_MATCH_COLOR
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_on
     LD A,18
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_on:
+    CALL TRY_MATCH_ON
+    OR A
+    JR Z,_rmsk_try_resume
+    LD A,19
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_resume:
+    CALL TRY_MATCH_RESUME
+    OR A
+    JR Z,_rmsk_try_files
+    LD A,20
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_files:
+    CALL TRY_MATCH_FILES
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,21
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2728,6 +2781,12 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_locate
     CP 18
     JR Z,_reos_color
+    CP 19
+    JR Z,_reos_on_error
+    CP 20
+    JR Z,_reos_resume
+    CP 21
+    JR Z,_reos_files
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2771,10 +2830,78 @@ _reos_locate:
     JP LOCATE_STMT
 _reos_color:
     JP COLOR_STMT
+_reos_on_error:
+    JP ON_ERROR_STMT
+_reos_resume:
+    JP RESUME_STMT
+_reos_files:
+    JP FILES_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
     LD A,2
+    LD (ERROR_KIND),A
+    RET
+
+; ON ERROR GOTO <行番号> — FILESのERR 70/13を第11節の検証プログラムで
+; 捕捉するための実行時エラー入口。GOTO 0は捕捉解除として扱う。
+ON_ERROR_STMT:
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_ERROR
+    OR A
+    JR Z,_onerr_syntax
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_GOTO
+    OR A
+    JR Z,_onerr_syntax
+    CALL SKIP_SPACES
+    CALL PARSE_LINENUM_CUR
+    JR C,_onerr_syntax
+    LD (RUN_ERROR_HANDLER_LINE),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    LD (RUN_CTRL),A
+    RET
+_onerr_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+
+; RESUME <行番号> — 捕捉中だけ指定行へ移る。本依頼の検証腕が使う形。
+RESUME_STMT:
+    LD A,(RUN_ERROR_ACTIVE)
+    OR A
+    JR Z,_resume_without_error
+    CALL SKIP_SPACES
+    CALL PARSE_LINENUM_CUR
+    JR C,_resume_no_target
+    CALL RUN_FIND_LINE
+    JR C,_resume_undef
+    CALL RUN_ENTER_RECORD
+    XOR A
+    LD (RUN_ERROR_ACTIVE),A
+    LD (ERROR_FLAG),A
+    LD A,1
+    LD (RUN_CTRL),A
+    RET
+_resume_no_target:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,19
+    LD (ERROR_KIND),A
+    RET
+_resume_without_error:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,20
+    LD (ERROR_KIND),A
+    RET
+_resume_undef:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,8
     LD (ERROR_KIND),A
     RET
 
@@ -2817,6 +2944,24 @@ _run_trailing_syntax:
     LD A,2
     LD (ERROR_KIND),A
 _run_error:
+    LD A,(RUN_ERROR_ACTIVE)
+    OR A
+    JR NZ,_run_error_emit
+    LD HL,(RUN_ERROR_HANDLER_LINE)
+    LD A,H
+    OR L
+    JR Z,_run_error_emit
+    LD A,(ERROR_KIND)
+    LD (RUN_LAST_ERR),A
+    LD A,1
+    LD (RUN_ERROR_ACTIVE),A
+    CALL RUN_FIND_LINE
+    JR C,_run_error_emit
+    CALL RUN_ENTER_RECORD
+    XOR A
+    LD (ERROR_FLAG),A
+    JP _run_loop
+_run_error_emit:
     CALL RUN_EMIT_ERROR
     XOR A
     LD (ERROR_FLAG),A
@@ -2828,6 +2973,10 @@ RUN_RESET_STATE:
     XOR A
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
+    LD (RUN_ERROR_ACTIVE),A
+    LD (RUN_LAST_ERR),A
+    LD HL,0
+    LD (RUN_ERROR_HANDLER_LINE),HL
     LD HL,RUN_VARTAB
     LD B,RUN_VARTAB_CAP
 _rrs_loop:
@@ -3647,6 +3796,43 @@ TRY_MATCH_COLOR:
     JP TRY_MATCH_KEYWORD_GENERIC
 STMT_COLOR_TEXT: DB "COLOR"
 STMT_COLOR_LEN EQU 5
+
+; FILESは直接モード(interp.asm)とプログラム実行の両方から使う。
+TRY_MATCH_FILES:
+    LD HL,STMT_FILES_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_FILES_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_FILES_TEXT: DB "FILES"
+STMT_FILES_LEN EQU 5
+
+TRY_MATCH_ON:
+    LD HL,STMT_ON_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_ON_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_ON_TEXT: DB "ON"
+STMT_ON_LEN EQU 2
+
+TRY_MATCH_ERROR:
+    LD HL,STMT_ERROR_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_ERROR_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_ERROR_TEXT: DB "ERROR"
+STMT_ERROR_LEN EQU 5
+
+TRY_MATCH_RESUME:
+    LD HL,STMT_RESUME_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_RESUME_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_RESUME_TEXT: DB "RESUME"
+STMT_RESUME_LEN EQU 6
 
 ; TRY_MATCH_REM_ANY — "REM"またはシングルクォート"'"(6.7節)。
 TRY_MATCH_REM_ANY:
@@ -4860,6 +5046,12 @@ _dpnl_done:
     LD (ERROR_FLAG),A
     RET
 
+; 0x79D7はQUASI88の機種判定予約番地なので、直前の安全な境界から
+; 0x79D8までをFILLで埋める。固定長ではなく現在位置との差にすることで、
+; 前方の文ハンドラが増減しても予約1バイトをコードにしない。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
+
 ; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
 ;   BUFへ読む(31文字超は切り詰め、引用符の特別扱いはしない・第8節29)。
 DATA_PARSE_RAW_TOKEN:
@@ -5064,40 +5256,6 @@ _read_syntax:
     LD (ERROR_KIND),A
     RET
 
-; AEL_ROM_LAYOUT_PAD — 2026-09-20追記(ATN/EXP/LOG、第4.16b節)。
-;   ATN/EXP/LOGの追加でN88.ROM全体の総バイト数が伸び、QUASI88の機種判定
-;   予約番地0x79D7(build_main_rom.py ROM_VERSION_RESERVED_ADDR、同ファイル
-;   のコメント参照)に実命令の1バイトが偶然かかるようになった
-;   (docs/PLAN.mdの方針どおりレイアウトをここで分ける——同予約番地の
-;   コメントが指示する「この番地の手前でレイアウトを分けること」の
-;   実施)。RESTORE_STMTの直前(予約番地のすぐ手前)に置くことで、他の
-;   モジュール(L1 IPL・ext_bank等)の故障注入・selftestフラグ
-;   (run_all_selftests.shが使うもの、いずれもRESTORE_STMTより前方の
-;   モジュールにしか触れない)によるバイト数の増減があっても、この
-;   埋め草との相対位置がほぼ保たれる(interp.asm側の離れた位置に置くと、
-;   予約番地に自然に来る0バイトが孤立点で、フラグの組み合わせごとに
-;   再調整が要ることが実測で分かった)。340バイトという量自体は、
-;   --inject-ext-bank-window-fault(この埋め草より手前のモジュールの
-;   内容を差し替えるため、他のフラグより相対位置のずれが大きい
-;   ——実測で最大約290バイト)を含む全フラグの組み合わせで
-;   AEL_ROM_LAYOUT_PADのバイト範囲が予約番地0x79D7を覆うように実測で
-;   決めた値(build_main_rom.pyの --enable-l4-selftest・
-;   --enable-ext-bank-selftest・--inject-ext-bank-bcde-fault・
-;   --inject-address-fault・--inject-l4-sign-space-fault・
-;   --inject-l3-space-fault・--enable-vsync-regcheck・
-;   --inject-vsync-no-save-fault・--inject-key-repeat-fault・
-;   --inject-editkey-home-clr-fault・--inject-l4-missing-operand-fault・
-;   --inject-cursor-fault・--inject-key-table-fault・--inject-shift-fault・
-;   --inject-default-attr-fault・--inject-scroll-range-fault・
-;   --inject-l4-zone-width-fault・--inject-l4-token-fault・
-;   --inject-ext-bank-no-org-fault・--inject-ext-bank-mbf-addr-fault・
-;   --inject-ext-bank-window-fault を1つずつ単独で当てて実測、
-;   --inject-ext-bank-window-faultは意図どおりcheck_ext_bank_relay_
-;   below_windowで落ちる〔ROM_VERSION検査より後段〕ことも確認済み)。
-;   機能的な意味は無く、純粋にレイアウト調整用。
-AEL_ROM_LAYOUT_PAD:
-    DS 340
-
 ; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
 ;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
 RESTORE_STMT:
@@ -5149,4 +5307,3 @@ _cont_have:
     LD (RUN_CTRL),A
     LD (ERROR_FLAG),A
     JP _run_after_stmt
-

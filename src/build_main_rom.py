@@ -72,6 +72,7 @@ L4_INTERP_ASM = REPO / "src" / "l4_basic" / "interp.asm"
 L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 # M7段階5b: RUNとプログラムの実行(GOTO/FOR/GOSUB/STOP/変数)。run.asm
 L4_RUN_ASM = REPO / "src" / "l4_basic" / "run.asm"
+L4_FILES_ASM = REPO / "src" / "l4_basic" / "files.asm"
 
 # 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
 EXT_BANK_DIR = REPO / "src" / "ext_bank"
@@ -949,6 +950,20 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     run_path = work / "l4_run_gen.asm"
     run_path.write_text(L4_RUN_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
+    files_text = L4_FILES_ASM.read_text(encoding="utf-8")
+    if not enable_disk_read_chr:
+        # CHR/再試行READを含めないmain-sub測定構成でもBASIC本体を
+        # 組み立てられるようにする。
+        # CALLと同じ3バイトをSCF+NOP+NOPへ置き換え、READ失敗として扱う。
+        # 配布構成ではenable_main_sub_read=Trueなので、この経路は使われない。
+        disabled_read_call = "    CALL MAIN_SUB_READ_CHR_RETRY\n"
+        disabled_read_stub = "    SCF\n    NOP\n    NOP\n"
+        if files_text.count(disabled_read_call) != 1:
+            raise SystemExit("FILESのmain-sub READ呼出しが一意に見つからない")
+        files_text = files_text.replace(disabled_read_call, disabled_read_stub)
+    files_path = work / "l4_files_gen.asm"
+    files_path.write_text(files_text, encoding="utf-8")
+
     # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)は窓(0x6000-0x7FFF)の外に
     # 無ければならない(docs/spec/ext-rom-bank.md 第2節 制約1)。通常ビルドは
     # 他のどのモジュールより前(IPL直後・screen.asmより前)にINCLUDEし、
@@ -1003,6 +1018,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{interp_path}"\n'
         + f'\nINCLUDE "{program_path}"\n'
         + f'\nINCLUDE "{run_path}"\n'
+        + f'\nINCLUDE "{files_path}"\n'
     )
     if inject_ext_bank_window_fault:
         combined += ext_bank_relay_include

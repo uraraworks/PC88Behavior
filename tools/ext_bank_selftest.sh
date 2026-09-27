@@ -86,14 +86,19 @@ for i in range(4):
         # tools/ext_bank_selftest.sh 2節(実行結果)・tools/l4_sqr_bank_conform.py
         # (バイト照合)で検査する。
         rest = data[3:0x10] + data[0x1D:0x30] + data[0x70:0x80]
+    elif i == 1:
+        # bank1は0x110以降にFILES本体を持つ。試験入口からFILES入口までと、
+        # 現在の本体上限0x300以降がFILLのままであることを確認する。
+        # FILES本体そのものはl4_files_z80_selftest.shで実行検査する。
+        rest = data[3:0x110] + data[0x300:]
     else:
         rest = data[3:]
     if any(b != 0x00 for b in rest):
         print(f"NG: N88_{i}.ROM の埋め草(0x00)以外の余剰バイトがある")
         ok = False
 if ok:
-    print("OK: N88_0.ROM〜N88_3.ROM は各8192バイト、先頭が試験エントリ、残りはFILL(0x00、"
-          "bank0の絶対番地試験ルーチン分を除く)")
+    print("OK: N88_0.ROM〜N88_3.ROM は各8192バイト、先頭が試験エントリ、"
+          "機能領域外はFILL(0x00)")
 sys.exit(0 if ok else 1)
 PYEOF
 

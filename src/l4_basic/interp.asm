@@ -250,6 +250,8 @@ ERRKIND_TABLE:
     DW ERR_MSG_4
     DB 17
     DW ERR_MSG_17
+    DB 70
+    DW ERR_MSG_70
     DB 0
 
 ; ---------------------------------------------------------------------
@@ -282,6 +284,8 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_locate
     CP 7
     JR Z,_l4dl_call_color
+    CP 8
+    JR Z,_l4dl_call_files
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -304,6 +308,9 @@ _l4dl_call_locate:
     JR _l4dl_after_stmt
 _l4dl_call_color:
     CALL COLOR_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_files:
+    CALL FILES_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -401,8 +408,17 @@ _l4msk_try_locate:
 _l4msk_try_color:
     CALL TRY_MATCH_COLOR
     OR A
-    RET Z
+    JR Z,_l4msk_try_files
     LD A,7
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_files:
+    ; FILESは直接モードとプログラム中で同じFILES_STMTを使う。
+    CALL TRY_MATCH_FILES
+    OR A
+    RET Z
+    LD A,8
     LD (STMT_KIND),A
     LD A,1
     RET
