@@ -24,6 +24,11 @@ FIXED_OVERALL = {
 ADD2_FIXED_OVERALL = {
     "gate_failed", "inconclusive_add2_no_candidate", "inconclusive_add2_multiple",
 }
+ADD3_FIXED_OVERALL = {
+    "gate_failed", "inconclusive_input_limit", "inconclusive_print_control",
+    "inconclusive_print_no_candidate", "inconclusive_add3_no_candidate",
+    "inconclusive_add3_multiple", "inconclusive_add3_disagree",
+}
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 ERROR_RE = re.compile(r"files_error_err_(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])")
 
@@ -174,6 +179,51 @@ def _recompute_add2(doc: dict[str, Any]) -> str:
     return "inconclusive_add2_multiple"
 
 
+def _recompute_add3(doc: dict[str, Any]) -> str:
+    required = {"format", "overall", "q_a", "q_b", "gates", "candidates",
+                "first_empty_arm", "l90_comparison", "fkey_unchanged",
+                "extra_lines_absent", "input_sha256", "add2_observations_sha256"}
+    if set(doc) != required or doc.get("format") != "m6fe-add3-derived-v1":
+        raise InputError("追補3導出形式")
+    gates = doc["gates"]
+    if (not isinstance(gates, dict) or set(gates) != {"G9", "G10", "G11", "G12", "G13"}
+            or any(not isinstance(value, bool) for value in gates.values())):
+        raise InputError("追補3関門形式")
+    candidates = doc["candidates"]
+    valid = set(predictor.add3_candidate_ids())
+    if (not isinstance(candidates, list) or len(candidates) != len(set(candidates))
+            or any(value not in valid for value in candidates)):
+        raise InputError("追補3候補集合")
+    if (doc["first_empty_arm"] is not None
+            and doc["first_empty_arm"] not in predictor.ADD3_FILES_ARMS):
+        raise InputError("追補3初回全滅腕")
+    q_a_values = set(predictor.ADD3_PRINT_CANDIDATES) | {
+        "inconclusive_input_limit", "inconclusive_print_control",
+        "inconclusive_print_no_candidate",
+    }
+    q_b_values = valid | {"inconclusive_add3_no_candidate", "inconclusive_add3_multiple"}
+    if doc["q_a"] not in q_a_values or doc["q_b"] not in q_b_values:
+        raise InputError("追補3個別判定")
+    if doc["l90_comparison"] not in ("l90_reproduced", "l90_changed"):
+        raise InputError("L90比較")
+    if (not isinstance(doc["fkey_unchanged"], bool)
+            or not isinstance(doc["extra_lines_absent"], bool)):
+        raise InputError("追補3画面補助形式")
+    for key in ("input_sha256", "add2_observations_sha256"):
+        if not isinstance(doc[key], str) or not SHA_RE.fullmatch(doc[key]):
+            raise InputError("追補3入力SHA形式")
+    if not all(gates.values()):
+        return "gate_failed"
+    if doc["q_a"].startswith("inconclusive_"):
+        return doc["q_a"]
+    if doc["q_b"].startswith("inconclusive_"):
+        return doc["q_b"]
+    target = derive.ADD3_BASE_RULE + "_W"
+    if doc["q_a"] == "wrap_then_newline_blank" and doc["q_b"] == target:
+        return target
+    return "inconclusive_add3_disagree"
+
+
 def _emit(overall: str, judgments: list[str], digest: str) -> None:
     print(json.dumps({"overall": overall, "judgments": judgments, "sha256": digest},
                      ensure_ascii=True, sort_keys=True, separators=(",", ":")))
@@ -183,6 +233,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--derived", required=True, type=Path)
     ap.add_argument("--addendum2", action="store_true")
+    ap.add_argument("--addendum3", action="store_true")
     args = ap.parse_args()
     digest = hashlib.sha256()
     try:
@@ -191,12 +242,20 @@ def main() -> int:
         doc = json.loads(raw)
         if not isinstance(doc, dict):
             raise InputError("導出形式")
-        overall = _recompute_add2(doc) if args.addendum2 else _recompute(doc)
-        valid_fixed = ADD2_FIXED_OVERALL if args.addendum2 else FIXED_OVERALL
-        valid_candidates = predictor.add2_candidate_ids() if args.addendum2 else predictor.candidate_ids()
+        if args.addendum2 and args.addendum3:
+            raise InputError("追補モード重複")
+        overall = (_recompute_add3(doc) if args.addendum3 else
+                   _recompute_add2(doc) if args.addendum2 else _recompute(doc))
+        valid_fixed = (ADD3_FIXED_OVERALL if args.addendum3 else
+                       ADD2_FIXED_OVERALL if args.addendum2 else FIXED_OVERALL)
+        valid_candidates = (predictor.add3_candidate_ids() if args.addendum3 else
+                            predictor.add2_candidate_ids() if args.addendum2 else
+                            predictor.candidate_ids())
         if doc["overall"] != overall or (overall not in valid_fixed and overall not in valid_candidates):
             raise InputError("overall不一致")
-        judgments = ([overall, doc["l96_comparison"]] if args.addendum2
+        judgments = ([overall, doc["q_a"], doc["q_b"], doc["l90_comparison"]]
+                     if args.addendum3 else
+                     [overall, doc["l96_comparison"]] if args.addendum2
                      else _judgments(doc, overall))
         _emit(overall, judgments, digest.hexdigest())
         return 0

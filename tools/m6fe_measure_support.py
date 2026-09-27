@@ -85,6 +85,29 @@ def _g13(value: css.ScreenSignature) -> dict[str, bool]:
             "physical_row": physical_row}
 
 
+def _input_pending(value: css.ScreenSignature, arm: str) -> bool:
+    """CLSで消えるはずの自作コマンドエコーが最終画面に残るかを署名だけで見る。
+
+    G10の安定画面＋最終非空行だけでは、未実行の長い入力行を通常完了と区別
+    できない。生本文reportを作る check_l3_entry_screen.py は本測定では使用
+    禁止なので、既知の自作打鍵列をメモリ内で80桁分割し、開始行0..18を
+    総当たりした行署名だけで検出する。実行が始まれば先頭のCLSがエコーを
+    消すため、PRINT出力署名との混同はない。
+    """
+    if arm not in predict.ADD3_PRINT_ARMS:
+        return False
+    length = int(arm[1:])
+    command = f'CLS:PRINT "{"A" * length}":PRINT "B"'
+    chunks = [command[index:index + 80].rstrip()
+              for index in range(0, len(command), 80)]
+    for start in range(19 - len(chunks) + 1):
+        if all(value.lines.get(start + offset) == css.LineSignature(
+                len(chunk), predict._hash_line(start + offset, chunk).sha256)
+               for offset, chunk in enumerate(chunks)):
+            return True
+    return False
+
+
 def normalize_run(args: argparse.Namespace) -> int:
     baseline = css.read_report(args.report, "baseline")
     final = css.read_report(args.report, "final")
@@ -112,6 +135,8 @@ def normalize_run(args: argparse.Namespace) -> int:
         "fkey_unchanged": baseline_fkey == final_fkey,
         "extra_lines_absent": not extra_rows,
     }
+    if args.addendum3:
+        observation["input_pending"] = _input_pending(final, args.arm)
     value = {
         "format": "m6fe-run-v1", "arm": args.arm, "repetition": args.repetition,
         "baseline_ok": _baseline_ok(baseline), "observation": observation,
@@ -133,7 +158,10 @@ def arm_check(args: argparse.Namespace) -> int:
             or observations[0]["entry_lines"] != observations[1]["entry_lines"]):
         failed.add("G9")
     if args.arm not in ("N-wait", "L96"):
-        if any(run["screen"] != run["late_screen"] or not run["input_wait"]
+        if any(run["screen"] != run["late_screen"]
+               or not (run["input_wait"] or (args.addendum3
+                       and args.arm in predict.ADD3_PRINT_ARMS
+                       and run.get("input_pending") is True))
                for run in observations):
             failed.add("G10")
     if any(not run["reference_unchanged"] for run in observations):
@@ -264,8 +292,51 @@ def assemble_add2(args: argparse.Namespace) -> int:
     return 0
 
 
+def assemble_add3(args: argparse.Namespace) -> int:
+    manifest = predict._manifest(args.manifest, addendum3=True)
+    all_arms = predict.ADD3_PRINT_ARMS + predict.ADD3_FILES_ARMS
+    runs_by_arm: dict[str, list[dict[str, Any]]] = {}
+    for arm in all_arms:
+        paths = [args.run_dir / f"{arm}-r{rep}.safe.json" for rep in (1, 2)]
+        values = [json.loads(path.read_text(encoding="ascii")) for path in paths]
+        if any(value.get("arm") != arm or value.get("repetition") != rep
+               for rep, value in enumerate(values, 1)):
+            raise SupportError("add3_run_identity")
+        if arm in predict.ADD3_PRINT_ARMS:
+            allowed_counts = {len(predict.predict_print_candidate(arm, candidate))
+                              for candidate in predict.ADD3_PRINT_CANDIDATES}
+        else:
+            allowed_counts = {len(predict.predict_add3_candidate(manifest, arm, candidate))
+                              for candidate in predict.add3_candidate_ids()}
+        for value in values:
+            actual_count = len(value["observation"]["entry_lines"])
+            value["observation"]["extra_lines_absent"] = (
+                value["observation"]["extra_lines_absent"]
+                and (value["observation"].get("input_pending") is True
+                     or actual_count in allowed_counts))
+        runs_by_arm[arm] = values
+    observations = {
+        "format": "m6fe-add3-observations-v1",
+        "arms": {arm: [run["observation"] for run in runs_by_arm[arm]]
+                 for arm in all_arms},
+    }
+    _write_new(args.output, observations)
+    return 0
+
+
 def summary(args: argparse.Namespace) -> int:
     judgment = json.loads(args.judgment.read_text(encoding="ascii"))
+    if args.addendum3:
+        value = {
+            "format": "m6fe-add3-summary-v1", "run_count": 14,
+            "frontend_launch_count": args.frontend_launch_count,
+            "preflight_gates": {f"G{index}": True for index in range(9)},
+            "run_gates": {f"G{index}": True for index in range(9, 15)},
+            "judgments": judgment["judgments"],
+            "reference_unchanged": True, "output_audit_file_count": 0,
+        }
+        _write_new(args.output, value)
+        return 0
     if args.addendum2:
         value = {
             "format": "m6fe-add2-summary-v1", "run_count": 10,
@@ -297,12 +368,14 @@ def summary(args: argparse.Namespace) -> int:
 
 
 def plan_check(args: argparse.Namespace) -> int:
-    manifest = predict._manifest(args.manifest, args.addendum2)
+    manifest = predict._manifest(args.manifest, args.addendum2, args.addendum3)
     arms = manifest["arms"]
     ids = [arm.get("id") for arm in arms]
     plan = [(arm.get("id"), rep) for arm in arms for rep in range(1, arm.get("runs", 0) + 1)]
-    expected_arms = predict.ADD2_ARMS if args.addendum2 else derive.ALL_ARMS
-    expected_runs = 10 if args.addendum2 else 30
+    expected_arms = (predict.ADD3_PRINT_ARMS + predict.ADD3_FILES_ARMS
+                     if args.addendum3 else
+                     predict.ADD2_ARMS if args.addendum2 else derive.ALL_ARMS)
+    expected_runs = 14 if args.addendum3 else 10 if args.addendum2 else 30
     ok = (ids == list(expected_arms) and len(plan) == expected_runs and len(set(plan)) == expected_runs
           and all(arm.get("runs") == 2 for arm in arms))
     if not ok:
@@ -318,36 +391,47 @@ def main() -> int:
     norm.add_argument("--report", required=True, type=Path)
     norm.add_argument("--iolog", required=True, type=Path)
     norm.add_argument("--arm", required=True,
-                      choices=derive.ALL_ARMS + predict.ADD2_ARMS)
+                      choices=derive.ALL_ARMS + predict.ADD2_ARMS
+                      + predict.ADD3_PRINT_ARMS + predict.ADD3_FILES_ARMS)
     norm.add_argument("--repetition", required=True, type=int, choices=(1, 2))
     norm.add_argument("--reference-unchanged", required=True,
                       type=lambda value: value == "true", choices=(True, False))
     norm.add_argument("--output", required=True, type=Path)
+    norm.add_argument("--addendum3", action="store_true")
     norm.set_defaults(func=normalize_run)
     arm = sub.add_parser("arm-check")
     arm.add_argument("--arm", required=True,
-                     choices=derive.ALL_ARMS + predict.ADD2_ARMS)
+                     choices=derive.ALL_ARMS + predict.ADD2_ARMS
+                     + predict.ADD3_PRINT_ARMS + predict.ADD3_FILES_ARMS)
     arm.add_argument("--run", required=True, type=Path, action="append")
+    arm.add_argument("--addendum3", action="store_true")
     arm.set_defaults(func=arm_check)
     ass = sub.add_parser("assemble")
     ass.add_argument("--manifest", required=True, type=Path)
     ass.add_argument("--run-dir", required=True, type=Path)
     ass.add_argument("--output", required=True, type=Path)
     ass.add_argument("--addendum2", action="store_true")
-    ass.set_defaults(func=lambda args: assemble_add2(args) if args.addendum2 else assemble(args))
+    ass.add_argument("--addendum3", action="store_true")
+    ass.set_defaults(func=lambda args: assemble_add3(args) if args.addendum3 else
+                     assemble_add2(args) if args.addendum2 else assemble(args))
     summ = sub.add_parser("summary")
     summ.add_argument("--judgment", required=True, type=Path)
     summ.add_argument("--run-dir", required=True, type=Path)
     summ.add_argument("--frontend-launch-count", required=True, type=int)
     summ.add_argument("--output", required=True, type=Path)
     summ.add_argument("--addendum2", action="store_true")
+    summ.add_argument("--addendum3", action="store_true")
     summ.set_defaults(func=summary)
     plan = sub.add_parser("plan-check")
     plan.add_argument("--manifest", required=True, type=Path)
     plan.add_argument("--addendum2", action="store_true")
+    plan.add_argument("--addendum3", action="store_true")
     plan.set_defaults(func=plan_check)
     args = ap.parse_args()
     try:
+        if (getattr(args, "addendum2", False)
+                and getattr(args, "addendum3", False)):
+            raise SupportError("addendum_mode")
         return args.func(args)
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError,
             ValueError, css.SignatureInputError, SupportError):

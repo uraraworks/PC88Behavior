@@ -136,6 +136,17 @@ def _add2_media_definitions() -> dict[str, dict]:
     return media
 
 
+def _add3_media_definitions() -> dict[str, dict]:
+    media = {
+        arm: _layout(_numbered_entries("Q", count), [])
+        for arm, count in (("L81", 81), ("L86", 86), ("L91", 91), ("L90'", 90))
+    }
+    for media_id, definition in media.items():
+        safe_id = "L90p" if media_id == "L90'" else media_id
+        definition["file"] = f"{safe_id}.d88"
+    return media
+
+
 def _arms() -> list[dict]:
     arms: list[dict] = []
     for arm in ("L0", "L1", "L4", "L5", "L6", "L11", "L96"):
@@ -222,6 +233,41 @@ def build_add2_manifest() -> dict:
     }
 
 
+def _print_command(length: int) -> str:
+    return f'CLS:PRINT "{"A" * length}":PRINT "B"'
+
+
+def build_add3_manifest() -> dict:
+    media = _add3_media_definitions()
+    arms = [{
+        "id": arm,
+        "runs": 2,
+        "drive1": "reference_boot_copy",
+        "drive2": "empty",
+        "command": _print_command(length),
+        "command_time": "after_cls_baseline",
+        "final_frame": 8000,
+        "events": [],
+    } for arm, length in (("P79", 79), ("P80", 80), ("P81", 81))]
+    arms.extend({
+        "id": arm,
+        "runs": 2,
+        "drive1": "reference_boot_copy",
+        "drive2": arm,
+        "command": "CLS:FILES 2",
+        "command_time": "after_boot_complete",
+        "final_frame": 12000,
+        "events": [],
+    } for arm in media)
+    return {
+        "format": "m6fe-add3-scenario-v1",
+        "disk_spec": "l3-disk-format-v3",
+        "media_order": list(media),
+        "media": media,
+        "arms": arms,
+    }
+
+
 def _deleted_bytes(marker: str) -> bytes:
     payload = marker.encode("ascii")
     return b"\x00" + (payload * 3)[:15].ljust(15, b"_")
@@ -285,10 +331,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", type=pathlib.Path)
     parser.add_argument("--addendum2", action="store_true")
+    parser.add_argument("--addendum3", action="store_true")
     parser.add_argument("--expected-manifest-sha256", metavar="HEX")
     args = parser.parse_args()
 
-    manifest = build_add2_manifest() if args.addendum2 else build_manifest()
+    if args.addendum2 and args.addendum3:
+        parser.error("--addendum2 と --addendum3 は同時指定不可")
+    manifest = (build_add3_manifest() if args.addendum3 else
+                build_add2_manifest() if args.addendum2 else build_manifest())
     manifest_bytes = canonical_json(manifest)
     digest = hashlib.sha256(manifest_bytes).hexdigest()
     if args.expected_manifest_sha256 is not None and args.expected_manifest_sha256 != digest:

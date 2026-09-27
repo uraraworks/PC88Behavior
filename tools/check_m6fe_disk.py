@@ -208,6 +208,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=pathlib.Path)
     parser.add_argument("--addendum2", action="store_true")
+    parser.add_argument("--addendum3", action="store_true")
     parser.add_argument("--image-dir", type=pathlib.Path)
     parser.add_argument("--media")
     parser.add_argument("--image", type=pathlib.Path)
@@ -220,12 +221,17 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
-        expected_format = "m6fe-add2-scenario-v1" if args.addendum2 else "m6fe-scenario-v1"
+        if args.addendum2 and args.addendum3:
+            parser.error("追補モードは同時指定不可")
+        expected_format = ("m6fe-add3-scenario-v1" if args.addendum3 else
+                           "m6fe-add2-scenario-v1" if args.addendum2 else
+                           "m6fe-scenario-v1")
         manifest, raw = _load_manifest(args.manifest, expected_format)
         failures: dict[str, list[str]] = {}
         sha256_file = args.sha256_file
         if sha256_file is None:
-            name = "m6fe_add2_frozen.tsv" if args.addendum2 else "m6fe_frozen.tsv"
+            name = ("m6fe_add3_frozen.tsv" if args.addendum3 else
+                    "m6fe_add2_frozen.tsv" if args.addendum2 else "m6fe_frozen.tsv")
             sha256_file = pathlib.Path(__file__).with_name(name)
         fields = sha256_file.read_text(encoding="ascii").split()
         if not fields:

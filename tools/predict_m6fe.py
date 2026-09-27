@@ -35,6 +35,10 @@ SIZES = ("UNITS", "SECTORS", "NONE")
 LAYOUT_ARMS = ("L0", "L1", "L4", "L5", "L6", "L11", "L96")
 DISPLAY_ARMS = LAYOUT_ARMS + ("D-omit", "D-1", "D-2", "D-expr", "N-wait")
 ADD2_ARMS = ("L80", "L85", "L90", "L95", "L96'")
+ADD3_PRINT_ARMS = ("P79", "P80", "P81")
+ADD3_FILES_ARMS = ("L81", "L86", "L91", "L90'")
+ADD3_PRINT_CANDIDATES = ("wrap_then_newline_blank", "wrap_absorbs_newline")
+ADD3_SUFFIXES = ("T2", "T3", "W")
 SCROLL_ROWS = 19
 WAIT_ROWS = 1
 ADD2_TRAILING_ROWS = (1, 2, 3)
@@ -65,11 +69,23 @@ def add2_candidate_ids() -> tuple[str, ...]:
                  for trailing_rows in ADD2_TRAILING_ROWS)
 
 
+def add3_candidate_ids() -> tuple[str, ...]:
+    return tuple(f"{candidate}_{suffix}"
+                 for candidate in candidate_ids() for suffix in ADD3_SUFFIXES)
+
+
 def _add2_candidate_parts(candidate_id: str) -> tuple[str, int]:
     match = re.fullmatch(r"(.+)_T([123])", candidate_id)
     if match is None or match.group(1) not in candidate_ids():
         raise PredictionError("追補2候補ID形式")
     return match.group(1), int(match.group(2))
+
+
+def _add3_candidate_parts(candidate_id: str) -> tuple[str, str]:
+    match = re.fullmatch(r"(.+)_(T2|T3|W)", candidate_id)
+    if match is None or match.group(1) not in candidate_ids():
+        raise PredictionError("追補3候補ID形式")
+    return match.group(1), match.group(2)
 
 
 def _candidate_parts(candidate_id: str) -> tuple[str, str, str, str]:
@@ -86,12 +102,17 @@ def _candidate_parts(candidate_id: str) -> tuple[str, str, str, str]:
     raise PredictionError("候補ID未登録")
 
 
-def _manifest(path: Path, addendum2: bool = False) -> dict[str, Any]:
+def _manifest(path: Path, addendum2: bool = False,
+              addendum3: bool = False) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="ascii"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise PredictionError("manifest読取失敗") from exc
-    expected_format = "m6fe-add2-scenario-v1" if addendum2 else "m6fe-scenario-v1"
+    if addendum2 and addendum3:
+        raise PredictionError("追補モード重複")
+    expected_format = ("m6fe-add3-scenario-v1" if addendum3 else
+                       "m6fe-add2-scenario-v1" if addendum2 else
+                       "m6fe-scenario-v1")
     if not isinstance(value, dict) or value.get("format") != expected_format:
         raise PredictionError("manifest形式")
     if not isinstance(value.get("media"), dict) or not isinstance(value.get("arms"), list):
@@ -207,6 +228,50 @@ def predict_add2_candidate(manifest: dict[str, Any], arm_id: str,
     return predict_candidate(manifest, arm_id, base_id, trailing_rows)
 
 
+def predict_add3_candidate(manifest: dict[str, Any], arm_id: str,
+                           candidate_id: str) -> list[SignedLine]:
+    base_id, suffix = _add3_candidate_parts(candidate_id)
+    if arm_id not in ADD3_FILES_ARMS:
+        raise PredictionError("追補3 FILES腕ID")
+    layout, name_rule, type_rule, size_rule = _candidate_parts(base_id)
+    media = _arm_media(manifest, arm_id)
+    items = [_entry_text(entry, name_rule, type_rule, size_rule)
+             for entry in media["entries"]]
+    lines = _layout_lines(items, layout)
+    # _W は、最後の出力行そのものが80桁のときだけ、直後の改行による
+    # 空行を含めてT3とする。固定セル候補も実際に80桁かを本文メモリ内で
+    # 判定するので、表へ本文は出ない。
+    # 署名器は行末空白を落とすので、固定セルの満杯行は署名上76桁等に
+    # 見える。したがって_Wの「80桁ちょうど」は、正規化後の文字数でなく
+    # 配置前のセル数（G5=5件、G4=4件）から判定する。
+    full_row = ((layout == "G5" and bool(items) and len(items) % 5 == 0)
+                or (layout == "G4" and bool(items) and len(items) % 4 == 0)
+                or (layout == "PACK" and bool(lines) and len(lines[-1]) == 80))
+    trailing_rows = (2 if suffix == "T2" else 3 if suffix == "T3"
+                     else 3 if full_row else 2)
+    return _visible_entry_lines(lines, trailing_rows)
+
+
+def _print_lines(length: int, candidate_id: str) -> list[SignedLine]:
+    if candidate_id not in ADD3_PRINT_CANDIDATES or length not in (79, 80, 81):
+        raise PredictionError("追補3 PRINT予測")
+    body = "A" * length
+    rows: list[tuple[int, str]] = [(0, body[:80])]
+    if length == 79:
+        rows.append((1, "B"))
+    elif length == 80:
+        rows.append((2 if candidate_id == "wrap_then_newline_blank" else 1, "B"))
+    else:
+        rows.extend(((1, body[80:]), (2, "B")))
+    return [_hash_line(row, text) for row, text in rows]
+
+
+def predict_print_candidate(arm_id: str, candidate_id: str) -> list[SignedLine]:
+    if arm_id not in ADD3_PRINT_ARMS:
+        raise PredictionError("追補3 PRINT腕ID")
+    return _print_lines(int(arm_id[1:]), candidate_id)
+
+
 def predict_error(error_number: int) -> list[SignedLine]:
     number = _uint(error_number, 255)
     # CLS後 row0=0、PRINT整数は正数/0の前後に空白1つ（l4-basic.md §2）。
@@ -254,6 +319,28 @@ def render_add2_candidates(manifest: dict[str, Any]) -> bytes:
     return _render_add2_subset(manifest, ADD2_TRAILING_ROWS)
 
 
+def render_add3_print_candidates() -> bytes:
+    out = ["record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"]
+    for candidate_id in ADD3_PRINT_CANDIDATES:
+        for arm in ADD3_PRINT_ARMS:
+            lines = predict_print_candidate(arm, candidate_id)
+            for line in lines:
+                out.append(f"row\t{candidate_id}\t{arm}\t{line.physical_row}\t{line.char_count}\t{line.sha256}")
+            out.append(f"summary\t{candidate_id}\t{arm}\t-\t{len(lines)}\t{_whole_digest(lines)}")
+    return ("\n".join(out) + "\n").encode("ascii")
+
+
+def render_add3_candidates(manifest: dict[str, Any]) -> bytes:
+    out = ["record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"]
+    for candidate_id in add3_candidate_ids():
+        for arm in ADD3_FILES_ARMS:
+            lines = predict_add3_candidate(manifest, arm, candidate_id)
+            for line in lines:
+                out.append(f"row\t{candidate_id}\t{arm}\t{line.physical_row}\t{line.char_count}\t{line.sha256}")
+            out.append(f"summary\t{candidate_id}\t{arm}\t-\t{len(lines)}\t{_whole_digest(lines)}")
+    return ("\n".join(out) + "\n").encode("ascii")
+
+
 def render_errors(arm: str) -> bytes:
     out = ["record\tprediction_id\tarm\tphysical_row\tchar_count\tsha256"]
     for number in range(256):
@@ -279,11 +366,23 @@ def main() -> int:
     ap.add_argument("--errors-for-arm")
     ap.add_argument("--expected-sha256")
     ap.add_argument("--addendum2", action="store_true")
+    ap.add_argument("--addendum3", action="store_true")
+    ap.add_argument("--print-predictions", action="store_true")
     ap.add_argument("--trailing-rows", type=int, choices=ADD2_TRAILING_ROWS)
     args = ap.parse_args()
     try:
-        manifest = _manifest(args.manifest, args.addendum2)
-        if args.addendum2:
+        if args.addendum2 and args.addendum3:
+            raise PredictionError("追補モード重複")
+        manifest = _manifest(args.manifest, args.addendum2, args.addendum3)
+        if args.addendum3:
+            if (args.errors_for_arm is not None or args.arms != ",".join(LAYOUT_ARMS)
+                    or args.trailing_rows is not None):
+                raise PredictionError("追補3引数")
+            payload = (render_add3_print_candidates() if args.print_predictions
+                       else render_add3_candidates(manifest))
+        elif args.print_predictions:
+            raise PredictionError("PRINT予測は追補3専用")
+        elif args.addendum2:
             if args.errors_for_arm is not None or args.arms != ",".join(LAYOUT_ARMS):
                 raise PredictionError("追補2引数")
             trailing = ADD2_TRAILING_ROWS if args.trailing_rows is None else (args.trailing_rows,)

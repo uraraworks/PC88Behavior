@@ -318,6 +318,11 @@ SCRIPTS_EXPECTED=(
   "tools/make_m6fe_add2_disk_selftest.sh:0"
   "tools/m6fe_add2_predict_derive_selftest.sh:0"
   "tools/measure_m6fe_add2_driver_selftest.sh:0"
+  # m6f-e追補3。PRINT 3腕、FILES 4媒体、T2/T3/Wの162候補、L90再現、
+  # 入力制限の分離、偽フロントエンド14走とG0〜G14を合成入力で検査する。
+  "tools/make_m6fe_add3_disk_selftest.sh:0"
+  "tools/m6fe_add3_predict_derive_selftest.sh:0"
+  "tools/measure_m6fe_add3_driver_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
