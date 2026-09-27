@@ -272,6 +272,22 @@ def predict_print_candidate(arm_id: str, candidate_id: str) -> list[SignedLine]:
     return _print_lines(int(arm_id[1:]), candidate_id)
 
 
+def predict_add4_print_candidate(arm_id: str, candidate_id: str) -> list[SignedLine]:
+    """追補4用。腕と候補は追補3と同じで、表示文字だけを小文字にする。"""
+    if arm_id not in ADD3_PRINT_ARMS or candidate_id not in ADD3_PRINT_CANDIDATES:
+        raise PredictionError("追補4 PRINT予測")
+    length = int(arm_id[1:])
+    body = "a" * length
+    rows: list[tuple[int, str]] = [(0, body[:80])]
+    if length == 79:
+        rows.append((1, "b"))
+    elif length == 80:
+        rows.append((2 if candidate_id == "wrap_then_newline_blank" else 1, "b"))
+    else:
+        rows.extend(((1, body[80:]), (2, "b")))
+    return [_hash_line(row, text) for row, text in rows]
+
+
 def predict_error(error_number: int) -> list[SignedLine]:
     number = _uint(error_number, 255)
     # CLS後 row0=0、PRINT整数は正数/0の前後に空白1つ（l4-basic.md §2）。
@@ -330,6 +346,17 @@ def render_add3_print_candidates() -> bytes:
     return ("\n".join(out) + "\n").encode("ascii")
 
 
+def render_add4_print_candidates() -> bytes:
+    out = ["record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"]
+    for candidate_id in ADD3_PRINT_CANDIDATES:
+        for arm in ADD3_PRINT_ARMS:
+            lines = predict_add4_print_candidate(arm, candidate_id)
+            for line in lines:
+                out.append(f"row\t{candidate_id}\t{arm}\t{line.physical_row}\t{line.char_count}\t{line.sha256}")
+            out.append(f"summary\t{candidate_id}\t{arm}\t-\t{len(lines)}\t{_whole_digest(lines)}")
+    return ("\n".join(out) + "\n").encode("ascii")
+
+
 def render_add3_candidates(manifest: dict[str, Any]) -> bytes:
     out = ["record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"]
     for candidate_id in add3_candidate_ids():
@@ -367,14 +394,22 @@ def main() -> int:
     ap.add_argument("--expected-sha256")
     ap.add_argument("--addendum2", action="store_true")
     ap.add_argument("--addendum3", action="store_true")
+    ap.add_argument("--addendum4", action="store_true")
     ap.add_argument("--print-predictions", action="store_true")
     ap.add_argument("--trailing-rows", type=int, choices=ADD2_TRAILING_ROWS)
     args = ap.parse_args()
     try:
-        if args.addendum2 and args.addendum3:
+        if sum((args.addendum2, args.addendum3, args.addendum4)) > 1:
             raise PredictionError("追補モード重複")
-        manifest = _manifest(args.manifest, args.addendum2, args.addendum3)
-        if args.addendum3:
+        manifest = _manifest(args.manifest, args.addendum2,
+                             args.addendum3 or args.addendum4)
+        if args.addendum4:
+            if (not args.print_predictions or args.errors_for_arm is not None
+                    or args.arms != ",".join(LAYOUT_ARMS)
+                    or args.trailing_rows is not None):
+                raise PredictionError("追補4引数")
+            payload = render_add4_print_candidates()
+        elif args.addendum3:
             if (args.errors_for_arm is not None or args.arms != ",".join(LAYOUT_ARMS)
                     or args.trailing_rows is not None):
                 raise PredictionError("追補3引数")

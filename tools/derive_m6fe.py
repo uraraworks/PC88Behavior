@@ -342,6 +342,11 @@ def load_add3_print_candidates(path: Path):
                             predictor.ADD3_PRINT_ARMS, "追補3 PRINT予測表")
 
 
+def load_add4_print_candidates(path: Path):
+    return _load_add3_table(path, predictor.ADD3_PRINT_CANDIDATES,
+                            predictor.ADD3_PRINT_ARMS, "追補4 PRINT予測表")
+
+
 def _matches(lines: tuple[tuple[int, int, str], ...], candidates, arm: str) -> list[str]:
     return [candidate for candidate in predictor.candidate_ids()
             if candidates[(candidate, arm)] == lines]
@@ -644,29 +649,123 @@ def derive_add3(arms, files_candidates, print_candidates, add2_arms) -> dict[str
     }
 
 
+def load_add4_observations(path: Path) -> tuple[dict[str, list[dict[str, Any]]], str]:
+    try:
+        raw = path.read_bytes()
+        doc = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InputError("追補4観測入力読取") from exc
+    root = _keys(doc, {"format", "arms"}, {"format", "arms"})
+    if (root["format"] != "m6fe-add4-observations-v1"
+            or not isinstance(root["arms"], dict)
+            or set(root["arms"]) != set(predictor.ADD3_PRINT_ARMS)):
+        raise InputError("追補4観測入力形式")
+    arms = {}
+    for arm in predictor.ADD3_PRINT_ARMS:
+        runs = root["arms"][arm]
+        if not isinstance(runs, list) or len(runs) != 2:
+            raise InputError("追補4の2走形式")
+        arms[arm] = [_add3_run(run) for run in runs]
+    return arms, hashlib.sha256(raw).hexdigest()
+
+
+def load_add3_q_b(path: Path) -> tuple[str, str]:
+    try:
+        raw = path.read_bytes()
+        doc = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InputError("追補3導出入力読取") from exc
+    if not isinstance(doc, dict) or doc.get("format") != "m6fe-add3-derived-v1":
+        raise InputError("追補3導出入力形式")
+    required = {"format", "overall", "q_a", "q_b", "gates", "candidates",
+                "first_empty_arm", "l90_comparison", "fkey_unchanged",
+                "extra_lines_absent", "input_sha256", "add2_observations_sha256"}
+    if set(doc) != required:
+        raise InputError("追補3導出入力列")
+    q_b = doc["q_b"]
+    valid = set(predictor.add3_candidate_ids()) | {
+        "inconclusive_add3_no_candidate", "inconclusive_add3_multiple"}
+    if q_b not in valid:
+        raise InputError("追補3 Q-B形式")
+    if (not isinstance(doc["gates"], dict)
+            or set(doc["gates"]) != {"G9", "G10", "G11", "G12", "G13"}
+            or any(not isinstance(value, bool) for value in doc["gates"].values())):
+        raise InputError("追補3関門形式")
+    for key in ("input_sha256", "add2_observations_sha256"):
+        if not isinstance(doc[key], str) or not SHA_RE.fullmatch(doc[key]):
+            raise InputError("追補3入力SHA形式")
+    target = ADD3_BASE_RULE + "_W"
+    if (q_b != target or doc["candidates"] != [target]
+            or not all(doc["gates"].values())):
+        raise InputError("追補3 Q-B結果")
+    return q_b, hashlib.sha256(raw).hexdigest()
+
+
+def derive_add4(arms, print_candidates, q_b: str) -> dict[str, Any]:
+    gates = _add3_gates(arms)
+    matches = {
+        (arm, rep): [candidate for candidate in predictor.ADD3_PRINT_CANDIDATES
+                     if print_candidates[(candidate, arm)] == arms[arm][rep - 1]["entry_lines"]]
+        for arm in predictor.ADD3_PRINT_ARMS for rep in (1, 2)
+    }
+    if any(run["input_pending"] for arm in ("P80", "P81") for run in arms[arm]):
+        q_a = "inconclusive_input_limit"
+    elif any(set(matches[(arm, rep)]) != set(predictor.ADD3_PRINT_CANDIDATES)
+             for arm in ("P79", "P81") for rep in (1, 2)):
+        q_a = "inconclusive_print_control"
+    else:
+        remaining = list(predictor.ADD3_PRINT_CANDIDATES)
+        for rep in (1, 2):
+            allowed = set(matches[("P80", rep)])
+            remaining = [value for value in remaining if value in allowed]
+        q_a = (remaining[0] if len(remaining) == 1
+               else "inconclusive_print_no_candidate")
+    target = ADD3_BASE_RULE + "_W"
+    adopted = (all(gates.values()) and q_a == "wrap_then_newline_blank"
+               and q_b == target)
+    return {
+        "format": "m6fe-add4-derived-v1", "q_a": q_a, "q_b": q_b,
+        "adopted": adopted, "not_adopted": not adopted, "gates": gates,
+        "fkey_unchanged": all(run["fkey_unchanged"] for runs in arms.values() for run in runs),
+        "extra_lines_absent": all(run["extra_lines_absent"] for runs in arms.values() for run in runs),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--observations", required=True, type=Path)
     ap.add_argument("--candidates", type=Path)
     ap.add_argument("--addendum2", action="store_true")
     ap.add_argument("--addendum3", action="store_true")
+    ap.add_argument("--addendum4", action="store_true")
     ap.add_argument("--base-observations", type=Path)
     ap.add_argument("--base-candidates", type=Path, default=HERE / "m6fe_candidates_frozen.tsv")
     ap.add_argument("--add2-observations", type=Path)
-    ap.add_argument("--print-candidates", type=Path,
-                    default=HERE / "m6fe_add3_print_frozen.tsv")
+    ap.add_argument("--add3-derived", type=Path)
+    ap.add_argument("--print-candidates", type=Path)
     ap.add_argument("--output", type=Path)
     args = ap.parse_args()
     try:
-        if args.addendum2 and args.addendum3:
+        if sum((args.addendum2, args.addendum3, args.addendum4)) > 1:
             raise InputError("追補モード重複")
-        if args.addendum3:
+        if args.addendum4:
+            if args.add3_derived is None:
+                raise InputError("追補3導出入力が必要")
+            print_path = args.print_candidates or HERE / "m6fe_add4_print_frozen.tsv"
+            arms, input_digest = load_add4_observations(args.observations)
+            print_candidates = load_add4_print_candidates(print_path)
+            q_b, add3_digest = load_add3_q_b(args.add3_derived)
+            result = derive_add4(arms, print_candidates, q_b)
+            result["input_sha256"] = input_digest
+            result["add3_derived_sha256"] = add3_digest
+        elif args.addendum3:
             if args.add2_observations is None:
                 raise InputError("追補2観測入力が必要")
             candidates_path = args.candidates or HERE / "m6fe_add3_candidates_frozen.tsv"
             arms, input_digest = load_add3_observations(args.observations)
             candidates = load_add3_candidates(candidates_path)
-            print_candidates = load_add3_print_candidates(args.print_candidates)
+            print_candidates = load_add3_print_candidates(
+                args.print_candidates or HERE / "m6fe_add3_print_frozen.tsv")
             add2_arms, add2_digest = load_add2_observations(args.add2_observations)
             result = derive_add3(arms, candidates, print_candidates, add2_arms)
             result["input_sha256"] = input_digest

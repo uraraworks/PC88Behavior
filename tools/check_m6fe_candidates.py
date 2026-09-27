@@ -72,6 +72,24 @@ def verify(manifest_path: Path, candidates_path: Path, frozen_path: Path,
             raise GateError("PRINT予測組数")
 
 
+def verify_add4(print_candidates_path: Path, frozen_path: Path) -> None:
+    values: dict[str, str] = {}
+    for line in frozen_path.read_text(encoding="ascii").splitlines():
+        fields = line.split("\t")
+        if len(fields) != 2 or fields[0] in values:
+            raise GateError("追補4凍結表形式")
+        values[fields[0]] = fields[1]
+    if set(values) != {"print_candidates_sha256"}:
+        raise GateError("追補4凍結表キー")
+    raw = print_candidates_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != values["print_candidates_sha256"]:
+        raise GateError("追補4 PRINT予測表 SHA")
+    if raw != predict_m6fe.render_add4_print_candidates():
+        raise GateError("追補4 PRINT予測表再生成")
+    if len(derive_m6fe.load_add4_print_candidates(print_candidates_path)) != 6:
+        raise GateError("追補4 PRINT予測組数")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("manifest", type=Path)
@@ -79,11 +97,17 @@ def main() -> int:
     ap.add_argument("--frozen", type=Path)
     ap.add_argument("--addendum2", action="store_true")
     ap.add_argument("--addendum3", action="store_true")
+    ap.add_argument("--addendum4", action="store_true")
     ap.add_argument("--print-candidates", type=Path)
     args = ap.parse_args()
     try:
-        if args.addendum2 and args.addendum3:
+        if sum((args.addendum2, args.addendum3, args.addendum4)) > 1:
             raise GateError("追補モード重複")
+        if args.addendum4:
+            verify_add4(args.print_candidates or HERE / "m6fe_add4_print_frozen.tsv",
+                        args.frozen or HERE / "m6fe_add4_frozen.tsv")
+            print("m6fe_candidates_gate=ok")
+            return 0
         candidates = args.candidates or HERE / (
             "m6fe_add3_candidates_frozen.tsv" if args.addendum3 else
             "m6fe_add2_candidates_frozen.tsv" if args.addendum2 else "m6fe_candidates_frozen.tsv")

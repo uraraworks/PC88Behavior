@@ -29,6 +29,10 @@ ADD3_FIXED_OVERALL = {
     "inconclusive_print_no_candidate", "inconclusive_add3_no_candidate",
     "inconclusive_add3_multiple", "inconclusive_add3_disagree",
 }
+ADD4_Q_A = set(predictor.ADD3_PRINT_CANDIDATES) | {
+    "inconclusive_input_limit", "inconclusive_print_control",
+    "inconclusive_print_no_candidate",
+}
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 ERROR_RE = re.compile(r"files_error_err_(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])")
 
@@ -224,6 +228,33 @@ def _recompute_add3(doc: dict[str, Any]) -> str:
     return "inconclusive_add3_disagree"
 
 
+def _recompute_add4(doc: dict[str, Any]) -> bool:
+    required = {"format", "q_a", "q_b", "adopted", "not_adopted", "gates",
+                "fkey_unchanged", "extra_lines_absent", "input_sha256",
+                "add3_derived_sha256"}
+    if set(doc) != required or doc.get("format") != "m6fe-add4-derived-v1":
+        raise InputError("追補4導出形式")
+    gates = doc["gates"]
+    if (not isinstance(gates, dict) or set(gates) != {"G9", "G10", "G11", "G12", "G13"}
+            or any(not isinstance(value, bool) for value in gates.values())):
+        raise InputError("追補4関門形式")
+    if doc["q_a"] not in ADD4_Q_A or doc["q_b"] not in set(predictor.add3_candidate_ids()) | {
+            "inconclusive_add3_no_candidate", "inconclusive_add3_multiple"}:
+        raise InputError("追補4個別判定")
+    if any(not isinstance(doc[key], bool) for key in (
+            "adopted", "not_adopted", "fkey_unchanged", "extra_lines_absent")):
+        raise InputError("追補4真偽値")
+    for key in ("input_sha256", "add3_derived_sha256"):
+        if not isinstance(doc[key], str) or not SHA_RE.fullmatch(doc[key]):
+            raise InputError("追補4入力SHA形式")
+    target = derive.ADD3_BASE_RULE + "_W"
+    adopted = (all(gates.values()) and doc["q_a"] == "wrap_then_newline_blank"
+               and doc["q_b"] == target)
+    if doc["adopted"] != adopted or doc["not_adopted"] != (not adopted):
+        raise InputError("追補4採否不一致")
+    return adopted
+
+
 def _emit(overall: str, judgments: list[str], digest: str) -> None:
     print(json.dumps({"overall": overall, "judgments": judgments, "sha256": digest},
                      ensure_ascii=True, sort_keys=True, separators=(",", ":")))
@@ -234,6 +265,7 @@ def main() -> int:
     ap.add_argument("--derived", required=True, type=Path)
     ap.add_argument("--addendum2", action="store_true")
     ap.add_argument("--addendum3", action="store_true")
+    ap.add_argument("--addendum4", action="store_true")
     args = ap.parse_args()
     digest = hashlib.sha256()
     try:
@@ -242,8 +274,15 @@ def main() -> int:
         doc = json.loads(raw)
         if not isinstance(doc, dict):
             raise InputError("導出形式")
-        if args.addendum2 and args.addendum3:
+        if sum((args.addendum2, args.addendum3, args.addendum4)) > 1:
             raise InputError("追補モード重複")
+        if args.addendum4:
+            adopted = _recompute_add4(doc)
+            print(json.dumps({"judgments": [doc["q_a"], doc["q_b"]],
+                              "adopted": adopted, "not_adopted": not adopted,
+                              "sha256": digest.hexdigest()}, ensure_ascii=True,
+                             sort_keys=True, separators=(",", ":")))
+            return 0
         overall = (_recompute_add3(doc) if args.addendum3 else
                    _recompute_add2(doc) if args.addendum2 else _recompute(doc))
         valid_fixed = (ADD3_FIXED_OVERALL if args.addendum3 else
