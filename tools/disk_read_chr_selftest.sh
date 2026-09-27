@@ -10,6 +10,7 @@ BUILD=(python3 "$REPO/src/build_main_rom.py")
 "${BUILD[@]}" "$WORK/main" --enable-main-sub-read --work-dir "$WORK/w-main" >/dev/null
 "${BUILD[@]}" "$WORK/retry" --enable-disk-read-retry --work-dir "$WORK/w-retry" >/dev/null
 "${BUILD[@]}" "$WORK/plain" --work-dir "$WORK/w-plain" >/dev/null
+"${BUILD[@]}" "$WORK/disabled" --disable-main-sub-read --work-dir "$WORK/w-disabled" >/dev/null
 "${BUILD[@]}" "$WORK/chr" --enable-disk-read-chr --work-dir "$WORK/w-chr" >/dev/null
 
 DISK=(python3 "$REPO/tools/make_l3_testdisk.py")
@@ -133,10 +134,10 @@ checks = {
     "g5_dynamic_independence": dynamically_independent(reader.read_sector),
     "chr_flag_gate": (
         "main_sub_read_chr.asm" in (work / "w-chr" / "n88_main_gen.asm").read_text()
-        and all(
-            "main_sub_read_chr.asm" not in (work / directory / "n88_main_gen.asm").read_text()
-            for directory in ("w-main", "w-retry", "w-plain")
-        )
+        and "main_sub_read_chr.asm" in (work / "w-plain" / "n88_main_gen.asm").read_text()
+        and all("main_sub_read_chr.asm" not in
+                (work / directory / "n88_main_gen.asm").read_text()
+                for directory in ("w-main", "w-retry", "w-disabled"))
     ),
 }
 if not all(checks.values()):

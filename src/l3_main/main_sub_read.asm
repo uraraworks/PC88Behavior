@@ -3,8 +3,9 @@
 ; 根拠は docs/spec/l3-subrom.md 1.10, 1.12, 1.13, 1.19, 1.31,
 ; 1.36, 1.37, 1.46, 1.63節、および tools/make_l3_test_main.py の
 ; SEND_MAIN/SEND_MAIN_CONT/SEND_MAIN_PAIR/RECV_MAIN/RECV_MAIN_PAIR手順だけ。
-; BASICのFILES/LOAD/SAVEとは接続しない。build_main_rom.pyの
-; --enable-main-sub-readを指定した検査用ビルドだけに連結される。
+; BASICのFILES/LOAD/SAVEとの接続に使うため配布ビルドにも連結される。
+; --enable-main-sub-readは起動時に既知READを1回行う検査用であり、
+; 無指定の配布ビルドは本ルーチンを起動経路から呼ばない。
 ;
 ; MAIN_SUB_READ_KNOWN:
 ;   入力 A bit0 = ドライブ選択 (0=A, 1=B)。
@@ -317,7 +318,7 @@ _ms_read_return:
     POP AF
     RET
 
-; --enable-main-sub-read時の定常ループ用。入口自体は反復呼出し可能だが、
+; --enable-main-sub-read検査時の定常ループ用。入口自体は反復呼出し可能だが、
 ; 自動呼出しは1回だけにする。既定ドライブA(bit0=0)を選ぶ。
 MAIN_SUB_READ_INIT:
     XOR A

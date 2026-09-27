@@ -753,6 +753,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         enable_main_sub_read: bool = False,
                         enable_disk_read_retry: bool = False,
                         enable_disk_read_chr: bool = False,
+                        enable_main_sub_boot: bool = True,
                         inject_main_sub_wait_fault: bool = False,
                         inject_main_sub_cont_fault: bool = False,
                         inject_main_sub_pair_fault: bool = False,
@@ -790,10 +791,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
     # (無条件で呼ぶとL1適合検査のOUT件数・サイクル数が変わる)。
     ext_bank_selftest_call = "    CALL EXT_BANK_SELFTEST\n" if enable_ext_bank_selftest else ""
-    if enable_disk_read_retry:
+    if enable_main_sub_boot and enable_disk_read_retry:
         main_sub_init_call = "    CALL DISK_READ_RETRY_INIT\n"
+    elif enable_main_sub_boot and enable_main_sub_read:
+        main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n"
     else:
-        main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n" if enable_main_sub_read else ""
+        main_sub_init_call = ""
     # 拡張ROMバンク: EXT_BANK_BUSY(再入検出フラグ)の初期化は
     # selftestフラグの有無と無関係に必ず行う(src/ext_bank/relay.asmの
     # EXT_BANK_INITコメント参照。RAMがゼロ初期化される保証が無いため、
@@ -821,9 +824,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         steady_wait_calls += "    CALL EXT_BANK_LOOP_TEST\n"
     if enable_vsync_regcheck:
         steady_wait_calls += "    CALL VSYNC_REGCHECK\n"
-    if enable_disk_read_retry:
+    if enable_main_sub_boot and enable_disk_read_retry:
         steady_wait_calls += "    CALL DISK_READ_RETRY_BOOT_ONCE\n"
-    elif enable_main_sub_read:
+    elif enable_main_sub_boot and enable_main_sub_read:
         steady_wait_calls += "    CALL MAIN_SUB_READ_BOOT_ONCE\n"
     if steady_wait_calls:
         if STEADY_WAIT_MARK not in ipl_text:
@@ -1280,11 +1283,19 @@ def main():
                           "（自己検査の陰性対照専用）")
     ap.add_argument("--enable-main-sub-read", action="store_true",
                     help="検査用ビルドにmain<->sub通信と既知1セクタREAD入口を入れ、"
-                         "定常状態でドライブAを1回読む（配布ビルドは既定off）")
+                         "定常状態でドライブAを1回読む（ルーチン自体は配布ビルドにも入る）")
     ap.add_argument("--enable-disk-read-retry", action="store_true",
-                    help="既知1セクタREADを待ち・空送信なし、失敗時1回だけ再試行する")
+                    help="検査用ビルドで既知1セクタREADを待ち・空送信なし、"
+                         "失敗時1回だけ再試行する")
     ap.add_argument("--enable-disk-read-chr", action="store_true",
-                    help="任意のドライブ・論理トラック・Rを読む入口と再試行口を連結する")
+                    help="検査用ビルドで任意のドライブ・論理トラック・Rを読む入口と"
+                         "再試行口を連結する")
+    ap.add_argument("--disable-main-sub-read", action="store_true",
+                    help="main<->sub READの3ルーチンをすべて配布ビルドから外す")
+    ap.add_argument("--disable-disk-read-retry", action="store_true",
+                    help="既知座標READの再試行ルーチンだけを配布ビルドから外す")
+    ap.add_argument("--disable-disk-read-chr", action="store_true",
+                    help="任意座標READとその再試行ルーチンだけを配布ビルドから外す")
     ap.add_argument("--inject-main-sub-wait-fault", action="store_true",
                     help="故障注入: SEND前のbit1待ちを反対(bit1=0)にする。"
                          "main-sub READを暗黙に有効化する")
@@ -1346,8 +1357,6 @@ def main():
         ap.error("m6i-iの故障注入は1種類だけ指定する")
     if any(m6ii_fault_flags) and not args.inject_m6ii_sweep:
         ap.error("m6i-iの故障注入は--inject-m6ii-sweepと併用する")
-    if args.enable_disk_read_retry and any((*m6ib_flags, *m6ih_flags)):
-        ap.error("--enable-disk-read-retryはm6i-b/m6i-hの挿入フラグと併用不可")
     m6ib_arm = next((arm for enabled, arm in zip(m6ib_flags,
                       ("B1", "B2", "B3", "B4", "B5"))
                       if enabled), None)
@@ -1357,9 +1366,34 @@ def main():
         or any(m6ih_flags)
         or args.inject_m6ii_sweep
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
-    enable_main_sub_read = (args.enable_main_sub_read or args.enable_disk_read_retry
-                            or args.enable_disk_read_chr or args.inject_m6ii_sweep
-                            or main_sub_fault_enabled)
+    if args.disable_main_sub_read and any((args.enable_main_sub_read,
+                                           args.enable_disk_read_retry,
+                                           args.enable_disk_read_chr,
+                                           main_sub_fault_enabled)):
+        ap.error("--disable-main-sub-readはmain-sub READの検査用有効化と併用不可")
+    if args.disable_disk_read_retry and args.enable_disk_read_retry:
+        ap.error("--disable-disk-read-retryと--enable-disk-read-retryは併用不可")
+    if args.disable_disk_read_chr and (args.enable_disk_read_chr or args.inject_m6ii_sweep):
+        ap.error("--disable-disk-read-chrは一般READの検査用有効化と併用不可")
+    if args.enable_disk_read_retry and any((*m6ib_flags, *m6ih_flags)):
+        ap.error("--enable-disk-read-retryはm6i-b/m6i-hの挿入フラグと併用不可")
+    # 無指定の配布ビルドには3ルーチンを常駐させる。ただし --enable-* と
+    # m6i故障注入は、既存の測定成果物を再生成するための「起動時にREADする」
+    # 専用構成なので、従来どおり指定されたルーチンだけを連結する。
+    main_sub_measure_build = any((args.enable_main_sub_read,
+                                  args.enable_disk_read_retry,
+                                  args.enable_disk_read_chr,
+                                  main_sub_fault_enabled))
+    if main_sub_measure_build:
+        enable_disk_read_retry = args.enable_disk_read_retry
+        enable_disk_read_chr = args.enable_disk_read_chr or args.inject_m6ii_sweep
+        enable_main_sub_read = True
+    else:
+        enable_main_sub_read = not args.disable_main_sub_read
+        enable_disk_read_retry = (enable_main_sub_read
+                                  and not args.disable_disk_read_retry)
+        enable_disk_read_chr = (enable_main_sub_read
+                                and not args.disable_disk_read_chr)
 
     if args.extra_lines < 0 or args.extra_lines > 255:
         raise SystemExit("--extra-lines は 0-255")
@@ -1391,9 +1425,9 @@ def main():
                                        enable_vsync_regcheck=args.enable_vsync_regcheck,
                                        inject_vsync_no_save_fault=args.inject_vsync_no_save_fault,
                                        enable_main_sub_read=enable_main_sub_read,
-                                       enable_disk_read_retry=args.enable_disk_read_retry,
-                                       enable_disk_read_chr=(args.enable_disk_read_chr
-                                                             or args.inject_m6ii_sweep),
+                                       enable_disk_read_retry=enable_disk_read_retry,
+                                       enable_disk_read_chr=enable_disk_read_chr,
+                                       enable_main_sub_boot=main_sub_measure_build,
                                        inject_main_sub_wait_fault=args.inject_main_sub_wait_fault,
                                        inject_main_sub_cont_fault=args.inject_main_sub_cont_fault,
                                        inject_main_sub_pair_fault=args.inject_main_sub_pair_fault,
