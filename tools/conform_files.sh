@@ -26,7 +26,7 @@ python3 "$CHECK" validate "$EXPECTED" >"$WORK/expected-check.out" \
     exit 2
   }
 
-mkdir "$WORK/rom" "$WORK/base" "$WORK/add2" "$WORK/add3" "$WORK/runs" || exit 2
+mkdir "$WORK/rom" "$WORK/base" "$WORK/add2" "$WORK/add3" "$WORK/g" "$WORK/runs" || exit 2
 if [ -n "${FILES_CONFORM_TEST_ROM_DIR:-}" ]; then
   cp -R "$FILES_CONFORM_TEST_ROM_DIR"/. "$WORK/rom"/ || exit 2
 else
@@ -42,6 +42,8 @@ python3 "$REPO/tools/make_m6fe_disk.py" --addendum2 "$WORK/add2" \
   >"$WORK/add2.out" 2>"$WORK/add2.err" || exit 2
 python3 "$REPO/tools/make_m6fe_disk.py" --addendum3 "$WORK/add3" \
   >"$WORK/add3.out" 2>"$WORK/add3.err" || exit 2
+python3 "$REPO/tools/make_m6fg_disk.py" "$WORK/g" \
+  >"$WORK/g.out" 2>"$WORK/g.err" || exit 2
 
 if [ -n "${FILES_CONFORM_CORE:-}" ]; then
   CORE="$FILES_CONFORM_CORE"
@@ -57,11 +59,12 @@ fi
 [ -x "$FRONTEND" ] || { printf 'エラー: フロントエンドが実行不可\n' >&2; exit 2; }
 
 ARMS=(L0 L1 L4 L5 L6 L11 L96 D-omit D-1 D-2 D-expr E-0 E-3 E-str N-wait
-      L80 L85 L90 L95 "L96'" L81 L86 L91 "L90'")
+      L80 L85 L90 L95 "L96'" L81 L86 L91 "L90'"
+      G-P G-B G-M G-Z1 G-Z2)
 
 command_for_arm() {
   case "$1" in
-    L*|N-wait) printf '%s' 'CLS:FILES 2\n' ;;
+    L*|G-*|N-wait) printf '%s' 'CLS:FILES 2\n' ;;
     D-omit) printf '%s' 'CLS:FILES\n' ;;
     D-1) printf '%s' 'CLS:FILES 1\n' ;;
     D-2) printf '%s' 'CLS:FILES 2\n' ;;
@@ -81,6 +84,7 @@ disk2_for_arm() {
     "L96'") printf '%s' "$WORK/add2/L96p.d88" ;;
     L81|L86|L91) printf '%s/%s.d88' "$WORK/add3" "$1" ;;
     "L90'") printf '%s' "$WORK/add3/L90p.d88" ;;
+    G-P|G-B|G-M|G-Z1|G-Z2) printf '%s/%s.d88' "$WORK/g" "$1" ;;
     *) return 1 ;;
   esac
 }

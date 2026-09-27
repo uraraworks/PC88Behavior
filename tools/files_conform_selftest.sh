@@ -42,10 +42,33 @@ broken = json.loads((work / "base.json").read_text(encoding="ascii"))
 broken["arms"]["L1"][1]["entry_lines"][0]["sha256"] = "0" * 64
 (work / "base-broken.json").write_text(json.dumps(broken, sort_keys=True,
                                                    separators=(",", ":")), encoding="ascii")
+
+# m6f-gの5腕(G-P/G-B/G-M/G-Z1/G-Z2)も同じ許可リスト構造だけ合成する。
+g_arm_values = {}
+for arm in extract.G_ARMS:
+    lines = [{"physical_row": row, "char_count": count, "sha256": digest}
+             for row, count, digest in values[arm]]
+    g_arm_values[arm] = [{"entry_lines": copy.deepcopy(lines)},
+                        {"entry_lines": copy.deepcopy(lines)}]
+(work / "g.json").write_text(json.dumps(
+    {"format": "m6fg-observations-v1", "arms": g_arm_values},
+    sort_keys=True, separators=(",", ":")), encoding="ascii")
+g_broken = json.loads((work / "g.json").read_text(encoding="ascii"))
+g_broken["arms"]["G-P"][1]["entry_lines"][0]["sha256"] = "0" * 64
+(work / "g-broken.json").write_text(json.dumps(g_broken, sort_keys=True,
+                                               separators=(",", ":")), encoding="ascii")
 PY
 python3 "$REPO/tools/extract_files_conform_expected.py" \
   "$WORK/base.json" "$WORK/add2.json" "$WORK/add3.json" "$WORK/extracted.tsv" \
   >"$WORK/extract.out" 2>"$WORK/extract.err" || ng "合成観測の抽出に失敗"
+cp "$WORK/extracted.tsv" "$WORK/extracted-base.tsv"
+if python3 "$REPO/tools/append_m6fg_conform_expected.py" "$WORK/g-broken.json" \
+    "$WORK/extracted-base.tsv" >"$WORK/g-reject.out" 2>"$WORK/g-reject.err"; then
+  ng "m6fg 2走不一致を受理した"
+fi
+ok "陰性対照: m6fg 2走不一致を拒否"
+python3 "$REPO/tools/append_m6fg_conform_expected.py" "$WORK/g.json" "$WORK/extracted.tsv" \
+  >"$WORK/append.out" 2>"$WORK/append.err" || ng "合成m6fg観測の追記に失敗"
 cmp -s "$EXPECTED" "$WORK/extracted.tsv" || ng "合成観測の抽出結果が固定値と不一致"
 ok "2走一致の行署名だけを固定TSVへ抽出"
 if python3 "$REPO/tools/extract_files_conform_expected.py" \
@@ -123,13 +146,13 @@ run_fake() {
 
 rc="$(run_fake all-ok "$EXPECTED" "")"
 [ "$rc" -eq 0 ] || ng "偽フロントエンド正例が失敗"
-[ "$(awk -F '\t' '$2=="OK"{n++} END{print n+0}' "$WORK/all-ok.out")" -eq 24 ] \
+[ "$(awk -F '\t' '$2=="OK"{n++} END{print n+0}' "$WORK/all-ok.out")" -eq 29 ] \
   || ng "全腕OK集合が不正"
-[ "$(wc -l <"$WORK/all-ok.calls" | tr -d ' ')" -eq 24 ] || ng "起動腕数が不正"
+[ "$(wc -l <"$WORK/all-ok.calls" | tr -d ' ')" -eq 29 ] || ng "起動腕数が不正"
 awk -F '\t' '$1 ~ /^D-|^E-/ && $4 != "noswap" {exit 1}
              $1 == "N-wait" && $3 != "insert" {exit 1}' "$WORK/all-ok.calls" \
   || ng "D/Eの最初からD1またはN-wait挿入手順が不正"
-ok "偽フロントエンドで全24腕OK、媒体操作も所定どおり"
+ok "偽フロントエンドで全29腕OK、媒体操作も所定どおり"
 
 cp "$EXPECTED" "$WORK/one-broken.tsv"
 python3 - "$WORK/one-broken.tsv" <<'PY'

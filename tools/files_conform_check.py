@@ -12,11 +12,12 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import compare_screen_signatures as css  # noqa: E402
 from extract_files_conform_expected import (  # noqa: E402
-    ADD2_ARMS, ADD3_ARMS, BASE_ARMS, EXPECTATIONS, SHA256_RE,
+    ADD2_ARMS, ADD3_ARMS, BASE_ARMS, EXPECTATIONS, G_ARMS, SHA256_RE,
 )
 
-ALL_ARMS = BASE_ARMS + ADD2_ARMS + ADD3_ARMS
-EXPECTATION_RE = re.compile(r"(?:media|drive|drive_expr|error|wait_then):[A-Za-z0-9]+\Z")
+ALL_ARMS = BASE_ARMS + ADD2_ARMS + ADD3_ARMS + G_ARMS
+EXPECTATION_RE = re.compile(
+    r"(?:media|drive|drive_expr|error|wait_then|mark|mixed|size):[A-Za-z0-9]+\Z")
 
 
 class CheckError(ValueError):

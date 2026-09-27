@@ -21,6 +21,10 @@ BASE_ARMS = (
 )
 ADD2_ARMS = ("L80", "L85", "L90", "L95", "L96'")
 ADD3_ARMS = ("L81", "L86", "L91", "L90'")
+# m6f-g: 種別の印(0xA0=ピリオド・0x01=アスタリスク、docs/spec/l4-basic.md
+# 第3.12版11.1節規則3)と、大きさ3桁(100・158単位)。
+G_ARMS = ("G-P", "G-B", "G-M", "G-Z1", "G-Z2")
+G_FORMAT = "m6fg-observations-v1"
 FORMATS = (
     "m6fe-observations-v1",
     "m6fe-add2-observations-v1",
@@ -36,6 +40,8 @@ EXPECTATIONS = {
     "L80": "media:L80", "L85": "media:L85", "L90": "media:L90",
     "L95": "media:L95", "L96'": "media:L96p", "L81": "media:L81",
     "L86": "media:L86", "L91": "media:L91", "L90'": "media:L90p",
+    "G-P": "mark:2E", "G-B": "mark:2A", "G-M": "mixed:2E2A",
+    "G-Z1": "size:100", "G-Z2": "size:158",
 }
 
 
@@ -111,16 +117,30 @@ def validate_relations(values: dict[str, tuple[tuple[int, int, str], ...]]) -> N
         fail("drive_signatures_not_distinct")
 
 
+def load_g(path: pathlib.Path) -> dict[str, tuple[tuple[int, int, str], ...]]:
+    """m6f-g の単一観測JSON(G_FORMAT)から5腕ぶんの行署名を取り出す。"""
+    return load_one(path, G_FORMAT, G_ARMS)
+
+
+def validate_g_relations(values: dict[str, tuple[tuple[int, int, str], ...]]) -> None:
+    if values["G-P"] == values["G-B"]:
+        fail("g_mark_signatures_not_distinct")
+    if values["G-Z1"] == values["G-Z2"]:
+        fail("g_size_signatures_not_distinct")
+
+
+def render_arm_block(arm: str, rows: tuple[tuple[int, int, str], ...]) -> list[str]:
+    return [f"arm\t{arm}\t{EXPECTATIONS[arm]}\t-\t{len(rows)}\t-"] + [
+        f"row\t{arm}\t-\t{row}\t{count}\t{digest}" for row, count, digest in rows]
+
+
 def render(values: dict[str, tuple[tuple[int, int, str], ...]]) -> str:
     lines = [
         "# files-conform-expected-v1",
         "# kind\\tarm\\texpectation\\tphysical_row\\tchar_count\\tsha256",
     ]
     for arm in BASE_ARMS + ADD2_ARMS + ADD3_ARMS:
-        rows = values[arm]
-        lines.append(f"arm\t{arm}\t{EXPECTATIONS[arm]}\t-\t{len(rows)}\t-")
-        lines.extend(f"row\t{arm}\t-\t{row}\t{count}\t{digest}"
-                     for row, count, digest in rows)
+        lines.extend(render_arm_block(arm, values[arm]))
     return "\n".join(lines) + "\n"
 
 
