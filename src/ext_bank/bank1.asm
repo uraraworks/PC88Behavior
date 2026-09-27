@@ -125,7 +125,10 @@ _fb_clear_cell:
     INC HL
     DJNZ _fb_clear_cell
 
-    ; 名前6、印、拡張子3。0x80だけピリオド、0x00は初期空白のまま。
+    ; 名前6、印、拡張子3。docs/spec/l4-basic.md第3.12版11.1節規則3:
+    ; 0x80(SAVE)・0xA0(SAVE ,P)はピリオド、0x00(データ・SAVE ,A)は
+    ; 初期空白のまま、0x01(BSAVE)はアスタリスク（0xA0・0x01はm6f-g）。
+    ; それ以外の値の印は第11.3節のとおり未確定なので、現状どおり空白。
     PUSH IX
     POP HL
     LD DE,FILES_CELL_BUF
@@ -138,8 +141,18 @@ _fb_copy_name:
     DJNZ _fb_copy_name
     LD A,(IX+9)
     CP 080h
-    JP NZ,_fb_copy_ext
+    JP Z,_fb_mark_period
+    CP 0A0h
+    JP Z,_fb_mark_period
+    CP 001h
+    JP Z,_fb_mark_asterisk
+    JP _fb_copy_ext
+_fb_mark_period:
     LD A,'.'
+    LD (FILES_CELL_BUF+6),A
+    JP _fb_copy_ext
+_fb_mark_asterisk:
+    LD A,'*'
     LD (FILES_CELL_BUF+6),A
 _fb_copy_ext:
     PUSH IX

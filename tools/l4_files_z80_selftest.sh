@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # FILESのバンク1本体を実Z80で検査する。公式ROM・公式媒体は使わない。
-# 1単位、10単位、異なる終端値、および16桁セルの各欄をROM内で照合し、
-# mem-write-logへは合否2バイトだけを書く。CP 160を壊す陰性対照も必須。
+# 1単位、10単位、異なる終端値、16桁セルの各欄、種別の印(0xA0=ピリオド・
+# 0x01=アスタリスク、docs/spec/l4-basic.md第3.12版11.1節規則3)、
+# 大きさ3桁(100・158単位)を照合し、mem-write-logへは合否2バイトだけを
+# 書く。CP 160を壊す陰性対照、および印の判定を壊す陰性対照も必須。
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,14 +23,21 @@ make_rom() {
 import pathlib, sys
 repo = pathlib.Path(sys.argv[1])
 out = pathlib.Path(sys.argv[2])
-fault = sys.argv[3] == "fault"
+fault = sys.argv[3]
 sys.path.insert(0, str(repo / "tools" / "asm"))
 import z80text
 
 bank = (repo / "src" / "ext_bank" / "bank1.asm").read_text(encoding="utf-8")
-if fault:
+if fault == "chain_fault":
     old = "    CP 160\n    JP C,_fb_chain_loop"
     new = "    CP 194\n    JP C,_fb_chain_loop"
+    if bank.count(old) != 1:
+        raise SystemExit("陰性対照の置換点が一意でない")
+    bank = bank.replace(old, new)
+elif fault == "mark_fault":
+    # 0xA0(SAVE ,P)の判定を壊し、印がピリオドにならないようにする。
+    old = "    CP 0A0h\n    JP Z,_fb_mark_period"
+    new = "    CP 0A1h\n    JP Z,_fb_mark_period"
     if bank.count(old) != 1:
         raise SystemExit("陰性対照の置換点が一意でない")
     bank = bank.replace(old, new)
@@ -160,10 +169,103 @@ T_CHAIN10:
     CP 1
     JP NZ,T_FAIL4
 
+    ; 0xA0(SAVE ,P)はピリオド。第11.1節規則3(m6f-g)。
+    LD A,0A0h
+    LD (0DF09h),A
+    LD A,0C1h
+    LD (0E105h),A
+    LD A,5
+    LD (0DF0Ah),A
+    CALL T_RESET_SCAN
+    CALL 06110h
+    CP 2
+    JP NZ,T_FAIL5
+    LD A,(0E206h)
+    CP '.'
+    JP NZ,T_FAIL5
+
+    ; 0x01(BSAVE)はアスタリスク。
+    LD A,001h
+    LD (0DF09h),A
+    CALL T_RESET_SCAN
+    CALL 06110h
+    CP 2
+    JP NZ,T_FAIL6
+    LD A,(0E206h)
+    CP '*'
+    JP NZ,T_FAIL6
+
+    ; 0x80に戻し、大きさ100単位→'100'（3桁、m6f-g）。
+    LD A,080h
+    LD (0DF09h),A
+    CALL BUILD_CHAIN_100
+    XOR A
+    LD (0DF0Ah),A
+    CALL T_RESET_SCAN
+    CALL 06110h
+    CP 2
+    JP NZ,T_FAIL7
+    LD A,(0E219h)
+    CP 100
+    JP NZ,T_FAIL7
+    LD A,(0E20Bh)
+    CP '1'
+    JP NZ,T_FAIL7
+    LD A,(0E20Ch)
+    CP '0'
+    JP NZ,T_FAIL7
+    LD A,(0E20Dh)
+    CP '0'
+    JP NZ,T_FAIL7
+
+    ; 大きさ158単位→'158'（割り当て可能単位の最大、m6f-g）。
+    CALL BUILD_CHAIN_158
+    CALL T_RESET_SCAN
+    CALL 06110h
+    CP 2
+    JP NZ,T_FAIL8
+    LD A,(0E219h)
+    CP 158
+    JP NZ,T_FAIL8
+    LD A,(0E20Bh)
+    CP '1'
+    JP NZ,T_FAIL8
+    LD A,(0E20Ch)
+    CP '5'
+    JP NZ,T_FAIL8
+    LD A,(0E20Dh)
+    CP '8'
+    JP NZ,T_FAIL8
+
     LD A,1
     LD (0E300h),A
 T_HALT:
     JR T_HALT
+
+; unit 0開始、FAT[0..N-2]=1..N-1、FAT[N-1]=終端0xC1で長さNの鎖を作る。
+BUILD_CHAIN_100:
+    LD HL,0E100h
+    LD B,99
+    LD A,1
+BC100_LOOP:
+    LD (HL),A
+    INC HL
+    INC A
+    DJNZ BC100_LOOP
+    LD (HL),0C1h
+    RET
+
+BUILD_CHAIN_158:
+    LD HL,0E100h
+    LD B,157
+    LD A,1
+BC158_LOOP:
+    LD (HL),A
+    INC HL
+    INC A
+    DJNZ BC158_LOOP
+    LD (HL),0C1h
+    RET
 
 T_RESET_SCAN:
     LD A,2
@@ -186,6 +288,18 @@ T_FAIL3:
     JP T_FAIL
 T_FAIL4:
     LD A,4
+    JP T_FAIL
+T_FAIL5:
+    LD A,5
+    JP T_FAIL
+T_FAIL6:
+    LD A,6
+    JP T_FAIL
+T_FAIL7:
+    LD A,7
+    JP T_FAIL
+T_FAIL8:
+    LD A,8
 T_FAIL:
     LD (0E301h),A
 T_FAIL_HALT:
@@ -233,12 +347,19 @@ if [ "$normal_pass" != "01" ] || [ "$normal_fail" != "00" ]; then
   echo "NG: 正常系が不合格(pass=$normal_pass fail=$normal_fail)" >&2
   exit 1
 fi
-echo "OK: 実Z80で1単位・10単位・終端・16桁セルを確認"
+echo "OK: 実Z80で1単位・10単位・終端・16桁セル・印(0xA0/0x01)・3桁の大きさ(100/158)を確認"
 
-read -r fault_pass fault_fail <<<"$(run_one fault)" || exit 1
+read -r fault_pass fault_fail <<<"$(run_one chain_fault)" || exit 1
 if [ "$fault_pass" = "01" ] || [ "$fault_fail" = "00" ]; then
   echo "NG: 陰性対照(CP 160破壊)を検出できない" >&2
   exit 1
 fi
 echo "OK: 陰性対照(CP 160破壊)は不合格"
+
+read -r mark_fault_pass mark_fault_fail <<<"$(run_one mark_fault)" || exit 1
+if [ "$mark_fault_pass" = "01" ] || [ "$mark_fault_fail" = "00" ]; then
+  echo "NG: 陰性対照(0xA0印判定破壊)を検出できない" >&2
+  exit 1
+fi
+echo "OK: 陰性対照(0xA0印判定破壊)は不合格"
 echo "l4_files_z80_selftest: OK"
