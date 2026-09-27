@@ -124,6 +124,18 @@ def _media_definitions() -> dict[str, dict]:
     return media
 
 
+def _add2_media_definitions() -> dict[str, dict]:
+    media = {
+        arm: _layout(_numbered_entries("Q", count), [])
+        for arm, count in (("L80", 80), ("L85", 85), ("L90", 90),
+                           ("L95", 95), ("L96'", 96))
+    }
+    for media_id, definition in media.items():
+        safe_id = "L96p" if media_id == "L96'" else media_id
+        definition["file"] = f"{safe_id}.d88"
+    return media
+
+
 def _arms() -> list[dict]:
     arms: list[dict] = []
     for arm in ("L0", "L1", "L4", "L5", "L6", "L11", "L96"):
@@ -189,6 +201,27 @@ def build_manifest() -> dict:
     }
 
 
+def build_add2_manifest() -> dict:
+    media = _add2_media_definitions()
+    arms = [{
+        "id": arm,
+        "runs": 2,
+        "drive1": "reference_boot_copy",
+        "drive2": arm,
+        "command": "CLS:FILES 2",
+        "command_time": "after_boot_complete",
+        "final_frame": 12000,
+        "events": [],
+    } for arm in media]
+    return {
+        "format": "m6fe-add2-scenario-v1",
+        "disk_spec": "l3-disk-format-v3",
+        "media_order": list(media),
+        "media": media,
+        "arms": arms,
+    }
+
+
 def _deleted_bytes(marker: str) -> bytes:
     payload = marker.encode("ascii")
     return b"\x00" + (payload * 3)[:15].ljust(15, b"_")
@@ -251,10 +284,11 @@ def canonical_json(value: dict) -> bytes:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", type=pathlib.Path)
+    parser.add_argument("--addendum2", action="store_true")
     parser.add_argument("--expected-manifest-sha256", metavar="HEX")
     args = parser.parse_args()
 
-    manifest = build_manifest()
+    manifest = build_add2_manifest() if args.addendum2 else build_manifest()
     manifest_bytes = canonical_json(manifest)
     digest = hashlib.sha256(manifest_bytes).hexdigest()
     if args.expected_manifest_sha256 is not None and args.expected_manifest_sha256 != digest:

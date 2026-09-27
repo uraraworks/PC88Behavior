@@ -196,10 +196,10 @@ def inspect_image(image: bytes, definition: dict) -> list[str]:
     return sorted(failures)
 
 
-def _load_manifest(path: pathlib.Path) -> tuple[dict, bytes]:
+def _load_manifest(path: pathlib.Path, expected_format: str = "m6fe-scenario-v1") -> tuple[dict, bytes]:
     raw = path.read_bytes()
     manifest = json.loads(raw)
-    if manifest.get("format") != "m6fe-scenario-v1":
+    if manifest.get("format") != expected_format:
         raise ValueError("manifest形式が不正")
     return manifest, raw
 
@@ -207,21 +207,27 @@ def _load_manifest(path: pathlib.Path) -> tuple[dict, bytes]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=pathlib.Path)
+    parser.add_argument("--addendum2", action="store_true")
     parser.add_argument("--image-dir", type=pathlib.Path)
     parser.add_argument("--media")
     parser.add_argument("--image", type=pathlib.Path)
     parser.add_argument(
         "--sha256-file",
         type=pathlib.Path,
-        default=pathlib.Path(__file__).with_name("m6fe_frozen.tsv"),
+        default=None,
         help="manifestの凍結SHA-256（既定: tools/m6fe_frozen.tsv）",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
-        manifest, raw = _load_manifest(args.manifest)
+        expected_format = "m6fe-add2-scenario-v1" if args.addendum2 else "m6fe-scenario-v1"
+        manifest, raw = _load_manifest(args.manifest, expected_format)
         failures: dict[str, list[str]] = {}
-        fields = args.sha256_file.read_text(encoding="ascii").split()
+        sha256_file = args.sha256_file
+        if sha256_file is None:
+            name = "m6fe_add2_frozen.tsv" if args.addendum2 else "m6fe_frozen.tsv"
+            sha256_file = pathlib.Path(__file__).with_name(name)
+        fields = sha256_file.read_text(encoding="ascii").split()
         if not fields:
             raise ValueError("SHA-256凍結ファイルが空")
         expected = fields[1] if fields[0] == "manifest_sha256" and len(fields) >= 2 else fields[0]

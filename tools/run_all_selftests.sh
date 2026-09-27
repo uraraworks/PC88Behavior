@@ -313,6 +313,11 @@ SCRIPTS_EXPECTED=(
   # m6f-e 器具D。偽フロントエンドだけで15腕×2走を通し、G0〜G8の
   # 起動前停止とG14のCLS基準陰性対照を確認する。公式ROM・私物は不要。
   "tools/measure_m6fe_driver_selftest.sh:0"
+  # m6f-e追補2。境界5媒体、T1/T2/T3の162候補、本体L96再現判定、
+  # 偽フロントエンド10走とG0〜G14を、公式ROM・公式ディスクなしで検査する。
+  "tools/make_m6fe_add2_disk_selftest.sh:0"
+  "tools/m6fe_add2_predict_derive_selftest.sh:0"
+  "tools/measure_m6fe_add2_driver_selftest.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。

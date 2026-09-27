@@ -211,6 +211,60 @@ def load_candidates(path: Path) -> dict[tuple[str, str], tuple[tuple[int, int, s
     return result
 
 
+def load_add2_candidates(path: Path) -> dict[tuple[str, str], tuple[tuple[int, int, str], ...]]:
+    try:
+        raw_lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise InputError("追補2候補表読取") from exc
+    header = "record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"
+    if not raw_lines or raw_lines[0] != header:
+        raise InputError("追補2候補表ヘッダ")
+    rows: dict[tuple[str, str], list[tuple[int, int, str]]] = {}
+    summaries: dict[tuple[str, str], tuple[int, str]] = {}
+    valid_ids = set(predictor.add2_candidate_ids())
+    for raw in raw_lines[1:]:
+        fields = raw.split("\t")
+        if len(fields) != 6:
+            raise InputError("追補2候補表列")
+        record, candidate, arm, row_text, count_text, digest = fields
+        if candidate not in valid_ids or arm not in predictor.ADD2_ARMS or not SHA_RE.fullmatch(digest):
+            raise InputError("追補2候補表値")
+        key = (candidate, arm)
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise InputError("追補2候補表整数") from exc
+        if record == "row":
+            try:
+                row = int(row_text)
+            except ValueError as exc:
+                raise InputError("追補2候補表行番号") from exc
+            if not 0 <= row <= 24 or not 0 <= count <= 80:
+                raise InputError("追補2候補表行範囲")
+            rows.setdefault(key, []).append((row, count, digest))
+        elif record == "summary" and row_text == "-":
+            if key in summaries or count < 0 or count > 25:
+                raise InputError("追補2候補表summary重複")
+            summaries[key] = (count, digest)
+        else:
+            raise InputError("追補2候補表record")
+    expected_keys = {(candidate, arm) for candidate in predictor.add2_candidate_ids()
+                     for arm in predictor.ADD2_ARMS}
+    if set(summaries) != expected_keys or not set(rows) <= expected_keys:
+        raise InputError("追補2候補または腕の欠落")
+    result = {}
+    for key in expected_keys:
+        values = rows.get(key, [])
+        if len({value[0] for value in values}) != len(values) or values != sorted(values):
+            raise InputError("追補2候補表行重複または順序")
+        expected_count, expected_digest = summaries[key]
+        signed = [predictor.SignedLine(*value) for value in values]
+        if expected_count != len(values) or expected_digest != predictor._whole_digest(signed):
+            raise InputError("追補2候補表summary不整合")
+        result[key] = tuple(values)
+    return result
+
+
 def _matches(lines: tuple[tuple[int, int, str], ...], candidates, arm: str) -> list[str]:
     return [candidate for candidate in predictor.candidate_ids()
             if candidates[(candidate, arm)] == lines]
@@ -317,17 +371,124 @@ def derive(arms: dict[str, list[dict[str, Any]]], aux: dict[str, str], candidate
     }
 
 
+def load_add2_observations(path: Path) -> tuple[dict[str, list[dict[str, Any]]], str]:
+    try:
+        raw = path.read_bytes()
+        doc = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InputError("追補2観測入力読取") from exc
+    root = _keys(doc, {"format", "arms"}, {"format", "arms"})
+    if root["format"] != "m6fe-add2-observations-v1" or not isinstance(root["arms"], dict):
+        raise InputError("追補2観測入力形式")
+    if set(root["arms"]) != set(predictor.ADD2_ARMS):
+        raise InputError("追補2腕一覧")
+    arms: dict[str, list[dict[str, Any]]] = {}
+    for arm in predictor.ADD2_ARMS:
+        runs = root["arms"][arm]
+        if not isinstance(runs, list) or len(runs) != 2:
+            raise InputError("追補2の2走形式")
+        arms[arm] = [_run(run) for run in runs]
+    return arms, hashlib.sha256(raw).hexdigest()
+
+
+def _add2_gates(arms: dict[str, list[dict[str, Any]]], matches) -> dict[str, bool]:
+    g9 = all(
+        runs[0]["screen"] == runs[1]["screen"]
+        and runs[0]["entry_lines"] == runs[1]["entry_lines"]
+        and matches[(arm, 1)] == matches[(arm, 2)]
+        for arm, runs in arms.items()
+    )
+    g10 = all(run["screen"] == run["late_screen"] and run["input_wait"]
+              for runs in arms.values() for run in runs)
+    g11 = all(run["reference_unchanged"] for runs in arms.values() for run in runs)
+    g12 = all(run["output_audit_clean"] for runs in arms.values() for run in runs)
+    g13 = all(all(run["g13"].values()) for runs in arms.values() for run in runs)
+    return {"G9": g9, "G10": g10, "G11": g11, "G12": g12, "G13": g13}
+
+
+def derive_add2(arms: dict[str, list[dict[str, Any]]], candidates,
+                base_arms: dict[str, list[dict[str, Any]]], base_candidates) -> dict[str, Any]:
+    base_arms_for_rule = predictor.LAYOUT_ARMS[:-1]
+    base_remaining = list(predictor.candidate_ids())
+    for arm in base_arms_for_rule:
+        for rep in (1, 2):
+            lines = base_arms[arm][rep - 1]["entry_lines"]
+            allowed = {candidate for candidate in predictor.candidate_ids()
+                       if base_candidates[(candidate, arm)] == lines}
+            base_remaining = [candidate for candidate in base_remaining if candidate in allowed]
+
+    matches = {
+        (arm, rep): [candidate for candidate in predictor.add2_candidate_ids()
+                     if candidates[(candidate, arm)] == arms[arm][rep - 1]["entry_lines"]]
+        for arm in predictor.ADD2_ARMS for rep in (1, 2)
+    }
+    gates = _add2_gates(arms, matches)
+    base_allowed = set(base_remaining)
+    remaining = [candidate for candidate in predictor.add2_candidate_ids()
+                 if predictor._add2_candidate_parts(candidate)[0] in base_allowed]
+    first_empty_arm = None
+    for arm in predictor.ADD2_ARMS:
+        for rep in (1, 2):
+            allowed = set(matches[(arm, rep)])
+            remaining = [candidate for candidate in remaining if candidate in allowed]
+        if not remaining and first_empty_arm is None:
+            first_empty_arm = arm
+
+    base_l96 = [run["entry_lines"] for run in base_arms["L96"]]
+    add2_l96 = [run["entry_lines"] for run in arms["L96'"]]
+    l96_comparison = ("l96_reproduced" if all(value == base_l96[0]
+                                               for value in base_l96 + add2_l96)
+                      else "l96_changed")
+    fkey_unchanged = all(run["fkey_unchanged"] for runs in arms.values() for run in runs)
+    extra_lines_absent = all(run["extra_lines_absent"] for runs in arms.values() for run in runs)
+    if not all(gates.values()):
+        overall = "gate_failed"
+    elif len(remaining) == 1:
+        overall = remaining[0]
+    elif not remaining:
+        overall = "inconclusive_add2_no_candidate"
+    else:
+        overall = "inconclusive_add2_multiple"
+    return {
+        "format": "m6fe-add2-derived-v1",
+        "overall": overall,
+        "gates": gates,
+        "candidates": remaining,
+        "base_candidates": base_remaining,
+        "first_empty_arm": first_empty_arm,
+        "l96_comparison": l96_comparison,
+        "fkey_unchanged": fkey_unchanged,
+        "extra_lines_absent": extra_lines_absent,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--observations", required=True, type=Path)
-    ap.add_argument("--candidates", default=HERE / "m6fe_candidates_frozen.tsv", type=Path)
+    ap.add_argument("--candidates", type=Path)
+    ap.add_argument("--addendum2", action="store_true")
+    ap.add_argument("--base-observations", type=Path)
+    ap.add_argument("--base-candidates", type=Path, default=HERE / "m6fe_candidates_frozen.tsv")
     ap.add_argument("--output", type=Path)
     args = ap.parse_args()
     try:
-        arms, aux, input_digest = load_observations(args.observations)
-        candidates = load_candidates(args.candidates)
-        result = derive(arms, aux, candidates)
-        result["input_sha256"] = input_digest
+        if args.addendum2:
+            if args.base_observations is None:
+                raise InputError("本体観測入力が必要")
+            candidates_path = args.candidates or HERE / "m6fe_add2_candidates_frozen.tsv"
+            arms, input_digest = load_add2_observations(args.observations)
+            candidates = load_add2_candidates(candidates_path)
+            base_arms, _base_aux, base_digest = load_observations(args.base_observations)
+            base_candidates = load_candidates(args.base_candidates)
+            result = derive_add2(arms, candidates, base_arms, base_candidates)
+            result["input_sha256"] = input_digest
+            result["base_observations_sha256"] = base_digest
+        else:
+            candidates_path = args.candidates or HERE / "m6fe_candidates_frozen.tsv"
+            arms, aux, input_digest = load_observations(args.observations)
+            candidates = load_candidates(candidates_path)
+            result = derive(arms, aux, candidates)
+            result["input_sha256"] = input_digest
         payload = (json.dumps(result, ensure_ascii=True, sort_keys=True,
                               separators=(",", ":")) + "\n").encode("ascii")
         if args.output is None:

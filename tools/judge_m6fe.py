@@ -21,6 +21,9 @@ FIXED_OVERALL = {
     "inconclusive_empty", "inconclusive_overflow", "inconclusive_no_candidate",
     "inconclusive_multiple_candidates",
 }
+ADD2_FIXED_OVERALL = {
+    "gate_failed", "inconclusive_add2_no_candidate", "inconclusive_add2_multiple",
+}
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 ERROR_RE = re.compile(r"files_error_err_(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])")
 
@@ -126,6 +129,51 @@ def _judgments(doc: dict[str, Any], overall: str) -> list[str]:
     return values
 
 
+def _recompute_add2(doc: dict[str, Any]) -> str:
+    required = {"format", "overall", "gates", "candidates", "base_candidates",
+                "first_empty_arm", "l96_comparison", "fkey_unchanged",
+                "extra_lines_absent", "input_sha256", "base_observations_sha256"}
+    if set(doc) != required or doc.get("format") != "m6fe-add2-derived-v1":
+        raise InputError("追補2導出形式")
+    gates = doc["gates"]
+    if (not isinstance(gates, dict) or set(gates) != {"G9", "G10", "G11", "G12", "G13"}
+            or any(not isinstance(value, bool) for value in gates.values())):
+        raise InputError("追補2関門形式")
+    candidates = doc["candidates"]
+    valid = set(predictor.add2_candidate_ids())
+    if (not isinstance(candidates, list) or len(candidates) != len(set(candidates))
+            or any(value not in valid for value in candidates)):
+        raise InputError("追補2候補集合")
+    base_candidates = doc["base_candidates"]
+    base_valid = set(predictor.candidate_ids())
+    if (not isinstance(base_candidates, list)
+            or len(base_candidates) != len(set(base_candidates))
+            or any(value not in base_valid for value in base_candidates)):
+        raise InputError("本体候補集合")
+    base_allowed = set(base_candidates)
+    if any(predictor._add2_candidate_parts(value)[0] not in base_allowed
+           for value in candidates):
+        raise InputError("本体候補との不整合")
+    if (doc["first_empty_arm"] is not None
+            and doc["first_empty_arm"] not in predictor.ADD2_ARMS):
+        raise InputError("追補2初回全滅腕")
+    if doc["l96_comparison"] not in ("l96_reproduced", "l96_changed"):
+        raise InputError("L96比較")
+    if (not isinstance(doc["fkey_unchanged"], bool)
+            or not isinstance(doc["extra_lines_absent"], bool)):
+        raise InputError("追補2画面補助形式")
+    for key in ("input_sha256", "base_observations_sha256"):
+        if not isinstance(doc[key], str) or not SHA_RE.fullmatch(doc[key]):
+            raise InputError("追補2入力SHA形式")
+    if not all(gates.values()):
+        return "gate_failed"
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        return "inconclusive_add2_no_candidate"
+    return "inconclusive_add2_multiple"
+
+
 def _emit(overall: str, judgments: list[str], digest: str) -> None:
     print(json.dumps({"overall": overall, "judgments": judgments, "sha256": digest},
                      ensure_ascii=True, sort_keys=True, separators=(",", ":")))
@@ -134,6 +182,7 @@ def _emit(overall: str, judgments: list[str], digest: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--derived", required=True, type=Path)
+    ap.add_argument("--addendum2", action="store_true")
     args = ap.parse_args()
     digest = hashlib.sha256()
     try:
@@ -142,10 +191,14 @@ def main() -> int:
         doc = json.loads(raw)
         if not isinstance(doc, dict):
             raise InputError("導出形式")
-        overall = _recompute(doc)
-        if doc["overall"] != overall or (overall not in FIXED_OVERALL and overall not in predictor.candidate_ids()):
+        overall = _recompute_add2(doc) if args.addendum2 else _recompute(doc)
+        valid_fixed = ADD2_FIXED_OVERALL if args.addendum2 else FIXED_OVERALL
+        valid_candidates = predictor.add2_candidate_ids() if args.addendum2 else predictor.candidate_ids()
+        if doc["overall"] != overall or (overall not in valid_fixed and overall not in valid_candidates):
             raise InputError("overall不一致")
-        _emit(overall, _judgments(doc, overall), digest.hexdigest())
+        judgments = ([overall, doc["l96_comparison"]] if args.addendum2
+                     else _judgments(doc, overall))
+        _emit(overall, judgments, digest.hexdigest())
         return 0
     except (OSError, UnicodeError, json.JSONDecodeError, InputError, ValueError):
         _emit("gate_failed", ["gate_failed"], digest.hexdigest())

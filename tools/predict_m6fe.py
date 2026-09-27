@@ -34,8 +34,10 @@ TYPES = ("80DOT_00BLANK", "80BLANK_00DOT", "BOTHBLANK")
 SIZES = ("UNITS", "SECTORS", "NONE")
 LAYOUT_ARMS = ("L0", "L1", "L4", "L5", "L6", "L11", "L96")
 DISPLAY_ARMS = LAYOUT_ARMS + ("D-omit", "D-1", "D-2", "D-expr", "N-wait")
+ADD2_ARMS = ("L80", "L85", "L90", "L95", "L96'")
 SCROLL_ROWS = 19
 WAIT_ROWS = 1
+ADD2_TRAILING_ROWS = (1, 2, 3)
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -57,6 +59,19 @@ def candidate_ids() -> tuple[str, ...]:
     )
 
 
+def add2_candidate_ids() -> tuple[str, ...]:
+    return tuple(f"{candidate}_T{trailing_rows}"
+                 for candidate in candidate_ids()
+                 for trailing_rows in ADD2_TRAILING_ROWS)
+
+
+def _add2_candidate_parts(candidate_id: str) -> tuple[str, int]:
+    match = re.fullmatch(r"(.+)_T([123])", candidate_id)
+    if match is None or match.group(1) not in candidate_ids():
+        raise PredictionError("追補2候補ID形式")
+    return match.group(1), int(match.group(2))
+
+
 def _candidate_parts(candidate_id: str) -> tuple[str, str, str, str]:
     prefix = "files_layout_rule_"
     if not candidate_id.startswith(prefix):
@@ -71,12 +86,13 @@ def _candidate_parts(candidate_id: str) -> tuple[str, str, str, str]:
     raise PredictionError("候補ID未登録")
 
 
-def _manifest(path: Path) -> dict[str, Any]:
+def _manifest(path: Path, addendum2: bool = False) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="ascii"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise PredictionError("manifest読取失敗") from exc
-    if not isinstance(value, dict) or value.get("format") != "m6fe-scenario-v1":
+    expected_format = "m6fe-add2-scenario-v1" if addendum2 else "m6fe-scenario-v1"
+    if not isinstance(value, dict) or value.get("format") != expected_format:
         raise PredictionError("manifest形式")
     if not isinstance(value.get("media"), dict) or not isinstance(value.get("arms"), list):
         raise PredictionError("manifest項目")
@@ -162,15 +178,17 @@ def _hash_line(row: int, body: str) -> SignedLine:
     return SignedLine(row, len(body), hashlib.sha256(encoded).hexdigest())
 
 
-def _visible_entry_lines(lines: list[str]) -> list[SignedLine]:
-    # 入力待ち行を末尾に1行置いた時点の19行スクロール領域をモデル化する。
-    visible = (lines + [""])[-SCROLL_ROWS:]
-    entry_count = len(visible) - WAIT_ROWS
+def _visible_entry_lines(lines: list[str], trailing_rows: int = WAIT_ROWS) -> list[SignedLine]:
+    # 出力後の行を末尾に置いた時点の19行スクロール領域をモデル化する。
+    if trailing_rows not in ADD2_TRAILING_ROWS:
+        raise PredictionError("末尾行数範囲")
+    visible = (lines + [""] * trailing_rows)[-SCROLL_ROWS:]
+    entry_count = max(0, len(visible) - trailing_rows)
     return [_hash_line(row, visible[row]) for row in range(entry_count)]
 
 
 def predict_candidate(manifest: dict[str, Any], arm_id: str,
-                      candidate_id: str) -> list[SignedLine]:
+                      candidate_id: str, trailing_rows: int = WAIT_ROWS) -> list[SignedLine]:
     layout, name_rule, type_rule, size_rule = _candidate_parts(candidate_id)
     media = _arm_media(manifest, arm_id)
     items = []
@@ -178,7 +196,15 @@ def predict_candidate(manifest: dict[str, Any], arm_id: str,
         if not isinstance(entry, dict):
             raise PredictionError("エントリ形式")
         items.append(_entry_text(entry, name_rule, type_rule, size_rule))
-    return _visible_entry_lines(_layout_lines(items, layout))
+    return _visible_entry_lines(_layout_lines(items, layout), trailing_rows)
+
+
+def predict_add2_candidate(manifest: dict[str, Any], arm_id: str,
+                           candidate_id: str) -> list[SignedLine]:
+    base_id, trailing_rows = _add2_candidate_parts(candidate_id)
+    if arm_id not in ADD2_ARMS:
+        raise PredictionError("追補2腕ID")
+    return predict_candidate(manifest, arm_id, base_id, trailing_rows)
 
 
 def predict_error(error_number: int) -> list[SignedLine]:
@@ -207,6 +233,27 @@ def render_candidates(manifest: dict[str, Any], arms: Iterable[str]) -> bytes:
     return ("\n".join(out) + "\n").encode("ascii")
 
 
+def _render_add2_subset(manifest: dict[str, Any], trailing_values: Iterable[int]) -> bytes:
+    out = ["record\tcandidate_id\tarm\tphysical_row\tchar_count\tsha256"]
+    selected = tuple(trailing_values)
+    if (not selected or len(set(selected)) != len(selected)
+            or any(value not in ADD2_TRAILING_ROWS for value in selected)):
+        raise PredictionError("末尾行数一覧")
+    selected_ids = tuple(f"{base}_T{value}"
+                         for base in candidate_ids() for value in selected)
+    for candidate_id in selected_ids:
+        for arm in ADD2_ARMS:
+            lines = predict_add2_candidate(manifest, arm, candidate_id)
+            for line in lines:
+                out.append(f"row\t{candidate_id}\t{arm}\t{line.physical_row}\t{line.char_count}\t{line.sha256}")
+            out.append(f"summary\t{candidate_id}\t{arm}\t-\t{len(lines)}\t{_whole_digest(lines)}")
+    return ("\n".join(out) + "\n").encode("ascii")
+
+
+def render_add2_candidates(manifest: dict[str, Any]) -> bytes:
+    return _render_add2_subset(manifest, ADD2_TRAILING_ROWS)
+
+
 def render_errors(arm: str) -> bytes:
     out = ["record\tprediction_id\tarm\tphysical_row\tchar_count\tsha256"]
     for number in range(256):
@@ -231,10 +278,19 @@ def main() -> int:
     ap.add_argument("--arms", default=",".join(LAYOUT_ARMS))
     ap.add_argument("--errors-for-arm")
     ap.add_argument("--expected-sha256")
+    ap.add_argument("--addendum2", action="store_true")
+    ap.add_argument("--trailing-rows", type=int, choices=ADD2_TRAILING_ROWS)
     args = ap.parse_args()
     try:
-        manifest = _manifest(args.manifest)
-        if args.errors_for_arm is not None:
+        manifest = _manifest(args.manifest, args.addendum2)
+        if args.addendum2:
+            if args.errors_for_arm is not None or args.arms != ",".join(LAYOUT_ARMS):
+                raise PredictionError("追補2引数")
+            trailing = ADD2_TRAILING_ROWS if args.trailing_rows is None else (args.trailing_rows,)
+            payload = render_add2_candidates(manifest) if len(trailing) == 3 else _render_add2_subset(manifest, trailing)
+        elif args.trailing_rows is not None:
+            raise PredictionError("末尾行数は追補2専用")
+        elif args.errors_for_arm is not None:
             if not re.fullmatch(r"E-(0|3|str)", args.errors_for_arm):
                 raise PredictionError("E腕形式")
             payload = render_errors(args.errors_for_arm)

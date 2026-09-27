@@ -236,8 +236,47 @@ def assemble(args: argparse.Namespace) -> int:
     return 0
 
 
+def assemble_add2(args: argparse.Namespace) -> int:
+    manifest = predict._manifest(args.manifest, True)
+    runs_by_arm: dict[str, list[dict[str, Any]]] = {}
+    for arm in predict.ADD2_ARMS:
+        paths = [args.run_dir / f"{arm}-r{rep}.safe.json" for rep in (1, 2)]
+        values = [json.loads(path.read_text(encoding="ascii")) for path in paths]
+        if any(value.get("arm") != arm or value.get("repetition") != rep
+               for rep, value in enumerate(values, 1)):
+            raise SupportError("add2_run_identity")
+        allowed_counts = {
+            len(predict.predict_add2_candidate(manifest, arm, candidate))
+            for candidate in predict.add2_candidate_ids()
+        }
+        for value in values:
+            actual_count = len(value["observation"]["entry_lines"])
+            value["observation"]["extra_lines_absent"] = (
+                value["observation"]["extra_lines_absent"]
+                and actual_count in allowed_counts)
+        runs_by_arm[arm] = values
+    observations = {
+        "format": "m6fe-add2-observations-v1",
+        "arms": {arm: [run["observation"] for run in runs_by_arm[arm]]
+                 for arm in predict.ADD2_ARMS},
+    }
+    _write_new(args.output, observations)
+    return 0
+
+
 def summary(args: argparse.Namespace) -> int:
     judgment = json.loads(args.judgment.read_text(encoding="ascii"))
+    if args.addendum2:
+        value = {
+            "format": "m6fe-add2-summary-v1", "run_count": 10,
+            "frontend_launch_count": args.frontend_launch_count,
+            "preflight_gates": {f"G{index}": True for index in range(9)},
+            "run_gates": {f"G{index}": True for index in range(9, 15)},
+            "judgments": judgment["judgments"],
+            "reference_unchanged": True, "output_audit_file_count": 0,
+        }
+        _write_new(args.output, value)
+        return 0
     drive_reads: dict[str, list[int]] = {}
     for arm in ("D-omit", "D-1"):
         drive_reads[arm] = [
@@ -258,11 +297,13 @@ def summary(args: argparse.Namespace) -> int:
 
 
 def plan_check(args: argparse.Namespace) -> int:
-    manifest = predict._manifest(args.manifest)
+    manifest = predict._manifest(args.manifest, args.addendum2)
     arms = manifest["arms"]
     ids = [arm.get("id") for arm in arms]
     plan = [(arm.get("id"), rep) for arm in arms for rep in range(1, arm.get("runs", 0) + 1)]
-    ok = (ids == list(derive.ALL_ARMS) and len(plan) == 30 and len(set(plan)) == 30
+    expected_arms = predict.ADD2_ARMS if args.addendum2 else derive.ALL_ARMS
+    expected_runs = 10 if args.addendum2 else 30
+    ok = (ids == list(expected_arms) and len(plan) == expected_runs and len(set(plan)) == expected_runs
           and all(arm.get("runs") == 2 for arm in arms))
     if not ok:
         raise SupportError("plan")
@@ -276,29 +317,34 @@ def main() -> int:
     norm = sub.add_parser("normalize-run")
     norm.add_argument("--report", required=True, type=Path)
     norm.add_argument("--iolog", required=True, type=Path)
-    norm.add_argument("--arm", required=True, choices=derive.ALL_ARMS)
+    norm.add_argument("--arm", required=True,
+                      choices=derive.ALL_ARMS + predict.ADD2_ARMS)
     norm.add_argument("--repetition", required=True, type=int, choices=(1, 2))
     norm.add_argument("--reference-unchanged", required=True,
                       type=lambda value: value == "true", choices=(True, False))
     norm.add_argument("--output", required=True, type=Path)
     norm.set_defaults(func=normalize_run)
     arm = sub.add_parser("arm-check")
-    arm.add_argument("--arm", required=True, choices=derive.ALL_ARMS)
+    arm.add_argument("--arm", required=True,
+                     choices=derive.ALL_ARMS + predict.ADD2_ARMS)
     arm.add_argument("--run", required=True, type=Path, action="append")
     arm.set_defaults(func=arm_check)
     ass = sub.add_parser("assemble")
     ass.add_argument("--manifest", required=True, type=Path)
     ass.add_argument("--run-dir", required=True, type=Path)
     ass.add_argument("--output", required=True, type=Path)
-    ass.set_defaults(func=assemble)
+    ass.add_argument("--addendum2", action="store_true")
+    ass.set_defaults(func=lambda args: assemble_add2(args) if args.addendum2 else assemble(args))
     summ = sub.add_parser("summary")
     summ.add_argument("--judgment", required=True, type=Path)
     summ.add_argument("--run-dir", required=True, type=Path)
     summ.add_argument("--frontend-launch-count", required=True, type=int)
     summ.add_argument("--output", required=True, type=Path)
+    summ.add_argument("--addendum2", action="store_true")
     summ.set_defaults(func=summary)
     plan = sub.add_parser("plan-check")
     plan.add_argument("--manifest", required=True, type=Path)
+    plan.add_argument("--addendum2", action="store_true")
     plan.set_defaults(func=plan_check)
     args = ap.parse_args()
     try:

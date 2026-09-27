@@ -33,7 +33,8 @@ def _frozen(path: Path) -> dict[str, str]:
     return out
 
 
-def verify(manifest_path: Path, candidates_path: Path, frozen_path: Path) -> None:
+def verify(manifest_path: Path, candidates_path: Path, frozen_path: Path,
+           addendum2: bool = False) -> None:
     values = _frozen(frozen_path)
     manifest_raw = manifest_path.read_bytes()
     candidates_raw = candidates_path.read_bytes()
@@ -41,24 +42,33 @@ def verify(manifest_path: Path, candidates_path: Path, frozen_path: Path) -> Non
         raise GateError("manifest SHA")
     if hashlib.sha256(candidates_raw).hexdigest() != values["candidates_sha256"]:
         raise GateError("候補表 SHA")
-    manifest = predict_m6fe._manifest(manifest_path)
-    expected = predict_m6fe.render_candidates(manifest, predict_m6fe.LAYOUT_ARMS)
+    manifest = predict_m6fe._manifest(manifest_path, addendum2)
+    expected = (predict_m6fe.render_add2_candidates(manifest) if addendum2 else
+                predict_m6fe.render_candidates(manifest, predict_m6fe.LAYOUT_ARMS))
     if candidates_raw != expected:
         raise GateError("候補表再生成")
     # 欠落・重複・summary不整合は共通の厳格parserでも独立に検査する。
-    parsed = derive_m6fe.load_candidates(candidates_path)
-    if len(parsed) != 54 * len(predict_m6fe.LAYOUT_ARMS):
+    parsed = (derive_m6fe.load_add2_candidates(candidates_path) if addendum2 else
+              derive_m6fe.load_candidates(candidates_path))
+    expected_count = ((162 * len(predict_m6fe.ADD2_ARMS)) if addendum2 else
+                      (54 * len(predict_m6fe.LAYOUT_ARMS)))
+    if len(parsed) != expected_count:
         raise GateError("候補組数")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("manifest", type=Path)
-    ap.add_argument("--candidates", type=Path, default=HERE / "m6fe_candidates_frozen.tsv")
-    ap.add_argument("--frozen", type=Path, default=HERE / "m6fe_frozen.tsv")
+    ap.add_argument("--candidates", type=Path)
+    ap.add_argument("--frozen", type=Path)
+    ap.add_argument("--addendum2", action="store_true")
     args = ap.parse_args()
     try:
-        verify(args.manifest, args.candidates, args.frozen)
+        candidates = args.candidates or HERE / (
+            "m6fe_add2_candidates_frozen.tsv" if args.addendum2 else "m6fe_candidates_frozen.tsv")
+        frozen = args.frozen or HERE / (
+            "m6fe_add2_frozen.tsv" if args.addendum2 else "m6fe_frozen.tsv")
+        verify(args.manifest, candidates, frozen, args.addendum2)
         print("m6fe_candidates_gate=ok")
         return 0
     except (GateError, derive_m6fe.InputError, predict_m6fe.PredictionError, OSError):
