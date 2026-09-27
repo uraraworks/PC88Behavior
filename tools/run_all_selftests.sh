@@ -323,6 +323,11 @@ SCRIPTS_EXPECTED=(
   "tools/make_m6fe_add3_disk_selftest.sh:0"
   "tools/m6fe_add3_predict_derive_selftest.sh:0"
   "tools/measure_m6fe_add3_driver_selftest.sh:0"
+  # m6f-g。0xA0/0x01の191候補、G-M動的照合、100/158単位、5腕×2走を
+  # 合成D88・合成署名・偽フロントエンドだけで検査する。各検査は陰性対照つき。
+  "tools/make_m6fg_disk_selftest.sh:0"
+  "tools/m6fg_predict_derive_selftest.sh:0"
+  "tools/measure_m6fg_driver_selftest.sh:0"
   # m6f-e追補4。小文字PRINT予測、追補3 Q-Bの引数受け、採否、
   # 偽フロントエンド6走とG0〜G14を合成入力で検査する。
   "tools/m6fe_add4_predict_derive_selftest.sh:0"
