@@ -7,19 +7,36 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 POS="$WORK/positive"
 mkdir -p "$POS"
+
+# このゲートはE0〜E3の内部無矛盾性（相互差分・挿入位置）と、m6i-c C0/C2への
+# 一致を見る。E0〜E3とC0/C2は同じソース系統で揃っていないと成立しないため、
+# 全部をm6i-e測定コミット自身（当時のm6i-c依存も含めて自己完結）から
+# 取り出してビルドする。現在の作業ツリー（FILES実装後）はメインROMの中身が
+# 変わっているので使わない。
+# 根拠: git log -1 --format=%H -- tools/m6ie_frozen.tsv
+M6IE_FROZEN_COMMIT=3569050928ac78e94e7e6929fa6c20377d8e7ce2
+# build_main_rom.pyはvendor/(フォント素材)をリポジトリの一段上の兄弟
+# ディレクトリとして参照するので、同じ相対位置を再現する。
+FROZEN_ROOT="$WORK/frozen-root"
+FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
+mkdir -p "$FROZEN_SRC"
+ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
+git -C "$REPO" archive "$M6IE_FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+
 for arm in E0 E1 E2 E3; do
-  python3 "$REPO/tools/build_m6ie_measure_rom.py" "$POS/$arm" --arm "$arm" \
+  python3 "$FROZEN_SRC/tools/build_m6ie_measure_rom.py" "$POS/$arm" --arm "$arm" \
     --work-dir "$WORK/build-$arm" >"$WORK/build-$arm.out" || exit 1
 done
 for arm in C0 C2; do
-  python3 "$REPO/tools/build_m6ic_measure_rom.py" "$POS/$arm" --arm "$arm" \
+  python3 "$FROZEN_SRC/tools/build_m6ic_measure_rom.py" "$POS/$arm" --arm "$arm" \
     --work-dir "$WORK/build-$arm" >"$WORK/build-$arm.out" || exit 1
 done
 
 CHECK=(python3 "$REPO/tools/check_m6ie_rom_gate.py")
 run_check() {
   local root="$1"
-  local config="$REPO/tools/m6ic_frozen.tsv"
+  # 凍結コミット当時のm6ic_frozen.tsvを使う（E0〜E3・C0/C2と同じソース系統）。
+  local config="$FROZEN_SRC/tools/m6ic_frozen.tsv"
   if [ -f "$root/m6ic.tsv" ]; then config="$root/m6ic.tsv"; fi
   "${CHECK[@]}" "$root/E0" "$root/E1" "$root/E2" "$root/E3" \
     --m6ic-c0-dir "$root/C0" --m6ic-c2-dir "$root/C2" --m6ic-config "$config"

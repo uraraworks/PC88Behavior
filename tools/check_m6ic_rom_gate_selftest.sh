@@ -9,14 +9,29 @@ trap 'rm -rf "$WORK"' EXIT
 POSITIVE="$WORK/positive"
 mkdir -p "$POSITIVE"
 
+# 凍結値(m6ic_frozen.tsv の c0/c1_rom_set_sha256)はm6i-c測定時点のソースで
+# 作られた値。現在の作業ツリーはFILES実装でメインROMの中身が変わっている
+# ため、作業ツリーでビルドすると凍結値と一致しない（それが正しい）。
+# 凍結値を作った測定コミット自身を取り出してビルドし直す。
+# 根拠: git log -1 --format=%H -- tools/m6ic_frozen.tsv
+M6IC_FROZEN_COMMIT=25d4ed406e1139e63a24de5d4617360a96d9e4f6
+# build_main_rom.pyはvendor/(フォント素材)をリポジトリの一段上の兄弟
+# ディレクトリとして参照するので、同じ相対位置を再現する。
+FROZEN_ROOT="$WORK/frozen-root"
+FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
+mkdir -p "$FROZEN_SRC"
+ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
+git -C "$REPO" archive "$M6IC_FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+
 # 重い基底ビルドはC0/C1の各1回だけにする。
 for arm in C0 C1; do
-  python3 "$REPO/tools/build_m6ic_measure_rom.py" "$POSITIVE/$arm" --arm "$arm" \
+  python3 "$FROZEN_SRC/tools/build_m6ic_measure_rom.py" "$POSITIVE/$arm" --arm "$arm" \
     --work-dir "$WORK/build-$arm" >"$WORK/build-$arm.txt" || exit 1
 done
 
-# C2/C3も本番ビルダー自身の合成関数で作り、陽性対照の生成経路を複製しない。
-python3 - "$REPO" "$POSITIVE" <<'PY'
+# C2/C3も、凍結値を作った当時のビルダー自身の合成関数で作る
+# （C0/C1と同じソース系統で揃える。陽性対照の生成経路を複製しない）。
+python3 - "$FROZEN_SRC" "$POSITIVE" <<'PY'
 import pathlib
 import sys
 
