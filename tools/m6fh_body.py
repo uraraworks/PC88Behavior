@@ -87,7 +87,7 @@ def chain(image: Image, name: bytes, allow_empty: bool = False) -> tuple[list[tu
         units.append(unit)
         if value < 160:
             unit = value
-        elif 0xc1 <= value <= 0xc8:
+        elif 0xc0 <= value <= 0xc8:  # 0xC0=使ったセクタ数0（空のファイル、m6f-h 1回目で判明）
             used_last = value-0xc0
             break
         else:
@@ -163,7 +163,7 @@ def main() -> int:
         with args.image.open('rb') as source:
             with mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
                 result = compare(mapped, args.arm)
-    except (OSError, BodyError, ValueError):
+    except (OSError, BodyError, ValueError, BufferError):
         print(json.dumps({'gate': 'NG', 'reason': 'body_read'}))
         return 1
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
