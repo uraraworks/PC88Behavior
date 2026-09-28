@@ -6,9 +6,28 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# g8_main_sha・g8_retry_sha（下のexpected）はFILES実装コミット(1cc2528)が
+# このファイルに書き込んだ凍結値。現在の作業ツリーはLOAD実装でメインROMの
+# 中身がさらに変わっているため、作業ツリーでビルドすると一致しない
+# （それが正しい）。main/retryだけは凍結値を作ったコミット自身を
+# 取り出してビルドし直す。plain/disabled/chr・default.d88はSHA比較の対象
+# ではない（構造検査・現行実装の検査）ので作業ツリーのビルドのままにする。
+# 根拠: git log -S<SHA> --format=%H -- tools/disk_read_chr_selftest.sh
+FROZEN_COMMIT=1cc25283921d9a59f86eb92c1cad1aa64dcbea91
+# build_main_rom.pyはvendor/(フォント素材)をリポジトリの一段上の兄弟
+# ディレクトリとして参照するので、同じ相対位置を再現する。
+FROZEN_ROOT="$WORK/frozen-root"
+FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
+mkdir -p "$FROZEN_SRC"
+ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
+git -C "$REPO" archive "$FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+FROZEN_BUILD=(python3 "$FROZEN_SRC/src/build_main_rom.py")
+
 BUILD=(python3 "$REPO/src/build_main_rom.py")
-"${BUILD[@]}" "$WORK/main" --enable-main-sub-read --work-dir "$WORK/w-main" >/dev/null
-"${BUILD[@]}" "$WORK/retry" --enable-disk-read-retry --work-dir "$WORK/w-retry" >/dev/null
+"${FROZEN_BUILD[@]}" "$WORK/main" --enable-main-sub-read --work-dir "$WORK/w-main-frozen" >/dev/null
+"${FROZEN_BUILD[@]}" "$WORK/retry" --enable-disk-read-retry --work-dir "$WORK/w-retry-frozen" >/dev/null
+"${BUILD[@]}" "$WORK/main-cur" --enable-main-sub-read --work-dir "$WORK/w-main" >/dev/null
+"${BUILD[@]}" "$WORK/retry-cur" --enable-disk-read-retry --work-dir "$WORK/w-retry" >/dev/null
 "${BUILD[@]}" "$WORK/plain" --work-dir "$WORK/w-plain" >/dev/null
 "${BUILD[@]}" "$WORK/disabled" --disable-main-sub-read --work-dir "$WORK/w-disabled" >/dev/null
 "${BUILD[@]}" "$WORK/chr" --enable-disk-read-chr --work-dir "$WORK/w-chr" >/dev/null
@@ -119,6 +138,8 @@ expected = {
     "g3_default_sha": "d3becfe5051f7002d268824a2da2824f543442e71ae3226e4d22139e0adce05c",
 }
 actual_hashes = {
+    # g8_main_sha・g8_retry_shaは凍結値を作ったコミット(1cc2528)を
+    # git archiveで取り出してビルドしたROMと比較する（シェル側参照）。
     "g8_main_sha": sha(work / "main" / "N88.ROM"),
     "g8_retry_sha": sha(work / "retry" / "N88.ROM"),
     "g8_disk_sha": sha(work / "plain" / "DISK.ROM"),

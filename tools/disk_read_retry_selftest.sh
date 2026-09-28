@@ -6,7 +6,21 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-python3 "$REPO/src/build_main_rom.py" "$WORK/legacy" --enable-main-sub-read \
+# want_n88はFILES実装コミット(1cc2528)がこのファイルに書き込んだ凍結値。
+# 現在の作業ツリーはLOAD実装でメインROMの中身がさらに変わっているため、
+# 作業ツリーでビルドすると一致しない（それが正しい）。凍結値を作った
+# コミット自身を取り出してビルドし直して照合する。
+# 根拠: git log -S<SHA> --format=%H -- tools/disk_read_retry_selftest.sh
+FROZEN_COMMIT=1cc25283921d9a59f86eb92c1cad1aa64dcbea91
+# build_main_rom.pyはvendor/(フォント素材)をリポジトリの一段上の兄弟
+# ディレクトリとして参照するので、同じ相対位置を再現する。
+FROZEN_ROOT="$WORK/frozen-root"
+FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
+mkdir -p "$FROZEN_SRC"
+ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
+git -C "$REPO" archive "$FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+
+python3 "$FROZEN_SRC/src/build_main_rom.py" "$WORK/legacy" --enable-main-sub-read \
   --work-dir "$WORK/legacy-work" >/dev/null
 python3 "$REPO/src/build_main_rom.py" "$WORK/plain" \
   --work-dir "$WORK/plain-work" >/dev/null

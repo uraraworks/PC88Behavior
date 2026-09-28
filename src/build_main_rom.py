@@ -73,6 +73,8 @@ L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 # M7段階5b: RUNとプログラムの実行(GOTO/FOR/GOSUB/STOP/変数)。run.asm
 L4_RUN_ASM = REPO / "src" / "l4_basic" / "run.asm"
 L4_FILES_ASM = REPO / "src" / "l4_basic" / "files.asm"
+L4_LOAD_ASM = REPO / "src" / "l4_basic" / "load.asm"
+L4_LOAD_GAP_ASM = REPO / "src" / "l4_basic" / "load_gap.asm"
 
 # 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
 EXT_BANK_DIR = REPO / "src" / "ext_bank"
@@ -255,7 +257,8 @@ STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 # 検査する。
 EXT_BANK_WINDOW_START = 0x6000
 EXT_BANK_INTERRUPT_SAFE_LABELS = (
-    "VSYNC_HANDLER", "L3_VSYNC_HOOK", "EXT_BANK_CALL", "EXT_BANK_JUMP_HL")
+    "VSYNC_HANDLER", "L3_VSYNC_HOOK", "EXT_BANK_CALL", "EXT_BANK_JUMP_HL",
+    "EXT_BANK_MAIN_CALL", "_ext_bank_main_jump")
 
 # 拡張ROMバンク: バンク側ルーチンから1回CALLして戻ってよい常駐部ルーチン
 # 一覧(docs/spec/ext-rom-bank.md 第2節 制約3(a)〜(c)、
@@ -286,6 +289,27 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
     # 側でAEL_EXP_NY_TO_INT16として自己完結に実装し直した(常駐呼び出し
     # にしない、二重実装ではあるが窓外の空きが尽きているための判断)。
 )
+
+# バンク1のFILES/LOAD文が窓外中継で呼ぶmain側ルーチン。
+# バンクROMを別に組み立てるため、実ビルドのラベル番地を渡す。
+EXT_BANK1_MAIN_ADDR_LABELS = {
+    "BANK1_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "BANK1_SKIP_SPACES_ADDR": "SKIP_SPACES",
+    "BANK1_PEEK_CHAR_ADDR": "PEEK_CHAR",
+    "BANK1_LEX_IDENT_PEEK_ADDR": "LEX_IDENT_PEEK",
+    "BANK1_PARSE_INT_ARG_ADDR": "PARSE_INT_ARG",
+    "BANK1_READ_CHR_ADDR": "MAIN_SUB_READ_CHR_RETRY",
+    "BANK1_PRINT_CHAR_ADDR": "PRINT_CHAR",
+    "BANK1_NEWLINE_ADDR": "NEWLINE",
+    "BANK1_ADV_PTR_ADDR": "ADV_PTR",
+    "BANK1_AT_END_ADDR": "AT_END",
+    "BANK1_PROGRAM_CLEAR_ADDR": "PROGRAM_CLEAR",
+    "BANK1_PARSE_LINENUM_ADDR": "PARSE_LINENUM",
+    "BANK1_PROGRAM_STORE_LINE_ADDR": "PROGRAM_STORE_LINE",
+    "BANK1_SELECT_ERROR_MSG_ADDR": "SELECT_ERROR_MSG",
+    "BANK1_PRINT_STR_ADDR": "PRINT_STR",
+    "BANK1_OK_TXT_ADDR": "OK_TXT",
+}
 
 # EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
 # の対応。make_ext_rom_banks.pyの--addrへ実測アドレスを渡すのに使う
@@ -950,19 +974,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     run_path = work / "l4_run_gen.asm"
     run_path.write_text(L4_RUN_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
-    files_text = L4_FILES_ASM.read_text(encoding="utf-8")
-    if not enable_disk_read_chr:
-        # CHR/再試行READを含めないmain-sub測定構成でもBASIC本体を
-        # 組み立てられるようにする。
-        # CALLと同じ3バイトをSCF+NOP+NOPへ置き換え、READ失敗として扱う。
-        # 配布構成ではenable_main_sub_read=Trueなので、この経路は使われない。
-        disabled_read_call = "    CALL MAIN_SUB_READ_CHR_RETRY\n"
-        disabled_read_stub = "    SCF\n    NOP\n    NOP\n"
-        if files_text.count(disabled_read_call) != 1:
-            raise SystemExit("FILESのmain-sub READ呼出しが一意に見つからない")
-        files_text = files_text.replace(disabled_read_call, disabled_read_stub)
     files_path = work / "l4_files_gen.asm"
-    files_path.write_text(files_text, encoding="utf-8")
+    files_path.write_text(L4_FILES_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
+    load_path = work / "l4_load_gen.asm"
+    load_path.write_text(L4_LOAD_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)は窓(0x6000-0x7FFF)の外に
     # 無ければならない(docs/spec/ext-rom-bank.md 第2節 制約1)。通常ビルドは
@@ -1019,6 +1035,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{program_path}"\n'
         + f'\nINCLUDE "{run_path}"\n'
         + f'\nINCLUDE "{files_path}"\n'
+        + f'\nINCLUDE "{load_path}"\n'
     )
     if inject_ext_bank_window_fault:
         combined += ext_bank_relay_include
@@ -1491,6 +1508,10 @@ def main():
             if addr is not None:
                 addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK0_ATNEXPLOG_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK1_MAIN_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr

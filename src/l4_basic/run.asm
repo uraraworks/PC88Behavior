@@ -2692,8 +2692,16 @@ _rmsk_try_resume:
 _rmsk_try_files:
     CALL TRY_MATCH_FILES
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_load
     LD A,21
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_load:
+    CALL TRY_MATCH_LOAD
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,22
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2787,6 +2795,8 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_resume
     CP 21
     JR Z,_reos_files
+    CP 22
+    JR Z,_reos_load
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2836,6 +2846,8 @@ _reos_resume:
     JP RESUME_STMT
 _reos_files:
     JP FILES_STMT
+_reos_load:
+    JP LOAD_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
@@ -3806,6 +3818,16 @@ TRY_MATCH_FILES:
     JP TRY_MATCH_KEYWORD_GENERIC
 STMT_FILES_TEXT: DB "FILES"
 STMT_FILES_LEN EQU 5
+
+; LOADも直接モードとプログラム中で同じ文入口を使う。
+TRY_MATCH_LOAD:
+    LD HL,STMT_LOAD_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_LOAD_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_LOAD_TEXT: DB "LOAD"
+STMT_LOAD_LEN EQU 4
 
 TRY_MATCH_ON:
     LD HL,STMT_ON_TEXT
@@ -4987,6 +5009,10 @@ _ds_exhausted:
 ; DATA_PARSE_NUMBER_LITERAL — FACTORの数値定数解釈(_l4factor_is_number
 ;   相当)を、DATA用にCUR_PTR位置へ直接適用する。先頭の'-'も許す
 ;   (仕様書に無い判断、DATAの負数リテラルは未測定)。
+; 0x79D7は予約番地。LOAD文の追加で前方が伸びたため、境界を
+; DATAの数値解釈入口の直前へ移す。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
 DATA_PARSE_NUMBER_LITERAL:
     CALL PEEK_CHAR
     CP '-'
@@ -5045,12 +5071,6 @@ _dpnl_done:
     XOR A
     LD (ERROR_FLAG),A
     RET
-
-; 0x79D7はQUASI88の機種判定予約番地なので、直前の安全な境界から
-; 0x79D8までをFILLで埋める。固定長ではなく現在位置との差にすることで、
-; 前方の文ハンドラが増減しても予約1バイトをコードにしない。
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 
 ; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
 ;   BUFへ読む(31文字超は切り詰め、引用符の特別扱いはしない・第8節29)。

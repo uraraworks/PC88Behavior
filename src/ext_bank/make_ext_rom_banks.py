@@ -125,7 +125,9 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     # ので、base=0(無変更)のままでよい。
     has_org = "    ORG 0x6000\n" in text
     base = BANK_ORG if has_org else 0
-    if inject_no_org_fault and has_org:
+    # 故障注入は ext_bank_selftest の陰性対照3（bank0.asm の ORG を外す）専用。
+    # LOAD 実装で bank1.asm も ORG 0x6000 を持つようになったので、対象を bank0 に限る。
+    if inject_no_org_fault and has_org and asm_path.name == "bank0.asm":
         for old, new in NO_ORG_FAULT_SUBS:
             if old in text:
                 if text.count(old) != 1:

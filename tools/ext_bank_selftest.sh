@@ -87,10 +87,11 @@ for i in range(4):
         # (バイト照合)で検査する。
         rest = data[3:0x10] + data[0x1D:0x30] + data[0x70:0x80]
     elif i == 1:
-        # bank1は0x110以降にFILES本体を持つ。試験入口からFILES入口までと、
-        # 現在の本体上限0x300以降がFILLのままであることを確認する。
-        # FILES本体そのものはl4_files_z80_selftest.shで実行検査する。
-        rest = data[3:0x110] + data[0x300:]
+        # bank1は0x110以降にFILES・LOAD本体を持つ（LOAD実装で本体が伸び、
+        # 固定の上限0x300は外した）。試験入口からFILES入口までがFILLのままで
+        # あることを確認する。本体の中身はl4_files_z80_selftest.sh・
+        # l4_load_z80_selftest.sh・conform_files.sh・conform_load.shで検査する。
+        rest = data[3:0x110]
     else:
         rest = data[3:]
     if any(b != 0x00 for b in rest):

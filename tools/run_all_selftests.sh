@@ -340,6 +340,11 @@ SCRIPTS_EXPECTED=(
   # FILESのバンク1本体を実Z80で検査。1/10単位・終端・16桁セルと、
   # 終端判定を壊した陰性対照を含む。公式ROM・公式媒体は不要。
   "tools/l4_files_z80_selftest.sh:0"
+  # LOAD適合器と本体の実Z80検査。期待値破損・偽フロントエンド・
+  # 0x1A破損の陰性対照を含む。既存の除外名照合方式は共通。
+  "tools/load_conform_selftest.sh:0"
+  "tools/l4_load_z80_selftest.sh:0"
+  "tools/conform_load.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。

@@ -101,6 +101,35 @@ EXT_BANK_INIT:
     LD (EXT_BANK_REENTRY_DETECTED),A
     RET
 
+; バンク側から main ROM の任意のルーチンを呼ぶ共通の窓外中継。
+; IX=呼び先、AF/BC/DE/HL は呼び先へそのまま渡す。復帰値とフラグも返す。
+; 呼び先はバンク切替・EXT_BANK_CALLを行わない。再入はしない。
+EXT_BANK_MAIN_CALL:
+    PUSH AF
+    PUSH BC
+    IN A,(0x71)
+    LD (EXT_BANK_MAIN_PORT71),A
+    IN A,(0x32)
+    LD (EXT_BANK_MAIN_PORT32),A
+    OR A
+    LD A,(EXT_BANK_MAIN_PORT71)
+    OR 1
+    OUT (0x71),A
+    POP BC
+    POP AF
+    CALL _ext_bank_main_jump
+    PUSH AF
+    LD A,(EXT_BANK_MAIN_PORT32)
+    OUT (0x32),A
+    LD A,(EXT_BANK_MAIN_PORT71)
+    OUT (0x71),A
+    POP AF
+    RET
+_ext_bank_main_jump:
+    JP (IX)
+EXT_BANK_MAIN_PORT71 EQU 0E8CAh
+EXT_BANK_MAIN_PORT32 EQU 0E8CBh
+
 ; ポート(l1-ipl.md 第5c節・ext-rom-bank.md 第1節)
 EXT_PORT_BANKSEL EQU 0x32   ; bit1-0 = EROMSL(内蔵拡張ROMバンク選択0-3)
 EXT_PORT_SWITCH  EQU 0x71   ; bit0   = EXT_ROM_NOT(0で拡張ROM有効/1でメインROM)

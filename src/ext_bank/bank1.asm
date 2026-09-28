@@ -270,3 +270,596 @@ _fb_finish:
 _fb_done:
     XOR A
     RET
+
+; LOAD状態機械。1=READ要求、2=名前発見(常駐側でNEW)、3=行登録、
+; 4=名前なし、5=種別不適、6=READ失敗、0=正常終了。
+; FILESと同じDF00受信/E100 FAT写しを使い、main側の関数は呼ばない。
+    ORG 0x6400
+LOAD_PHASE       EQU 0E220h
+LOAD_NAME        EQU 0E221h
+LOAD_READ_TRACK  EQU 0E22Ch
+LOAD_READ_SECTOR EQU 0E22Dh
+LOAD_READ_OK     EQU 0E22Eh
+LOAD_DIR_SECTOR  EQU 0E22Fh
+LOAD_ENTRY_INDEX EQU 0E230h
+LOAD_UNIT        EQU 0E231h
+LOAD_UNIT_SECTOR EQU 0E232h
+LOAD_BYTE_OFFSET EQU 0E233h
+LOAD_LINE_LEN    EQU 0E234h
+LOAD_SKIP_LF     EQU 0E235h
+LOAD_CHAIN_GUARD EQU 0E236h
+LOAD_LINE_BUF    EQU 0E82Bh
+
+EXT_BANK1_LOAD_ENTRY:
+    LD A,(LOAD_PHASE)
+    OR A
+    JP Z,_lb_init
+    CP 1
+    JP Z,_lb_have_fat
+    CP 2
+    JP Z,_lb_scan
+    CP 3
+    JP Z,_lb_schedule
+    JP _lb_consume
+
+_lb_init:
+    LD A,1
+    LD (LOAD_PHASE),A
+    LD A,37
+    LD (LOAD_READ_TRACK),A
+    LD A,14
+    LD (LOAD_READ_SECTOR),A
+    LD A,1
+    LD (LOAD_DIR_SECTOR),A
+    XOR A
+    LD (LOAD_ENTRY_INDEX),A
+    LD A,1
+    RET
+
+_lb_have_fat:
+    LD A,(LOAD_READ_OK)
+    OR A
+    JP Z,_lb_io_error
+    LD HL,MAIN_SUB_SECTOR_BUF
+    LD DE,FILES_FAT_BUF
+    LD BC,256
+    LDIR
+    LD A,2
+    LD (LOAD_PHASE),A
+    JP _lb_request_dir
+
+_lb_request_dir:
+    LD A,37
+    LD (LOAD_READ_TRACK),A
+    LD A,(LOAD_DIR_SECTOR)
+    LD (LOAD_READ_SECTOR),A
+    LD A,1
+    RET
+
+_lb_scan:
+    LD A,(LOAD_READ_OK)
+    OR A
+    JP Z,_lb_io_error
+_lb_scan_next:
+    LD A,(LOAD_ENTRY_INDEX)
+    CP 16
+    JR C,_lb_entry
+    LD A,(LOAD_DIR_SECTOR)
+    INC A
+    LD (LOAD_DIR_SECTOR),A
+    CP 13
+    JP NC,_lb_not_found
+    XOR A
+    LD (LOAD_ENTRY_INDEX),A
+    JP _lb_request_dir
+_lb_entry:
+    LD L,A
+    LD H,0
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    LD DE,MAIN_SUB_SECTOR_BUF
+    ADD HL,DE
+    PUSH HL
+    POP IX
+    LD A,(IX+0)
+    CP 0FFh
+    JP Z,_lb_not_found
+    OR A
+    JR Z,_lb_next_entry
+    PUSH IX
+    POP HL
+    LD DE,LOAD_NAME
+    LD B,9
+_lb_cmp_name:
+    LD A,(DE)
+    CP (HL)
+    JR NZ,_lb_next_entry
+    INC HL
+    INC DE
+    DJNZ _lb_cmp_name
+    LD A,(IX+9)
+    OR A
+    JP NZ,_lb_wrong_type
+    LD A,(IX+10)
+    LD (LOAD_UNIT),A
+    XOR A
+    LD (LOAD_UNIT_SECTOR),A
+    LD (LOAD_BYTE_OFFSET),A
+    LD (LOAD_LINE_LEN),A
+    LD (LOAD_SKIP_LF),A
+    LD A,160
+    LD (LOAD_CHAIN_GUARD),A
+    LD A,3
+    LD (LOAD_PHASE),A
+    LD A,2
+    RET
+_lb_next_entry:
+    LD A,(LOAD_ENTRY_INDEX)
+    INC A
+    LD (LOAD_ENTRY_INDEX),A
+    JP _lb_scan_next
+
+_lb_schedule:
+    LD A,(LOAD_UNIT)
+    CP 160
+    JP NC,_lb_io_error
+    LD L,A
+    LD H,0
+    LD DE,FILES_FAT_BUF
+    ADD HL,DE
+    LD C,(HL)             ; C=T[unit]
+    LD A,(LOAD_UNIT_SECTOR)
+    CP 8
+    JR C,_lb_same_unit
+    LD A,C
+    CP 160
+    JP NC,_lb_done
+    LD (LOAD_UNIT),A
+    XOR A
+    LD (LOAD_UNIT_SECTOR),A
+    LD A,(LOAD_CHAIN_GUARD)
+    DEC A
+    LD (LOAD_CHAIN_GUARD),A
+    JP Z,_lb_io_error
+    JP _lb_schedule
+_lb_same_unit:
+    LD B,A
+    LD A,C
+    CP 0C0h
+    JR C,_lb_track
+    CP 0C9h
+    JP NC,_lb_io_error
+    SUB 0C0h
+    CP B
+    JP Z,_lb_done
+    JP C,_lb_done
+_lb_track:
+    LD A,(LOAD_UNIT)
+    SRL A                 ; unit/2 = C*2+H
+    LD (LOAD_READ_TRACK),A
+    LD A,(LOAD_UNIT)
+    AND 1
+    RLCA
+    RLCA
+    RLCA                   ; 0/8
+    LD C,A
+    LD A,(LOAD_UNIT_SECTOR)
+    ADD A,C
+    INC A
+    LD (LOAD_READ_SECTOR),A
+    LD A,4
+    LD (LOAD_PHASE),A
+    LD A,1
+    RET
+
+_lb_consume:
+    LD A,(LOAD_READ_OK)
+    OR A
+    JP Z,_lb_io_error
+_lb_byte:
+    LD A,(LOAD_BYTE_OFFSET)
+    LD L,A
+    LD H,0
+    LD DE,MAIN_SUB_SECTOR_BUF
+    ADD HL,DE
+    LD C,(HL)
+    LD A,(LOAD_BYTE_OFFSET)
+    INC A
+    LD (LOAD_BYTE_OFFSET),A
+    LD A,(LOAD_SKIP_LF)
+    OR A
+    JR Z,_lb_regular
+    XOR A
+    LD (LOAD_SKIP_LF),A
+    LD A,C
+    CP 0Ah
+    JR Z,_lb_advance_byte
+_lb_regular:
+    LD A,C
+    CP 01Ah
+    JP Z,_lb_done
+    CP 0Dh
+    JR Z,_lb_line
+    LD A,(LOAD_LINE_LEN)
+    CP 80
+    JP NC,_lb_io_error
+    LD L,A
+    LD H,0
+    LD DE,LOAD_LINE_BUF
+    ADD HL,DE
+    LD (HL),C
+    LD A,(LOAD_LINE_LEN)
+    INC A
+    LD (LOAD_LINE_LEN),A
+_lb_advance_byte:
+    LD A,(LOAD_BYTE_OFFSET)
+    OR A
+    JP NZ,_lb_byte
+    LD A,(LOAD_UNIT_SECTOR)
+    INC A
+    LD (LOAD_UNIT_SECTOR),A
+    LD A,3
+    LD (LOAD_PHASE),A
+    JP _lb_schedule
+_lb_line:
+    LD A,1
+    LD (LOAD_SKIP_LF),A
+    LD A,(LOAD_BYTE_OFFSET)
+    OR A
+    JR NZ,_lb_line_ready
+    LD A,(LOAD_UNIT_SECTOR)
+    INC A
+    LD (LOAD_UNIT_SECTOR),A
+    LD A,3
+    LD (LOAD_PHASE),A
+_lb_line_ready:
+    LD A,3
+    RET
+
+_lb_not_found:
+    LD A,4
+    RET
+_lb_wrong_type:
+    LD A,5
+    RET
+_lb_io_error:
+    LD A,6
+    RET
+_lb_done:
+    XOR A
+    RET
+
+; FILES/LOAD のRAM作業域とmain常駐部の共有引数。
+FILES_DRIVE EQU 0E211h
+LOAD_NAME_LEN EQU 0E22Ah
+LOAD_DRIVE EQU 0E22Bh
+B1_ERROR_FLAG EQU 0E880h
+B1_ERROR_KIND EQU 0E8A0h
+B1_RUN_CTRL EQU 0D005h
+B1_VAR_LINELEN EQU 0E82Ah
+B1_LINE_BUF EQU 0E82Bh
+B1_RUN_ERROR_HANDLER_LINE EQU 0D975h
+B1_RUN_ERROR_ACTIVE EQU 0D977h
+LOAD_BANK_ENTRY EQU 06400h
+
+    ORG 0x6600
+EXT_BANK1_FILES_COMMAND:
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    OR A
+    JR Z,_files_default_drive
+    CP ':'
+    JR Z,_files_default_drive
+    CP '"'
+    JR Z,_files_type_error
+    ; `$`型の変数・文字列関数は数値式へ渡す前にERR 13へする。
+    CALL _b1_call_lex_ident_peek
+    CP 3
+    JR Z,_files_type_error
+    CALL _b1_call_parse_int_arg
+    LD A,(B1_ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,D
+    OR A
+    JR NZ,_files_drive_error
+    LD A,E
+    CP 1
+    JR Z,_files_drive_one
+    CP 2
+    JR NZ,_files_drive_error
+    LD A,1
+    JR _files_start
+_files_default_drive:
+_files_drive_one:
+    XOR A
+_files_start:
+    LD (FILES_DRIVE),A
+    XOR A
+    LD (FILES_PHASE),A
+    LD (FILES_READ_OK),A
+
+; バンク本体は1回につき1つの外部動作だけを要求して戻る。
+_files_dispatch:
+    CALL EXT_BANK1_FILES_ENTRY
+    CP FILES_ACT_READ
+    JR Z,_files_do_read
+    CP FILES_ACT_CELL
+    JR Z,_files_do_cell
+    CP FILES_ACT_NEWLINE
+    JR Z,_files_do_newline
+    XOR A
+    LD (B1_ERROR_FLAG),A
+    RET
+
+_files_do_read:
+    LD A,(FILES_DRIVE)
+    PUSH AF
+    LD A,(FILES_READ_TRACK)
+    LD D,A
+    LD A,(FILES_READ_SECTOR)
+    LD E,A
+    POP AF
+    CALL _b1_call_read_chr
+    LD A,0
+    JR C,_files_read_record
+    INC A
+_files_read_record:
+    LD (FILES_READ_OK),A
+    JR _files_dispatch
+
+_files_do_cell:
+    LD HL,FILES_CELL_BUF
+    LD B,16
+_files_cell_loop:
+    LD A,(HL)
+    INC HL
+    PUSH HL
+    ; 通常のPRINT_CHARはBを触らないが、画面下端ではNEWLINE→SCROLLが
+    ; B/Cを作業用に使う。ここで保存しないと、そのときだけDJNZが0から
+    ; 255へ巻き戻り、セル外を余分に出力してしまう。
+    PUSH BC
+    CALL _b1_call_print_char
+    POP BC
+    POP HL
+    DJNZ _files_cell_loop
+    JR _files_dispatch
+
+_files_do_newline:
+    CALL _b1_call_newline
+    JR _files_dispatch
+
+_files_type_error:
+    LD A,1
+    LD (B1_ERROR_FLAG),A
+    LD A,13
+    LD (B1_ERROR_KIND),A
+    RET
+
+_files_drive_error:
+    LD A,1
+    LD (B1_ERROR_FLAG),A
+    LD A,70
+    LD (B1_ERROR_KIND),A
+    RET
+
+    ORG 0x6800
+EXT_BANK1_LOAD_COMMAND:
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    CP '"'
+    JP NZ,_load_syntax
+    CALL _b1_call_adv_ptr
+    CALL _b1_call_peek_char
+    CP '1'
+    JR Z,_load_drive1
+    CP '2'
+    JP NZ,_load_syntax
+    LD A,1
+    JR _load_drive_set
+_load_drive1:
+    XOR A
+_load_drive_set:
+    LD (LOAD_DRIVE),A
+    CALL _b1_call_adv_ptr
+    CALL _b1_call_peek_char
+    CP ':'
+    JP NZ,_load_syntax
+    CALL _b1_call_adv_ptr
+    LD HL,LOAD_NAME
+    LD B,9
+    LD A,' '
+_load_pad:
+    LD (HL),A
+    INC HL
+    DJNZ _load_pad
+    XOR A
+    LD (LOAD_NAME_LEN),A
+_load_name_loop:
+    CALL _b1_call_at_end
+    JP Z,_load_syntax
+    CALL _b1_call_peek_char
+    CP '"'
+    JR Z,_load_name_end
+    PUSH AF
+    LD A,(LOAD_NAME_LEN)
+    CP 9
+    JR NC,_load_name_too_long
+    LD E,A
+    LD D,0
+    LD HL,LOAD_NAME
+    ADD HL,DE
+    POP AF
+    LD (HL),A
+    LD A,E
+    INC A
+    LD (LOAD_NAME_LEN),A
+    CALL _b1_call_adv_ptr
+    JR _load_name_loop
+_load_name_too_long:
+    POP AF
+    JP _load_syntax
+_load_name_end:
+    LD A,(LOAD_NAME_LEN)
+    OR A
+    JP Z,_load_syntax
+    CALL _b1_call_adv_ptr
+    XOR A
+    LD (LOAD_PHASE),A
+    LD (LOAD_READ_OK),A
+_load_dispatch:
+    CALL EXT_BANK1_LOAD_ENTRY
+    CP 1
+    JR Z,_load_read
+    CP 2
+    JR Z,_load_found
+    CP 3
+    JP Z,_load_line
+    CP 4
+    JP Z,_load_not_found
+    CP 5
+    JP Z,_load_wrong_type
+    CP 6
+    JP Z,_load_disk_error
+    ; 通常完了。LINE_FINISH側の通常のOkに先立ち、LOAD自身のOkを出す。
+    LD HL,BANK1_OK_TXT_ADDR
+    CALL _b1_call_print_str
+    CALL _b1_call_newline
+    XOR A
+    LD (B1_ERROR_FLAG),A
+    LD A,2
+    LD (B1_RUN_CTRL),A
+    RET
+_load_read:
+    LD A,(LOAD_DRIVE)
+    PUSH AF
+    LD A,(LOAD_READ_TRACK)
+    LD D,A
+    LD A,(LOAD_READ_SECTOR)
+    LD E,A
+    POP AF
+    CALL _b1_call_read_chr
+    LD A,0
+    JR C,_load_read_record
+    INC A
+_load_read_record:
+    LD (LOAD_READ_OK),A
+    JR _load_dispatch
+_load_found:
+    CALL _b1_call_program_clear
+    ; NEW相当。消えたON ERRORの捕捉先と実行中の行番号を参照しない。
+    LD HL,0
+    LD (B1_RUN_ERROR_HANDLER_LINE),HL
+    XOR A
+    LD (B1_RUN_ERROR_ACTIVE),A
+    JP _load_dispatch
+
+; 0x79D7前の空きへ置くLOAD行登録・エラー処理。
+_load_line:
+    LD A,(LOAD_LINE_LEN)
+    LD (B1_VAR_LINELEN),A
+    OR A
+    JR Z,_load_direct_line
+    LD A,(B1_LINE_BUF)
+    CP '0'
+    JR C,_load_direct_line
+    CP '9'+1
+    JR NC,_load_direct_line
+    CALL _b1_call_parse_linenum
+    JR C,_load_direct_line
+    CALL _b1_call_program_store_line
+    XOR A
+    LD (LOAD_LINE_LEN),A
+    JP _load_dispatch
+_load_direct_line:
+    LD A,57
+    JR _load_error_after_clear
+_load_not_found:
+    LD A,53
+    JR _load_error_before_clear
+_load_wrong_type:
+    LD A,51
+    JR _load_error_before_clear
+_load_disk_error:
+    LD A,64
+    JR _load_error_before_clear
+_load_syntax:
+    LD A,2
+_load_error_before_clear:
+    LD (B1_ERROR_KIND),A
+    LD A,1
+    LD (B1_ERROR_FLAG),A
+    RET
+_load_error_after_clear:
+    LD (B1_ERROR_KIND),A
+    CALL _b1_call_select_error_msg
+    CALL _b1_call_print_str
+    CALL _b1_call_newline
+    XOR A
+    LD (B1_ERROR_FLAG),A
+    LD A,2
+    LD (B1_RUN_CTRL),A
+    RET
+
+
+; IXで指定したmain番地へ渡す。値とフラグは汎用窓外中継が保つ。
+BANK1_ADV_PTR_ADDR EQU 0x1787
+_b1_call_adv_ptr:
+    LD IX,BANK1_ADV_PTR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_AT_END_ADDR EQU 0x1787
+_b1_call_at_end:
+    LD IX,BANK1_AT_END_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_LEX_IDENT_PEEK_ADDR EQU 0x1787
+_b1_call_lex_ident_peek:
+    LD IX,BANK1_LEX_IDENT_PEEK_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_NEWLINE_ADDR EQU 0x1787
+_b1_call_newline:
+    LD IX,BANK1_NEWLINE_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PARSE_INT_ARG_ADDR EQU 0x1787
+_b1_call_parse_int_arg:
+    LD IX,BANK1_PARSE_INT_ARG_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PARSE_LINENUM_ADDR EQU 0x1787
+_b1_call_parse_linenum:
+    LD IX,BANK1_PARSE_LINENUM_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PEEK_CHAR_ADDR EQU 0x1787
+_b1_call_peek_char:
+    LD IX,BANK1_PEEK_CHAR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PRINT_CHAR_ADDR EQU 0x1787
+_b1_call_print_char:
+    LD IX,BANK1_PRINT_CHAR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PRINT_STR_ADDR EQU 0x1787
+_b1_call_print_str:
+    LD IX,BANK1_PRINT_STR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PROGRAM_CLEAR_ADDR EQU 0x1787
+_b1_call_program_clear:
+    LD IX,BANK1_PROGRAM_CLEAR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_PROGRAM_STORE_LINE_ADDR EQU 0x1787
+_b1_call_program_store_line:
+    LD IX,BANK1_PROGRAM_STORE_LINE_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_READ_CHR_ADDR EQU 0x1787
+_b1_call_read_chr:
+    LD IX,BANK1_READ_CHR_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_SELECT_ERROR_MSG_ADDR EQU 0x1787
+_b1_call_select_error_msg:
+    LD IX,BANK1_SELECT_ERROR_MSG_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_SKIP_SPACES_ADDR EQU 0x1787
+_b1_call_skip_spaces:
+    LD IX,BANK1_SKIP_SPACES_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_MAIN_CALL_ADDR EQU 0x1787
+BANK1_OK_TXT_ADDR EQU 0x1787
