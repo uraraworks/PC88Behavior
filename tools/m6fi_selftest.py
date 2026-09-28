@@ -15,6 +15,7 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import check_m6fi_disk as check
+import check_m6fi_scenario as scenario
 import derive_m6fi as derive
 import judge_m6fi as judge
 import make_m6fi_disk as disk
@@ -43,6 +44,22 @@ def disk_tests(tmp: pathlib.Path) -> None:
     doc = disk.manifest()
     image = disk.build_disk(doc)
     require(check.inspect_image(image, doc) == [], "G15正例")
+    frozen = (HERE / "m6fi_frozen.tsv").read_bytes()
+    scenario.verify(disk.canonical(doc), frozen)
+    uppercase = copy.deepcopy(doc)
+    uppercase["entries"] = [{**entry, "name": entry["name"].upper()}
+                            for entry in doc["entries"]]
+    require(check.inspect_image(disk.build_disk(uppercase), uppercase) == ["entry_name"],
+            "G15大文字媒体陰性対照")
+    uppercase_frozen = frozen.decode("ascii").replace(
+        hashlib.sha256(disk.canonical(doc)).hexdigest(),
+        hashlib.sha256(disk.canonical(uppercase)).hexdigest()).encode("ascii")
+    try:
+        scenario.verify(disk.canonical(uppercase), uppercase_frozen)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("G3大文字媒体陰性対照")
     require(disk.canonical(doc) == disk.canonical(disk.manifest()), "媒体決定論")
     require("make_m6fi_disk" not in (HERE / "check_m6fi_disk.py").read_text(), "検査独立")
     off = offsets(image)
@@ -241,6 +258,21 @@ def driver_tests(tmp: pathlib.Path) -> None:
     proc, count = run("bad-frozen", {"M6FI_TEST_FROZEN": str(bad)})
     require(proc.returncode != 0 and count == 0 and
             json.loads(proc.stdout)["failed_gates"] == ["G4"], "凍結破壊起動0")
+    uppercase = copy.deepcopy(disk.manifest())
+    for entry in uppercase["entries"]:
+        entry["name"] = entry["name"].upper()
+    bad_manifest = tmp / "uppercase-manifest.json"
+    bad_manifest.write_bytes(disk.canonical(uppercase))
+    bad_g3_frozen = tmp / "uppercase-frozen.tsv"
+    bad_g3_frozen.write_text((HERE / "m6fi_frozen.tsv").read_text().replace(
+        hashlib.sha256(disk.canonical(disk.manifest())).hexdigest(),
+        hashlib.sha256(bad_manifest.read_bytes()).hexdigest()), encoding="ascii")
+    proc, count = run("uppercase-media", {"M6FI_TEST_G3_MANIFEST": str(bad_manifest),
+                                          "M6FI_TEST_G3_FROZEN": str(bad_g3_frozen)})
+    require(proc.returncode != 0 and count == 0 and
+            json.loads(proc.stdout)["failed_gates"] == ["G3"] and
+            json.loads(proc.stdout)["frontend_launch_count"] == 0,
+            "大文字媒体と小文字打鍵はG3で起動0")
     proc, count = run("bad-baseline", {"M6FI_SELFTEST_BAD_BASELINE": "1"})
     require(proc.returncode == 0 and count == 1 and
             "inconclusive_cls_baseline" in proc.stdout, "G14陰性対照")

@@ -23,7 +23,7 @@ PY
 
 [ -n "$TARGET" ] || failed PC88_M6FI_WORK_missing
 G0=1; G1=1; G2=1; G3=1; G4=1; G5=1; G6=1; G7=1; G8=1
-REVIEW_INPUTS='CLAUDE.md docs/notes/m6f-i-load-ascii-behavior-preregistration.md docs/spec/l3-disk-format.md docs/spec/l4-program.md tools/make_m6fi_disk.py tools/check_m6fi_disk.py tools/predict_m6fi.py tools/derive_m6fi.py tools/judge_m6fi.py tools/check_m6fi_candidates.py tools/m6fi_measure_support.py tools/measure_m6fi.sh tools/m6fi_selftest.py tools/compare_screen_signatures.py tools/run_all_selftests.sh'
+REVIEW_INPUTS='CLAUDE.md docs/notes/m6f-i-load-ascii-behavior-preregistration.md docs/spec/l3-disk-format.md docs/spec/l4-program.md tools/make_m6fi_disk.py tools/check_m6fi_disk.py tools/check_m6fi_scenario.py tools/predict_m6fi.py tools/derive_m6fi.py tools/judge_m6fi.py tools/check_m6fi_candidates.py tools/m6fi_measure_support.py tools/measure_m6fi.sh tools/m6fi_selftest.py tools/compare_screen_signatures.py tools/run_all_selftests.sh'
 if [ -n "${M6FI_TEST_FORBIDDEN_INPUT:-}" ]; then REVIEW_INPUTS="$REVIEW_INPUTS $M6FI_TEST_FORBIDDEN_INPUT"; fi
 case " $REVIEW_INPUTS " in
   *" private/"*|*" vendor/"*|*"make_n88_blank_disk.py"*|*"make_n88_blank_disk_selftest.py"*|*"m7eb"*|*" image.c"*) G0=0 ;;
@@ -38,12 +38,13 @@ if [ "$G2" -eq 1 ]; then
     >"$STAGE/g2.out" 2>"$STAGE/g2.err" || G2=0
 fi
 if [ "$G2" -eq 1 ]; then
-  python3 - "$STAGE/media/manifest.json" "$FROZEN" <<'PY' >"$STAGE/g3.out" 2>"$STAGE/g3.err" || G3=0
-import hashlib,pathlib,sys
-doc,frozen=map(pathlib.Path,sys.argv[1:])
-values=dict(row.split('\t') for row in frozen.read_text(encoding='ascii').splitlines())
-raise SystemExit(0 if hashlib.sha256(doc.read_bytes()).hexdigest()==values['manifest_sha256'] else 1)
-PY
+  G3_MANIFEST="$STAGE/media/manifest.json"; G3_FROZEN="$FROZEN"
+  if [ "${M6FI_TEST_MODE:-0}" = 1 ]; then
+    G3_MANIFEST="${M6FI_TEST_G3_MANIFEST:-$G3_MANIFEST}"
+    G3_FROZEN="${M6FI_TEST_G3_FROZEN:-$G3_FROZEN}"
+  fi
+  python3 "$REPO/tools/check_m6fi_scenario.py" "$G3_MANIFEST" --frozen "$G3_FROZEN" \
+    >"$STAGE/g3.out" 2>"$STAGE/g3.err" || G3=0
   python3 "$REPO/tools/check_m6fi_candidates.py" "$STAGE/media/manifest.json" \
     --frozen "$FROZEN" >"$STAGE/g4.out" 2>"$STAGE/g4.err" || G4=0
 else G3=0; G4=0; fi

@@ -357,7 +357,8 @@ SCRIPTS_EXPECTED=(
   # G6種別違いを合成D88と偽フロントエンドで検査する。陰性対照つき。
   "tools/measure_m6fh_driver_selftest.sh:0"
   # m6f-i。自作D88のG15項目別破壊、全候補・ERRの一意性、6腕×2走、
-  # 凍結破壊時の起動0回と画面本文の漏えい防止を合成入力だけで検査する。
+  # 凍結破壊・大文字媒体と小文字打鍵のG3停止（起動0回）、画面本文の
+  # 漏えい防止を合成入力だけで検査する。
   "tools/m6fi_selftest.sh:0"
   # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
   # entry_fieldsの名前キー化・包み直し・D3'/D7'/D8の導出器・凍結表照合・

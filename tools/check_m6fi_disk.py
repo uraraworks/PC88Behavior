@@ -19,6 +19,8 @@ def inspect_image(image: bytes, doc: dict) -> list[str]:
         return ["d88_shape"]
     directory = b"".join(sectors[(18, 1, r)] for r in range(1, 13))
     entries = doc["entries"]
+    if [entry.get("name") for entry in entries] != ["qia", "qib", "qid"]:
+        failures.add("entry_name")
     if directory[len(entries) * 16:(len(entries) + 1) * 16] != b"\xff" * 16:
         failures.add("first_unused")
     for entry in entries:

@@ -13,9 +13,9 @@ from make_m6fc_blank_disk import build_blank_disk
 
 ARMS = ("I-1", "I-2", "I-3", "I-4", "E-1", "E-2")
 FILES = (
-    ("QIA", 0, ("10 PRINT 1", "20 PRINT 2")),
-    ("QIB", 1, ("30 PRINT 3", "10 PRINT 1")),
-    ("QID", 2, ("ABC", "DE")),
+    ("qia", 0, ("10 PRINT 1", "20 PRINT 2")),
+    ("qib", 1, ("30 PRINT 3", "10 PRINT 1")),
+    ("qid", 2, ("ABC", "DE")),
 )
 
 
@@ -26,13 +26,14 @@ def manifest() -> dict:
         entries.append({"name": name, "type": 0, "position": unit,
                         "units": [unit], "terminal": 0xC1,
                         "body_hex": body.hex()})
+    qia, qib, qid = (item[0] for item in FILES)
     commands = {
-        "I-1": 'cls:load "2:qia"\n',
-        "I-2": 'new\n10 print 9\ncls:load "2:qia"\n',
-        "I-3": 'cls:load "2:qib"\n',
-        "I-4": 'cls:load "2:qia"\n',
+        "I-1": f'cls:load "2:{qia}"\n',
+        "I-2": f'new\n10 print 9\ncls:load "2:{qia}"\n',
+        "I-3": f'cls:load "2:{qib}"\n',
+        "I-4": f'cls:load "2:{qia}"\n',
         "E-1": '10 on error goto 100\n20 load "2:qzz"\n30 end\n100 cls:print err\n110 resume 30\nrun\n',
-        "E-2": '10 on error goto 100\n20 load "2:qid"\n30 end\n100 cls:print err\n110 resume 30\nrun\n',
+        "E-2": f'10 on error goto 100\n20 load "2:{qid}"\n30 end\n100 cls:print err\n110 resume 30\nrun\n',
     }
     return {"format": "m6fi-scenario-v1", "disk_spec": "l3-disk-format-v5",
             "media_file": "ascii.d88", "entries": entries,
