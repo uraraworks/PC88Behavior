@@ -360,6 +360,8 @@ SCRIPTS_EXPECTED=(
   # 凍結破壊・大文字媒体と小文字打鍵のG3停止（起動0回）、画面本文の
   # 漏えい防止を合成入力だけで検査する。
   "tools/m6fi_selftest.sh:0"
+  # m6f-i 追補2。4腕の署名候補、qieのG15、凍結破壊で起動0、漏えいを合成入力で検査。
+  "tools/m6fi_add2_selftest.sh:0"
   # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
   # entry_fieldsの名前キー化・包み直し・D3'/D7'/D8の導出器・凍結表照合・
   # 追補1測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
