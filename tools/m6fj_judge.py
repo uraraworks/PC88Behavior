@@ -25,7 +25,7 @@ def signed(row: int, content: str) -> tuple[int, int, str]:
 def predictions() -> dict[str, tuple[tuple[int, int, str], ...]]:
     result = {"ok_line": (signed(0, "Ok"),), "no_line": ()}
     for number, message in errors().items():
-        result[f"error_{number}"] = (signed(0, "?" + message),)
+        result[f"error_{number}"] = (signed(0, message),)
     return result
 
 
@@ -103,11 +103,19 @@ def classify(arm: str, before: dict, after: dict, lines: list[dict], preinsert_l
         if not candidates:
             candidates = ["other"]
     elif arm == "J-6":
+        if preinsert_lines is None:
+            raise ValueError("挿入前署名なし")
         pre = match_screen(preinsert_lines or [])
-        if "ok_line" in matches and "ok_line" not in pre and not any(x.startswith("error_") for x in pre):
+        pre_errors = [x for x in pre if x.startswith("error_")]
+        new_entry = any(x["name"] == script.NAMES[arm] and x not in old for x in new)
+        if pre_errors:
+            candidates = pre_errors
+        elif not new_entry:
+            candidates = ["stuck"]
+        elif not any(x.startswith("error_") for x in matches):
             candidates = ["waits_for_media"]
         else:
-            candidates = [x for x in pre if x.startswith("error_")] or ["other"]
+            candidates = ["other"]
     else:
         raise ValueError("腕ID")
     result = {"candidates": candidates, "media_unchanged": media_unchanged,
@@ -123,6 +131,8 @@ def combine(arms: dict[str, list[dict]]) -> dict:
     judgments = {}
     bodies = {}
     for arm in script.ARMS:
+        if arm not in arms:
+            continue
         runs = arms[arm]
         common = set(runs[0]["candidates"]) & set(runs[1]["candidates"])
         same = runs[0] == runs[1]

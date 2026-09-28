@@ -17,7 +17,7 @@ import m6fj_judge as judge
 import m6fj_read as reader
 import m6fj_script as script
 from make_m6fj_disk import MEDIA, build, offsets
-from m6fj_measure import preflight
+from m6fj_measure import default_core, preflight
 
 
 def require(ok: bool, name: str) -> None:
@@ -135,12 +135,27 @@ def judgments() -> None:
             "J-I_その他")
     require(judge.classify("J-4", base, base, lines(err))["candidates"] == [err],
             "J-IV_エラー")
+    for arm, number in (("J-4", 61), ("J-5", 68)):
+        candidate = f"error_{number}"
+        require(judge.classify(arm, base, base, lines(candidate))["candidates"] == [candidate],
+                "メッセージ行正例")
+        message = judge.errors()[number]
+        question_line = [dict(zip(("physical_row", "char_count", "sha256"),
+                                  judge.signed(0, "?" + message)))]
+        require(judge.classify(arm, base, base, question_line)["candidates"] == ["other"],
+                "疑問符つき陰性対照")
     require(judge.classify("J-4", base, base, bad_lines)["candidates"] == ["other"],
             "J-IV_その他")
-    require(judge.classify("J-6", base, base, lines("ok_line"), lines("no_line"))[
-            "candidates"] == ["waits_for_media"], "J-IV_待機")
-    require(judge.classify("J-6", base, base, lines("ok_line"), lines(err))[
-            "candidates"] == [err], "J-IV_未挿入エラー")
+    saved = copy.deepcopy(base)
+    saved["entries"].append({"name": script.NAMES["J-6"], "position": 1,
+                             "bytes9_15": [0, 72, 255, 255, 255, 255, 255]})
+    wait = judge.classify("J-6", base, saved, lines("no_line"), lines("no_line"))
+    error = judge.classify("J-6", base, saved, lines("no_line"), lines(err))
+    stuck = judge.classify("J-6", base, base, lines("no_line"), lines("no_line"))
+    require([x["candidates"] for x in (wait, error, stuck)] ==
+            [["waits_for_media"], [err], ["stuck"]], "J-VI三候補一意")
+    require(judge.classify("J-6", base, saved, lines(err), lines("no_line"))[
+            "candidates"] == ["other"], "挿入後エラー陰性対照")
 
 
 FAKE = r'''#!/usr/bin/env python3
@@ -171,7 +186,7 @@ elif arm=='J-2': entry(0,72); fat(10,0xff); fat(72,0xc1); body(72,2)
 elif arm=='J-3': entry(1,72); fat(72,0xc1)
 elif arm=='J-4': choice='error_61'
 elif arm=='J-5': choice='error_68'
-elif arm=='J-6': entry(0,72); fat(72,0xc1)
+elif arm=='J-6': choice='no_line'; entry(0,72); fat(72,0xc1)
 disk.write_bytes(data)
 def signed(row,s): return row,len(s),hashlib.sha256(f'{row}\t{s}\n'.encode()).hexdigest()
 fkey=signed(19,'FKEY')
@@ -193,6 +208,14 @@ pathlib.Path(value('--io-log')).write_text('synthetic\n')
 
 
 def driver_tests(tmp: pathlib.Path) -> None:
+    fixture = tmp / "core-fixture"
+    (fixture / "tools").mkdir(parents=True)
+    (fixture / "tools" / "lib_l3_measure.sh").write_bytes((HERE / "lib_l3_measure.sh").read_bytes())
+    vendor = fixture.parent / "vendor" / "quasi88-libretro"
+    vendor.mkdir(parents=True)
+    expected = vendor / "quasi88_libretro.synthetic"
+    expected.touch()
+    require(default_core(fixture) == str(expected), "コア既定の共通規則")
     fake = tmp / "fake.py"
     fake.write_text(FAKE, encoding="ascii")
     fake.chmod(0o755)
@@ -205,9 +228,9 @@ def driver_tests(tmp: pathlib.Path) -> None:
             "M6FJ_TEST_CORE": "synthetic", "M6FJ_TEST_REPO": str(HERE.parent),
             "M6FJ_TEST_COUNT": str(count)}
 
-    def run(label, extra=None):
+    def run(label, extra=None, options=()):
         count.write_text("", encoding="ascii")
-        proc = subprocess.run(["bash", str(HERE / "measure_m6fj.sh"), "--work", str(tmp / label)],
+        proc = subprocess.run(["bash", str(HERE / "measure_m6fj.sh"), "--work", str(tmp / label), *options],
                               env={**base, **(extra or {})}, capture_output=True, text=True)
         return proc, len(count.read_text().splitlines())
 
@@ -220,6 +243,15 @@ def driver_tests(tmp: pathlib.Path) -> None:
     require(judgments == {"J-1": "ok_line", "J-2": "overwrite_same_slot_frees_old",
                           "J-3": "first_free_in_2_5_order", "J-4": "error_61",
                           "J-5": "error_68", "J-6": "waits_for_media"}, "全腕判定")
+    subset, n = run("subset", options=("--arms", "J-4,J-5,J-6"))
+    require(subset.returncode == 0 and n == 6, "追補腕だけ2走")
+    selected = json.loads((tmp / "subset" / "result.json").read_text())
+    require(set(selected["observations"]) == {"J-4", "J-5", "J-6"} and
+            selected["judgment"]["judgments"] == {"J-4": "error_61", "J-5": "error_68",
+                                                   "J-6": "waits_for_media"}, "追補腕だけ判定")
+    invalid, n = run("invalid", options=("--arms", "J-4,J-4"))
+    require(invalid.returncode != 0 and n == 0 and json.loads(invalid.stdout)["reason"] == "arms_invalid",
+            "重複腕の陰性対照")
     values = (HERE / "m6fj_frozen.tsv").read_text()
     bad = tmp / "bad.tsv"
     bad.write_text(values.replace("manifest_sha256\t", "manifest_sha256\t0", 1))

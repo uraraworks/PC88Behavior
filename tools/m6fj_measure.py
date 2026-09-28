@@ -31,6 +31,14 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def default_core(repo: Path = ROOT) -> str:
+    # 共通ライブラリの探索規則をそのまま使う。
+    proc = subprocess.run(
+        ["bash", "-c", 'REPO="$1"; source "$REPO/tools/lib_l3_measure.sh"; find_l3_core',
+         "m6fj", str(repo)], capture_output=True, text=True, check=True)
+    return proc.stdout.strip()
+
+
 def frozen(path: Path) -> dict[str, str]:
     rows = [x.split("\t") for x in path.read_text(encoding="ascii").splitlines()]
     if any(len(row) != 2 for row in rows) or len({row[0] for row in rows}) != len(rows):
@@ -148,11 +156,15 @@ def main() -> int:
     ap.add_argument("--result", type=Path, default=Path(os.environ["PC88_M6FJ_RESULT"])
                     if os.environ.get("PC88_M6FJ_RESULT") else None)
     ap.add_argument("--keep-images", action="store_true")
+    ap.add_argument("--arms", help="実行する腕ID（例: J-4,J-5,J-6）")
     args = ap.parse_args()
     launches = 0
     test = os.environ.get("M6FJ_TEST_MODE") == "1"
     config = Path(os.environ.get("M6FJ_TEST_FROZEN", HERE / "m6fj_frozen.tsv")) if test else HERE / "m6fj_frozen.tsv"
     try:
+        selected = script.ARMS if args.arms is None else tuple(args.arms.split(","))
+        if not selected or len(selected) != len(set(selected)) or any(arm not in script.ARMS for arm in selected):
+            raise GateError("arms_invalid")
         if str(args.work) in ("", "."):
             raise GateError("work_missing")
         result = args.result or args.work / "result.json"
@@ -175,11 +187,13 @@ def main() -> int:
             raise GateError("frontend_missing")
         core = os.environ.get("M6FJ_TEST_CORE", "") if test else os.environ.get("M6FJ_CORE", "")
         if not core:
+            core = default_core()
+        if not core:
             raise GateError("core_missing")
         arms = {}
         with tempfile.TemporaryDirectory(prefix="m6fj-") as temp:
             stage = Path(temp)
-            for arm in script.ARMS:
+            for arm in selected:
                 runs = []
                 for rep in (1, 2):
                     launches += 1
