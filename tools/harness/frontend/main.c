@@ -240,7 +240,8 @@ static bool g_save_to_disk_image = false;
  * 符号を与えた名前は大文字のまま格納された）。
  * 32〜63 の記号・数字は handle_key(i, i) でそのまま通る。
  * ------------------------------------------------------------------------ */
-#define MAX_KEYSTROKES 512
+#define MAX_KEYSTROKES 8192
+#define DEFAULT_KEYSTROKES 512
 
 /* テキストVRAMの写し（M7器具1）で --vram-dump/--vram-dump-at を
  * ペアとして受け付ける最大件数。usage() でも使うのでファイルスコープに置く。 */
@@ -388,7 +389,8 @@ static int schedule_typing(const char *text, unsigned at,
                     idx, (unsigned char)*text);
             return 0;
         }
-        if (g_n_keyev >= MAX_KEYSTROKES) {
+        /* m6f-h の70行入力だけ拡張する。通常の上限は従来どおり512。 */
+        if (g_n_keyev >= (getenv("M6FH_LONG_TYPING") ? MAX_KEYSTROKES : DEFAULT_KEYSTROKES)) {
             fprintf(stderr, "[q88measure] 打鍵列が長すぎる\n");
             return 0;
         }
@@ -492,6 +494,22 @@ static int16_t input_state_cb(unsigned port, unsigned device,
     (void)port; (void)index;
     if (device != RETRO_DEVICE_KEYBOARD)
         return 0;
+    /* m6f-h の長い打鍵列は開始フレーム順で重ならない。専用モードだけ
+     * 二分探索し、通常の入力走査は従来どおりに保つ。 */
+    if (getenv("M6FH_LONG_TYPING") && g_n_keyev > 0) {
+        int lo = 0, hi = g_n_keyev;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            if (g_keyev[mid].start <= g_frame) lo = mid + 1;
+            else hi = mid;
+        }
+        i = lo - 1;
+        if (i >= 0 && g_frame < g_keyev[i].end) {
+            if (g_keyev[i].key == id) return 1;
+            if (g_keyev[i].shift && id == RETROK_LSHIFT) return 1;
+        }
+        return 0;
+    }
     for (i = 0; i < g_n_keyev; i++) {
         if (g_frame < g_keyev[i].start || g_frame >= g_keyev[i].end)
             continue;
@@ -1560,9 +1578,10 @@ int main(int argc, char **argv)
             const char *txt = argv[++i];
             if (!schedule_typing(txt, next_at, key_hold, key_gap)) return 1;
             next_at = g_n_keyev ? g_keyev[g_n_keyev - 1].end + key_gap : next_at;
-            typed_len += (size_t)snprintf(typed + typed_len,
-                                          sizeof(typed) - typed_len,
-                                          "%s%s", typed_len ? " | " : "", txt);
+            if (!screen_signature_only && typed_len < sizeof(typed))
+                typed_len += (size_t)snprintf(typed + typed_len,
+                                              sizeof(typed) - typed_len,
+                                              "%s%s", typed_len ? " | " : "", txt);
         }
         else if (!strcmp(argv[i], "--key-hold")  && i + 1 < argc) key_hold= (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--key-gap")   && i + 1 < argc) key_gap = (unsigned)strtoul(argv[++i], NULL, 0);

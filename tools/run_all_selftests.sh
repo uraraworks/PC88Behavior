@@ -353,6 +353,9 @@ SCRIPTS_EXPECTED=(
   # ドライバ。合成D88・偽フロントエンドだけで完結し、公式ROM・vendor/は
   # 一切触れない。
   "tools/measure_m6ff_driver_selftest.sh:0"
+  # m6f-h。18候補・鎖の順・読取上限と漏えい・凍結破壊時の起動0回・
+  # G6種別違いを合成D88と偽フロントエンドで検査する。陰性対照つき。
+  "tools/measure_m6fh_driver_selftest.sh:0"
   # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
   # entry_fieldsの名前キー化・包み直し・D3'/D7'/D8の導出器・凍結表照合・
   # 追補1測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。
