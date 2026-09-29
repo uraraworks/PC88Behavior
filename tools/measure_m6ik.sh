@@ -37,7 +37,7 @@ for arm in K-00 K-01 K-F0 K-F1 K-M1 K-FR; do
 done
 extra=(); [ -z "$dry" ] || extra=(--dry-run)
 python3 "$REPO/tools/check_m6ik_gates.py" --work "$work" --sub-rom "$sub" \
-  "${extra[@]}" >"$work/g3-g6.out" 2>"$work/g3-g6.err" || gate_failed G3_G4_G5_G6
+  ${extra[@]+"${extra[@]}"} >"$work/g3-g6.out" 2>"$work/g3-g6.err" || gate_failed G3_G4_G5_G6
 CORE="$(find_l3_core)"; [ -n "$CORE" ] || gate_failed core_missing
 ensure_l3_frontend >"$work/frontend-build.out" 2>"$work/frontend-build.err" || gate_failed frontend_missing
 FRONTEND="${M6IK_FRONTEND:-$REPO/tools/harness/frontend/q88measure}"
