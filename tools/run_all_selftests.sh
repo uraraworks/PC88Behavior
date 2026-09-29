@@ -194,6 +194,11 @@ SCRIPTS_EXPECTED=(
   "tools/check_m6ii_preregistration_selftest.sh:0"
   "tools/analyze_m6ii_selftest.sh:0"
   "tools/judge_m6ii_selftest.sh:0"
+  "tools/m6ik_build_selftest.sh:0"
+  "tools/measure_m6ik_selftest.sh:0"
+  "tools/check_m6ik_preregistration_selftest.sh:0"
+  "tools/analyze_m6ik_selftest.sh:0"
+  "tools/judge_m6ik_selftest.sh:0"
   # m6i-j: 自作媒体、共通clock転送、凍結値、偽フロントエンドの陰性対照。
   "tools/m6ij_selftest.sh:0"
   # m6f-a（公式ディスクのSAVE差分）測定前器具。すべて合成D88/架空差分で
