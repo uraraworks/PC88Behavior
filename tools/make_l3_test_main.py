@@ -404,13 +404,12 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
     a.label("EXCHANGE4_REQUEST")
     a.db(0x00, 0x00)
 
-    # ---- --write-test 用（第54版・m7av。仕様書1.35節の書き込み経路）。
-    #      1つのrunとして「制御5バイト + データ256バイト」を送る。
+    # ---- --write-test 用（仕様書1.35a節の書き込み経路）。
+    #      前置Sの交換後、制御5バイト + データ256バイトを送る。
     #      1.35節の実測が確定した形:
     #        - データ部は受信列の**末尾ちょうど256バイト**
     #        - R（セクタ番号）はその**直前の1バイト**
-    #      制御バイトの内訳は未確定なので、Rの位置以外は0で埋める
-    #      （意味を推測して埋めない）。データは自作の式で作る。 ----
+    #      制御位置は1.35a節の確定値を使い、データは自作の式で作る。 ----
     write_ctrl = write_data = None
     if write_test:
         cyl0, sec0 = requests[0]
@@ -418,11 +417,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.label(write_ctrl)
         # 第56版・m7ax: 末尾2バイトは [論理トラック(C*2+H), R]。実測で
         # C == track>>1、H == track&1、R == 末尾1バイトが63/63一致した。
-        # 先頭3バイトの意味は未確定なので0で埋める（推測で埋めない）。
+        # 1.35a節で先頭3バイトは 0x11,0x01,D と確定した。
         # 第67版のsub側window(a)ではWRITE runが261件で、末尾256件が
         # データ部なので、制御部は5件になる。
-        # 先頭はm7beで8/8一致したWRITE種別。残り2つの意味は未確定。
-        a.db(0x11, 0x00, 0x00, cyl0 * 2, sec0)
+        a.db(0x11, 0x01, 0x00, cyl0 * 2, sec0)
         write_data = "WRITE_DATA"
         a.label(write_data)
         a.db(*[((i * 7) + 0x5A) & 0xFF for i in range(256)])
@@ -644,6 +642,11 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # WRITE結果後の要求グループ2応答と混同しないよう先に消費する。
         # これはpost_bulk_read_testが本題前に行う同じ陽性対照手順である。
         a.ld_a(0xFF)
+        a.call("SEND_MAIN")
+        a.call("RECV_MAIN")
+        # 最初のWRITEのSはDと同じ0。単発送信の応答を受けてから
+        # 要求5バイトへ進む（自作subとの検証用位相）。
+        a.ld_a(0)
         a.call("SEND_MAIN")
         a.call("RECV_MAIN")
         a.ld_hl(write_ctrl)

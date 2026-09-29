@@ -1,4 +1,216 @@
-; src/ext_bank/bank3.asm — 拡張ROMバンク3(N88_3.ROM)。bank0.asm参照。
+; READ/RESTORE/CONTのバンク3本体。mainの共有処理は汎用中継で呼ぶ。
+    ORG 0x6000
 EXT_BANK3_TEST_ENTRY:
     LD A,0xB3
+    RET
+
+IDENT_BUF EQU 0D006h
+RUN_ASSIGN_NAME EQU 0D011h
+RUN_DATA_STATE EQU 0D93Eh
+RUN_DATA_REC EQU 0D938h
+RUN_CONT_REC EQU 0D944h
+RUN_CONT_PTR EQU 0D946h
+RUN_CONT_END EQU 0D948h
+RUN_CUR_RECORD EQU 0D001h
+RUN_CTRL EQU 0D005h
+ERROR_FLAG EQU 0E880h
+ERROR_KIND EQU 0E8A0h
+LINE_END EQU 0E881h
+CUR_PTR EQU 0E883h
+
+    ORG 0x6100
+; READ_STMT — 第6.1節。カンマ区切りで複数変数へ同時READできる
+;   (%・#の丸めは適用せずそのまま代入する、仕様書に無い判断)。
+READ_STMT:
+_read_one:
+    CALL B3_SKIP_SPACES
+    CALL B3_LEX_IDENT_CONSUME
+    OR A
+    JR Z,_read_syntax
+    CP 3
+    JR Z,_read_string_target
+    LD HL,IDENT_BUF
+    LD DE,RUN_ASSIGN_NAME
+    LD BC,8
+    LDIR
+    XOR A
+    CALL B3_DATA_READ_ONE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,RUN_ASSIGN_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL B3_VAR_WRITE_NUMERIC
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    JR _read_next
+_read_string_target:
+    LD HL,IDENT_BUF
+    LD DE,RUN_ASSIGN_NAME
+    LD BC,8
+    LDIR
+    LD A,1
+    CALL B3_DATA_READ_ONE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,RUN_ASSIGN_NAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL B3_VAR_WRITE_STRING
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+_read_next:
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    CP ','
+    JR NZ,_read_done
+    CALL B3_ADV_PTR
+    JR _read_one
+_read_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_read_syntax:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+
+
+    ORG 0x6200
+; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
+;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
+RESTORE_STMT:
+    CALL B3_SKIP_SPACES
+    CALL B3_AT_END
+    JR Z,_restore_ok
+    CALL B3_PEEK_CHAR
+    CP ':'
+    JR Z,_restore_ok
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+_restore_ok:
+    XOR A
+    LD (RUN_DATA_STATE),A
+    LD HL,0
+    LD (RUN_DATA_REC),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+
+
+    ORG 0x6300
+; =======================================================================
+; CONT(第4.11節) — 直接モードのコマンド(interp.asm DIRECT_LINEから
+;   STMT_KIND=4で呼ばれる、RUNと同じ位置づけ)。STOP_STMTが保存した
+;   RUN_CONT_*から再開し、RUN_EXECの通常の継続処理(_run_after_stmt、
+;   ERROR_FLAG=0・RUN_CTRL=0で開始)へそのまま合流する。
+; =======================================================================
+CONT_STMT:
+    LD HL,(RUN_CONT_REC)
+    LD A,H
+    OR L
+    JR NZ,_cont_have
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,17
+    LD (ERROR_KIND),A
+    XOR A
+    RET
+_cont_have:
+    LD (RUN_CUR_RECORD),HL
+    LD HL,(RUN_CONT_PTR)
+    LD (CUR_PTR),HL
+    LD HL,(RUN_CONT_END)
+    LD (LINE_END),HL
+    LD HL,0
+    LD (RUN_CONT_REC),HL
+    XOR A
+    LD (RUN_CTRL),A
+    LD (ERROR_FLAG),A
+    LD A,1
+    RET
+
+B3_MAIN_CALL_ADDR EQU 0x1787
+B3_SKIP_SPACES_ADDR EQU 0x1787
+B3_LEX_IDENT_CONSUME_ADDR EQU 0x1787
+B3_DATA_READ_ONE_ADDR EQU 0x1787
+B3_VAR_WRITE_NUMERIC_ADDR EQU 0x1787
+B3_VAR_WRITE_STRING_ADDR EQU 0x1787
+B3_PEEK_CHAR_ADDR EQU 0x1787
+B3_ADV_PTR_ADDR EQU 0x1787
+B3_AT_END_ADDR EQU 0x1787
+B3_SKIP_SPACES:
+    LD IX,B3_SKIP_SPACES_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_LEX_IDENT_CONSUME:
+    LD IX,B3_LEX_IDENT_CONSUME_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_DATA_READ_ONE:
+    LD IX,B3_DATA_READ_ONE_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_VAR_WRITE_NUMERIC:
+    LD IX,B3_VAR_WRITE_NUMERIC_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_VAR_WRITE_STRING:
+    LD IX,B3_VAR_WRITE_STRING_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_PEEK_CHAR:
+    LD IX,B3_PEEK_CHAR_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_ADV_PTR:
+    LD IX,B3_ADV_PTR_ADDR
+    JP B3_MAIN_CALL_ADDR
+B3_AT_END:
+    LD IX,B3_AT_END_ADDR
+    JP B3_MAIN_CALL_ADDR
+
+; SAVE捕捉本体。EXT_BANK_CALL_CAPTURE経由でのみ入り、main呼び出しはしない。
+B3_CAPTURE_IN EQU 0E24Dh
+B3_CAPTURE_PTR EQU 0E241h
+B3_CAPTURE_LEN EQU 0E243h
+B3_CAPTURE_OVER EQU 0E245h
+    ORG 0x6400
+B3_CAPTURE_CHAR_ENTRY:
+    LD A,(B3_CAPTURE_IN)
+    JP B3_CAPTURE_CHAR
+    ORG 0x6410
+B3_CAPTURE_NEWLINE_ENTRY:
+    LD A,0Dh
+    CALL B3_CAPTURE_CHAR
+    LD A,0Ah
+    JP B3_CAPTURE_CHAR
+B3_CAPTURE_CHAR:
+    PUSH HL
+    PUSH AF
+    LD HL,(B3_CAPTURE_PTR)
+    LD A,H
+    CP 0C0h
+    JR NZ,_b3_capture_store
+    LD A,1
+    LD (B3_CAPTURE_OVER),A
+    JR _b3_capture_done
+_b3_capture_store:
+    POP AF
+    LD (HL),A
+    INC HL
+    LD (B3_CAPTURE_PTR),HL
+    LD HL,(B3_CAPTURE_LEN)
+    INC HL
+    LD (B3_CAPTURE_LEN),HL
+    POP HL
+    RET
+_b3_capture_done:
+    POP AF
+    POP HL
     RET

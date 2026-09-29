@@ -1,75 +1,29 @@
-; SAVE ,A の常駐入口。媒体管理は拡張バンク2で行う。
+; SAVE ,A の常駐入口。媒体管理・捕捉本体は拡張バンク2/3。
 SAVE_CAPTURE_ACTIVE EQU 0E240h
-SAVE_CAPTURE_PTR    EQU 0E241h
-SAVE_CAPTURE_LEN    EQU 0E243h
-SAVE_CAPTURE_OVER   EQU 0E245h
-SAVE_DONE_FLAG      EQU 0E24Bh
-SAVE_CAPTURE_BASE   EQU 09000h
+SAVE_CAPTURE_IN EQU 0E24Dh
+SAVE_DONE_FLAG EQU 0E24Bh
 
 SAVE_STMT:
-    XOR A
-    LD (SAVE_DONE_FLAG),A
-    ; BASIC_RUN_DIRECTの既定値2をSAVE通信失敗へ持ち込まない。
-    ; バンク本体が検出する構文・保護・容量エラーは各経路で上書きする。
-    LD A,64
-    LD (ERROR_KIND),A
     LD A,2
-    LD HL,06100h
-    CALL EXT_BANK_CALL
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,(SAVE_DONE_FLAG)
-    OR A
-    RET NZ
-    LD A,64
-    LD (ERROR_KIND),A
-    LD A,1
-    LD (ERROR_FLAG),A
-    RET
+    LD HL,06080h
+    JP EXT_BANK_CALL
 
-; LIST_RENDER_ALL の PRINT_CHAR/NEWLINE を同じ文字列のまま捕捉する。
-SAVE_CAPTURE_BEGIN:
-    LD HL,SAVE_CAPTURE_BASE
-    LD (SAVE_CAPTURE_PTR),HL
-    LD HL,0
-    LD (SAVE_CAPTURE_LEN),HL
-    XOR A
-    LD (SAVE_CAPTURE_OVER),A
-    INC A
-    LD (SAVE_CAPTURE_ACTIVE),A
-    RET
-SAVE_CAPTURE_END:
-    XOR A
-    LD (SAVE_CAPTURE_ACTIVE),A
-    LD A,01Ah
-    JP SAVE_CAPTURE_CHAR
-SAVE_CAPTURE_NEWLINE:
-    LD A,0Dh
-    CALL SAVE_CAPTURE_CHAR
-    LD A,0Ah
-    JP SAVE_CAPTURE_CHAR
+; LIST_RENDER_ALLはmainにある。バンク2からの汎用中継中に呼ばれるため、
+; 捕捉時だけ限定的な入れ子中継でバンク3のRAM専用ルーチンへ渡す。
 SAVE_CAPTURE_CHAR:
+    LD (SAVE_CAPTURE_IN),A
     PUSH HL
-    PUSH AF
-    LD HL,(SAVE_CAPTURE_PTR)
-    LD A,H
-    CP 0C0h
-    JR NZ,_scc_store
-    LD A,1
-    LD (SAVE_CAPTURE_OVER),A
-    JR _scc_done
-_scc_store:
-    POP AF
-    LD (HL),A
-    INC HL
-    LD (SAVE_CAPTURE_PTR),HL
-    LD HL,(SAVE_CAPTURE_LEN)
-    INC HL
-    LD (SAVE_CAPTURE_LEN),HL
-    POP HL
-    RET
-_scc_done:
-    POP AF
+    LD HL,06400h
+    JR _save_capture_call
+SAVE_CAPTURE_NEWLINE:
+    PUSH HL
+    LD HL,06410h
+_save_capture_call:
+    PUSH BC
+    PUSH DE
+    LD A,3
+    CALL EXT_BANK_CALL_CAPTURE
+    POP DE
+    POP BC
     POP HL
     RET

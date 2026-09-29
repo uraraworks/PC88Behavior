@@ -140,6 +140,8 @@ def run_tracked_to_ready(a, count, *, fault_ready_to_default=False):
             pc += 3; cost = 16
         elif op == 0xAF:  # XOR A
             a_reg = 0; z = True; carry = False; pc += 1; cost = 4
+        elif op == 0xB7:  # OR A。起動後の単発送信だけを数える判定
+            z = a_reg == 0; carry = False; pc += 1; cost = 4
         elif op == 0xC3:  # JP nn
             pc = code[pc + 1] | code[pc + 2] << 8; cost = 10
         elif op == 0xCD:  # CALL nn
@@ -167,13 +169,13 @@ control = assembled(False)
 fast = assembled(True)
 control_t, control_io, _ = run_tracked_to_ready(control, 4)
 fast_t, fast_io, _ = run_tracked_to_ready(fast, 4)
-if (control_t, fast_t, control_t - fast_t) != (164, 85, 79):
-    raise SystemExit(f"NG: tracked path is not 164T -> 85T: {control_t}/{fast_t}")
+if (control_t, fast_t, control_t - fast_t) != (188, 109, 79):
+    raise SystemExit(f"NG: tracked path timing mismatch: {control_t}/{fast_t}")
 if control_io != [("IN", 0xFE), ("OUT", 0xFD)]:
     raise SystemExit(f"NG: default tracked I/O path is unexpected: {control_io}")
 if fast_io != [("OUT", 0xFD)]:
     raise SystemExit(f"NG: fast tracked I/O path is unexpected: {fast_io}")
-print("OK: tracked path removes one duplicate IN $FE (164T -> 85T)")
+print("OK: tracked path removes one duplicate IN $FE (188T -> 109T)")
 
 for startup_count in (0, 1, 2):
     _t, startup_io, ram = run_tracked_to_ready(fast, startup_count)

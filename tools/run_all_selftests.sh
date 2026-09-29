@@ -352,6 +352,7 @@ SCRIPTS_EXPECTED=(
   "tools/save_conform_selftest.sh:0"
   # SAVE ,A の実Z80境界・FAT・事前エラー判定と陰性対照。
   "tools/l4_save_z80_selftest.sh:0"
+  "tools/save_write_protocol_selftest.sh:0"
   # 自作ROMと自作媒体のみでJ-1〜J-6の凍結期待値に照合する。
   "tools/conform_save.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"

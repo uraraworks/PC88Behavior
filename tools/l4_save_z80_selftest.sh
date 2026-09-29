@@ -20,12 +20,18 @@ repo,out,fault=Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3]
 sys.path.insert(0,str(repo/'tools'/'asm'))
 import z80text
 bank=(repo/'src/ext_bank/bank2.asm').read_text(encoding='utf-8')
-for name in ('read','write','capture_begin','capture_end','list'):
+for name in ('read','write','list'):
     prefix='    LD A,(S2_DRIVE)\n' if name=='read' else ''
-    old=f's2_{name}:\n{prefix}    LD IX,BANK2_{ {"read":"READ_CHR","write":"WRITE_CHR","capture_begin":"CAPTURE_BEGIN","capture_end":"CAPTURE_END","list":"LIST_RENDER"}[name]}_ADDR\n    JP BANK2_MAIN_CALL_ADDR'
+    old=('s2_write:\n    JP s2_write_stream' if name=='write' else
+         f's2_{name}:\n{prefix}    LD IX,BANK2_{ {"read":"READ_CHR","capture_begin":"CAPTURE_BEGIN","capture_end":"CAPTURE_END","list":"LIST_RENDER"}[name]}_ADDR\n    JP BANK2_MAIN_CALL_ADDR')
     new=f's2_{name}:\n    JP T_{name.upper()}'
     if bank.count(old)!=1: raise SystemExit(f'置換点不一致: {name}')
     bank=bank.replace(old,new)
+import re
+for name, following in (('capture_begin','capture_end'),('capture_end','list')):
+    pattern=f's2_{name}:\\n.*?(?=s2_{following}:)'
+    bank,count=re.subn(pattern,f's2_{name}:\\n    JP T_{name.upper()}\\n',bank,flags=re.S)
+    if count!=1: raise SystemExit(f'置換点不一致: {name}')
 if fault=='order':
     old='    DB 72,73,68,69'
     if bank.count(old)!=1: raise SystemExit('割当順の故障点が一意でない')

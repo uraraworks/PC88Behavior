@@ -5232,118 +5232,19 @@ _dro_fail_restore:
     LD (LINE_END),HL
     RET
 
-; READ_STMT — 第6.1節。カンマ区切りで複数変数へ同時READできる
-;   (%・#の丸めは適用せずそのまま代入する、仕様書に無い判断)。
+; READ/RESTORE/CONTの本体はバンク3。窓外中継を通して戻す。
 READ_STMT:
-_read_one:
-    CALL SKIP_SPACES
-    CALL LEX_IDENT_CONSUME
-    OR A
-    JR Z,_read_syntax
-    CP 3
-    JR Z,_read_string_target
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    XOR A
-    CALL DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL VAR_WRITE_NUMERIC
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    JR _read_next
-_read_string_target:
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    LD A,1
-    CALL DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL VAR_WRITE_STRING
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-_read_next:
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR NZ,_read_done
-    CALL ADV_PTR
-    JR _read_one
-_read_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_read_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-
-; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
-;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
+    LD A,3
+    LD HL,06100h
+    JP EXT_BANK_CALL
 RESTORE_STMT:
-    CALL SKIP_SPACES
-    CALL AT_END
-    JR Z,_restore_ok
-    CALL PEEK_CHAR
-    CP ':'
-    JR Z,_restore_ok
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-_restore_ok:
-    XOR A
-    LD (RUN_DATA_STATE),A
-    LD HL,0
-    LD (RUN_DATA_REC),HL
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-
-; =======================================================================
-; CONT(第4.11節) — 直接モードのコマンド(interp.asm DIRECT_LINEから
-;   STMT_KIND=4で呼ばれる、RUNと同じ位置づけ)。STOP_STMTが保存した
-;   RUN_CONT_*から再開し、RUN_EXECの通常の継続処理(_run_after_stmt、
-;   ERROR_FLAG=0・RUN_CTRL=0で開始)へそのまま合流する。
-; =======================================================================
+    LD A,3
+    LD HL,06200h
+    JP EXT_BANK_CALL
 CONT_STMT:
-    LD HL,(RUN_CONT_REC)
-    LD A,H
-    OR L
-    JR NZ,_cont_have
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,17
-    LD (ERROR_KIND),A
+    LD A,3
+    LD HL,06300h
+    CALL EXT_BANK_CALL
+    OR A
+    JP NZ,_run_after_stmt
     RET
-_cont_have:
-    LD (RUN_CUR_RECORD),HL
-    LD HL,(RUN_CONT_PTR)
-    LD (CUR_PTR),HL
-    LD HL,(RUN_CONT_END)
-    LD (LINE_END),HL
-    LD HL,0
-    LD (RUN_CONT_REC),HL
-    XOR A
-    LD (RUN_CTRL),A
-    LD (ERROR_FLAG),A
-    JP _run_after_stmt

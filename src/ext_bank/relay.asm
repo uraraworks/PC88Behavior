@@ -238,6 +238,19 @@ _ebc_not_busy:
     POP AF                        ; 返り値(A/F)を復元してから戻る
     RET
 
+; SAVEの画面捕捉だけに使う限定的な入れ子呼び出し。
+; バンク2→EXT_BANK_MAIN_CALL→PRINT_CHAR→バンク3の順で通る。
+; バンク3の捕捉本体はRAMしか触らずmainへ戻らないため、外側の
+; EXT_BANK_MAIN_PORT71/32を上書きしない。外側のBUSY=1を復帰後に戻す。
+EXT_BANK_CALL_CAPTURE:
+    LD B,A
+    CALL _ebc_not_busy
+    PUSH AF
+    LD A,1
+    LD (EXT_BANK_BUSY),A
+    POP AF
+    RET
+
 ; ---------------------------------------------------------------
 ; EXT_BANK_JUMP_HL — HLの指す番地を1回CALLするための小道具
 ;

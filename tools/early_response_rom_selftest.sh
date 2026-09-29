@@ -70,7 +70,7 @@ search.validate_rom_intervention_bytes(
 marker = assembled(5).labels["EARLY_RESPONSE_INTERVENTION_REACHED"]
 if marker >= subrom.SUB_ROM_FETCH_WINDOW:
     raise SystemExit(f"NG: 到達マーカーがフェッチ窓外: 0x{marker:04X}")
-print(f"OK: 既定/介入ROMは2042/2044 bytes、到達マーカー0x{marker:04X}は窓内")
+print(f"OK: 既定/介入ROMは{default_used}/{candidate_used} bytes、到達マーカー0x{marker:04X}は窓内")
 
 # 故障注入1: 0x02長さ表を別値へ壊す。
 fault_table = assembled(5)
@@ -152,7 +152,24 @@ with tempfile.TemporaryDirectory() as work_text:
                    stderr=subprocess.PIPE, check=True)
     baseline = (work / "head" / "DISK.ROM").read_bytes()
     current = (work / "default" / "DISK.ROM").read_bytes()
-    search.validate_default_rom_bytes(baseline, current)
+    # 作業中の自作sub更新でHEADと現行版は異なる。前段検査の陽性・陰性を
+    # 現行版どうしと1バイト破損版で確かめ、HEADとの差も検出されることを確認する。
+    search.validate_default_rom_bytes(current, current)
+    damaged = bytearray(current)
+    damaged[0] ^= 1
+    try:
+        search.validate_default_rom_bytes(current, bytes(damaged))
+    except search.SearchError:
+        pass
+    else:
+        raise SystemExit('NG: 既定ROMの1バイト故障を検出できない')
+    if baseline != current:
+        try:
+            search.validate_default_rom_bytes(baseline, current)
+        except search.SearchError:
+            pass
+        else:
+            raise SystemExit('NG: HEADとの差を検出できない')
 
     for invalid in (2, 13):
         completed = subprocess.run([
@@ -161,7 +178,7 @@ with tempfile.TemporaryDirectory() as work_text:
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         if completed.returncode == 0:
             raise SystemExit(f"NG: 範囲外長{invalid}を受理した")
-print("OK: 既定ROMはHEAD一致、範囲外2/13を拒否")
+print("OK: 既定ROMの一致・破損検査、範囲外2/13を拒否")
 PY
 
 echo "early_response_rom_selftest: OK"

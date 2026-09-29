@@ -107,6 +107,8 @@ class MiniZ80:
                 self.a = self.mem[self._de()]
             elif op == 0x3A:  # LD A,(nn)
                 self.a = self.mem[self._imm16()]
+            elif op == 0x32:  # LD (nn),A。WRITE前置Sの記録
+                self.mem[self._imm16()] = self.a
             elif op == 0x3E:  # LD A,n
                 self.a = self._imm8()
             elif op == 0x79:  # LD A,C

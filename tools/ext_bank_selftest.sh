@@ -92,8 +92,12 @@ for i in range(4):
         # あることを確認する。本体の中身はl4_files_z80_selftest.sh・
         # l4_load_z80_selftest.sh・conform_files.sh・conform_load.shで検査する。
         rest = data[3:0x110]
+    elif i == 2:
+        # SAVE入口は0x80、本体は0x100以降。試験入口との間だけをFILL検査する。
+        rest = data[3:0x80]
     else:
-        rest = data[3:]
+        # bank3のREAD/RESTORE/CONT・捕捉本体は0x100以降。
+        rest = data[3:0x100]
     if any(b != 0x00 for b in rest):
         print(f"NG: N88_{i}.ROM の埋め草(0x00)以外の余剰バイトがある")
         ok = False
