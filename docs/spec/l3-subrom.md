@@ -1,6 +1,6 @@
 # L3 — サービスルーチン（サブROM / DISK.ROM）
 
-仕様書 第220版 / 2026-09-22
+仕様書 第221版 / 2026-09-29
 
 `docs/spec/l1-ipl.md`・`docs/spec/l2-font.md` の型を踏襲する。
 **実装者が見てよいのはこの文書から右側だけ**（`CLAUDE.md` 情報の流れ）。
@@ -12,6 +12,7 @@
 
 | 版 | 日付 | 誰が | 何を |
 |---|---|---|---|
+| 第221版 | 2026-09-29 | **1.35a節を新設: main 側の書き込み送信**（`src/`変更なし）。sub が WRITE DATA の直前に受信する列の末尾は `S,0x11,0x01,D,T,R`＋256、S は SAVE の2回目以降の WRITE で `0x06`、各 WRITE に応答1バイト。1.35節の制御レコード先頭4位置が確定 | `docs/notes/m6i-j-results.md`・`docs/notes/m6i-j-addendum3-results.md` |
 | 第220版 | 2026-09-22 | **起動直後のmain第1送信・sub起動専用RECV・FDC初期化・第2送信後の応答を、伏せ済みm6gログの共通clock上で再検証し、1.65節を新設**（`src/`変更なし） | `tools/analyze_boot_start_order.py`（既存のmain SEND/RECV分類と起動時FDC初期化窓検出を再利用）により、run1/run2とも「main送信#1→sub起動専用受信1件→FDC初期化7 batch→main送信#2→sub応答→main受信」の順で、送信#2より前の応答は0件と確認した。clockは順序づけだけに使い、絶対値の精度は主張しない。通常READを許せる最早時点と、その必要条件が初期化完了・起動専用送信の消化・ラウンド#0完了のどれかは未確定のまま残す。自己検査は順序破壊と値列漏えいの陰性対照を含む。 |
 | 第219版 | 2026-09-14 | `m7lz`のB:候補8本再測（2回目）を反映し、3章の残る3項（5448・5485・5508）に第219版注記を追加。棚卸し段落に訂正を追記（`src/`変更なし。注記のみ） | WRITEに届いた3候補（disk#1・#2・#7）で公式と一致（5448）。disk#10（B:候補、5485・5508）はFDCコマンド種別列・画面署名が公式と全長一致し、残る差はmain `IN $FC`の末尾12件のみで1.58節の既知の応答値（9件のあとの1バイト、合否に使わない）に帰着した。事前登録の判定（J1=`disk10_differs`・J2=`write_differs`・J3=`read_differs`）は変えていない。棚卸しの残る項は0になった。根拠は`docs/notes/m7lz-b-candidates-recheck-results-run2.md`（追記）。 |
 | 第218版 | 2026-09-14 | **3章「未確定として残すこと」84項全項目を棚卸しし、分類の印を追加**（`src/`変更なし。注記のみ） | `docs/notes/m7ly-chapter3-inventory.md`に記録した棚卸し（読み取り専用3担当の一次分類→未確定・A要項の再検証→主セッションが改訂の記録と1.58節で確定）に基づき、72項（既に印がある12項を除く全項）へ分類（統合・外形一致・解消・区切り・B送り・A不要・統合+残・残る）を示す注記を追加した。4557（sub視点SENDプリミティブの`OUT $FF`）は、HEAD `b13f837`のconform_l3.sh全体実走ログ（リポジトリ外）で公式32本すべての`0E`がframe 42・6章要件33のバルク遷移の一部であることを確認し「解消」と分類した。残る項は3件（5448・5485・5508）、5375は到達手段が尽きた区切りとして別扱いで残した。3章冒頭に分類件数表と残る項の要旨を追記した。既存の本文は変更していない。根拠は`docs/notes/m7ly-chapter3-inventory.md`。 |
@@ -1926,6 +1927,20 @@ SHA-256一致）が確認できたのは、単一の打鍵パターン（`SAVE"1
 [docs/notes/m7go-write-data-unit-results.md](../notes/m7go-write-data-unit-results.md)・
 [docs/notes/m7gq-write-data-unit-fix-preregistration.md](../notes/m7gq-write-data-unit-fix-preregistration.md)・
 [docs/notes/m7gr-write-data-unit-fix-results.md](../notes/m7gr-write-data-unit-fix-results.md)。
+
+### 1.35a main 側の書き込み送信（m6i-j、main 視点）
+
+`docs/notes/m6i-j-results.md`・`docs/notes/m6i-j-addendum3-results.md`。公式ROM一式で `SAVE "<d>:<名前>",a` を自作の媒体へ行い、
+sub が受信した列（`sub IN $FC`、各受信を直前の `main OUT $FD` に結ぶ）を WRITE DATA ごとに還元した（10腕20走、ドライブ1・2、1・9・17セクタ、新規・上書き、本体をトラック17に置く腕を含む）。
+
+- **各 WRITE DATA の直前に sub が受信する列の末尾は `S, 0x11, 0x01, D, T, R` とデータ部256バイト**（20/20走・全 WRITE）。
+  D＝ドライブ（ドライブ1で0、ドライブ2で1）、T＝論理トラック C×2+H、R＝セクタ番号。1.35節の「制御6バイトのレコード」の先頭4位置は、
+  位置0＝S、位置1＝`0x11`、位置2＝`0x01`、位置3＝D である。
+- **S は、その `SAVE` の2回目以降の WRITE では `0x06`**、最初の WRITE では D と同じ値だった。S は要求5バイトの前に受信される1バイトで、
+  前の交換の末尾にあたる（最初の WRITE の直前は READ の交換）。
+- 各 WRITE に sub の応答が1バイトあり、main がそれを1回受け取る（1.35節の「レコード1つにつき1バイト」）。
+- main は、sub が読まない送信もする（sub の受信の間に main が同じ口へ続けて書く。今回の1腕で43件）。sub が受け取る列だけが書き込みを決める。
+- `SAVE` 全体の要求順序は、最初の単位の各セクタのあとに割り当て表3枚を書き直す等の形が観察されたが、3単位で仮説と食い違い、規則としては採っていない。
 
 ### 1.36 バルク直後の受信runは先頭バイトの表引きでrun長・座標フィールド位置が決まる（第63版）
 
