@@ -22,11 +22,13 @@ HERE = Path(__file__).resolve().parent
 EXPECTED_NG = {"send_missing", "first_value", "control_position", "data_position",
                "response_missing", "clock", "write_order", "candidate_table",
                "read_position_160", "final_remainder", "screen_leak",
-               "fake_frontend_zero_launch", "swap_failed", "partial_log_transfer_count",
-               "driver_transfer_count_reason"}
+               "fake_frontend_zero_launch", "swap_failed", "partial_log_transfer_mapping",
+               "driver_transfer_mapping_reason", "double_receive", "latest_value_mismatch",
+               "unread_arm_position", "unread_output_field"}
 
 
-def synthetic(arm: str = "J-D1-S-N") -> list[dict]:
+def synthetic(arm: str = "J-D1-S-N", unread_at: tuple[int, ...] = (),
+              double_at: int = -1) -> list[dict]:
     events = []
     seq = {"main": 0, "sub": 0}
     clock = 0
@@ -38,9 +40,17 @@ def synthetic(arm: str = "J-D1-S-N") -> list[dict]:
         events.append(dict(seq=seq[cpu], clock=clock, frame=2000, cpu=cpu,
                            kind=kind, port=port, value=value, pc=pc))
 
+    sent = 0
+
     def send(value):
+        nonlocal sent
+        sent += 1
+        if sent in unread_at:
+            add("main", "OUT", "00FD", 0xa5, "37F4")
         add("main", "OUT", "00FD", value, "37F4")
         add("sub", "IN", "00FC", value)
+        if sent == double_at:
+            add("sub", "IN", "00FC", value)
 
     body = script.body(arm)
     for coord, data in (((18, 0, 1), body.ljust(256, b"\x00")),
@@ -89,6 +99,29 @@ def test() -> list[str]:
         result = a.analyze(a.load(log), "J-D1-S-N")
         assert len(result["writes"]) == 2 and len(result["send_runs"]) >= 1
         assert result["writes"][0]["data_match_count"] == 256
+        unread_good = synthetic(unread_at=(2, 10))
+        unread_log = work / "unread.iolog.txt"
+        write_log(unread_log, unread_good)
+        unread_result = a.analyze(a.load(unread_log), "J-D1-S-N")
+        assert unread_result["unread_send_count"] == 2
+        assert [x["position"] for x in unread_result["unread_send"]] == [2, 11]
+        assert unread_result["unread_send"][0]["classification"] == "between_control"
+        assert unread_result["unread_send"][1]["classification"] == "inside_data"
+        assert "control_value" not in unread_result["unread_send"][1]
+        double = synthetic(double_at=2)
+        expect_ng("double_receive", work, double)
+        observed.append("double_receive")
+        mismatch = synthetic(unread_at=(2,))
+        receives = [e for e in mismatch if e["cpu"] == "sub" and e["kind"] == "IN" and e["port"] == "00FC"]
+        receives[1]["value"] ^= 1
+        expect_ng("latest_value_mismatch", work, mismatch)
+        observed.append("latest_value_mismatch")
+        other = copy.deepcopy(unread_result)
+        other["unread_send"][0]["position"] += 1
+        assert a.unread_judgment({arm: unread_result if arm != "J-D2-S-N" else other
+                                  for arm in script.ARMS}) == "inconclusive_unread_send"
+        assert a.unread_judgment({arm: unread_result for arm in script.ARMS}) == "unread_send_rule_unique"
+        observed.append("unread_arm_position")
         # 最初の送信直後から記録したログでは、受信だけが1件多くなる。
         partial = [e for e in good if e["clock"] > good[0]["clock"]]
         partial_log = work / "partial.iolog.txt"
@@ -96,10 +129,10 @@ def test() -> list[str]:
         try:
             a.analyze(a.load(partial_log), "J-D1-S-N")
         except a.GateError as exc:
-            assert str(exc) == "transfer_count"
-            observed.append("partial_log_transfer_count")
+            assert str(exc) == "transfer_mapping"
+            observed.append("partial_log_transfer_mapping")
         else:
-            raise AssertionError("partial_log_transfer_count")
+            raise AssertionError("partial_log_transfer_mapping")
         for label, predicate, change in (
             ("send_missing", lambda x: x["cpu"] == "main" and x["kind"] == "OUT" and x["port"] == "00FD", None),
             ("first_value", lambda x: x["cpu"] == "main" and x["kind"] == "OUT" and x["port"] == "00FD", "value"),
@@ -133,9 +166,17 @@ def test() -> list[str]:
         # 出力許可リスト: READ の160位置、最終余り、画面本文を通さない。
         a.axis_values({"J-D1-S-N": result["writes"]})
         base = {"schema": 1, "judgment": "inconclusive_axis_confounded",
+                "unread_send_judgment": "inconclusive_unread_send",
                 "frontend_launch_count": 2, "candidates": {str(i): [] for i in range(4)},
                 "observations": {"J-D1-S-N": result}}
         driver.audit_result(base)
+        altered = copy.deepcopy(base)
+        altered["observations"]["J-D1-S-N"] = unread_result
+        driver.audit_result(altered)
+        altered["observations"]["J-D1-S-N"]["unread_send"][1]["control_value"] = 0x55
+        try: driver.audit_result(altered)
+        except driver.GateError: observed.append("unread_output_field")
+        else: raise AssertionError("unread_output_field")
         for label, key in (("read_position_160", "fat_160"),
                            ("final_remainder", "tail_bytes"),
                            ("screen_leak", "screen_text")):
@@ -204,8 +245,8 @@ def test() -> list[str]:
         env["M6IJ_TEST_IOLOG"] = str(partial_log)
         cmd[cmd.index(str(work / "positive"))] = str(work / "partial_bad")
         proc = subprocess.run(cmd, env=env, capture_output=True)
-        assert proc.returncode and json.loads(proc.stdout)["reason"] == "transfer_count"
-        observed.append("driver_transfer_count_reason")
+        assert proc.returncode and json.loads(proc.stdout)["reason"] == "transfer_mapping"
+        observed.append("driver_transfer_mapping_reason")
         env["M6IJ_TEST_IOLOG"] = str(log)
         env["M6IJ_TEST_SWAP_OK"] = "0"
         cmd[cmd.index(str(work / "partial_bad"))] = str(work / "swap_bad")

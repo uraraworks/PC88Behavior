@@ -33,14 +33,22 @@ def load(path: Path) -> list[io.Ev]:
     return rows
 
 
-def exchanges(rows: list[io.Ev]) -> tuple[list[dict], list[io.Ev]]:
+def exchanges(rows: list[io.Ev]) -> tuple[list[dict], list[io.Ev], dict[int, int], list[tuple[int, io.Ev]]]:
     sends = [e for e in rows if e.cpu == "main" and e.kind == "OUT" and e.port == "00FD"]
     received = [e for e in rows if e.cpu == "sub" and e.kind == "IN" and e.port == "00FC"]
-    if not sends or len(sends) != len(received):
-        raise GateError("transfer_count")
-    if any(a.value != b.value or a.clock >= b.clock for a, b in zip(sends, received)):
+    if not sends or not received:
         raise GateError("transfer_mapping")
-    # 対応は単調な全単射。run番号を結ぶ仮定は置かない。
+    # 各受信を、その時点で直近の送信へ結ぶ。同一送信の再読は認めない。
+    send_index = -1
+    linked: dict[int, int] = {}
+    for event in rows:
+        if event.cpu == "main" and event.kind == "OUT" and event.port == "00FD":
+            send_index += 1
+        elif event.cpu == "sub" and event.kind == "IN" and event.port == "00FC":
+            if send_index < 0 or send_index in linked or sends[send_index].value != event.value:
+                raise GateError("transfer_mapping")
+            linked[send_index] = event.clock
+    unread = [(i + 1, send) for i, send in enumerate(sends) if i not in linked]
     main = [e for e in rows if e.cpu == "main"]
     fd_idx = [i for i, e in enumerate(main) if e.kind == "OUT" and e.port == "00FD"]
     mr = []
@@ -56,7 +64,8 @@ def exchanges(rows: list[io.Ev]) -> tuple[list[dict], list[io.Ev]]:
     if sum(map(len, mr)) != len(sends) or sum(map(len, sr)) != len(received):
         raise GateError("run_count")
     return ([{"length": len(run), "first_control": main[run[0]].value,
-              "first_clock": main[run[0]].clock} for run in mr], received)
+              "first_clock": main[run[0]].clock} for run in mr], received,
+            {sends[i].clock: clock for i, clock in linked.items()}, unread)
 
 
 def coordinate(params: list[int]) -> tuple[int, int, int]:
@@ -123,8 +132,8 @@ def records(rows: list[io.Ev], arm: str, runs: list[dict]) -> tuple[list[dict], 
                            "coord": list(coord), "location": kind,
                            "data_match_count": 256, "body_index": body_index,
                            "response_count": 1,
-                           "control_send_clocks": [e.clock for e in rows if e.cpu == "main" and
-                                                   e.kind == "OUT" and e.port == "00FD"][i-6:i]})
+                           "control_receive_clocks": [e.clock for e in incoming[i-6:i]],
+                           "data_receive_clocks": [e.clock for e in incoming[i:i+256]]})
         relevant = [r for r in runs if c.clock <= r["first_clock"] <= c.end_clock]
         order.append({"direction": direction, "drive": int(arm[3]),
                       "coord": list(coord), "location": kind,
@@ -177,8 +186,54 @@ def confounded(records_by_arm: dict[str, list[dict]], candidates: dict[str, list
     return False
 
 
+def unread_summary(rows: list[io.Ev], linked: dict[int, int],
+                   unread: list[tuple[int, io.Ev]], writes: list[dict]) -> list[dict]:
+    sends = [e for e in rows if e.cpu == "main" and e.kind == "OUT" and e.port == "00FD"]
+    controls = {clock for write in writes for clock in write["control_receive_clocks"]}
+    data = {clock for write in writes for clock in write["data_receive_clocks"]}
+    read_positions = [i for i, send in enumerate(sends, 1) if send.clock in linked]
+
+    def neighbor(position: int | None) -> dict | None:
+        if position is None:
+            return None
+        send = sends[position - 1]
+        receive_clock = linked[send.clock]
+        kind = "control" if receive_clock in controls else "data" if receive_clock in data else "other"
+        result = {"position": position, "classification": kind}
+        if kind == "control":
+            result["control_value"] = send.value
+        return result
+
+    output = []
+    for position, send in unread:
+        before = next((p for p in reversed(read_positions) if p < position), None)
+        after = next((p for p in read_positions if p > position), None)
+        left, right = neighbor(before), neighbor(after)
+        classification = ("inside_data" if left and right and
+                          left["classification"] == right["classification"] == "data"
+                          else "between_control" if left and right and
+                          left["classification"] == right["classification"] == "control"
+                          else "boundary")
+        gap_length = ((after if after is not None else len(sends) + 1) -
+                      (before if before is not None else 0) - 1)
+        item = {"position": position, "classification": classification,
+                "gap_length": gap_length, "previous": left, "next": right}
+        if classification == "between_control":
+            item["control_value"] = send.value
+        output.append(item)
+    return output
+
+
+def unread_judgment(observations: dict[str, dict]) -> str:
+    if len(observations) != len(script.ARMS):
+        return "inconclusive_unread_send"
+    positions = [tuple(x["position"] for x in observations[arm]["unread_send"])
+                 for arm in script.ARMS]
+    return "unread_send_rule_unique" if len(set(positions)) == 1 else "inconclusive_unread_send"
+
+
 def analyze(rows: list[io.Ev], arm: str) -> dict:
-    runs, received = exchanges(rows)
+    runs, received, linked, unread = exchanges(rows)
     writes, order = records(rows, arm, runs)
     # READ を挟まない連続 WRITE を要求群とし、各応答の閉じ目を検証済みのときだけ確定。
     write_at = 0
@@ -193,12 +248,18 @@ def analyze(rows: list[io.Ev], arm: str) -> dict:
             writes[write_at]["count_order"] = (end-index, position-index+1)
             write_at += 1
         index = end
-    safe = {clock for write in writes for clock in write.pop("control_send_clocks")}
+    unread_result = unread_summary(rows, linked, unread, writes)
+    safe = {send_clock for send_clock, receive_clock in linked.items()
+            if any(receive_clock in write["control_receive_clocks"] for write in writes)}
+    for write in writes:
+        write.pop("control_receive_clocks")
+        write.pop("data_receive_clocks")
     return {"arm": arm, "send_runs": [{k: v for k, v in run.items()
                                       if k != "first_clock" and
                                       (k != "first_control" or run["first_clock"] in safe)}
                                     for run in runs],
-            "sub_receive_count": len(received), "writes": writes, "order": order}
+            "sub_receive_count": len(received), "unread_send_count": len(unread_result),
+            "unread_send": unread_result, "writes": writes, "order": order}
 
 
 def main() -> int:

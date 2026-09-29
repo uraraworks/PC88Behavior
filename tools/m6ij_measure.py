@@ -131,17 +131,49 @@ def allowed_media_diff(before: bytes, after: bytes, arm: str) -> bool:
 
 
 def audit_result(value: dict) -> None:
-    if set(value) != {"schema", "judgment", "frontend_launch_count", "candidates", "observations"}:
+    if set(value) != {"schema", "judgment", "unread_send_judgment", "frontend_launch_count", "candidates", "observations"}:
         raise GateError("output_audit")
     if value["judgment"] not in script.JUDGMENTS or value["schema"] != 1:
+        raise GateError("output_audit")
+    if value["unread_send_judgment"] not in ("unread_send_rule_unique", "inconclusive_unread_send"):
         raise GateError("output_audit")
     if set(value["candidates"]) != {"0", "1", "2", "3"} or any(
         any(candidate not in script.AXES for candidate in values)
         for values in value["candidates"].values()):
         raise GateError("output_audit")
     for arm, obs in value["observations"].items():
-        if arm not in script.ARMS or set(obs) != {"arm", "send_runs", "sub_receive_count", "writes", "order"}:
+        if arm not in script.ARMS or set(obs) != {"arm", "send_runs", "sub_receive_count",
+                                                 "unread_send_count", "unread_send", "writes", "order"}:
             raise GateError("output_audit")
+        if obs["unread_send_count"] != len(obs["unread_send"]):
+            raise GateError("output_audit")
+        for item in obs["unread_send"]:
+            if set(item) not in ({"position", "classification", "gap_length", "previous", "next"},
+                                 {"position", "classification", "gap_length", "previous", "next", "control_value"}):
+                raise GateError("output_audit")
+            if type(item["position"]) is not int or item["position"] < 1 or item["classification"] not in (
+                    "inside_data", "between_control", "boundary"):
+                raise GateError("output_audit")
+            if type(item["gap_length"]) is not int or item["gap_length"] < 1:
+                raise GateError("output_audit")
+            if ("control_value" in item) != (item["classification"] == "between_control"):
+                raise GateError("output_audit")
+            if "control_value" in item and (type(item["control_value"]) is not int or not 0 <= item["control_value"] <= 255):
+                raise GateError("output_audit")
+            for side in ("previous", "next"):
+                neighbor = item[side]
+                if neighbor is None:
+                    continue
+                if set(neighbor) not in ({"position", "classification"},
+                                         {"position", "classification", "control_value"}):
+                    raise GateError("output_audit")
+                if type(neighbor["position"]) is not int or neighbor["position"] < 1 or neighbor["classification"] not in (
+                        "control", "data", "other"):
+                    raise GateError("output_audit")
+                if ("control_value" in neighbor) != (neighbor["classification"] == "control"):
+                    raise GateError("output_audit")
+                if "control_value" in neighbor and (type(neighbor["control_value"]) is not int or not 0 <= neighbor["control_value"] <= 255):
+                    raise GateError("output_audit")
         if any(not set(run) <= {"length", "first_control"} for run in obs["send_runs"]):
             raise GateError("output_audit")
         if any(set(write) != {"control", "drive", "track", "r", "coord", "location",
@@ -263,7 +295,9 @@ def main() -> int:
         if verdict == "m6i_j_main_write_send_unique" and analyzer.confounded(
                 {a: x["writes"] for a, x in observations.items()}, candidates):
             verdict = "inconclusive_axis_confounded"
-        result = {"schema": 1, "judgment": verdict, "frontend_launch_count": launches,
+        result = {"schema": 1, "judgment": verdict,
+                  "unread_send_judgment": analyzer.unread_judgment(observations),
+                  "frontend_launch_count": launches,
                   "candidates": candidates, "observations": observations}
         audit_result(result)
         args.work.mkdir(parents=True)
