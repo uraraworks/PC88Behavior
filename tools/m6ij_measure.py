@@ -168,7 +168,7 @@ def run_one(arm: str, rep: int, media: bytes, frontend: Path, core: str,
     args = [str(frontend), "--core", core, "--rom-dir", str(rom),
             "--disk", str(refpath), "--save-to-disk-image",
             "--frames", str(script.FRAMES), "--io-log", str(log),
-            "--io-log-from-frame", str(end_frame),
+            "--io-log-from-frame", str(script.TYPE_FRAME),
             "--screen-signature-only", "--screen-signature-at", "baseline:1100",
             "--screen-signature-at", f"final:{script.FRAMES-500}",
             "--screen-signature-at", f"late:{script.FRAMES-1}",
@@ -273,7 +273,7 @@ def main() -> int:
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError, screens.SignatureInputError,
             BodyError) as exc:
-        reason = str(exc) if isinstance(exc, GateError) else type(exc).__name__
+        reason = str(exc) if isinstance(exc, (GateError, analyzer.GateError)) else type(exc).__name__
         print(json.dumps({"judgment": "gate_failed", "reason": reason,
                           "frontend_launch_count": launches}, separators=(",", ":")))
         return 1

@@ -22,7 +22,8 @@ HERE = Path(__file__).resolve().parent
 EXPECTED_NG = {"send_missing", "first_value", "control_position", "data_position",
                "response_missing", "clock", "write_order", "candidate_table",
                "read_position_160", "final_remainder", "screen_leak",
-               "fake_frontend_zero_launch", "swap_failed"}
+               "fake_frontend_zero_launch", "swap_failed", "partial_log_transfer_count",
+               "driver_transfer_count_reason"}
 
 
 def synthetic(arm: str = "J-D1-S-N") -> list[dict]:
@@ -88,6 +89,17 @@ def test() -> list[str]:
         result = a.analyze(a.load(log), "J-D1-S-N")
         assert len(result["writes"]) == 2 and len(result["send_runs"]) >= 1
         assert result["writes"][0]["data_match_count"] == 256
+        # 最初の送信直後から記録したログでは、受信だけが1件多くなる。
+        partial = [e for e in good if e["clock"] > good[0]["clock"]]
+        partial_log = work / "partial.iolog.txt"
+        write_log(partial_log, partial)
+        try:
+            a.analyze(a.load(partial_log), "J-D1-S-N")
+        except a.GateError as exc:
+            assert str(exc) == "transfer_count"
+            observed.append("partial_log_transfer_count")
+        else:
+            raise AssertionError("partial_log_transfer_count")
         for label, predicate, change in (
             ("send_missing", lambda x: x["cpu"] == "main" and x["kind"] == "OUT" and x["port"] == "00FD", None),
             ("first_value", lambda x: x["cpu"] == "main" and x["kind"] == "OUT" and x["port"] == "00FD", "value"),
@@ -155,6 +167,7 @@ def test() -> list[str]:
                         "import os,sys,shutil\nfrom pathlib import Path\n"
                         "args=sys.argv[1:]\n"
                         "get=lambda flag: args[args.index(flag)+1]\n"
+                        f"assert int(get('--io-log-from-frame')) == {script.TYPE_FRAME}\n"
                         "assert int(get('--swap-disk1-at')) < int(args[len(args)-1-args[::-1].index('--type-at')+1])\n"
                         "Path(os.environ['M6IJ_TEST_COUNT']).open('a').write('1')\n"
                         "shutil.copyfile(os.environ['M6IJ_TEST_IOLOG'],get('--io-log'))\n"
@@ -188,8 +201,14 @@ def test() -> list[str]:
         assert proc.returncode == 0 and count.read_text() == "11", (proc.returncode, proc.stdout.decode("ascii", "replace"), proc.stderr.decode("ascii", "replace"), count.read_text())
         assert sorted(p.name for p in (work / "positive").iterdir()) == ["result.json"]
         observed.append("fake_frontend_positive")
+        env["M6IJ_TEST_IOLOG"] = str(partial_log)
+        cmd[cmd.index(str(work / "positive"))] = str(work / "partial_bad")
+        proc = subprocess.run(cmd, env=env, capture_output=True)
+        assert proc.returncode and json.loads(proc.stdout)["reason"] == "transfer_count"
+        observed.append("driver_transfer_count_reason")
+        env["M6IJ_TEST_IOLOG"] = str(log)
         env["M6IJ_TEST_SWAP_OK"] = "0"
-        cmd[cmd.index(str(work / "positive"))] = str(work / "swap_bad")
+        cmd[cmd.index(str(work / "partial_bad"))] = str(work / "swap_bad")
         proc = subprocess.run(cmd, env=env, capture_output=True)
         assert proc.returncode and json.loads(proc.stdout)["judgment"] == "gate_failed"
         observed.append("swap_failed")
