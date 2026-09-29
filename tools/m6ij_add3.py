@@ -71,8 +71,8 @@ def build(arm: str) -> bytes:
     image = bytearray(old_build("B0", "J-D2-S-N"))
     if arm == "T-D2-S":
         off = offsets(image)
-        # 2.5節の先頭4単位を自作ファイル2件の鎖で使用中にする。
-        for index, (label, units) in enumerate(((b"holda", (72, 71)), (b"holdb", (68, 67)))):
+        # 追補4: トラック18ヘッド0（単位72・73）と 71・70 を自作ファイル2件の鎖で使用中にする（追補3の 72・71・68・67 では公式ROMが 73 を選び本体がトラック18に残った）。
+        for index, (label, units) in enumerate(((b"holda", (72, 73)), (b"holdb", (71, 70)))):
             image[off[(18, 1, 1)]+16*index:off[(18, 1, 1)]+16*(index+1)] = (
                 label.ljust(9, b" ") + b"\x00" + bytes((units[0],)) + b"\xff"*5)
             for r in (14, 15, 16):
@@ -101,19 +101,19 @@ def inspect_input(data: bytes, arm: str) -> list[str]:
         if any(bytes(image.sector(18, 1, r)) != b"\xff"*256 for r in range(2, 13)):
             faults.append("directory")
         if arm == "T-D2-S":
-            for i, (label, units) in enumerate(((b"holda", (72, 71)), (b"holdb", (68, 67)))):
+            for i, (label, units) in enumerate(((b"holda", (72, 73)), (b"holdb", (71, 70)))):
                 want = label.ljust(9, b" ") + b"\x00" + bytes((units[0],)) + b"\xff"*5
                 if directory[16*i:16*i+16] != want:
                     faults.append("directory")
             if directory[32:] != b"\xff"*224:
                 faults.append("directory")
-            for units in ((72, 71), (68, 67)):
+            for units in ((72, 73), (71, 70)):
                 linear = units[0]*8
                 if bytes(image.sector_prefix((linear//32, (linear//16)%2, linear%16+1), 13)) != b"10 PRINT 1\r\n\x1a":
                     faults.append("old_body")
         elif directory != b"\xff"*256:
             faults.append("directory")
-        used = {72: 71, 71: 0xc1, 68: 67, 67: 0xc1} if arm == "T-D2-S" else {}
+        used = {72: 73, 73: 0xc1, 71: 70, 70: 0xc1} if arm == "T-D2-S" else {}
         if any(fat[u] != (0xa0 if u in (74, 75) else used.get(u, 0xff)) for u in range(160)):
             faults.append("fat")
     except (BodyError, KeyError, ValueError):

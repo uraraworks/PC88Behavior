@@ -112,7 +112,7 @@ def test(preflight_only: bool = False) -> None:
             assert m.allowed_diff(m.build(arm), after, coords, arm)
             if arm == "T-D2-S":
                 unit = ((coords[0][0]*2+coords[0][1])*16+coords[0][2]-1)//8
-                assert unit not in (72, 71)
+                assert unit not in (72, 73, 71, 70)
                 positive.add("chain_relocated")
             log = work / "good.iolog.txt"
             write_log(log, events(arm, after))
