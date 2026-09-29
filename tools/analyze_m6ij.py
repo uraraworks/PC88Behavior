@@ -124,8 +124,8 @@ def records(rows: list[io.Ev], arm: str, runs: list[dict]) -> tuple[list[dict], 
             linear = coord[0]*32 + coord[1]*16 + coord[2]-1
             if kind == "body" and 72*8 <= linear < 72*8 + 8:
                 body_index = linear - 72*8
-            if kind == "body" and 73*8 <= linear < 73*8 + 8:
-                body_index = 8 + linear - 73*8
+            if kind == "body" and 71*8 <= linear < 71*8 + 8:  # 2.5節: 72 の次は 71
+                body_index = 8 + linear - 71*8
             if body_index is not None and body_index < (len(expected_body)+255)//256:
                 start = body_index*256
                 limit = min(256, len(expected_body)-start)

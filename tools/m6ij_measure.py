@@ -112,8 +112,8 @@ def allowed_media_diff(before: bytes, after: bytes, arm: str) -> bool:
             linear = coord[0]*32 + coord[1]*16 + coord[2]-1
             if 72*8 <= linear < 72*8+8:
                 idx = linear-72*8
-            elif 73*8 <= linear < 73*8+8:
-                idx = 8+linear-73*8
+            elif 71*8 <= linear < 71*8+8:  # l3-disk-format 2.5節: 72 から番号の小さい方へ（m6i-j 6回目で 72→71 を確認）
+                idx = 8+linear-71*8
             else:
                 idx = -1
             if 0 <= idx < (valid_body+255)//256:
