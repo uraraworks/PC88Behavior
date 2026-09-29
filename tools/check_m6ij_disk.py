@@ -16,7 +16,7 @@ def check_body(arm: str, payload: bytes) -> list[str]:
     if not payload.endswith(b"\r\n\x1a") or payload.count(b"\x1a") != 1:
         faults.append("body_terminal")
     parts = payload[:-1].split(b"\r\n")
-    if not parts or parts[-1] != b"" or any(not re.fullmatch(rb"[1-9][0-9]* (PRINT [0-9]|REM [A-Z]+)", p)
+    if not parts or parts[-1] != b"" or any(not re.fullmatch(rb"[1-9][0-9]* (PRINT [0-9]|REM [0-9]+)", p)
                                               for p in parts[:-1]):
         faults.append("body_lines")
     if (len(payload)+255)//256 != sectors:
