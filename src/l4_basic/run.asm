@@ -2700,8 +2700,16 @@ _rmsk_try_files:
 _rmsk_try_load:
     CALL TRY_MATCH_LOAD
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_save
     LD A,22
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_save:
+    CALL TRY_MATCH_SAVE
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,23
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2797,6 +2805,8 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_files
     CP 22
     JR Z,_reos_load
+    CP 23
+    JR Z,_reos_save
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2848,6 +2858,8 @@ _reos_files:
     JP FILES_STMT
 _reos_load:
     JP LOAD_STMT
+_reos_save:
+    JP SAVE_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
@@ -3828,6 +3840,15 @@ TRY_MATCH_LOAD:
     JP TRY_MATCH_KEYWORD_GENERIC
 STMT_LOAD_TEXT: DB "LOAD"
 STMT_LOAD_LEN EQU 4
+
+TRY_MATCH_SAVE:
+    LD HL,STMT_SAVE_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_SAVE_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_SAVE_TEXT: DB "SAVE"
+STMT_SAVE_LEN EQU 4
 
 TRY_MATCH_ON:
     LD HL,STMT_ON_TEXT
@@ -4929,6 +4950,9 @@ _dim_oom:
 ;   (RUN_DATA_MAIN_SAVE_*)。RUN_CUR_RECORD(本線の実行位置)とは別に
 ;   RUN_DATA_REC(DATAの走査位置)を持つ。
 ; =======================================================================
+; SAVE入口と画面捕捉の常駐追加分を含めても0x79D7を埋め草のまま保つ。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
 DATA_ENTER_RECORD:
     LD (RUN_DATA_REC),HL
     INC HL
@@ -5009,10 +5033,6 @@ _ds_exhausted:
 ; DATA_PARSE_NUMBER_LITERAL — FACTORの数値定数解釈(_l4factor_is_number
 ;   相当)を、DATA用にCUR_PTR位置へ直接適用する。先頭の'-'も許す
 ;   (仕様書に無い判断、DATAの負数リテラルは未測定)。
-; 0x79D7は予約番地。LOAD文の追加で前方が伸びたため、境界を
-; DATAの数値解釈入口の直前へ移す。
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 DATA_PARSE_NUMBER_LITERAL:
     CALL PEEK_CHAR
     CP '-'

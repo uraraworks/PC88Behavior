@@ -184,7 +184,7 @@ _l4brl_msg:
     RET
 
 ; ---------------------------------------------------------------------
-; SELECT_ERROR_MSG — ERROR_KIND(2/6/11/22)から、errors.asm生成の
+; SELECT_ERROR_MSG — ERROR_KIND(2/6/11/22/64など)から、errors.asm生成の
 ;   ERR_MSG_番号 (l4-basic.md 第7.1節のマニュアル文言そのもの)を選ぶ。
 ;   出力: HL=メッセージ文字列アドレス。未知の値はERR_MSG_2にフォール
 ;   バックする(第7.1.1節の対応表に無い形は当面Syntax errorのまま、
@@ -258,6 +258,12 @@ ERRKIND_TABLE:
     DW ERR_MSG_53
     DB 57
     DW ERR_MSG_57
+    DB 61
+    DW ERR_MSG_61
+    DB 64
+    DW ERR_MSG_64
+    DB 68
+    DW ERR_MSG_68
     DB 0
 
 ; ---------------------------------------------------------------------
@@ -294,6 +300,8 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_files
     CP 9
     JR Z,_l4dl_call_load
+    CP 10
+    JR Z,_l4dl_call_save
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -322,6 +330,9 @@ _l4dl_call_files:
     JR _l4dl_after_stmt
 _l4dl_call_load:
     CALL LOAD_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_save:
+    CALL SAVE_STMT
 _l4dl_after_stmt:
     LD A,(ERROR_FLAG)
     OR A
@@ -436,8 +447,16 @@ _l4msk_try_files:
 _l4msk_try_load:
     CALL TRY_MATCH_LOAD
     OR A
-    RET Z
+    JR Z,_l4msk_try_save
     LD A,9
+    LD (STMT_KIND),A
+    LD A,1
+    RET
+_l4msk_try_save:
+    CALL TRY_MATCH_SAVE
+    OR A
+    RET Z
+    LD A,10
     LD (STMT_KIND),A
     LD A,1
     RET
