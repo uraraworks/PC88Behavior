@@ -74,6 +74,8 @@ L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 L4_RUN_ASM = REPO / "src" / "l4_basic" / "run.asm"
 L4_FILES_ASM = REPO / "src" / "l4_basic" / "files.asm"
 L4_LOAD_ASM = REPO / "src" / "l4_basic" / "load.asm"
+L4_SAVE_ASM = REPO / "src" / "l4_basic" / "save.asm"
+L4_SAVE_WRITE_ASM = REPO / "src" / "l4_basic" / "save_write.asm"
 L4_LOAD_GAP_ASM = REPO / "src" / "l4_basic" / "load_gap.asm"
 
 # 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
@@ -309,6 +311,19 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
     "BANK1_SELECT_ERROR_MSG_ADDR": "SELECT_ERROR_MSG",
     "BANK1_PRINT_STR_ADDR": "PRINT_STR",
     "BANK1_OK_TXT_ADDR": "OK_TXT",
+}
+
+EXT_BANK2_MAIN_ADDR_LABELS = {
+    "BANK2_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "BANK2_SKIP_SPACES_ADDR": "SKIP_SPACES",
+    "BANK2_PEEK_CHAR_ADDR": "PEEK_CHAR",
+    "BANK2_ADV_PTR_ADDR": "ADV_PTR",
+    "BANK2_AT_END_ADDR": "AT_END",
+    "BANK2_READ_CHR_ADDR": "MAIN_SUB_READ_CHR_RETRY",
+    "BANK2_WRITE_CHR_ADDR": "MAIN_SUB_WRITE_CHR",
+    "BANK2_LIST_RENDER_ADDR": "LIST_RENDER_ALL",
+    "BANK2_CAPTURE_BEGIN_ADDR": "SAVE_CAPTURE_BEGIN",
+    "BANK2_CAPTURE_END_ADDR": "SAVE_CAPTURE_END",
 }
 
 # EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
@@ -979,6 +994,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
     load_path = work / "l4_load_gen.asm"
     load_path.write_text(L4_LOAD_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    save_path = work / "l4_save_gen.asm"
+    save_path.write_text(L4_SAVE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)は窓(0x6000-0x7FFF)の外に
     # 無ければならない(docs/spec/ext-rom-bank.md 第2節 制約1)。通常ビルドは
@@ -1036,6 +1053,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{run_path}"\n'
         + f'\nINCLUDE "{files_path}"\n'
         + f'\nINCLUDE "{load_path}"\n'
+        + f'\nINCLUDE "{save_path}"\n'
     )
     if inject_ext_bank_window_fault:
         combined += ext_bank_relay_include
@@ -1078,6 +1096,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         combined += f'\nINCLUDE "{main_sub_read_path}"\n'
     if enable_disk_read_retry:
         combined += f'\nINCLUDE "{DISK_READ_RETRY_ASM}"\n'
+    if enable_main_sub_read:
+        combined += f'\nINCLUDE "{L4_SAVE_WRITE_ASM}"\n'
     if enable_disk_read_chr:
         main_sub_chr_text = MAIN_SUB_READ_CHR_ASM.read_text(encoding="utf-8")
         chr_fault_enabled = any((inject_m6ii_fault_h, inject_m6ii_fault_d,
@@ -1512,6 +1532,10 @@ def main():
             if addr is not None:
                 addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK1_MAIN_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK2_MAIN_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr
