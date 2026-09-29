@@ -373,6 +373,8 @@ SCRIPTS_EXPECTED=(
   # m6f-j。合成媒体と偽フロントエンドで全候補、G8/G9、凍結破壊・
   # 名前大小不一致の起動前停止を陰性対照つきで検査する。
   "tools/m6fj_selftest.sh:0"
+  # m6i-j 追補3。合成ログのH1〜H3、鎖の移動、凍結破壊による起動0と偽フロントエンド。
+  "tools/m6ij_add3_selftest.sh:0"
   # m6f-i 追補2。4腕の署名候補、qieのG15、凍結破壊で起動0、漏えいを合成入力で検査。
   "tools/m6fi_add2_selftest.sh:0"
   # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
