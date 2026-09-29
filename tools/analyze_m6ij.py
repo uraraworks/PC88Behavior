@@ -97,15 +97,16 @@ def records(rows: list[io.Ev], arm: str, runs: list[dict]) -> tuple[list[dict], 
         if direction == "WRITE":
             if c.data_bytes != 256 or c.result_bytes != 7 or c.data_values is None:
                 raise GateError("fdc_write_shape")
-            # FDC 書込相に渡った256位置を、直前の sub 受信列の全数と照合。
-            candidates = [i for i in range(len(incoming)-255)
-                          if c.clock < incoming[i].clock and
-                          incoming[i+255].clock < c.end_clock and
-                          [x.value for x in incoming[i:i+256]] == c.data_values]
-            candidates = [i for i in candidates if i >= 6 and incoming[i-6].clock < c.clock]
-            if len(candidates) != 1:
+            # 事前登録 §3「各 WRITE の直前に対応する制御6位置と256位置のデータを同定」と
+            # l3-subrom.md 1.35節（データ部は直前に sub が受信した列の末尾256バイト、
+            # 受信後に WRITE DATA へ進む）に従い、WRITE コマンドより前の受信の末尾256位置を取る。
+            # 旧版はコマンド開始後の受信を探しており、事前登録と逆だった（m6i-j 5回目で判明）。
+            before = [k for k, x in enumerate(incoming) if x.clock < c.clock]
+            if len(before) < 262:
                 raise GateError("write_data_mapping")
-            i = candidates[0]
+            i = before[-1] - 255
+            if [x.value for x in incoming[i:i+256]] != c.data_values:
+                raise GateError("write_data_mapping")
             control = [e.value for e in incoming[i-6:i]]
             if control[4:] != [coord[0]*2+coord[1], coord[2]]:
                 raise GateError("control_coordinate")
@@ -114,7 +115,10 @@ def records(rows: list[io.Ev], arm: str, runs: list[dict]) -> tuple[list[dict], 
                        and e.port == "00FD" and c.end_clock < e.clock < next_clock]
             main_replies = [e for e in rows if e.cpu == "main" and e.kind == "IN"
                             and e.port == "00FC" and c.end_clock < e.clock < next_clock]
-            if len(replies) != 1 or len(main_replies) != 1 or replies[0].value != main_replies[0].value or replies[0].clock >= main_replies[0].clock:
+            # 1.35節: 応答はレコード1つにつき1バイト（制御12なら2バイト）。件数は1以上で、
+            # sub の各応答を main が後で1回ずつ受け取ること（値一致）を検査する。
+            if (not replies or len(replies) != len(main_replies)
+                    or any(r.value != m.value or r.clock >= m.clock for r, m in zip(replies, main_replies))):
                 raise GateError("write_response")
             body_index = None
             linear = coord[0]*32 + coord[1]*16 + coord[2]-1
@@ -131,7 +135,7 @@ def records(rows: list[io.Ev], arm: str, runs: list[dict]) -> tuple[list[dict], 
                            "track": control[4], "r": control[5],
                            "coord": list(coord), "location": kind,
                            "data_match_count": 256, "body_index": body_index,
-                           "response_count": 1,
+                           "response_count": len(replies),
                            "control_receive_clocks": [e.clock for e in incoming[i-6:i]],
                            "data_receive_clocks": [e.clock for e in incoming[i:i+256]]})
         relevant = [r for r in runs if c.clock <= r["first_clock"] <= c.end_clock]

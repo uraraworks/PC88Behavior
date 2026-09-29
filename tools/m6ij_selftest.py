@@ -24,11 +24,12 @@ EXPECTED_NG = {"send_missing", "first_value", "control_position", "data_position
                "read_position_160", "final_remainder", "screen_leak",
                "fake_frontend_zero_launch", "swap_failed", "partial_log_transfer_mapping",
                "driver_transfer_mapping_reason", "double_receive", "latest_value_mismatch",
-               "unread_arm_position", "unread_output_field"}
+               "unread_arm_position", "unread_output_field", "late_write_data"}
 
 
 def synthetic(arm: str = "J-D1-S-N", unread_at: tuple[int, ...] = (),
-              double_at: int = -1) -> list[dict]:
+              double_at: int = -1, control_records: int = 1,
+              late_data: bool = False) -> list[dict]:
     events = []
     seq = {"main": 0, "sub": 0}
     clock = 0
@@ -56,16 +57,22 @@ def synthetic(arm: str = "J-D1-S-N", unread_at: tuple[int, ...] = (),
     for coord, data in (((18, 0, 1), body.ljust(256, b"\x00")),
                         ((18, 1, 14), bytes([0xff])*256)):
         control = [7, 8, 9, 10, coord[0]*2+coord[1], coord[2]]
+        for _ in range(control_records-1):
+            for v in control: send(v)
         for v in control: send(v)
+        if not late_data:
+            for v in data: send(v)
+        # sub は全データを受信してから WRITE DATA を発行し、FDC へ流す。
         for v in [0x05, int(arm[3])-1, *coord, 1, 16, 0x1b, 0xff]:
             add("sub", "OUT", "00FB", v)
         for v in data:
-            send(v)
+            if late_data: send(v)
             add("sub", "OUT", "00FB", v)
         for v in range(7):
             add("sub", "IN", "00FB", v)
-        add("sub", "OUT", "00FD", 0)
-        add("main", "IN", "00FC", 0)
+        for _ in range(control_records):
+            add("sub", "OUT", "00FD", 0)
+            add("main", "IN", "00FC", 0)
     return events
 
 
@@ -99,6 +106,25 @@ def test() -> list[str]:
         result = a.analyze(a.load(log), "J-D1-S-N")
         assert len(result["writes"]) == 2 and len(result["send_runs"]) >= 1
         assert result["writes"][0]["data_match_count"] == 256
+        two_records = synthetic(control_records=2)
+        two_log = work / "two_records.iolog.txt"
+        write_log(two_log, two_records)
+        two_result = a.analyze(a.load(two_log), "J-D1-S-N")
+        assert len(two_result["writes"]) == 2
+        assert sum(e["cpu"] == "sub" and e["kind"] == "OUT" and e["port"] == "00FD"
+                   for e in two_records) == 4
+        assert sum(e["cpu"] == "main" and e["kind"] == "IN" and e["port"] == "00FC"
+                   for e in two_records) == 4
+        late = synthetic(late_data=True)
+        late_log = work / "late_data.iolog.txt"
+        write_log(late_log, late)
+        try:
+            a.analyze(a.load(late_log), "J-D1-S-N")
+        except a.GateError as exc:
+            assert str(exc) == "write_data_mapping"
+            observed.append("late_write_data")
+        else:
+            raise AssertionError("late_write_data")
         unread_good = synthetic(unread_at=(2, 10))
         unread_log = work / "unread.iolog.txt"
         write_log(unread_log, unread_good)
@@ -262,7 +288,7 @@ def main() -> int:
     try:
         names = test()
         print(json.dumps({"status": "OK", "negative_controls": sorted(EXPECTED_NG),
-                          "positive_controls": ["synthetic_log", "fake_frontend_positive"],
+                          "positive_controls": ["synthetic_log", "two_record_response", "fake_frontend_positive"],
                           "ng_count": len(EXPECTED_NG)}, separators=(",", ":")))
         return 0
     except (AssertionError, OSError, ValueError) as exc:
