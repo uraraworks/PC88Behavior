@@ -570,10 +570,10 @@ BANK2_RECV_ADDR EQU 0x1787
 BANK2_LIST_RENDER_ADDR EQU 0x1787
 BANK2_CAPTURE_CHAR_ADDR EQU 0x1787
 
-; 1.35a節・1.36節・第68版・m7bzの受信位相に合わせた書き込み送信。
-; 最初のWRITEは、長さ2のrun `0x14, D`（1.36節の先頭0x14・長さ2、m7bz「SAVE候補run
-; 直前 長さ2」。S=Dはこの2バイト目）で始め、応答は待たない。2回目以降は前のWRITE結果の後に
-; `S=0x06`（長さ1のrun）を送り、subの1バイト応答を1回受けてから要求へ進む（第68版）。
+; 1.35a節・1.36節・第68版・m7bz・第223版の受信位相に合わせた書き込み送信。
+; 全WRITEは「手前 → subの応答1バイト → 0x11,0x01,D,T,R＋データ256」の同じ形。
+; 手前は、最初のWRITEでは長さ2のrun `0x14, D`（1.35a節・第223版）、2回目以降は
+; `S=0x06`（長さ1のrun、第68版）。応答は各WRITEの手前の後・0x11の前に1件受ける。
 s2_write_stream:
     AND 1
     LD (S2_WRITE_DRIVE),A
@@ -591,11 +591,12 @@ s2_write_stream:
     LD A,(S2_WRITE_DRIVE)
     CALL s2_send_cont
     RET C
-    JR s2_ws_request
+    JR s2_ws_recv
 s2_ws_later:
     LD A,006h
     CALL s2_send
     RET C
+s2_ws_recv:
     CALL s2_recv
     RET C
 s2_ws_request:

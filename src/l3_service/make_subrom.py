@@ -646,6 +646,7 @@ class Asm:
     def ld_a_e(self):     self.db(0x7B)   # LD A,E（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def ld_e_a(self):     self.db(0x5F)   # LD E,A
     def or_e(self):        self.db(0xB3)
+    def cp_e(self):        self.db(0xBB)   # CP E
     def or_a(self):        self.db(0xB7)   # OR A（キャリーを0にするためだけに使う）
     def sbc_hl_de(self):    self.db(0xED, 0x52)   # SBC HL,DE（ED 42はSBC HL,BC。取り違え注意）
     # ---- M7段階0後半: 素の db() 直書きだった命令をメソッド化 ----
@@ -760,6 +761,7 @@ _ASM_TEMPLATES = {
     "ld_a_e": lambda: "LD A,E",
     "ld_e_a": lambda: "LD E,A",
     "or_e": lambda: "OR E",
+    "cp_e": lambda: "CP E",
     "or_a": lambda: "OR A",
     "sbc_hl_de": lambda: "SBC HL,DE",
     "ld_a": lambda n: f"LD A,{hex8(n)}",
@@ -1489,7 +1491,7 @@ def build_subrom(break_write_ack=False,
         a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
     else:
         a.pop_af()
-        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+        a.jr("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
@@ -1945,10 +1947,19 @@ def build_subrom(break_write_ack=False,
     # 一致していたため、これも合わせて共有する。
     a.label("_seek_sense_f7_read_shared")
     a.call("_seek_sense_f7_shared")
+    # 容量圧縮（SAVE ,A 追加分の相殺）: READ完了→SECTOR_READY=1の3命令は
+    # 一般READ・交換#3の各所でも同一だったので、ここから入れるようにした。
+    a.label("_read_sector_ready")
     a.call("FDC_READ_SECTOR")
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
     a.ret()
+    # 単発応答の保留（EXCHANGE3_RESPONSE_PENDING=1）してアイドルへ戻る共有末尾。
+    # 呼び出し元の同一3命令を1箇所へ移しただけで、フォールスルーは無い。
+    a.label("_response_pending_idle")
+    a.ld_a(0x01)
+    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+    a.jp("IDLE_DISPATCH")
 
     # ---- READ DATA 1セクタ（256バイト固定・N=1）。
     #      引数: (REQ_C)=シリンダ, (REQ_R)=セクタ番号。
@@ -1972,12 +1983,16 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_HDR + 1)
     a.dec_a()
     a.ret_nz()
-    # WRITEの直前は、初回が長さ2のrun `0x14, D`（1.36節・m7bz）、以降が長さ1の0x06
-    # （1.35a節・第68版）。直前の単発受信の先頭バイトがどちらでもなければ拒む。
+    # WRITEの直前のS（1.35a節）は、初回が `0x14, D` のD、以降が0x06。
+    # Sが0x06でもDでもなければ拒む。
+    # E = 要求のD（bit0）。下のunit/head合成でもそのまま使う（FDC_BEGIN/OUTはDEを保存）。
+    a.ld_a_mem(REQ_HDR + 2)
+    a.and_a(0x01)
+    a.ld_e_a()
     a.ld_a_mem(WRITE_LAST_S)
     a.cp_n(0x06)
     a.jr_z("_write_s_ok")
-    a.cp_n(0x14)
+    a.cp_e()
     a.ret_nz()
     a.label("_write_s_ok")
     a.ld_a(0x45); a.call("FDC_BEGIN")   # クリア後にWRITE DATA + MF=1を送出
@@ -1992,9 +2007,6 @@ def build_subrom(break_write_ack=False,
         # をB側で発行するが、旧実装は「drive0 | (H<<2)」のみでA側に留まって
         # いた(m7go・U2成立)。FDC_SEEK入口(1.46節)と同じ情報源REQ_HDR+2
         # bit0を同じ形で読み、H<<2とOR合成する(m7gq事前登録・案1)。
-        a.ld_a_mem(REQ_HDR + 2)
-        a.and_a(0x01)
-        a.ld_e_a()
         a.ld_a_mem(WRITE_PREV2)         # unit/head = (REQ_HDR+2 bit0) | (H<<2)。Hは論理トラックのbit0
         a.and_a(0x01)
         a.rlca()
@@ -2122,9 +2134,7 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_SENSE_DRIVE_STATUS")  # ST3はAに残る
     a.and_a(0x08)                     # bit3 = 媒体あり
     a.jr_z("_general_read_wait_media")
-    a.call("FDC_READ_SECTOR")
-    a.ld_a(0x01)
-    a.ld_mem_a(SECTOR_READY)
+    a.call("_read_sector_ready")
     # 第68版・1.37節: 一般READを完了するたび、結果263件の直後にはまだ
     # ackを送らず、POST_BULK_ACTIVEを「次に待つ受信値=0x06」へ再アーム
     # してアイドル受信へ戻る。1.37節が実測したのはバルク後最初のREAD
@@ -2737,7 +2747,7 @@ def build_subrom(break_write_ack=False,
             a.cp_n(2)
             a.jp_z("IDLE_DISPATCH")
             a.cp_n(7)
-            a.jp_z("_exchange3_prepare_sector")
+            a.jr_z("_exchange3_prepare_sector")
             a.cp_n(8)
             a.jp_z("_exchange3_request_done")
             a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
@@ -2762,7 +2772,7 @@ def build_subrom(break_write_ack=False,
         # SECTOR_READYが残っており、下の汎用経路は長さ2を交換#4のデータ要求と
         # 取り違えて256バイトを送るため、応答せずアイドルへ戻す。
         a.cp_n(0x14)
-        a.jp_z("_window_run_reset")
+        a.jp_z("_write_prefix_response")
         a.cp_n(0x02)
         a.jr_nz("_recv_dispatch_run_done")
         if early_response_after is not None:
@@ -2789,12 +2799,12 @@ def build_subrom(break_write_ack=False,
         a.dec_a()                      # Zだけを見るCP 1相当（m7bw容量圧縮）
         if not break_drive_selector:
             # ドライブ伝播コード分だけ相対分岐範囲を越えるため絶対分岐。
-            a.jp_z("_exchange6_prepare_sector")
+            a.jr_z("_exchange6_prepare_sector")
         else:
             a.jr_z("_exchange6_prepare_sector")
         # 第223版: 交換#11（段階3）の読み要求は、0x17,mと分かれた長さ5の0x02要求。
         a.cp_n(0x02)
-        a.jp_z("_exchange11_prepare_sector")
+        a.jr_z("_exchange11_prepare_sector")
         a.jp("_general_read_request")
 
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
@@ -2842,11 +2852,8 @@ def build_subrom(break_write_ack=False,
     _emit_probe("recv_dispatch_hdr_done")
     a.call("FDC_SEEK")
 
-    a.call("FDC_READ_SECTOR")
-    a.ld_a(0x01)
-    a.ld_mem_a(SECTOR_READY)
-    a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-    a.jp("IDLE_DISPATCH")
+    a.call("_read_sector_ready")
+    a.jp("_response_pending_idle")
 
     if not break_fixed_byte_cutoff:
         # 第32版1.25節: 2+5件を受信した時点でFDC実データを準備する。
@@ -2869,12 +2876,9 @@ def build_subrom(break_write_ack=False,
         a.cp_n(0x02)
         a.jr_z("_sector_prepare_response_pending")
         a.cp_n(0x04)
-        a.jr_nz("_sector_prepare_done")
+        a.jp_nz("IDLE_DISPATCH")
         a.label("_sector_prepare_response_pending")
-        a.ld_a(0x01)
-        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-        a.label("_sector_prepare_done")
-        a.jp("IDLE_DISPATCH")
+        a.jp("_response_pending_idle")
 
         # 第39版1.32節: 交換#6のREAD座標を観測位置から転記し、構造が
         # 完全一致した交換#3のFDC準備経路を共有する。FDC_READ_SECTORの
@@ -2927,6 +2931,14 @@ def build_subrom(break_write_ack=False,
         a.label("_logical_track_flags_set")
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(LOGICAL_TRACK_FLAGS)
+        a.jr("_window_run_reset")
+        # 長さ2のrun `0x14, D`（第223版1.35a節）: SはDと同じ値。応答1バイトを返す。
+        # 値は1.35a節から決まらないので2回目以降（0x06）と同じ値を返す（自作側の判断）。
+        a.label("_write_prefix_response")
+        a.ld_a_mem(REQ_HDR + 1)
+        a.ld_mem_a(WRITE_LAST_S)
+        a.ld_a(WRITE_ACK_RESPONSE)
+        a.call("SEND_BYTE")
         a.label("_window_run_reset")
         a.xor_a()
         a.ld_mem_a(WINDOW_RUN_POS)        # 次のバイトを新しいrunの先頭として数える
@@ -2968,9 +2980,7 @@ def build_subrom(break_write_ack=False,
         a.label("_exchange3_request_done")
         a.xor_a()
         a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
-        a.inc_a()
-        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-        a.jp("IDLE_DISPATCH")
+        a.jp("_response_pending_idle")
 
     if not break_fixed_byte_cutoff:
         # 交換#4: 交換#3で実データが準備済みの場合だけ、続く2バイト要求を
@@ -2998,9 +3008,7 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(WRITE_LAST_S)
         a.ld_a(0x12)
         a.ld_mem_a(POST_BULK_ACTIVE)
-        a.ld_a(0x01)
-        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
-        a.jp("IDLE_DISPATCH")
+        a.jp("_response_pending_idle")
 
         # 次の0x12を受信して初めて保持済みSECTOR_BUFを256件応答へ接続する。
         a.label("_post_read_received_12")
@@ -3280,7 +3288,10 @@ def build_subrom(break_write_ack=False,
     # 応答値と同じだとは主張しない。候補指定は探索再現用に優先する。
     error_response = (error_response_candidate if error_response_candidate is not None
                       else (0x40 if break_error_response_bit6 else 0x00))
-    a.ld_a(error_response)
+    if error_response == 0:
+        a.xor_a()                   # LD A,0と同値でフラグ不使用（容量1バイト）
+    else:
+        a.ld_a(error_response)
     a.jr("_exchange3_send_response")
     a.label("_exchange3_normal_response")
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
