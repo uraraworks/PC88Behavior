@@ -4,6 +4,13 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# 凍結値（m6ig_frozen.tsv）は当時のソースで作られた値。現在の作業ツリーは実装が進んで
+# ROM が変わっているため、作業ツリーでビルドすると一致しない（それが正しい）。
+# 凍結値を作った測定コミットを取り出した木で、ビルダーも照合器も回す。
+# 根拠: git log -1 --format=%H -- tools/m6ig_frozen.tsv
+. "$(dirname "${BASH_SOURCE[0]}")/frozen_tree.sh"
+use_frozen_tree 54a8b425dee68dd4b89bdbd26afa7dff06d324a2 "$WORK"
+
 POS="$WORK/positive"
 mkdir -p "$POS"
 for arm in G-N G-L0 G-L1 G-L2; do

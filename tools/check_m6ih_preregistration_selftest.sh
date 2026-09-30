@@ -3,6 +3,12 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+# 凍結値（m6ih_frozen.tsv）は当時のソースで作られた値。現在の作業ツリーは実装が進んで
+# ROM が変わっているため、作業ツリーの sub と比べると一致しない（それが正しい）。
+# 凍結値を作った測定コミットを取り出した木で照合器を回す。
+# 根拠: git log -1 --format=%H -- tools/m6ih_frozen.tsv
+. "$(dirname "${BASH_SOURCE[0]}")/frozen_tree.sh"
+use_frozen_tree 8fb3715b24c909c388ec86404109e0f3c14f4efd "$WORK"
 CHECK="$REPO/tools/check_m6ih_preregistration.py"; CONFIG="$REPO/tools/m6ih_frozen.tsv"
 python3 "$CHECK" >"$WORK/positive.out" 2>"$WORK/positive.err" || exit 1
 expect_fail() {

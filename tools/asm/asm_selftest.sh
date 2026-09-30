@@ -40,6 +40,13 @@ EXPECT_N88_SHA="1f4305a2c443fce00bc91cabb92c8a01f9c6157c3cd9e05bff8f72e943c075b1
 EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9f6c5b"
 EXPECT_SUBROM_DISK_SHA="d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070"
 
+# EXPECT_SUBROM_DISK_SHAは凍結値。sub ROMは1.36aで意図的に変わったため、現在の
+# make_subrom.pyの出力とは比べず（それが正しい）、値を作った当時のソース(1cc2528。
+# 同じ値のDISK.ROMを出すコミット)を git archive で取り出してビルドした出力と照合する。
+# 「.asm経由の再組み立てがバイト一致」は現在のツリーで引き続き別に検査する。
+# 根拠: git log -S<SHA> -- tools/asm/asm_selftest.sh
+FROZEN_SUB_COMMIT=1cc25283921d9a59f86eb92c1cad1aa64dcbea91
+
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$1" | awk '{print $1}'
@@ -144,7 +151,12 @@ else
     ng "sub.asm: コード中に生db が $sub_raw 件残っている（命令メソッド化されていない直書き）"
 fi
 
-sub_sha="$(sha256_of "$SUB_OUT/DISK.ROM")"
+FROZEN_SUB_SRC="$WORK/frozen_sub_src"
+mkdir -p "$FROZEN_SUB_SRC" "$WORK/frozen_sub_out"
+git archive "$FROZEN_SUB_COMMIT" src/l3_service/make_subrom.py | tar -x -C "$FROZEN_SUB_SRC"
+python3 "$FROZEN_SUB_SRC/src/l3_service/make_subrom.py" "$WORK/frozen_sub_out" \
+    > "$WORK/frozen_sub_build.log" 2>&1 || true
+sub_sha="$(sha256_of "$WORK/frozen_sub_out/DISK.ROM" 2>/dev/null || true)"
 if [ "$sub_sha" = "$EXPECT_SUBROM_DISK_SHA" ]; then
     ok "make_subrom.py の DISK.ROM の sha256 が変更前と一致"
 else
@@ -355,7 +367,12 @@ else
     ng "make_subrom.py 単独コピーの既定実行が失敗した"
     tail -20 "$WORK/standalone_sub.log"
 fi
-standalone_sub_sha="$(sha256_of "$STANDALONE_SUB/out/DISK.ROM" 2>/dev/null || true)"
+# 凍結値の照合は凍結コミットの単独コピーで行う（現在の単独コピーは上のrc検査）。
+STANDALONE_SUB_FROZEN="$WORK/standalone_sub_frozen"
+mkdir -p "$STANDALONE_SUB_FROZEN"
+cp "$FROZEN_SUB_SRC/src/l3_service/make_subrom.py" "$STANDALONE_SUB_FROZEN/make_subrom.py"
+( cd "$STANDALONE_SUB_FROZEN" && python3 make_subrom.py out ) > "$WORK/standalone_sub_frozen.log" 2>&1 || true
+standalone_sub_sha="$(sha256_of "$STANDALONE_SUB_FROZEN/out/DISK.ROM" 2>/dev/null || true)"
 if [ "$standalone_sub_sha" = "$EXPECT_SUBROM_DISK_SHA" ]; then
     ok "単独コピー(make_subrom.py)のDISK.ROMのsha256が変更前と一致"
 else

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORK_FROZEN="$(mktemp -d)"; trap 'rm -rf "$WORK_FROZEN"' EXIT
+# 判定器が固定する器具のSHA(src/build_main_rom.py等)は追補1の事前登録時点の値。
+# 現在の作業ツリーは1.36aの実装でbuild_main_rom.pyが変わっているため、作業ツリーと
+# 照合すると必ず不一致になる（それが正しい）。判定器を作った測定前コミットの木で回す。
+# 根拠: git log -1 --format=%H -- tools/judge_m6ik_add1.py
+. "$(dirname "${BASH_SOURCE[0]}")/frozen_tree.sh"
+use_frozen_tree be4ae06bda2c0a6da935060c30ae4fe2e9dff89e "$WORK_FROZEN"
 python3 - "$REPO" <<'PY'
 import copy
 import json

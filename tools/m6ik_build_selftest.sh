@@ -2,6 +2,12 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+# 器具が測る対象は「素の（旧）sub」＋腕ごとの main で、G4試走は素のsub SHAの一致、G6試走は
+# 既定出力が baseline(9518294) と不変であることを見る。現在の作業ツリーは1.36aで sub と
+# 既定出力が意図的に変わったため、器具を作った測定コミットの木で回す。
+# 根拠: git log -1 --format=%H -- tools/m6ik_frozen.tsv
+. "$(dirname "${BASH_SOURCE[0]}")/frozen_tree.sh"
+use_frozen_checkout 2668f3f0b6de5e5b1333f0fd0b0514a90fa55f6f "$WORK"
 for arm in K-00 K-01 K-F0 K-F1 K-M1 K-FR; do
   python3 "$REPO/src/build_main_rom.py" "$WORK/rom-$arm" --inject-m6ik-arm "$arm" \
     --work-dir "$WORK/build-$arm" >"$WORK/$arm.out"
