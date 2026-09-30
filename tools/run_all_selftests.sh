@@ -381,6 +381,8 @@ SCRIPTS_EXPECTED=(
   "tools/m6fj_selftest.sh:0"
   # m6i-j 追補3。合成ログのH1〜H3、鎖の移動、凍結破壊による起動0と偽フロントエンド。
   "tools/m6ij_add3_selftest.sh:0"
+  # m6i-j 追補5。最初の WRITE の手前(P,S)と応答位置の解析の G4（手前・D・件数の注入）、出力監査、凍結破壊で起動0、偽フロントエンド。
+  "tools/m6ij_add5_selftest.sh:0"
   # m6f-i 追補2。4腕の署名候補、qieのG15、凍結破壊で起動0、漏えいを合成入力で検査。
   "tools/m6fi_add2_selftest.sh:0"
   # m6f-d 追補1(2026-09-25、docs/notes/m6f-d-addendum1-terminal-and-reserve.md):
