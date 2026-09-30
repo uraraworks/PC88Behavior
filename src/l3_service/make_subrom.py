@@ -643,6 +643,7 @@ class Asm:
     def pop_de(self):     self.db(0xD1)
     def dec_de(self):     self.db(0x1B)   # DEC DE（フラグは変化しない。ゼロ判定は別途 LD A,D / OR E で行う）
     def ld_a_d(self):     self.db(0x7A)
+    def ld_h_n(self, n):  self.db(0x26, n)   # LD H,n（256境界整列バッファの上位。LD HL,nnより1バイト短い）
     def ld_d_a(self):     self.db(0x57)   # LD D,A（WRITE_PREV2の退避。FDC_BEGIN/OUTはDEを保存する）
     def ld_a_e(self):     self.db(0x7B)   # LD A,E（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def ld_e_a(self):     self.db(0x5F)   # LD E,A
@@ -760,6 +761,7 @@ _ASM_TEMPLATES = {
     "dec_de": lambda: "DEC DE",
     "ld_a_d": lambda: "LD A,D",
     "ld_d_a": lambda: "LD D,A",
+    "ld_h_n": lambda n: f"LD H,{hex8(n)}",
     "ld_a_e": lambda: "LD A,E",
     "ld_e_a": lambda: "LD E,A",
     "or_e": lambda: "OR E",
@@ -986,10 +988,6 @@ OBSERVED_SINGLE_TRACKED_ENTRIES = frozenset((1, 2))
 # 57/57すべて同一の値だった。その値は**上の要求グループ2の応答と同一**で
 # あり、新しい値を持ち込むわけではない（意味は未確定のまま）。
 WRITE_ACK_RESPONSE = OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1]
-# 第223版1.35a節: 最初のWRITEの前置き `0x14, D` への応答1バイト。値は公式main＋
-# 自作subの混成腕（conform_l3、上記の各混成）の受信列が一致する値として決めた
-# 測定由来の定数で、意味は未確定（0x06への応答0x80とは別の値）。
-WRITE_PREFIX_RESPONSE = 0x28
 # ---- 第63版・m7bf: 要求レコードの「種別」フィールド。
 # m7beで、読み出し要求も書き込み要求も同じ6バイトレコード
 # `[?, 種別, ?, ?, 論理トラック(C*2+H), R]` を使い、**2バイト目だけが
@@ -1398,9 +1396,9 @@ def build_subrom(break_write_ack=False,
     a.dec_l()                         # 0xFFで飽和
     a.label("_hdr_window_pos_done")
     a.ld_mem_hl(WINDOW_RUN_POS)
-    a.ld_hl_imm(WRITE_BUF)
     a.ld_a_mem(WRITE_IDX)
     a.ld_l_a()                        # HL = WRITE_BUF + WRITE_IDX（256境界整列なのでLだけで足りる）
+    a.ld_h_n(WRITE_BUF >> 8)
     a.inc_a()
     a.ld_mem_a(WRITE_IDX)             # 次の位置へ（256で自然に巻き戻る）
     a.push_bc()
@@ -2048,9 +2046,9 @@ def build_subrom(break_write_ack=False,
 
     # データフェーズ: WRITE_BUFのWRITE_IDX（＝最も古い＝末尾256の先頭）から
     # 256バイト。Lだけを進めれば256境界で自然に巻き戻る。
-    a.ld_hl_imm(WRITE_BUF)
     a.ld_a_mem(WRITE_IDX)
     a.ld_l_a()
+    a.ld_h_n(WRITE_BUF >> 8)          # 256境界整列なのでHは上位バイト即値で足りる
     if break_write_data_window:
         # tools/verify_l3.sh の書き込み検証が検出力を持つことを確認する
         # ためだけの故障注入。データ部の開始位置を1バイトずらす
@@ -2942,15 +2940,19 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(LOGICAL_TRACK_FLAGS)
         a.jr("_window_run_reset")
         # 長さ2のrun `0x14, D`（第223版1.35a節）: SはDと同じ値。応答1バイトを返す。
-        # 値は1.35a節から決まらない。公式main＋自作subの混成腕（conform_l3 の
-        # LOAD・シーケンシャルファイル出力入力・KILL・NAME・BSAVE・ランダム
-        # アクセスPUT/GET・削除済みLOAD の各混成）で、公式mainが受け取って先へ
-        # 進む値は WRITE_ACK_RESPONSE（0x80）ではなく WRITE_PREFIX_RESPONSE で、
-        # 公式一式の全腕で同一だった（ドライブ1のD=0のみ。ドライブ2のD=1で同値かは未確認）。
+        # 応答値は1.35a節から決まらない。conform_l3 の混成腕（LOAD・シーケンシャル
+        # ファイル出力入力・KILL・NAME・BSAVE・ランダムアクセスPUT/GET・削除済みLOAD
+        # の各混成）が決めた: 公式一式は、この run の受信後・応答の前に SENSE DRIVE
+        # STATUS を1回発行し（FDCコマンド種別列）、mainへ返す1バイトは0x06への応答
+        # （0x80）ではなく別の値だった。その値はμPD765のST3の形（公開データシート）
+        # として読めるので、ST3をそのまま返す。ST3と断定はしていない（公式の値と
+        # 全腕で一致することだけが根拠）。ドライブ2（D=1）で同様かは未確認。
+        # SENSE DRIVE STATUS は要求 byte2 bit0 をunitに使うので、ここでDを写す。
         a.label("_write_prefix_response")
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(WRITE_LAST_S)
-        a.ld_a(WRITE_PREFIX_RESPONSE)
+        a.ld_mem_a(REQ_HDR + 2)
+        a.call("FDC_SENSE_DRIVE_STATUS")
         a.call("SEND_BYTE")
         a.label("_window_run_reset")
         a.xor_a()
