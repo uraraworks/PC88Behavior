@@ -138,6 +138,8 @@ def run_tracked_to_ready(a, count, *, fault_ready_to_default=False):
             addr = code[pc + 1] | code[pc + 2] << 8
             ram[addr], ram[addr + 1] = hl & 0xff, hl >> 8
             pc += 3; cost = 16
+        elif op == 0xB7:  # OR A（3件目の分岐内のPOST_BULK_ACTIVE判定。測定経路には入らない）
+            z = a_reg == 0; carry = False; pc += 1; cost = 4
         elif op == 0xAF:  # XOR A
             a_reg = 0; z = True; carry = False; pc += 1; cost = 4
         elif op == 0xC3:  # JP nn

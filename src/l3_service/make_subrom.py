@@ -1465,18 +1465,19 @@ def build_subrom(break_write_ack=False,
         a.ld_b_a()                          # Aを保存し、CPのcarryを終端へ渡す
     else:
         a.push_af()
-    # 起動用の3応答は最初のバルクより前だけ数える。以後のSAVEの0x06は
-    # 同じ単発応答表に載っても交換#3を再点火させない。検査専用の
-    # force_post_bulk_activeは起動時にこの状態を強制するので判定を省く。
-    if not force_post_bulk_active:
-        a.ld_a_mem(POST_BULK_ACTIVE)
-        a.or_a()
-        a.jr_nz("_boot_single_track_done")
     a.ld_a_mem(BOOT_SINGLE_RESPONSE_COUNT)
     a.inc_a()
     a.ld_mem_a(BOOT_SINGLE_RESPONSE_COUNT)
     a.cp_n(3)
     a.jr_nz("_boot_single_track_done")
+    # 起動用の3応答は最初のバルクより前だけ数える。以後のSAVEの0x06が
+    # 同じ単発応答表に載ってカウンタが一周して3に戻っても、交換#3を
+    # 再点火させない（3件目の分岐の中だけで判定し、通常経路の命令数は変えない）。
+    # 検査専用のforce_post_bulk_activeは起動時にこの状態を強制するので判定を省く。
+    if not force_post_bulk_active:
+        a.ld_a_mem(POST_BULK_ACTIVE)
+        a.or_a()
+        a.jr_nz("_boot_single_track_done")
     a.call("RESET_HDR_RUN")   # m7lj: HDR_PTR←REQ_HDR・RUN_LEN←0（共有列）
     a.inc_a()
     a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
@@ -1491,7 +1492,7 @@ def build_subrom(break_write_ack=False,
         a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
     else:
         a.pop_af()
-        a.jr("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
