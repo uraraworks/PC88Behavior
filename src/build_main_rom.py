@@ -74,6 +74,7 @@ L4_PROGRAM_ASM = REPO / "src" / "l4_basic" / "program.asm"
 L4_RUN_ASM = REPO / "src" / "l4_basic" / "run.asm"
 L4_FILES_ASM = REPO / "src" / "l4_basic" / "files.asm"
 L4_LOAD_ASM = REPO / "src" / "l4_basic" / "load.asm"
+L4_SAVE_ASM = REPO / "src" / "l4_basic" / "save.asm"
 L4_LOAD_GAP_ASM = REPO / "src" / "l4_basic" / "load_gap.asm"
 
 # 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
@@ -258,7 +259,7 @@ STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 EXT_BANK_WINDOW_START = 0x6000
 EXT_BANK_INTERRUPT_SAFE_LABELS = (
     "VSYNC_HANDLER", "L3_VSYNC_HOOK", "EXT_BANK_CALL", "EXT_BANK_JUMP_HL",
-    "EXT_BANK_MAIN_CALL", "_ext_bank_main_jump")
+    "EXT_BANK_MAIN_CALL", "_ext_bank_main_jump", "EXT_BANK_CALL_CAPTURE")
 
 # 拡張ROMバンク: バンク側ルーチンから1回CALLして戻ってよい常駐部ルーチン
 # 一覧(docs/spec/ext-rom-bank.md 第2節 制約3(a)〜(c)、
@@ -309,6 +310,33 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
     "BANK1_SELECT_ERROR_MSG_ADDR": "SELECT_ERROR_MSG",
     "BANK1_PRINT_STR_ADDR": "PRINT_STR",
     "BANK1_OK_TXT_ADDR": "OK_TXT",
+}
+
+EXT_BANK2_MAIN_ADDR_LABELS = {
+    "BANK2_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "BANK2_SKIP_SPACES_ADDR": "SKIP_SPACES",
+    "BANK2_PEEK_CHAR_ADDR": "PEEK_CHAR",
+    "BANK2_ADV_PTR_ADDR": "ADV_PTR",
+    "BANK2_AT_END_ADDR": "AT_END",
+    "BANK2_READ_CHR_ADDR": "MAIN_SUB_READ_CHR_RETRY",
+    "BANK2_SEND_ADDR": "MAIN_SUB_SEND",
+    "BANK2_SEND_CONT_ADDR": "MAIN_SUB_SEND_REQUEST_CONT",
+    "BANK2_SEND_PAIR_ADDR": "MAIN_SUB_SEND_PAIR",
+    "BANK2_RECV_ADDR": "MAIN_SUB_RECV",
+    "BANK2_LIST_RENDER_ADDR": "LIST_RENDER_ALL",
+    "BANK2_CAPTURE_CHAR_ADDR": "SAVE_CAPTURE_CHAR",
+}
+
+EXT_BANK3_MAIN_ADDR_LABELS = {
+    "B3_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "B3_SKIP_SPACES_ADDR": "SKIP_SPACES",
+    "B3_LEX_IDENT_CONSUME_ADDR": "LEX_IDENT_CONSUME",
+    "B3_DATA_READ_ONE_ADDR": "DATA_READ_ONE",
+    "B3_VAR_WRITE_NUMERIC_ADDR": "VAR_WRITE_NUMERIC",
+    "B3_VAR_WRITE_STRING_ADDR": "VAR_WRITE_STRING",
+    "B3_PEEK_CHAR_ADDR": "PEEK_CHAR",
+    "B3_ADV_PTR_ADDR": "ADV_PTR",
+    "B3_AT_END_ADDR": "AT_END",
 }
 
 # EXT_BANK0_SQR_ENTRY(bank0.asm)が参照する常駐ラベル→bank0.asm側EQU名
@@ -1058,6 +1086,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
     load_path = work / "l4_load_gen.asm"
     load_path.write_text(L4_LOAD_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    save_path = work / "l4_save_gen.asm"
+    save_path.write_text(L4_SAVE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)は窓(0x6000-0x7FFF)の外に
     # 無ければならない(docs/spec/ext-rom-bank.md 第2節 制約1)。通常ビルドは
@@ -1115,6 +1145,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{run_path}"\n'
         + f'\nINCLUDE "{files_path}"\n'
         + f'\nINCLUDE "{load_path}"\n'
+        + f'\nINCLUDE "{save_path}"\n'
     )
     if inject_ext_bank_window_fault:
         combined += ext_bank_relay_include
@@ -1615,6 +1646,14 @@ def main():
             if addr is not None:
                 addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK1_MAIN_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK2_MAIN_ADDR_LABELS.items():
+            addr = asm.labels.get(label)
+            if addr is not None:
+                addr_overrides[eqname] = addr
+        for eqname, label in EXT_BANK3_MAIN_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr

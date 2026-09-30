@@ -2700,8 +2700,16 @@ _rmsk_try_files:
 _rmsk_try_load:
     CALL TRY_MATCH_LOAD
     OR A
-    JR Z,_rmsk_try_assign
+    JR Z,_rmsk_try_save
     LD A,22
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_save:
+    CALL TRY_MATCH_SAVE
+    OR A
+    JR Z,_rmsk_try_assign
+    LD A,23
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2797,6 +2805,8 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_files
     CP 22
     JR Z,_reos_load
+    CP 23
+    JR Z,_reos_save
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2848,6 +2858,8 @@ _reos_files:
     JP FILES_STMT
 _reos_load:
     JP LOAD_STMT
+_reos_save:
+    JP SAVE_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
@@ -3828,6 +3840,15 @@ TRY_MATCH_LOAD:
     JP TRY_MATCH_KEYWORD_GENERIC
 STMT_LOAD_TEXT: DB "LOAD"
 STMT_LOAD_LEN EQU 4
+
+TRY_MATCH_SAVE:
+    LD HL,STMT_SAVE_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_SAVE_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+STMT_SAVE_TEXT: DB "SAVE"
+STMT_SAVE_LEN EQU 4
 
 TRY_MATCH_ON:
     LD HL,STMT_ON_TEXT
@@ -4929,6 +4950,9 @@ _dim_oom:
 ;   (RUN_DATA_MAIN_SAVE_*)。RUN_CUR_RECORD(本線の実行位置)とは別に
 ;   RUN_DATA_REC(DATAの走査位置)を持つ。
 ; =======================================================================
+; SAVE入口と画面捕捉の常駐追加分を含めても0x79D7を埋め草のまま保つ。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
 DATA_ENTER_RECORD:
     LD (RUN_DATA_REC),HL
     INC HL
@@ -5009,10 +5033,6 @@ _ds_exhausted:
 ; DATA_PARSE_NUMBER_LITERAL — FACTORの数値定数解釈(_l4factor_is_number
 ;   相当)を、DATA用にCUR_PTR位置へ直接適用する。先頭の'-'も許す
 ;   (仕様書に無い判断、DATAの負数リテラルは未測定)。
-; 0x79D7は予約番地。LOAD文の追加で前方が伸びたため、境界を
-; DATAの数値解釈入口の直前へ移す。
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 DATA_PARSE_NUMBER_LITERAL:
     CALL PEEK_CHAR
     CP '-'
@@ -5212,118 +5232,19 @@ _dro_fail_restore:
     LD (LINE_END),HL
     RET
 
-; READ_STMT — 第6.1節。カンマ区切りで複数変数へ同時READできる
-;   (%・#の丸めは適用せずそのまま代入する、仕様書に無い判断)。
+; READ/RESTORE/CONTの本体はバンク3。窓外中継を通して戻す。
 READ_STMT:
-_read_one:
-    CALL SKIP_SPACES
-    CALL LEX_IDENT_CONSUME
-    OR A
-    JR Z,_read_syntax
-    CP 3
-    JR Z,_read_string_target
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    XOR A
-    CALL DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL VAR_WRITE_NUMERIC
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    JR _read_next
-_read_string_target:
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    LD A,1
-    CALL DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL VAR_WRITE_STRING
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-_read_next:
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR NZ,_read_done
-    CALL ADV_PTR
-    JR _read_one
-_read_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_read_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-
-; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
-;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
+    LD A,3
+    LD HL,06100h
+    JP EXT_BANK_CALL
 RESTORE_STMT:
-    CALL SKIP_SPACES
-    CALL AT_END
-    JR Z,_restore_ok
-    CALL PEEK_CHAR
-    CP ':'
-    JR Z,_restore_ok
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-_restore_ok:
-    XOR A
-    LD (RUN_DATA_STATE),A
-    LD HL,0
-    LD (RUN_DATA_REC),HL
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-
-; =======================================================================
-; CONT(第4.11節) — 直接モードのコマンド(interp.asm DIRECT_LINEから
-;   STMT_KIND=4で呼ばれる、RUNと同じ位置づけ)。STOP_STMTが保存した
-;   RUN_CONT_*から再開し、RUN_EXECの通常の継続処理(_run_after_stmt、
-;   ERROR_FLAG=0・RUN_CTRL=0で開始)へそのまま合流する。
-; =======================================================================
+    LD A,3
+    LD HL,06200h
+    JP EXT_BANK_CALL
 CONT_STMT:
-    LD HL,(RUN_CONT_REC)
-    LD A,H
-    OR L
-    JR NZ,_cont_have
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,17
-    LD (ERROR_KIND),A
+    LD A,3
+    LD HL,06300h
+    CALL EXT_BANK_CALL
+    OR A
+    JP NZ,_run_after_stmt
     RET
-_cont_have:
-    LD (RUN_CUR_RECORD),HL
-    LD HL,(RUN_CONT_PTR)
-    LD (CUR_PTR),HL
-    LD HL,(RUN_CONT_END)
-    LD (LINE_END),HL
-    LD HL,0
-    LD (RUN_CONT_REC),HL
-    XOR A
-    LD (RUN_CTRL),A
-    LD (ERROR_FLAG),A
-    JP _run_after_stmt

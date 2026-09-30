@@ -356,6 +356,11 @@ SCRIPTS_EXPECTED=(
   # SAVE ,A 適合器。合成D88・偽フロントエンドで6腕と選択NGを検査する。
   # 公式読戻し・公式subの腕はここでは実行しない。
   "tools/save_conform_selftest.sh:0"
+  # SAVE ,A の実Z80境界・FAT・事前エラー判定と陰性対照。
+  "tools/l4_save_z80_selftest.sh:0"
+  "tools/save_write_protocol_selftest.sh:0"
+  # 自作ROMと自作媒体のみでJ-1〜J-6の凍結期待値に照合する。
+  "tools/conform_save.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
   # m6f-d（2026-09-25）: エントリの読み取り・導出器（合成、G9・現実に近い形）・判定器・
   # 凍結表の照合・測定ドライバの通し検査（偽フロントエンド）。公式ROM・私物は不要。

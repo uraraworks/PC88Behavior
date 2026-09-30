@@ -122,7 +122,11 @@ BASIC_HANDLE_LINE:
     RET
 _bhl_direct:
     CALL BASIC_RUN_DIRECT
+    LD A,(SAVE_DONE_FLAG)
+    PUSH AF
     XOR A
+    LD (SAVE_DONE_FLAG),A
+    POP AF
     RET
 
 ; ---------------------------------------------------------------------
