@@ -4,6 +4,14 @@
 # 行わず、最初からドライブ1にも自作媒体を入れる（conform_files.shと同じ）。
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-local}"
+case "$MODE" in local|hybrid) ;; *) printf 'NG モード\n' >&2; exit 2;; esac
+if [ "$MODE" = hybrid ]; then
+  # 自作main＋公式sub(DISK.ROM)。環境変数が無い場合はSKIPにせずNGで止める。
+  if [ -z "${PC88_REF_ROM_DIR:-}" ] || [ ! -f "$PC88_REF_ROM_DIR/DISK.ROM" ]; then
+    printf 'NG hybrid: PC88_REF_ROM_DIR/DISK.ROM なし\n' >&2; exit 2
+  fi
+fi
 EXPECTED="${LOAD_CONFORM_EXPECTED:-$REPO/tools/load_conform_expected.tsv}"
 FRONTEND="${LOAD_CONFORM_FRONTEND:-$REPO/tools/harness/frontend/q88measure}"
 CHECK="$REPO/tools/load_conform_check.py"
@@ -28,6 +36,9 @@ else
     printf 'NG 自作ROM構築\n' >&2; exit 2;
   }
 fi
+if [ "$MODE" = hybrid ]; then
+  cp "$PC88_REF_ROM_DIR/DISK.ROM" "$WORK/rom/DISK.ROM" || exit 2
+fi
 python3 "$REPO/tools/make_m6fi_disk.py" "$WORK/base" >"$WORK/base.out" 2>"$WORK/base.err" || exit 2
 python3 "$REPO/tools/make_m6fi_add2_disk.py" "$WORK/add2" >"$WORK/add2.out" 2>"$WORK/add2.err" || exit 2
 if [ -n "${LOAD_CONFORM_CORE:-}" ]; then
@@ -42,6 +53,8 @@ else
 fi
 [ -x "$FRONTEND" ] || { printf 'NG フロントエンドなし\n' >&2; exit 2; }
 ARMS=(I-1 I-2 I-3 E-1 "I-4'" "E-2'" E-3 E-3m)
+# hybrid腕: 全てドライブ2からのLOAD(ドライブ1のLOAD腕は既存に無い)。I-1/I-3=T!=0の読み、E-3=別ファイル、I-4'=add2媒体。
+[ "$MODE" = hybrid ] && ARMS=(I-1 I-3 "I-4'" E-3)
 overall=0
 for arm in "${ARMS[@]}"; do
   dir="$WORK/base"

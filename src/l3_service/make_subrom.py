@@ -668,6 +668,8 @@ class Asm:
     def ld_c(self, n):    self.db(0x0E, n)
     def ld_e(self, n):    self.db(0x1E, n)   # LD E,n（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def and_a(self, n):   self.db(0xE6, n)
+    def sbc_a_a(self):    self.db(0x9F)
+    def and_hl(self):     self.db(0xA6)   # AND (HL)（第223版: 論理トラック変換フラグの判定）
     def or_n(self, n):    self.db(0xF6, n)
     def cp_n(self, n):    self.db(0xFE, n)
     def ld_sp(self, nn):  self.db(0x31, nn & 0xFF, (nn >> 8) & 0xFF)
@@ -765,6 +767,8 @@ _ASM_TEMPLATES = {
     "ld_c": lambda n: f"LD C,{hex8(n)}",
     "ld_e": lambda n: f"LD E,{hex8(n)}",
     "and_a": lambda n: f"AND {hex8(n)}",
+    "and_hl": lambda: "AND (HL)",
+    "sbc_a_a": lambda: "SBC A,A",
     "or_n": lambda n: f"OR {hex8(n)}",
     "cp_n": lambda n: f"CP {hex8(n)}",
     "ld_sp": lambda nn: f"LD SP,{hex16(nn)}",
@@ -893,7 +897,10 @@ BR_HXOR = 0x4321
 WINDOW_RUN_POS = 0x4323
 WINDOW_RUN_HEAD = 0x4324
 LAST_ST0 = 0x4325        # 1バイト: 直前の結果フェーズの1件目(ST0)。m7lm
-WRITE_LAST_S = 0x4326   # 直前の単発受信。WRITE要求の前置Sを検証する
+WRITE_LAST_S = 0x4327   # 直前の単発受信。WRITE要求の前置Sを検証する
+# 第223版・1.36a節: 0x17,m で受けた m をそのまま保持する（0=未受信）。
+# 読み要求の論理トラック変換は、ドライブ1（m bit0）／ドライブ2（m & 0x0E）で決める。
+LOGICAL_TRACK_FLAGS = 0x4326
 # 第55版・m7aw: 交換#14のREAD準備表。**ここが唯一の定義**である。
 # 呼び出し側と表本体の両方がこれを見る（第55版の最初の実装では両方に
 # タプルを書いてしまい、呼び出し側の値は使われない死んだ複製になっていた
@@ -2072,7 +2079,7 @@ def build_subrom(break_write_ack=False,
                              (early_response_after or 5)),
               0x06: 1, 0x07: 1, 0x0B: 5,
               0x0D: 4, 0x0E: 7, REQUEST_KIND_WRITE: 5,
-              0x12: 1, 0x14: 2, 0x17: 7}.get(_head, 0))
+              0x12: 1, 0x14: 2, 0x17: 2}.get(_head, 0))
 
     # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
     # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
@@ -2101,20 +2108,7 @@ def build_subrom(break_write_ack=False,
         # FILES 2では既存のbyte2 bit0伝播によりB-unit/head0を問い合わせる。
         a.call("FDC_SENSE_DRIVE_STATUS")
         a.jr("_general_read_request")
-    a.ld_a_mem(REQ_HDR + 3)            # 論理トラック（1.36節: run長5の位置-1）
-    a.ld_b_a()
-    a.and_a(0x01)
-    a.ld_mem_a(REQ_H)                 # H = track & 1
-    a.rlca()
-    a.rlca()
-    a.ld_mem_a(REQ_UNIT_HEAD)         # unit/head = drive0 | (H<<2)
-    # R（1.36節: run長5の位置0=末尾）をCで上書きする前にREQ_HDR+6へ退避。
-    a.ld_a_mem(REQ_HDR + 4)
-    a.ld_mem_a(REQ_HDR + 6)
-    a.ld_a_b()
-    a.or_a()
-    a.rra()                           # C = track >> 1
-    a.ld_mem_a(REQ_HDR + 4)                       # FDC_SEEK/FDC_READ_SECTORが読む共有位置へ置く
+    a.call("_read_request_decode")     # 第223版: 1.36a節の論理トラック解釈（A=C）
     a.ld_e(0x00)
     # m7gc事前登録（general_read_request）: FDC_SEEK直前・A=C(目的シリンダ)
     # のまま。cylはこのAを直接動かす陽性対照。
@@ -2140,6 +2134,45 @@ def build_subrom(break_write_ack=False,
     a.ld_a(0x06)
     a.ld_mem_a(POST_BULK_ACTIVE)
     a.jp("IDLE_DISPATCH")
+
+
+    # 第223版・1.36a節: 読み要求 [0x02, P1, D, T, R] の座標をFDC共有位置へ置く。
+    # 論理トラック変換が有効なドライブ（0x17,mで有効化）は C=T>>1・H=T&1、
+    # 無効なら C=T・H=0。REQ_HDR+4←C、REQ_HDR+6←R、REQ_H・REQ_UNIT_HEAD←H。
+    # 戻り: A=C。
+    # 自作側の判断（1.36a節で未測定）: ドライブ2（D bit0=1）は m & 0x0E が
+    # 非0なら有効とする。ドライブ1は m bit0。
+    # 未実装・自作側の判断: P1=0x00 で失敗する挙動（1.36a節）。失敗時の応答形式が
+    # 未確定のため、P1は解釈にも成否にも使わない。
+    a.label("_read_request_decode")
+    a.ld_a_mem(REQ_HDR + 4)
+    a.ld_mem_a(REQ_HDR + 6)           # Rを退避（REQ_HDR+4をCで上書きする前）
+    a.ld_a_mem(REQ_HDR + 2)
+    a.rra()                           # CY = D bit0（ドライブ2か）
+    a.sbc_a_a()                       # CY=0: 0x00, CY=1: 0xFF
+    a.and_a(0x0D)
+    a.inc_a()                         # ドライブ1: 0x01、ドライブ2: 0x0E
+    a.ld_hl_imm(LOGICAL_TRACK_FLAGS)
+    a.and_hl()                        # Z=1: 変換無効
+    a.ld_a_mem(REQ_HDR + 3)           # T（ldはフラグを変えない）
+    a.ld_b_a()
+    a.jr_z("_read_decode_plain")
+    a.and_a(0x01)
+    a.ld_mem_a(REQ_H)                 # H = T & 1
+    a.rlca()
+    a.rlca()
+    a.ld_mem_a(REQ_UNIT_HEAD)         # unit/head = drive0 | (H<<2)
+    a.ld_a_b()
+    a.rra()                           # C = T >> 1（直前のRLCA×2でCY=0）
+    a.jr("_read_decode_store")
+    a.label("_read_decode_plain")
+    a.xor_a()
+    a.ld_mem_a(REQ_H)
+    a.ld_mem_a(REQ_UNIT_HEAD)
+    a.ld_a_b()                        # C = T
+    a.label("_read_decode_store")
+    a.ld_mem_a(REQ_HDR + 4)
+    a.ret()
 
     # 長いrun（RUN_LEN飽和）の終端からの入口。受信列の末尾256バイトを
     # そのままWRITE DATAのデータ部として流し、アイドルへ戻る。
@@ -2495,6 +2528,7 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(LAST_ST0)            # m7lm: 最初のREAD DATAより前に9件後の応答の判定を通っても、
                                     # 初期化されていない値で判定しない（0=正常終了として扱う）
+    a.ld_mem_a(LOGICAL_TRACK_FLAGS) # 第223版: 0x17を受けるまでは論理トラック変換なし
     # 第69版容量圧縮: RESP_ACTIVE..REQ_UNIT_HEADはRAM上で連続11バイト。
     # 旧コードが個別に0を書いていた10状態にFDC_ABORTも加え、同じ0を
     # ループで初期化する。B/HLはこの直後に参照せず、A=0も維持される。
@@ -2724,7 +2758,7 @@ def build_subrom(break_write_ack=False,
         a.cp_n(0x0E)
         a.jp_z("_exchange14_prepare_first_read")
         a.cp_n(0x17)
-        a.jp_z("_exchange11_prepare_sector")
+        a.jp_z("_logical_track_flags_set")
         a.cp_n(0x02)
         a.jr_nz("_recv_dispatch_run_done")
         if early_response_after is not None:
@@ -2754,6 +2788,9 @@ def build_subrom(break_write_ack=False,
             a.jp_z("_exchange6_prepare_sector")
         else:
             a.jr_z("_exchange6_prepare_sector")
+        # 第223版: 交換#11（段階3）の読み要求は、0x17,mと分かれた長さ5の0x02要求。
+        a.cp_n(0x02)
+        a.jp_z("_exchange11_prepare_sector")
         a.jp("_general_read_request")
 
         # ---- run終了(bit1観測)。要求長だけでなく交換状態で形式を判断する ----
@@ -2841,10 +2878,10 @@ def build_subrom(break_write_ack=False,
         a.label("_exchange6_prepare_sector")
         a.ld_a(0x02)
         a.ld_mem_a(BOOT_READ_PAIR_STAGE)
-        a.ld_a_mem(REQ_HDR + 2)
-        a.ld_mem_a(REQ_HDR + 4)
-        a.ld_a_mem(REQ_HDR + 0)
-        a.ld_mem_a(REQ_HDR + 6)
+        # 第223版: 容量のため座標の置き直しを_read_request_decodeに共有した。
+        # 要求は [0x02, P1, D, T, R]（1.36節・1.36a節）で、起動時は0x17を
+        # 受ける前なので C=T・H=0（旧実装の転記と同じ値）。
+        a.call("_read_request_decode")
         # m7fy（docs/notes/m7fy-exchange6-drive-bit-preregistration.md）:
         # 転記2組が終わった直後・jrの直前。REQ_HDR+2は転記元として使い
         # 終わっており、REQ_HDR+4（C、目的シリンダ）へは既に転記済みの
@@ -2874,25 +2911,21 @@ def build_subrom(break_write_ack=False,
         a.label("_exchange11_prepare_sector")
         a.ld_a(0x04)
         a.ld_mem_a(BOOT_READ_PAIR_STAGE)
-        a.ld_a_mem(REQ_HDR + 3)
-        a.ld_mem_a(REQ_H)
-        a.ld_mem_a(REQ_HDR + 4)
-        a.ld_a_mem(REQ_H)
-        a.and_a(0x01)
-        a.jr_z("_exchange11_unit_head_zero")
-        a.ld_a(0x04)
-        a.jr("_exchange11_unit_head_done")
-        a.label("_exchange11_unit_head_zero")
-        a.xor_a()
-        a.label("_exchange11_unit_head_done")
-        a.ld_mem_a(REQ_UNIT_HEAD)
-        a.ld_a_mem(REQ_HDR + 5)
-        a.ld_mem_a(REQ_HDR + 6)
+        a.call("_read_request_decode")
         # m7gc事前登録（exchange11_fallthrough）: _exchange3_prepare_sectorへの
         # jr直前。直後の入口がREQ_HDR+4からAを読み直すため、cylはAではなく
         # REQ_HDR+4自体を動かす（_emit_probe内で分岐）。
         _emit_probe("exchange11_fallthrough")
         a.jr("_exchange3_prepare_sector")
+
+        # 第223版・1.36a節: `0x17, m`（2バイト）。応答は返さない（sub OUT $FDなし）。
+        # mをそのまま保持し、直後の0x02要求（長さ5）を独立したrunとして受ける。
+        a.label("_logical_track_flags_set")
+        a.ld_a_mem(REQ_HDR + 1)
+        a.ld_mem_a(LOGICAL_TRACK_FLAGS)
+        a.xor_a()
+        a.ld_mem_a(WINDOW_RUN_POS)        # 次のバイトを新しいrunの先頭として数える
+        a.jp("IDLE_DISPATCH")             # RECV_DISPATCHがHDR_PTR・RUN_LENを初期化する
 
         # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
         # 従って準備する。unit/head・Rは要求位置4に直接一致し、C/Hは

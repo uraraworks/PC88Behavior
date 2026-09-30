@@ -2,10 +2,18 @@
 # 自作main ROMの FILES を、m6f-eで凍結した行署名だけと照合する。
 # 公式ROM・公式ディスクは使わない。自作ROMはディスク起動しないため、
 # 公式測定のD/E腕にあった「参照diskAを外してD1へ交換」は行わず、最初から
-# ドライブ1へ自作D1を入れる。ドライブ2は各腕の自作媒体（D/E腕はD2）。
+# ドライブ1へ自作D1を入れる。第1引数 hybrid は自作main＋公式sub(DISK.ROM)。ドライブ2は各腕の自作媒体（D/E腕はD2）。
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-local}"
+case "$MODE" in local|hybrid) ;; *) printf 'NG モード\n' >&2; exit 2;; esac
+if [ "$MODE" = hybrid ]; then
+  # 自作main＋公式sub(DISK.ROM)。環境変数が無い場合はSKIPにせずNGで止める。
+  if [ -z "${PC88_REF_ROM_DIR:-}" ] || [ ! -f "$PC88_REF_ROM_DIR/DISK.ROM" ]; then
+    printf 'NG hybrid: PC88_REF_ROM_DIR/DISK.ROM なし\n' >&2; exit 2
+  fi
+fi
 EXPECTED="${FILES_CONFORM_EXPECTED:-$REPO/tools/files_conform_expected.tsv}"
 CHECK="$REPO/tools/files_conform_check.py"
 FRONTEND="${FILES_CONFORM_FRONTEND:-$REPO/tools/harness/frontend/q88measure}"
@@ -36,6 +44,9 @@ else
       exit 2
     }
 fi
+if [ "$MODE" = hybrid ]; then
+  cp "$PC88_REF_ROM_DIR/DISK.ROM" "$WORK/rom/DISK.ROM" || exit 2
+fi
 python3 "$REPO/tools/make_m6fe_disk.py" "$WORK/base" \
   >"$WORK/base.out" 2>"$WORK/base.err" || exit 2
 python3 "$REPO/tools/make_m6fe_disk.py" --addendum2 "$WORK/add2" \
@@ -61,6 +72,9 @@ fi
 ARMS=(L0 L1 L4 L5 L6 L11 L96 D-omit D-1 D-2 D-expr E-0 E-3 E-str N-wait
       L80 L85 L90 L95 "L96'" L81 L86 L91 "L90'"
       G-P G-B G-M G-Z1 G-Z2)
+
+# hybrid腕: D-1=ドライブ1、D-2=ドライブ2、L96=ディレクトリ複数セクタ(T!=0,R>1)、L11=T!=0の通常一覧。
+[ "$MODE" = hybrid ] && ARMS=(D-1 D-2 L96 L11)
 
 command_for_arm() {
   case "$1" in

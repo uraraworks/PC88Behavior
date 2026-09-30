@@ -245,6 +245,27 @@ _ms_pair_call_site:
 _ms_pair_call_site_end:
     RET
 
+; 起動後の最初の読み要求 0x02 の直前に 0x17,0x0F（2バイト）を1回だけ送る。
+; 根拠は docs/spec/l3-subrom.md 1.36a節: 論理トラック(C*2+H)として読む指定は
+; 0x17,m を受けたドライブでだけ有効で、sub の応答は無い（待たない）。
+; m=0x0F は両ドライブ。送信済みフラグ MAIN_SUB_LOGICAL_SENT（起動時に
+; EXT_BANK_INITが0にする）で起動後1回に制限し、成功したときだけ立てる。
+; 成功CY=0（送信済みなら何もせずCY=0）、timeout CY=1。破壊AF,C,DE。
+MAIN_SUB_SEND_LOGICAL_ONCE:
+    LD A,(MAIN_SUB_LOGICAL_SENT)
+    OR A
+    RET NZ
+    LD A,017h
+    CALL MAIN_SUB_SEND
+    RET C
+    LD A,00Fh
+    CALL MAIN_SUB_SEND_CONT
+    RET C
+    LD A,001h
+    LD (MAIN_SUB_LOGICAL_SENT),A
+    OR A
+    RET
+
 ; A bit0=ドライブ選択。既知座標(論理track=0,R=1)を1回READする。
 MAIN_SUB_READ_KNOWN:
     PUSH AF
@@ -265,10 +286,12 @@ MAIN_SUB_READ_KNOWN:
     LD (MAIN_SUB_MARK_FAULT_CONT),A
     LD (MAIN_SUB_MARK_FAULT_PAIR),A
 
+    CALL MAIN_SUB_SEND_LOGICAL_ONCE
+    JP C,_ms_read_timeout
     LD A,002h                   ; 先頭0x02は通常SEND
     CALL MAIN_SUB_SEND
     JP C,_ms_read_timeout
-    XOR A                       ; 位置2
+    LD A,001h                   ; 位置2=P1 0x01（1.36a節: 0x00は失敗する）
     CALL MAIN_SUB_SEND_REQUEST_CONT
     JP C,_ms_read_timeout
     LD A,(MAIN_SUB_DRIVE_SELECT); 位置3 bit0=ドライブ選択

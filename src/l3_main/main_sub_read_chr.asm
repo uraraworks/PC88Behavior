@@ -43,10 +43,12 @@ MAIN_SUB_READ_CHR:
     LD (MAIN_SUB_MARK_FAULT_CONT),A
     LD (MAIN_SUB_MARK_FAULT_PAIR),A
 
+    CALL MAIN_SUB_SEND_LOGICAL_ONCE
+    JP C,_ms_read_timeout
     LD A,002h
     CALL MAIN_SUB_SEND
     JP C,_ms_read_timeout
-    XOR A
+    LD A,001h                   ; P1=0x01（1.36a節）
     CALL MAIN_SUB_SEND_REQUEST_CONT
     JP C,_ms_read_timeout
     LD A,(MAIN_SUB_DRIVE_SELECT)

@@ -24,13 +24,17 @@ python3 "$FROZEN_SRC/src/build_main_rom.py" "$WORK/legacy" --enable-main-sub-rea
   --work-dir "$WORK/legacy-work" >/dev/null
 python3 "$REPO/src/build_main_rom.py" "$WORK/plain" \
   --work-dir "$WORK/plain-work" >/dev/null
+# want_diskも同様に凍結値。sub ROMが1.36aで変わったため、フラグ無しの
+# DISK.ROMも凍結コミットのビルドと照合する（作業ツリーのplainは構造検査用）。
+python3 "$FROZEN_SRC/src/build_main_rom.py" "$WORK/plain-frozen" \
+  --work-dir "$WORK/plain-frozen-work" >/dev/null
 python3 "$REPO/src/build_main_rom.py" "$WORK/retry" --enable-disk-read-retry \
   --work-dir "$WORK/retry-work" >/dev/null
 
 want_n88=4f75d314b4e18c0d6d339977fa92fa0963c57733c389e36733ac047a18ccbe50
 want_disk=d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070
 got_n88="$(shasum -a 256 "$WORK/legacy/N88.ROM" | awk '{print $1}')"
-got_disk="$(shasum -a 256 "$WORK/plain/DISK.ROM" | awk '{print $1}')"
+got_disk="$(shasum -a 256 "$WORK/plain-frozen/DISK.ROM" | awk '{print $1}')"
 [ "$got_n88" = "$want_n88" ] || {
   echo "NG: --enable-main-sub-read N88.ROM SHA-256不一致" >&2; exit 1;
 }

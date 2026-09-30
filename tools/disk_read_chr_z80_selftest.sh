@@ -75,6 +75,13 @@ SELFTEST_START:
 SELFTEST_DONE:
     JR SELFTEST_DONE
 
+; 起動後最初の読み要求の前に 0x17,0x0F を送る本物の MAIN_SUB_SEND_LOGICAL_ONCE
+; （1.36a節）は、ここでは何もせず成功(CY=0)で返すスタブにする。この検査が
+; 見るのは 0x02 要求5バイトの形なので、0x17 の送信はログに入れない。
+MAIN_SUB_SEND_LOGICAL_ONCE:
+    OR A
+    RET
+
 MAIN_SUB_SEND:
 MAIN_SUB_SEND_REQUEST_CONT:
     PUSH HL
@@ -356,8 +363,9 @@ retry_faults = {
 }
 
 cases = ((0, 0, 1), (1, 0, 1), (0, 1, 1), (1, 79, 16), (0, 40, 8))
-request_expected = bytes(value for a, d, e in cases for value in (2, 0, a, d, e))
-request_swap_expected = bytes(value for a, d, e in cases for value in (2, 0, a, e, d))
+# 位置2(P1)は0x01。根拠: docs/spec/l3-subrom.md 1.36a節（P1=0x00は失敗、0x01が成功）。
+request_expected = bytes(value for a, d, e in cases for value in (2, 1, a, d, e))
+request_swap_expected = bytes(value for a, d, e in cases for value in (2, 1, a, e, d))
 retry_expected = bytes((2, 0, 1, 0x35, 0x0B, 1, 0x35, 0x0B, 2, 1, 1, 0))
 
 retry_instructions = [

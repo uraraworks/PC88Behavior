@@ -26,6 +26,8 @@ FROZEN_BUILD=(python3 "$FROZEN_SRC/src/build_main_rom.py")
 BUILD=(python3 "$REPO/src/build_main_rom.py")
 "${FROZEN_BUILD[@]}" "$WORK/main" --enable-main-sub-read --work-dir "$WORK/w-main-frozen" >/dev/null
 "${FROZEN_BUILD[@]}" "$WORK/retry" --enable-disk-read-retry --work-dir "$WORK/w-retry-frozen" >/dev/null
+# g8_disk_shaも凍結値（sub ROMが1.36aで変わった）。凍結コミットのフラグ無しビルドと照合する。
+"${FROZEN_BUILD[@]}" "$WORK/plain-frozen" --work-dir "$WORK/w-plain-frozen" >/dev/null
 "${BUILD[@]}" "$WORK/main-cur" --enable-main-sub-read --work-dir "$WORK/w-main" >/dev/null
 "${BUILD[@]}" "$WORK/retry-cur" --enable-disk-read-retry --work-dir "$WORK/w-retry" >/dev/null
 "${BUILD[@]}" "$WORK/plain" --work-dir "$WORK/w-plain" >/dev/null
@@ -142,7 +144,7 @@ actual_hashes = {
     # git archiveで取り出してビルドしたROMと比較する（シェル側参照）。
     "g8_main_sha": sha(work / "main" / "N88.ROM"),
     "g8_retry_sha": sha(work / "retry" / "N88.ROM"),
-    "g8_disk_sha": sha(work / "plain" / "DISK.ROM"),
+    "g8_disk_sha": sha(work / "plain-frozen" / "DISK.ROM"),
     "g3_default_sha": sha(work / "default.d88"),
 }
 

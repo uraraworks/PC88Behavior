@@ -1,0 +1,28 @@
+frozen	yes
+source_commit	3060a34
+instrument	tools/measure_m6ik.sh	f7b2836e0a0258e300c9f120e5968787eaa267fec4414e622c8d893c01a03862
+instrument	tools/analyze_m6ik.py	f97f34bd1c81b005460540e0725facc170470d02a2d934b98ccb6bd20d1ab210
+instrument	tools/judge_m6ik.py	c05101f689951180688f2abd026eb7079b56dc86ff3f10975a9ecee2a70103e9
+instrument	tools/check_m6ik_gates.py	abab1a3ddbe2b218e248695413d3424d3aa17646bfef37ac7ad1663d64c2d5cc
+instrument	tools/m6ik_frozen.tsv	024cb125a029af5d4f22c5003e8fa2dc0d5ab97262b9b920c323e7d6729347e5
+instrument	src/build_main_rom.py	cc1eeba55f9d92edc81aad75f8c8f610b0f2e3bf454719d1dd5b087e4666e541
+arm	K-00	0x00
+arm	K-01	0x01
+arm	K-F0	0x00
+arm	K-F1	0x01
+arm	K-M1	0x01
+arm	K-FR	0x01
+judgment	m6i_k_conversion_by_17
+judgment	m6i_k_conversion_needs_both
+judgment	m6i_k_conversion_by_p1_after_17
+judgment	m6i_k_no_conversion
+judgment	m6i_k_other
+judgment	m6i_k_measurement_blind
+judgment	m6i_k_inconclusive
+judgment	gate_failed
+success_judgment	p1_success_split
+success_judgment	p1_success_other
+prediction	m6i_k_conversion_by_17
+prediction	p1_success_split
+prediction	K-M1:split_by_drive
+prediction	pre_send_fd_count:0
