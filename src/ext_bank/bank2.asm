@@ -570,10 +570,10 @@ BANK2_RECV_ADDR EQU 0x1787
 BANK2_LIST_RENDER_ADDR EQU 0x1787
 BANK2_CAPTURE_CHAR_ADDR EQU 0x1787
 
-; 1.35a節の制御レコードを作り、通信プリミティブだけ常駐部へ中継する。
-; Sは前の交換の末尾。初回はD、以降0x06。ここではSの送信後に
-; 単発応答を受けて要求5バイトへ進む。自作subとの6腕では成立するが、
-; 公式相手との位相判定は未実施である。
+; 1.35a節・1.36節・第68版・m7bzの受信位相に合わせた書き込み送信。
+; 最初のWRITEは、長さ2のrun `0x14, D`（1.36節の先頭0x14・長さ2、m7bz「SAVE候補run
+; 直前 長さ2」。S=Dはこの2バイト目）で始め、応答は待たない。2回目以降は前のWRITE結果の後に
+; `S=0x06`（長さ1のrun）を送り、subの1バイト応答を1回受けてから要求へ進む（第68版）。
 s2_write_stream:
     AND 1
     LD (S2_WRITE_DRIVE),A
@@ -585,11 +585,15 @@ s2_write_stream:
     LD A,(S2_WRITE_COUNT)
     OR A
     JR NZ,s2_ws_later
+    LD A,014h
+    CALL s2_send
+    RET C
     LD A,(S2_WRITE_DRIVE)
-    JR s2_ws_send_s
+    CALL s2_send_cont
+    RET C
+    JR s2_ws_request
 s2_ws_later:
     LD A,006h
-s2_ws_send_s:
     CALL s2_send
     RET C
     CALL s2_recv
@@ -616,8 +620,6 @@ s2_ws_data:
     CALL s2_send_pair
     RET C
     DJNZ s2_ws_data
-    CALL s2_recv
-    RET C
     LD A,(S2_WRITE_COUNT)
     INC A
     LD (S2_WRITE_COUNT),A

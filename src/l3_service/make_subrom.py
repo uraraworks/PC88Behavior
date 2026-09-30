@@ -1972,13 +1972,12 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_HDR + 1)
     a.dec_a()
     a.ret_nz()
-    # 前の交換の末尾Sは初回D、以降0x06。どちらでもない受信は拒む。
+    # WRITEの直前は、初回が長さ2のrun `0x14, D`（1.36節・m7bz）、以降が長さ1の0x06
+    # （1.35a節・第68版）。直前の単発受信の先頭バイトがどちらでもなければ拒む。
     a.ld_a_mem(WRITE_LAST_S)
     a.cp_n(0x06)
     a.jr_z("_write_s_ok")
-    a.ld_b_a()
-    a.ld_a_mem(REQ_HDR + 2)
-    a.cp_b()
+    a.cp_n(0x14)
     a.ret_nz()
     a.label("_write_s_ok")
     a.ld_a(0x45); a.call("FDC_BEGIN")   # クリア後にWRITE DATA + MF=1を送出
@@ -2738,7 +2737,7 @@ def build_subrom(break_write_ack=False,
             a.cp_n(2)
             a.jp_z("IDLE_DISPATCH")
             a.cp_n(7)
-            a.jr_z("_exchange3_prepare_sector")
+            a.jp_z("_exchange3_prepare_sector")
             a.cp_n(8)
             a.jp_z("_exchange3_request_done")
             a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
@@ -2759,6 +2758,11 @@ def build_subrom(break_write_ack=False,
         a.jp_z("_exchange14_prepare_first_read")
         a.cp_n(0x17)
         a.jp_z("_logical_track_flags_set")
+        # 長さ2のrun `0x14, D` は最初のWRITEの前置き（1.36節・m7bz）。READ直後は
+        # SECTOR_READYが残っており、下の汎用経路は長さ2を交換#4のデータ要求と
+        # 取り違えて256バイトを送るため、応答せずアイドルへ戻す。
+        a.cp_n(0x14)
+        a.jp_z("_window_run_reset")
         a.cp_n(0x02)
         a.jr_nz("_recv_dispatch_run_done")
         if early_response_after is not None:
@@ -2923,6 +2927,7 @@ def build_subrom(break_write_ack=False,
         a.label("_logical_track_flags_set")
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(LOGICAL_TRACK_FLAGS)
+        a.label("_window_run_reset")
         a.xor_a()
         a.ld_mem_a(WINDOW_RUN_POS)        # 次のバイトを新しいrunの先頭として数える
         a.jp("IDLE_DISPATCH")             # RECV_DISPATCHがHDR_PTR・RUN_LENを初期化する
@@ -3225,7 +3230,7 @@ def build_subrom(break_write_ack=False,
     # 第41版1.33節: 0→1で交換#6待ち、2→3で交換#11待ち、
     # 4→5で三組目完了となる。
     a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-    a.cp_n(0x00)
+    a.or_a()                        # CP 0相当（Zだけを見る。容量1バイト）
     a.jr_z("_advance_boot_read_pair_stage")
     a.cp_n(0x02)
     a.jr_z("_advance_boot_read_pair_stage")
