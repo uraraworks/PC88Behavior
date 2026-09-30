@@ -669,8 +669,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.ld_a(0xFF)
         a.call("SEND_MAIN")
         a.call("RECV_MAIN")
-        # 最初のWRITEのSはDと同じ0。単発送信の応答を受けてから
-        # 要求5バイトへ進む（自作subとの検証用位相）。
+        # 最初のWRITEの手前は 0x14, D（D=0）。その応答1バイトを受けてから
+        # 要求5バイトへ進む（1.35a節 第223版・m6i-j 追補5）。
+        a.ld_a(0x14)
+        a.call("SEND_MAIN")
         a.ld_a(0)
         a.call("SEND_MAIN")
         a.call("RECV_MAIN")
