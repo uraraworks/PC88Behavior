@@ -397,7 +397,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         hdr_labels.append(name)
         a.label(name)
         track = (cyl * 2) & 0xFF   # H=0固定
-        a.db(0x02, 0x00, drive_selector, track, sec & 0xFF)
+        a.db(0x02, 0x01, drive_selector, track, sec & 0xFF)
 
     # 起動時交換#3を明示的に閉じる旧回帰シナリオ専用。一般READ完了後は
     # 1.37節の0x06/C0/0x12交換を使い、この2バイト要求は使わない。
@@ -436,7 +436,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         dispatch_switch_hdr = "DISPATCH_SWITCH_HDR"
         a.label(dispatch_switch_hdr)
-        a.db(0x02, 0x00, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
+        a.db(0x02, 0x01, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
 
     # ---- --run-continuation-test 用のヘッダ（上のdocstring参照）。
     #      requests[0] と同じ (cyl,sec) を使う——dispatch_switch_hdrと
@@ -447,7 +447,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         cyl0, sec0 = requests[0]
         run_cont_hdr = "RUN_CONT_HDR"
         a.label(run_cont_hdr)
-        a.db(0x02, 0x00, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
+        a.db(0x02, 0x01, 0x00, (cyl0 * 2) & 0xFF, sec0 & 0xFF)
 
     # ---- --fixed-byte-cutoff-test 用の3ラウンド（上のdocstring参照）。
     #      第31版1.24節と第32版1.25節の公式実測に合わせ、交換#0〜#2で
@@ -491,7 +491,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         track0 = (cyl0 * 2) & 0xFF     # H=0固定なので論理トラック=cyl*2
         post_bulk_hdr = "POST_BULK_HDR"
         a.label(post_bulk_hdr)
-        a.db(0x02, 0x00, 0x00, track0, sec0 & 0xFF)
+        a.db(0x02, 0x01, 0x00, track0, sec0 & 0xFF)
 
     # ---- 本編 ----
     a.label("MAIN")
@@ -512,9 +512,27 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.ld_a(0x12)
         a.call("SEND_MAIN")
 
+    logical_sent = False
+
+    def emit_logical_once() -> None:
+        """仕様書1.36a節: 最初の読み要求(0x02)の直前に 0x17,0x0F を1回だけ送る。
+
+        0x17,m を受けたドライブでだけ論理トラックが C*2+H と読まれる（受けていな
+        ければ C=T・H=0）。sub の応答は無いので待たない。m=0x0F は両ドライブ。
+        読み要求のP1は0x01（0x00は失敗する。同節）。"""
+        nonlocal logical_sent
+        if logical_sent:
+            return
+        logical_sent = True
+        a.ld_a(0x17)
+        a.call("SEND_MAIN")
+        a.ld_a(0x0F)
+        a.call("SEND_MAIN_CONT")
+
     if dispatch_switch_test:
         # 割り込みシナリオ（上のdocstring「--dispatch-switch-test」参照）:
         # 5バイトREADと1.37節の交換を1組完遂してから次へ進む。
+        emit_logical_once()
         a.ld_hl(dispatch_switch_hdr)
         a.ld_b(5)
         a.label("_dsw_hdrsend")
@@ -532,6 +550,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # runシナリオ（上のdocstring「--run-continuation-test」参照）:
         # 1バイト目だけ通常のSEND(0Fあり)、2〜5バイト目は0Fを省略して
         # 5バイトヘッダを送り、1.37節の交換後に256バイトを全部RECVする。
+        emit_logical_once()
         a.ld_hl(run_cont_hdr)
         a.ld_a_hl()
         a.call("SEND_MAIN")          # 1バイト目(先頭): 0Fあり
@@ -568,6 +587,10 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         # ため、旧8バイト形式の交換#3/#4を1組送る（check_l3_response.py
         # の比較対象には含めない。verify_l3.shのskip-prefix-bytesで
         # このぶん[1+256=257バイト]を読み飛ばす）。
+        # 旧8バイト形式の交換#3/#4はEXCHANGE3_REQUEST_ACTIVEを閉じるための
+        # 起動時交換の再現なので、0x17,0x0F はここでは送らない（先に送ると
+        # この閉じ方が成立しない）。直後の通常要求ループの最初の読み要求の
+        # 前で送る（emit_logical_once）。
         a.ld_hl(fbc_exchange3_close_hdr)
         a.ld_b(8)
         a.label("_fbc_close_hdrsend")
@@ -597,6 +620,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.call("RECV_MAIN")
 
         # 1.36節の本題: 先頭バイト0x02・長さ5のrunを送る。
+        emit_logical_once()
         a.ld_hl(post_bulk_hdr)
         a.ld_b(5)
         a.label("_pbr_hdrsend")
@@ -614,6 +638,7 @@ def build(requests, dispatch_switch_test=False, run_continuation_test=False,
         a.djnz("_pbr_resprecv")
     else:
         for name in hdr_labels:
+            emit_logical_once()
             # ヘッダ5バイトを SEND で送る（1.36節の形式）
             a.ld_hl(name)
             a.ld_b(5)

@@ -82,6 +82,9 @@
 ; EXT_BANK_CALLの再入検出用フラグ(RAM)。上記「再入不可」参照。
 EXT_BANK_BUSY              EQU 0E8C8h   ; 1=EXT_BANK_CALL実行中
 EXT_BANK_REENTRY_DETECTED  EQU 0E8C9h   ; 1=再入を検出したことがある
+; main_sub_read.asmの「0x17,0x0F送信済み」フラグ（1.36a節）。RAMがゼロ初期化される
+; 保証が無いので、EXT_BANK_INITが起動時に0へ戻す。
+MAIN_SUB_LOGICAL_SENT      EQU 0E010h
 
 ; ---------------------------------------------------------------
 ; EXT_BANK_INIT — EXT_BANK_BUSYの初期化。
@@ -99,6 +102,7 @@ EXT_BANK_INIT:
     XOR A
     LD (EXT_BANK_BUSY),A
     LD (EXT_BANK_REENTRY_DETECTED),A
+    LD (MAIN_SUB_LOGICAL_SENT),A
     RET
 
 ; バンク側から main ROM の任意のルーチンを呼ぶ共通の窓外中継。

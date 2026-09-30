@@ -710,7 +710,12 @@ M6IK_ARMS = {
     "K-F0": (15, 0), "K-F1": (15, 1),
     "K-M1": (1, 1), "K-FR": (15, 1),
 }
-M6IK_P1_OLD = "    XOR A\n    CALL MAIN_SUB_SEND_REQUEST_CONT\n    JP C,_ms_read_timeout"
+# 第223版: 既定のmainは0x17,0x0Fを1回送り(MAIN_SUB_SEND_LOGICAL_ONCE)P1=0x01で
+# 要求するようになった。m6i-kの器具は「0x17の有無×P1」を腕ごとに自分で振る
+# 測定装置なので、既定側の送信を器具ビルドでは外し、P1送出点だけを置換する。
+M6IK_ONCE_OLD = "    CALL MAIN_SUB_SEND_LOGICAL_ONCE\n    JP C,_ms_read_timeout\n"
+M6IK_P1_OLD = ("    LD A,001h                   ; P1=0x01（1.36a節）\n"
+               "    CALL MAIN_SUB_SEND_REQUEST_CONT\n    JP C,_ms_read_timeout")
 M6IK_R_OLD = "    LD A,(MAIN_SUB_CHR_SECTOR)\n    CALL MAIN_SUB_SEND_REQUEST_CONT"
 
 
@@ -1175,8 +1180,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             replacement = (f"    LD A,0{p1:02X}h\n" +
                            "    CALL MAIN_SUB_SEND_REQUEST_CONT\n"
                            "    JP C,_ms_read_timeout")
-            if main_sub_chr_text.count(M6IK_P1_OLD) != 1 or main_sub_chr_text.count(M6IK_R_OLD) != 1:
+            if (main_sub_chr_text.count(M6IK_P1_OLD) != 1
+                    or main_sub_chr_text.count(M6IK_R_OLD) != 1
+                    or main_sub_chr_text.count(M6IK_ONCE_OLD) != 1):
                 raise SystemExit("m6i-k 注入位置が一意でない")
+            main_sub_chr_text = main_sub_chr_text.replace(M6IK_ONCE_OLD, "")
             main_sub_chr_text = main_sub_chr_text.replace(M6IK_P1_OLD, replacement)
             main_sub_chr_text = main_sub_chr_text.replace(
                 M6IK_R_OLD, "    LD A,(MAIN_SUB_CHR_SECTOR)\n    " +
