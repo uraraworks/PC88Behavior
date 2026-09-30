@@ -984,6 +984,10 @@ OBSERVED_SINGLE_TRACKED_ENTRIES = frozenset((1, 2))
 # 57/57すべて同一の値だった。その値は**上の要求グループ2の応答と同一**で
 # あり、新しい値を持ち込むわけではない（意味は未確定のまま）。
 WRITE_ACK_RESPONSE = OBSERVED_SINGLE_RESPONSE_BY_REQUEST[1][1]
+# 第223版1.35a節: 最初のWRITEの前置き `0x14, D` への応答1バイト。値は公式main＋
+# 自作subの混成腕（conform_l3、上記の各混成）の受信列が一致する値として決めた
+# 測定由来の定数で、意味は未確定（0x06への応答0x80とは別の値）。
+WRITE_PREFIX_RESPONSE = 0x28
 # ---- 第63版・m7bf: 要求レコードの「種別」フィールド。
 # m7beで、読み出し要求も書き込み要求も同じ6バイトレコード
 # `[?, 種別, ?, ?, 論理トラック(C*2+H), R]` を使い、**2バイト目だけが
@@ -1492,7 +1496,7 @@ def build_subrom(break_write_ack=False,
         a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
     else:
         a.pop_af()
-        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+        a.jr("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
@@ -2934,11 +2938,15 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(LOGICAL_TRACK_FLAGS)
         a.jr("_window_run_reset")
         # 長さ2のrun `0x14, D`（第223版1.35a節）: SはDと同じ値。応答1バイトを返す。
-        # 値は1.35a節から決まらないので2回目以降（0x06）と同じ値を返す（自作側の判断）。
+        # 値は1.35a節から決まらない。公式main＋自作subの混成腕（conform_l3 の
+        # LOAD・シーケンシャルファイル出力入力・KILL・NAME・BSAVE・ランダム
+        # アクセスPUT/GET・削除済みLOAD の各混成）で、公式mainが受け取って先へ
+        # 進む値は WRITE_ACK_RESPONSE（0x80）ではなく WRITE_PREFIX_RESPONSE で、
+        # 公式一式の全腕で同一だった（ドライブ1のD=0のみ。ドライブ2のD=1で同値かは未確認）。
         a.label("_write_prefix_response")
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(WRITE_LAST_S)
-        a.ld_a(WRITE_ACK_RESPONSE)
+        a.ld_a(WRITE_PREFIX_RESPONSE)
         a.call("SEND_BYTE")
         a.label("_window_run_reset")
         a.xor_a()
@@ -3289,10 +3297,7 @@ def build_subrom(break_write_ack=False,
     # 応答値と同じだとは主張しない。候補指定は探索再現用に優先する。
     error_response = (error_response_candidate if error_response_candidate is not None
                       else (0x40 if break_error_response_bit6 else 0x00))
-    if error_response == 0:
-        a.xor_a()                   # LD A,0と同値でフラグ不使用（容量1バイト）
-    else:
-        a.ld_a(error_response)
+    a.ld_a(error_response)
     a.jr("_exchange3_send_response")
     a.label("_exchange3_normal_response")
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
