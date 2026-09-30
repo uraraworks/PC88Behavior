@@ -643,6 +643,7 @@ class Asm:
     def pop_de(self):     self.db(0xD1)
     def dec_de(self):     self.db(0x1B)   # DEC DE（フラグは変化しない。ゼロ判定は別途 LD A,D / OR E で行う）
     def ld_a_d(self):     self.db(0x7A)
+    def ld_d_a(self):     self.db(0x57)   # LD D,A（WRITE_PREV2の退避。FDC_BEGIN/OUTはDEを保存する）
     def ld_a_e(self):     self.db(0x7B)   # LD A,E（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def ld_e_a(self):     self.db(0x5F)   # LD E,A
     def or_e(self):        self.db(0xB3)
@@ -758,6 +759,7 @@ _ASM_TEMPLATES = {
     "pop_de": lambda: "POP DE",
     "dec_de": lambda: "DEC DE",
     "ld_a_d": lambda: "LD A,D",
+    "ld_d_a": lambda: "LD D,A",
     "ld_a_e": lambda: "LD A,E",
     "ld_e_a": lambda: "LD E,A",
     "or_e": lambda: "OR E",
@@ -1496,7 +1498,7 @@ def build_subrom(break_write_ack=False,
         a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
     else:
         a.pop_af()
-        a.jr("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
@@ -2003,6 +2005,7 @@ def build_subrom(break_write_ack=False,
     a.ld_a(0x45); a.call("FDC_BEGIN")   # クリア後にWRITE DATA + MF=1を送出
     if break_drive_selector:
         a.ld_a_mem(WRITE_PREV2)         # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
+        a.ld_d_a()                      # 論理トラックをDへ退避（下のC・Hで読み直さない）
         a.and_a(0x01)
         a.rlca()
         a.rlca()
@@ -2013,6 +2016,7 @@ def build_subrom(break_write_ack=False,
         # いた(m7go・U2成立)。FDC_SEEK入口(1.46節)と同じ情報源REQ_HDR+2
         # bit0を同じ形で読み、H<<2とOR合成する(m7gq事前登録・案1)。
         a.ld_a_mem(WRITE_PREV2)         # unit/head = (REQ_HDR+2 bit0) | (H<<2)。Hは論理トラックのbit0
+        a.ld_d_a()                      # 論理トラックをDへ退避（下のC・Hで読み直さない）
         a.and_a(0x01)
         a.rlca()
         a.rlca()
@@ -2028,11 +2032,11 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(WRITE_PREV2); a.call("FDC_OUT")
         a.xor_a(); a.call("FDC_OUT")
     else:
-        a.ld_a_mem(WRITE_PREV2)
+        a.ld_a_d()
         a.or_a()
         a.rra()                                                 # C = track >> 1
         a.call("FDC_OUT")
-        a.ld_a_mem(WRITE_PREV2)
+        a.ld_a_d()
         a.and_a(0x01)                                           # H = track & 1
         a.call("FDC_OUT")
     a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT_THEN_N1")   # R = データ部の直前1バイト（続くN=1の送出も共有列）
