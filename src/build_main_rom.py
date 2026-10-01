@@ -1079,7 +1079,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     program_path.write_text(L4_PROGRAM_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     run_path = work / "l4_run_gen.asm"
-    run_path.write_text(L4_RUN_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    run_text = L4_RUN_ASM.read_text(encoding="utf-8")
+    run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"
     files_path.write_text(L4_FILES_ASM.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1095,11 +1096,15 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 十分な余白を持って0x6000未満に収める。
     #
     # --inject-ext-bank-window-fault(自己検査の陰性対照専用)のときだけ、
-    # わざと最後(run.asmの後)にINCLUDEする。run.asmの一部が既に0x6000を
-    # 越えて配置されている(現状のレイアウトの実測)ため、中継ルーチンも
-    # 窓の中に来て、check_ext_bank_relay_below_window()のビルド時検査が
-    # 失敗するはずである。既存モジュールの中身・順序はどちらの場合も
-    # 変えない(ext_bank_relay_pathの挿入位置だけが変わる)。
+    # わざと窓の中(run.asmの埋め草 AEL_ROM_LAYOUT_PAD の直前、0x79D7の手前)に
+    # INCLUDEする。中継ルーチンも窓の中に来て、
+    # check_ext_bank_relay_below_window()のビルド時検査が失敗するはずである。
+    # 以前は「最後(run.asmの後)」に置いていたが、そこはROM末尾の空きに
+    # 中継ルーチンの大きさぶんの余裕を要求し、LISTの整形(l4-s5h)で末尾の
+    # 空きが減ると「ROM に収まらない」という別の理由で落ちて検査が
+    # 空振りした。埋め草の直前なら中継ルーチンが早い側から抜けたぶん
+    # だけ埋め草が減り、他のモジュールの配置・ROM末尾の使用量は変わらない
+    # (ext_bank_relay_pathの挿入位置だけが変わる)。
     ext_bank_relay_text = EXT_BANK_RELAY_ASM.read_text(encoding="utf-8")
     if inject_ext_bank_bcde_fault:
         if ext_bank_relay_text.count(EXT_BANK_BCDE_SAVE_FAULT_OLD) != 1:
@@ -1121,6 +1126,14 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     ext_bank_wincall_probe_path = work / "ext_bank_wincall_probe_gen.asm"
     ext_bank_wincall_probe_path.write_text(
         EXT_BANK_WINCALL_PROBE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+
+    if inject_ext_bank_window_fault:
+        pad_mark = "AEL_ROM_LAYOUT_PAD:\n"
+        if run_text.count(pad_mark) != 1:
+            raise SystemExit("埋め草 AEL_ROM_LAYOUT_PAD が run.asm に一意に見つからない")
+        run_text = run_text.replace(
+            pad_mark, ext_bank_relay_include + pad_mark)
+        run_path.write_text(run_text, encoding="utf-8")
 
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
@@ -1147,8 +1160,6 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{load_path}"\n'
         + f'\nINCLUDE "{save_path}"\n'
     )
-    if inject_ext_bank_window_fault:
-        combined += ext_bank_relay_include
     combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
     if enable_main_sub_read:
         main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")

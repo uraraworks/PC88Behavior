@@ -576,10 +576,9 @@ _lrt_loop:
     OR A
     RET Z
     LD HL,(PROG_REND_PTR)
-    LD E,(HL)
     LD A,(PROG_REND_MODE)
     LD D,A
-    LD A,E
+    LD A,(HL)
     BIT 1,D
     JR NZ,_lrt_put                  ; 行末まで打鍵どおり
     CP '"'
@@ -605,11 +604,7 @@ _lrt_notq:
     JR _lrt_put
 _lrt_put:                           ; A=出す文字。出して1文字進む
     CALL LRT_EMIT
-    LD HL,(PROG_REND_PTR)
-    INC HL
-    LD (PROG_REND_PTR),HL
-    LD HL,PROG_REND_LEN
-    DEC (HL)
+    CALL LRT_ADV1
     JR _lrt_loop
 _lrt_normal:
     CP 27h                          ; '
@@ -627,10 +622,10 @@ _lrt_n1:
     JR C,_lrt_nonletter
     CP 'Z'+1
     JR NC,_lrt_nonletter
-    LD E,A                          ; E=大文字にした英字
+    LD B,A                          ; B=大文字にした英字（以下 PRINT_CHAR を呼ぶまで保つ）
     LD A,(PROG_REND_INNAME)
     OR A
-    LD A,E
+    LD A,B
     JR NZ,_lrt_put                  ; 名前の途中
     ; 名前の連なりの先頭: REM / DATA / GO TO / GO SUB か調べる
     LD HL,LRT_KW
@@ -641,7 +636,10 @@ _lrt_kwloop:
     PUSH AF                         ; 方式ビット
     INC HL
     PUSH HL
-    CALL LRT_TRY
+    LD DE,(PROG_REND_PTR)
+    LD A,(PROG_REND_LEN)
+    LD C,A
+    CALL LRT_MATCH
     POP HL                          ; 語の先頭（PUSH/POPはフラグを変えない）
     JR Z,_lrt_kwhit
     POP AF
@@ -652,7 +650,10 @@ _lrt_kwskip:
     JR NZ,_lrt_kwskip
     JR _lrt_kwloop
 _lrt_kwhit:
-    CALL LRT_ACCEPT
+    LD (PROG_REND_PTR),DE           ; 語の直後へ進める
+    LD A,C
+    LD (PROG_REND_LEN),A
+    CALL LRT_PUTS                   ; 語（大文字）を出す
     POP AF
     LD HL,PROG_REND_MODE
     OR (HL)
@@ -661,19 +662,13 @@ _lrt_kwhit:
 _lrt_namestart:
     LD A,1
     LD (PROG_REND_INNAME),A
-    LD HL,(PROG_REND_PTR)
-    LD A,(HL)
-    CALL FOLD_UPPER
+    LD A,B
     JR _lrt_put
 _lrt_nonletter:
     LD A,D
-    CP '.'
-    JR Z,_lrt_put                   ; 数字と . は連なりの状態を変えない
-    CP '0'
-    JR C,_lrt_sep
-    CP '9'+1
-    JR C,_lrt_put
-_lrt_sep:
+    CALL LRT_NAMECH                 ; 英字ではないので、CF=1 は数字か .
+    LD A,D
+    JR C,_lrt_put                   ; 数字と . は連なりの状態を変えない
     XOR A
     LD (PROG_REND_INNAME),A
     LD A,D
@@ -703,12 +698,17 @@ _lrt_q2:
     LD A,' '
     CALL LRT_EMIT
 _lrt_q3:
+    CALL LRT_ADV1
+    JP _lrt_loop
+
+; LRT_ADV1 — 1文字進む。
+LRT_ADV1:
     LD HL,(PROG_REND_PTR)
     INC HL
     LD (PROG_REND_PTR),HL
     LD HL,PROG_REND_LEN
     DEC (HL)
-    JP _lrt_loop
+    RET
 
 ; LRT_EMIT — A を出して PROG_REND_PREV に残す。破壊: AF,DE,HL（PRINT_CHAR 準拠）。
 LRT_EMIT:
@@ -728,19 +728,6 @@ LRT_PUTS:
     POP HL
     JR LRT_PUTS
 
-; LRT_ACCEPT — LRT_TRY が一致したあと呼ぶ。DE,C を新しい位置と残りにし、
-;   HL=語の先頭を出す。
-LRT_ACCEPT:
-    LD (PROG_REND_PTR),DE
-    LD A,C
-    LD (PROG_REND_LEN),A
-    JR LRT_PUTS
-
-; LRT_TRY — 現在位置で HL の語を照合する（DE=位置、C=残りを用意して LRT_MATCH）。
-LRT_TRY:
-    LD DE,(PROG_REND_PTR)
-    LD A,(PROG_REND_LEN)
-    LD C,A
 ; LRT_MATCH — HL=0終端の語（大文字、空白は1個ちょうどに一致）、DE=本文、
 ;   C=本文の残り。語が大文字小文字を区別せず一致し、直後が本文の終端か名前の
 ;   文字でないときだけ一致。出力: Z=一致（DE,C が語の直後へ進む）／NZ=不一致。
