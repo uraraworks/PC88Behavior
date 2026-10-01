@@ -43,6 +43,8 @@ UNREADABLE_DISK_EXPECTED="$REPO/tests/conformance/expected_unreadable_disk.tsv"
 DRIVE1_EXPECTED="$REPO/tests/conformance/expected_drive1.tsv"
 DRIVE2_EXPECTED="$REPO/tests/conformance/expected_drive2.tsv"
 INSERT_AFTER_WAIT_EXPECTED="$REPO/tests/conformance/expected_insert_after_wait.tsv"
+SAVE_DRIVE1_EXPECTED="$REPO/tests/conformance/expected_save_drive1.tsv"
+SAVE_DRIVE2_EXPECTED="$REPO/tests/conformance/expected_save_drive2.tsv"
 SCREEN_EXPECTED="$REPO/tests/conformance/expected_screen.tsv"
 SCREEN_CHECK="$REPO/tools/check_l3_screen_output.py"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
@@ -94,7 +96,8 @@ if [ ! -f "$SCREEN_EXPECTED" ] || [ ! -f "$SCREEN_CHECK" ]; then
 fi
 for path_expected in "$WRITE_PROTECT_EXPECTED" "$NO_DISK_EXPECTED" \
                      "$UNREADABLE_DISK_EXPECTED" "$DRIVE1_EXPECTED" \
-                     "$DRIVE2_EXPECTED" "$INSERT_AFTER_WAIT_EXPECTED"; do
+                     "$DRIVE2_EXPECTED" "$INSERT_AFTER_WAIT_EXPECTED" \
+                     "$SAVE_DRIVE1_EXPECTED" "$SAVE_DRIVE2_EXPECTED"; do
   if [ ! -f "$path_expected" ]; then
     echo "エラー: エラー／ドライブ2経路の期待値が無い: $path_expected" >&2
     exit 2
@@ -1396,6 +1399,21 @@ run_path_measurement() {
         type_text='FILES 2\n'
       fi
       ;;
+    save_drive1|save_drive2)
+      # 2ドライブ構成（A/B同内容の使い捨て複製、保護解除）で、書き込み先Dの
+      # 違う2経路（"1:"=D0・"2:"=D1）のSAVEを比べる。条件5はドライブ1のみ。
+      cp "$DISK" "$disk_b" || return 1
+      printf '\x00' | dd of="$disk_a" bs=1 seek=26 count=1 conv=notrunc status=none
+      printf '\x00' | dd of="$disk_b" bs=1 seek=26 count=1 conv=notrunc status=none
+      printf '%s\n' "$disk_a" "$disk_b" > "${base}.m3u"
+      media="${base}.m3u"
+      frames=4200
+      if [ "$scenario" = save_drive1 ]; then
+        type_text='10 PRINT "T"\nSAVE"1:Q8D"\n'
+      else
+        type_text='10 PRINT "T"\nSAVE"2:Q8E"\n'
+      fi
+      ;;
     *)
       echo "エラー: 未知のエラー／B:シナリオ: $scenario" >&2
       return 2
@@ -1595,6 +1613,8 @@ judge_path unreadable_disk "$UNREADABLE_DISK_EXPECTED" "B:規則生成媒体"
 judge_path drive1 "$DRIVE1_EXPECTED" "A:正常操作（A/B同内容複製）"
 judge_path drive2 "$DRIVE2_EXPECTED" "B:正常操作"
 judge_path insert_after_wait "$INSERT_AFTER_WAIT_EXPECTED" "B:待機中に媒体挿入"
+judge_path save_drive1 "$SAVE_DRIVE1_EXPECTED" "SAVE A:宛（2ドライブ構成）"
+judge_path save_drive2 "$SAVE_DRIVE2_EXPECTED" "SAVE B:宛（2ドライブ構成）"
 
 say "A:/B: main→sub要求runの全位置比較"
 for mode in official mixed; do

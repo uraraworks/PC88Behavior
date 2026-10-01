@@ -169,4 +169,19 @@ else
   ng 'insert_after_wait: 陽性・陰性対照を区別できない'
 fi
 
+# SAVE（2ドライブ構成）: 直後Okを到達、エラー応答・応答欠落を非到達。
+for n in 1 2; do
+  case $n in 1) cmd='save"1:q8d"';; 2) cmd='save"2:q8e"';; esac
+  printf '  0| %s\n  1| Ok\n' "$cmd" > "$WORK/save$n-positive.txt"
+  printf '  0| %s\n  1| Synthetic error response\n  2| Ok\n' "$cmd" > "$WORK/save$n-negative.txt"
+  printf '  0| %s\n' "$cmd" > "$WORK/save$n-noresp.txt"
+  if python3 "$CHECK" --report "$WORK/save$n-positive.txt" --scenario save_drive$n >/dev/null 2>&1 \
+     && ! python3 "$CHECK" --report "$WORK/save$n-negative.txt" --scenario save_drive$n >/dev/null 2>&1 \
+     && ! python3 "$CHECK" --report "$WORK/save$n-noresp.txt" --scenario save_drive$n >/dev/null 2>&1; then
+    ok "save_drive$n: 直後Okの陽性と、エラー応答・応答欠落の陰性を区別"
+  else
+    ng "save_drive$n: 陽性・陰性対照を区別できない"
+  fi
+done
+
 exit "$rc"

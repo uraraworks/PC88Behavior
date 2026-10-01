@@ -43,6 +43,8 @@ COMMANDS = {
     "drive1": ["files 1"],
     "drive2": ["files 2"],
     "insert_after_wait": ["files 2"],
+    "save_drive1": ['save"1:q8d"'],
+    "save_drive2": ['save"2:q8e"'],
 }
 
 ERROR_SCENARIOS = {"write_protect", "no_disk", "unreadable_disk"}
