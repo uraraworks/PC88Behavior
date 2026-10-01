@@ -4851,6 +4851,20 @@ _aas_range:
     LD (ERROR_KIND),A
     RET
 
+; =======================================================================
+; READ/DATA/RESTORE(第6.1〜6.3節)。DATA_READ_ONEは、実行中のCUR_PTR/
+;   LINE_ENDを一時的にDATA走査位置へ差し替えて既存の字句解析
+;   (PEEK_CHAR/ADV_PTR/SKIP_SPACES/AT_END/LEX_NUMBER等)をそのまま
+;   再利用し、終わったら呼び出し元のCUR_PTR/LINE_ENDへ戻す
+;   (RUN_DATA_MAIN_SAVE_*)。RUN_CUR_RECORD(本線の実行位置)とは別に
+;   RUN_DATA_REC(DATAの走査位置)を持つ。
+; =======================================================================
+; SAVE入口と画面捕捉の常駐追加分を含めても0x79D7を埋め草のまま保つ。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
+; DIM_STMT は常駐窓(0x6000未満)に置く必要が無いので、0x79D7前の空きを
+; LIST_RENDER_TEXT（program.asm、バンクから呼ばれるため0x6000未満）へ譲るため、
+; 埋め草の後ろへ移した（l4-s5h）。
 ; DIM_STMT — 第4.10節。カンマ区切りで複数配列を宣言できる
 ;   (仕様書に無い判断、追加的な拡張)。同名の再DIMはDuplicate
 ;   Definition(10、仕様書に無い判断)。
@@ -4942,17 +4956,6 @@ _dim_oom:
     LD (ERROR_KIND),A
     RET
 
-; =======================================================================
-; READ/DATA/RESTORE(第6.1〜6.3節)。DATA_READ_ONEは、実行中のCUR_PTR/
-;   LINE_ENDを一時的にDATA走査位置へ差し替えて既存の字句解析
-;   (PEEK_CHAR/ADV_PTR/SKIP_SPACES/AT_END/LEX_NUMBER等)をそのまま
-;   再利用し、終わったら呼び出し元のCUR_PTR/LINE_ENDへ戻す
-;   (RUN_DATA_MAIN_SAVE_*)。RUN_CUR_RECORD(本線の実行位置)とは別に
-;   RUN_DATA_REC(DATAの走査位置)を持つ。
-; =======================================================================
-; SAVE入口と画面捕捉の常駐追加分を含めても0x79D7を埋め草のまま保つ。
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 DATA_ENTER_RECORD:
     LD (RUN_DATA_REC),HL
     INC HL

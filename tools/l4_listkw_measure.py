@@ -576,19 +576,32 @@ def cmd_measure(a) -> int:
 
 
 def cmd_check(a) -> int:
-    """コミット済み期待値(obs_sigの列)と、この ROM の観測の署名を突き合わせる。"""
+    """コミット済み期待値（公式ROMで測った obs_sig）と、この ROM の観測の署名を突き合わせる。
+    期待値ファイルの `# excluded<TAB>id,id,...<TAB>理由` の行に挙げた腕は照合しない
+    （実装しないと決めたもの。件数を毎回表示する）。全腕が「期待値にある」か
+    「除外に挙がっている」のどちらかでなければならない。"""
     exp = {}
+    excluded: dict[str, str] = {}
     for ln in pathlib.Path(a.expected).read_text(encoding="utf-8").splitlines():
+        if ln.startswith("# excluded\t"):
+            f = ln.split("\t")
+            for aid in f[1].split(","):
+                excluded[aid] = f[2] if len(f) > 2 else ""
+            continue
         if not ln or ln.startswith("#"):
             continue
         f = ln.split("\t")
         exp[f[0]] = f[1]
     rec = measure(a.rom_dir, False)
     bad = 0
+    checked = 0
     for r in rec:
+        if r["id"] in excluded:
+            continue
         e = exp.get(r["id"])
+        checked += 1
         if e is None:
-            print(f"NG {r['id']}: 期待値に無い")
+            print(f"NG {r['id']}: 期待値にも除外にも無い")
             bad += 1
         elif r["obs_sig"] != e:
             bad += 1
@@ -596,11 +609,15 @@ def cmd_check(a) -> int:
                 print(f"NG {r['id']}\t{r['typed']}\t=>\t{r['obs']}")
             else:
                 print(f"NG {r['id']}: 署名不一致")
-    missing = set(exp) - {r["id"] for r in rec}
-    for m in sorted(missing):
-        print(f"NG {m}: 期待値だけにある")
+    ids = {r["id"] for r in rec}
+    for m in sorted((set(exp) | set(excluded)) - ids):
+        print(f"NG {m}: 期待値/除外だけにある")
         bad += 1
-    print(f"arms={len(rec)} ng={bad}")
+    both = set(exp) & set(excluded)
+    for m in sorted(both):
+        print(f"NG {m}: 期待値と除外の両方にある")
+        bad += 1
+    print(f"arms={len(rec)} checked={checked} excluded={len(excluded)} ng={bad}")
     return 0 if bad == 0 else 1
 
 

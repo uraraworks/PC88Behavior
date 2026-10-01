@@ -251,6 +251,11 @@ SCRIPTS_EXPECTED=(
   # そのまま期待値にした自作ROM単体の検査。公式ROM・私物は不要なので
   # SKIPは無く、常にrc=0を期待する。
   "tools/l4_program_selftest.sh:0"
+  # l4-s5h（2026-10-01）。小文字で打った語の LIST 表示（END が小文字のまま残る症状）。
+  # 公式で測った署名（tests/conformance/expected_l4_listkw.tsv）と自作ROMを突き合わせ、
+  # 修正前のソースから組んだROMが落ちることも確かめる。公式ROM・私物は不要で、
+  # SKIPは無く常にrc=0を期待する。
+  "tools/l4_listkw_selftest.sh:0"
   # M7段階5終盤（2026-09-16）。l4-c5(代表プログラム集の適合場面)用の
   # 打鍵計画・記録器 tools/l4_program_typeplan.py・
   # tools/l4_program_conform_record.py。合成VRAM写しだけで完結するので

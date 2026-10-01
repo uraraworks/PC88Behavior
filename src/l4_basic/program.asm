@@ -16,11 +16,11 @@
 ; 保存形式はゴールA（自由）。本実装は「行番号(2B)+本文長(1B)+本文(可変)」
 ; の可変長レコードを行番号昇順で並べた領域とし、公式の中間コード
 ; （トークン番号）は一切使わない（docs/notes/l4-token-design.md）。
-; LISTは保存した本文をそのまま出しつつ、文頭位置（本文の先頭、および
-; ':'の直後）でだけ '?' → "PRINT "（空白付き）、"PRINT"（大文字小文字を
-; 区別しない語）→ "PRINT"（大文字、空白は追加しない）の変換をかける
-; （第2.2〜2.3節）。それ以外の文字（空白の個数・':'・数値定数・文字列
-; リテラルの中身を含む）は一切変換せず打鍵どおりに出す（第2.4〜2.6節）。
+; LISTは保存した本文を LIST_RENDER_TEXT で整形して出す。規則は
+; docs/spec/l4-basic.md 第14節（l4-s5h、公式ROM723腕の測定）: 語・変数名の
+; 英字は大文字、文字列の中・'以降・REM以降・DATAの:まで・数値定数は打鍵どおり、
+; GO TOはGOTOに詰め、?はPRINTに展開する。最初の版（l4-program.md 第2節だけが
+; 根拠）はPRINTと?しか知らず、ENDなどが小文字のまま残った。
 ;
 ; ---- 仕様書に無い判断（この段階で明示的に選んだもの） ----------------
 ;   - 行番号は行の先頭（桁0、前に空白なし）にある場合だけ行番号として
@@ -44,11 +44,10 @@
 ;     何も表示しない（黙って無視する）。行番号つきの行は常に無出力という
 ;     第1節の規則を保つための選択であり、`Out of memory`
 ;     （errors.tsv 7番）を実際に出す挙動は測定されていない。
-;   - 変数名等（命令語以外の英字）の大小は第5節1で未確定のため、この実装は
-;     本文中で認識した命令語（`PRINT`/`?`展開）以外の文字を一切大文字化
-;     しない（打鍵どおりのまま）。
+;   - 変数名等の大文字化は、最初の版では未確定として行わなかったが、l4-s5h
+;     （docs/spec/l4-basic.md 第14節）で公式が大文字にすると測れたので行う。
 ;
-; ---- RAM（メモリ配置、E969-E97Fは空き。E980から27バイトを使う） -----
+; ---- RAM（メモリ配置、E969-E97Fは空き。E980から29バイトを使う） -----
 STMT_KIND          EQU 0E980h  ; 1バイト。MATCH_STMT_KEYWORDが設定する
                                 ; 文の種類(0=PRINT 1=LIST 2=NEW)
 PROG_TMP16         EQU 0E981h  ; 2バイト（PARSE_LINENUMの作業領域）
@@ -65,7 +64,10 @@ PROG_TMP_DST_LAST  EQU 0E993h  ; 2バイト
 PROG_TMP_DST2      EQU 0E995h  ; 2バイト
 PROG_REND_PTR      EQU 0E997h  ; 2バイト（LIST_RENDER_TEXTの走査位置）
 PROG_REND_LEN      EQU 0E999h  ; 1バイト（LIST_RENDER_TEXTの残りバイト数）
-PROG_AT_STMT_START EQU 0E99Ah  ; 1バイト（LIST_RENDER_TEXTの文頭フラグ）
+PROG_REND_MODE     EQU 0E99Ah  ; 1バイト（LIST_RENDER_TEXTの状態。bit0=引用符の中
+                                ; bit1=行末まで打鍵どおり bit2=DATAの中）
+PROG_REND_INNAME   EQU 0E99Bh  ; 1バイト（名前の連なりの途中なら1）
+PROG_REND_PREV     EQU 0E99Ch  ; 1バイト（直前に出した文字）
 
 ; プログラム本体（可変長レコード列、行番号昇順）。1レコード=
 ; [行番号2B LE][本文長1B][本文(本文長バイト)]。行番号=0xFFFFのレコードは
@@ -539,148 +541,265 @@ _lra_done:
     RET
 
 ; ---------------------------------------------------------------------
-; LIST_RENDER_TEXT — HL=本文先頭、A=本文の長さ。文頭位置（本文先頭・
-;   ':'の直後）でだけ '?'→"PRINT "(空白付き)・"PRINT"(大文字小文字を
-;   区別しない語、境界確認つき)→"PRINT"(大文字、空白追加なし)へ変換し、
-;   それ以外の文字は一切変換せずそのまま出す（第2.2〜2.4節）。
+; LIST_RENDER_TEXT — HL=本文先頭、A=本文の長さ。小文字で打った語を LIST で
+;   大文字にして出す（l4-basic.md「プログラム行の LIST 表示」節。根拠は
+;   docs/notes/l4-s5h-round3-results.md「採る規則」。公式ROMの測定723腕）。
+;   規則:
+;     - 二重引用符の中（閉じが無ければ行末まで）は打鍵どおり
+;     - `'` 以降は打鍵どおり
+;     - 「名前の連なり」（英字で始まり英数字と . が続く並び）がちょうど
+;       REM なら REM にして以降は行末まで打鍵どおり（位置は問わない）、
+;       ちょうど DATA なら DATA にして `:`（引用符の外）まで打鍵どおり、
+;       `GO TO` / `GO SUB`（空白ちょうど1個、語の直後が名前の文字でない）は
+;       GOTO / GOSUB に詰める
+;     - `?` は文字列の外ならどこでも PRINT に展開。直後が英数字・.・& なら
+;       後ろに空白1個、直前の出力が英数字・. なら前にも空白1個
+;     - それ以外の英字はすべて大文字。語の前後に空白は足さない。数字・記号・
+;       空白は打鍵どおり
+;   数字で始まる並びは数値で、その直後から新しい連なりが始まる。
+;   実装しないもの（公式は数値定数を読み直して書き直す等）は
+;   docs/notes/l4-s5h-round3-results.md の末尾に列挙してある。
+;   状態: PROG_REND_MODE(bit0=引用符の中 bit1=行末まで打鍵どおり
+;   bit2=DATA の中)、PROG_REND_INNAME(名前の連なりの途中)、
+;   PROG_REND_PREV(直前に出した文字)。
 ;   破壊: AF,BC,DE,HL。
 ; ---------------------------------------------------------------------
 LIST_RENDER_TEXT:
     LD (PROG_REND_PTR),HL
     LD (PROG_REND_LEN),A
-    LD A,1
-    LD (PROG_AT_STMT_START),A
+    XOR A
+    LD (PROG_REND_MODE),A
+    LD (PROG_REND_INNAME),A
+    LD (PROG_REND_PREV),A
 _lrt_loop:
     LD A,(PROG_REND_LEN)
     OR A
     RET Z
-    LD A,(PROG_AT_STMT_START)
-    OR A
-    JR Z,_lrt_plain
     LD HL,(PROG_REND_PTR)
-    LD A,(HL)
-    CP '?'
-    JR NZ,_lrt_try_print
-    LD HL,TOK_PRINT_TEXT
-    LD B,TOK_PRINT_LEN
-_lrt_emit_print_loop:
-    LD A,(HL)
-    PUSH HL                     ; PRINT_CHARはHLを作業用に破壊する
-                                 ; (screen.asmヘッダ注記)ので都度退避する
-    CALL PRINT_CHAR
-    POP HL
-    INC HL
-    DJNZ _lrt_emit_print_loop
-    LD A,' '
-    CALL PRINT_CHAR
-    LD HL,(PROG_REND_PTR)
-    INC HL
-    LD (PROG_REND_PTR),HL
-    LD A,(PROG_REND_LEN)
-    DEC A
-    LD (PROG_REND_LEN),A
+    LD E,(HL)
+    LD A,(PROG_REND_MODE)
+    LD D,A
+    LD A,E
+    BIT 1,D
+    JR NZ,_lrt_put                  ; 行末まで打鍵どおり
+    CP '"'
+    JR NZ,_lrt_notq
+    LD A,D
+    XOR 1
+    LD (PROG_REND_MODE),A           ; 引用符の開閉
     XOR A
-    LD (PROG_AT_STMT_START),A
-    JR _lrt_loop
-_lrt_try_print:
-    CALL LIST_TRY_MATCH_PRINT_WORD
-    OR A
-    JR Z,_lrt_plain
-    XOR A
-    LD (PROG_AT_STMT_START),A
-    JR _lrt_loop
-_lrt_plain:
-    LD HL,(PROG_REND_PTR)
-    LD A,(HL)
-    PUSH AF
-    CALL PRINT_CHAR
-    POP AF
+    LD (PROG_REND_INNAME),A
+    LD A,'"'
+    JR _lrt_put
+_lrt_notq:
+    BIT 0,D
+    JR NZ,_lrt_put                  ; 引用符の中
+    BIT 2,D
+    JR Z,_lrt_normal
     CP ':'
-    JR Z,_lrt_set_start
-    CP ' '
-    JR NZ,_lrt_clear_start
-    ; 空白: 既に文頭スキャン中(PROG_AT_STMT_START=1)なら、その状態を
-    ; 保ったまま次の文字へ進む（仕様書に無い判断: 本文中2文字目以降の
-    ; 空白はそのまま保持しつつ、行頭直後のPRINT/?判定を空白の直後にも
-    ; 及ぼす。行番号直後の1個ぶんの正規化はLIST_RENDER_ALL側で
-    ; 別に処理済みなので、ここは単純に「空白は文頭状態を変えない」
-    ; というルールでよい）。
-    LD A,(PROG_AT_STMT_START)
-    OR A
-    JR NZ,_lrt_adv                 ; 既に1のまま(書き戻し不要)
-    JR _lrt_clear_start
-_lrt_set_start:
-    LD A,1
-    LD (PROG_AT_STMT_START),A
-    JR _lrt_adv
-_lrt_clear_start:
-    XOR A
-    LD (PROG_AT_STMT_START),A
-_lrt_adv:
+    JR NZ,_lrt_put                  ; DATA の中
+    LD A,D
+    AND 0FBh
+    LD (PROG_REND_MODE),A           ; DATA は ':' で終わる
+    LD A,':'
+    JR _lrt_put
+_lrt_put:                           ; A=出す文字。出して1文字進む
+    CALL LRT_EMIT
     LD HL,(PROG_REND_PTR)
     INC HL
     LD (PROG_REND_PTR),HL
-    LD A,(PROG_REND_LEN)
-    DEC A
-    LD (PROG_REND_LEN),A
+    LD HL,PROG_REND_LEN
+    DEC (HL)
     JR _lrt_loop
-
-; ---------------------------------------------------------------------
-; LIST_TRY_MATCH_PRINT_WORD — PROG_REND_PTR位置がPRINT_TOKEN_LEN文字の
-;   "PRINT"(大文字小文字を区別しない)で始まり、続く文字が英字でないか
-;   本文の終端なら一致とみなす(interp.asmのTRY_MATCH_PRINTと同じ規約)。
-;   一致すれば"PRINT"(大文字)を出力し、PROG_REND_PTR/PROG_REND_LENを
-;   5文字ぶん進めてA=1を返す。不一致ならA=0、状態は変えない。
-;   破壊: AF,BC,DE,HL。
-; ---------------------------------------------------------------------
-LIST_TRY_MATCH_PRINT_WORD:
-    LD A,(PROG_REND_LEN)
-    CP TOK_PRINT_LEN
-    JR C,_ltmp_fail
-    LD HL,(PROG_REND_PTR)
-    LD DE,TOK_PRINT_TEXT
-    LD B,TOK_PRINT_LEN
-_ltmp_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_ltmp_fail
-    INC HL
-    INC DE
-    DJNZ _ltmp_cmp
-    ; HL = PROG_REND_PTR + TOK_PRINT_LEN(一致した5文字の直後)
-    LD A,(PROG_REND_LEN)
-    CP TOK_PRINT_LEN
-    JR Z,_ltmp_boundary_ok           ; 残りがちょうど5=本文の終端
-    LD A,(HL)
+_lrt_normal:
+    CP 27h                          ; '
+    JR NZ,_lrt_n1
+    LD HL,PROG_REND_MODE
+    SET 1,(HL)
+    LD A,27h
+    JR _lrt_put
+_lrt_n1:
+    CP '?'
+    JR Z,_lrt_question
+    LD D,A                          ; D=打った文字
     CALL FOLD_UPPER
     CP 'A'
-    JR C,_ltmp_boundary_ok
+    JR C,_lrt_nonletter
     CP 'Z'+1
-    JR NC,_ltmp_boundary_ok
-    JR _ltmp_fail
-_ltmp_boundary_ok:
-    LD HL,TOK_PRINT_TEXT
-    LD B,TOK_PRINT_LEN
-_ltmp_out:
+    JR NC,_lrt_nonletter
+    LD E,A                          ; E=大文字にした英字
+    LD A,(PROG_REND_INNAME)
+    OR A
+    LD A,E
+    JR NZ,_lrt_put                  ; 名前の途中
+    ; 名前の連なりの先頭: REM / DATA / GO TO / GO SUB か調べる
+    LD HL,LRT_KW
+_lrt_kwloop:
     LD A,(HL)
-    PUSH HL                     ; PRINT_CHARはHLを作業用に破壊する
-                                 ; (screen.asmヘッダ注記)ので都度退避する
-    CALL PRINT_CHAR
-    POP HL
+    CP 0FFh
+    JR Z,_lrt_namestart
+    PUSH AF                         ; 方式ビット
     INC HL
-    DJNZ _ltmp_out
-    LD HL,(PROG_REND_PTR)
-    LD DE,TOK_PRINT_LEN
-    ADD HL,DE
-    LD (PROG_REND_PTR),HL
-    LD A,(PROG_REND_LEN)
-    SUB TOK_PRINT_LEN
-    LD (PROG_REND_LEN),A
+    PUSH HL
+    CALL LRT_TRY
+    POP HL                          ; 語の先頭（PUSH/POPはフラグを変えない）
+    JR Z,_lrt_kwhit
+    POP AF
+_lrt_kwskip:
+    LD A,(HL)
+    INC HL
+    OR A
+    JR NZ,_lrt_kwskip
+    JR _lrt_kwloop
+_lrt_kwhit:
+    CALL LRT_ACCEPT
+    POP AF
+    LD HL,PROG_REND_MODE
+    OR (HL)
+    LD (HL),A
+    JP _lrt_loop
+_lrt_namestart:
     LD A,1
-    RET
-_ltmp_fail:
+    LD (PROG_REND_INNAME),A
+    LD HL,(PROG_REND_PTR)
+    LD A,(HL)
+    CALL FOLD_UPPER
+    JR _lrt_put
+_lrt_nonletter:
+    LD A,D
+    CP '.'
+    JR Z,_lrt_put                   ; 数字と . は連なりの状態を変えない
+    CP '0'
+    JR C,_lrt_sep
+    CP '9'+1
+    JR C,_lrt_put
+_lrt_sep:
+    XOR A
+    LD (PROG_REND_INNAME),A
+    LD A,D
+    JR _lrt_put
+_lrt_question:
+    LD A,(PROG_REND_PREV)
+    CALL LRT_NAMECH
+    JR NC,_lrt_q1
+    LD A,' '
+    CALL LRT_EMIT
+_lrt_q1:
+    LD HL,LRT_W_PRINT
+    CALL LRT_PUTS
+    XOR A
+    LD (PROG_REND_INNAME),A
+    LD A,(PROG_REND_LEN)
+    CP 2
+    JR C,_lrt_q3
+    LD HL,(PROG_REND_PTR)
+    INC HL
+    LD A,(HL)
+    CP '&'
+    JR Z,_lrt_q2
+    CALL LRT_NAMECH
+    JR NC,_lrt_q3
+_lrt_q2:
+    LD A,' '
+    CALL LRT_EMIT
+_lrt_q3:
+    LD HL,(PROG_REND_PTR)
+    INC HL
+    LD (PROG_REND_PTR),HL
+    LD HL,PROG_REND_LEN
+    DEC (HL)
+    JP _lrt_loop
+
+; LRT_EMIT — A を出して PROG_REND_PREV に残す。破壊: AF,DE,HL（PRINT_CHAR 準拠）。
+LRT_EMIT:
+    LD (PROG_REND_PREV),A
+    JP PRINT_CHAR
+
+; LRT_PUTS — HL=0終端の語。空白は出さない（"GO TO" -> GOTO）。
+LRT_PUTS:
+    LD A,(HL)
+    OR A
+    RET Z
+    INC HL
+    CP ' '
+    JR Z,LRT_PUTS
+    PUSH HL
+    CALL LRT_EMIT
+    POP HL
+    JR LRT_PUTS
+
+; LRT_ACCEPT — LRT_TRY が一致したあと呼ぶ。DE,C を新しい位置と残りにし、
+;   HL=語の先頭を出す。
+LRT_ACCEPT:
+    LD (PROG_REND_PTR),DE
+    LD A,C
+    LD (PROG_REND_LEN),A
+    JR LRT_PUTS
+
+; LRT_TRY — 現在位置で HL の語を照合する（DE=位置、C=残りを用意して LRT_MATCH）。
+LRT_TRY:
+    LD DE,(PROG_REND_PTR)
+    LD A,(PROG_REND_LEN)
+    LD C,A
+; LRT_MATCH — HL=0終端の語（大文字、空白は1個ちょうどに一致）、DE=本文、
+;   C=本文の残り。語が大文字小文字を区別せず一致し、直後が本文の終端か名前の
+;   文字でないときだけ一致。出力: Z=一致（DE,C が語の直後へ進む）／NZ=不一致。
+LRT_MATCH:
+    LD A,(HL)
+    OR A
+    JR Z,_lm_end
+    LD A,C
+    OR A
+    JR Z,_lm_fail
+    LD A,(DE)
+    CALL FOLD_UPPER
+    CP (HL)
+    JR NZ,_lm_fail
+    INC HL
+    INC DE
+    DEC C
+    JR LRT_MATCH
+_lm_end:
+    LD A,C
+    OR A
+    RET Z
+    LD A,(DE)
+    CALL LRT_NAMECH
+    JR C,_lm_fail
     XOR A
     RET
+_lm_fail:
+    OR 1
+    RET
+
+; LRT_NAMECH — A が名前の文字（英字・数字・.）なら CF=1。破壊: A。
+LRT_NAMECH:
+    CP '.'
+    JR Z,_ln_yes
+    CP '0'
+    JR C,_ln_fold
+    CP '9'+1
+    JR C,_ln_yes
+_ln_fold:
+    CALL FOLD_UPPER
+    CP 'A'
+    JR C,_ln_no
+    CP 'Z'+1
+    RET
+_ln_no:
+    OR A
+    RET
+_ln_yes:
+    SCF
+    RET
+
+; 名前の連なりが語そのものか調べる表。1項目 = 方式ビット(1バイト) + 0終端の語。
+; 方式ビットは LIST_RENDER_TEXT の PROG_REND_MODE へ足す（2=行末まで、4=DATA）。
+LRT_KW:
+    DB 2, "REM", 0
+    DB 4, "DATA", 0
+    DB 0, "GO TO", 0
+    DB 0, "GO SUB", 0
+    DB 0FFh
+LRT_W_PRINT:
+    DB "PRINT", 0
