@@ -166,14 +166,14 @@ ADDENDUM1 = [
 # 追補2（l4-s5h 追補2 事前登録）。追補1の測定を見て立てた M_C を、見ていない位置
 # （REM/DATA が文頭以外・語の前後の記号、`?` が文頭以外、GO TO の境界）で確かめる。
 ADDENDUM2 = [
-    ("b01", "1+rem x end"), ("b02", "a=rem x end"), ("b03", "(rem x end)"),
-    ("b04", "a$rem x end"), ("b05", "1rem x end"), ("b06", "a.rem x end"),
+    ("b01", "x=1+rem x end"), ("b02", "a=rem x end"), ("b03", "(rem x end)"),
+    ("b04", "a$rem x end"), ("b05", "x=1rem x end"), ("b06", "a.rem x end"),
     ("b07", "a rem x end"), ("b08", "a,rem x end"), ("b09", "a;rem x end"),
     ("b10", "rem$ x end"), ("b11", "rem% x end"), ("b12", "rem! x end"),
     ("b13", "rem# x end"), ("b14", "rem= x end"), ("b15", "a=1:  rem x end"),
-    ("b16", "a=1 data x end"), ("b17", "data$ x,end"), ("b18", "1+data x end:end"),
+    ("b16", "a=1 data x end"), ("b17", "data$ x,end"), ("b18", "x=1+data x end:end"),
     ("b19", "a$data x end"),
-    ("b20", "a=?1"), ("b21", "1+?1"), ("b22", "print ?1"), ("b23", '?"x"?1'),
+    ("b20", "a=?1"), ("b21", "x=1+?1"), ("b22", "print ?1"), ("b23", '?"x"?1'),
     ("b24", "?a?b"), ("b25", "x?y"), ("b26", 'a$="?"+"?"'), ("b27", "rem ?x end"),
     ("b28", "?'x end"),
     ("b29", "go to to"), ("b30", "a go to 10"), ("b31", "go to 10 go to 20"),
@@ -510,10 +510,22 @@ def measure(rom_dir: str, official: bool) -> list[dict]:
             for j, (aid, body) in enumerate(chunk):
                 typed.append(f"{(j + 1) * 10} {body}")
             listed, other, untypable = run_chunk(rom_dir, official, typed, work, f"c{k:04d}")
+            # 行は先頭の行番号で対応づける。公式は行番号の途中の空白を読み飛ばす
+            # （`130 1+rem` が行 1301 になる）ので、位置では対応づけない。
+            by_no: dict[int, list[str]] = {}
+            for row in listed:
+                digits = ""
+                for ch in row.lstrip(" "):
+                    if ch.isdigit():
+                        digits += ch
+                    else:
+                        break
+                by_no.setdefault(int(digits), []).append(row)
             gate_ok = (not untypable) and len(listed) == len(chunk)
             for j, (aid, body) in enumerate(chunk):
                 ln = (j + 1) * 10
-                obs = listed[j] if gate_ok else None
+                got = by_no.get(ln, [])
+                obs = got[0] if (gate_ok and len(got) == 1) else None
                 pred = predicted_list_text(ln, body)
                 pred_b = predicted_list_text_b(ln, body)
                 pred_c = predicted_list_text_c(ln, body)
