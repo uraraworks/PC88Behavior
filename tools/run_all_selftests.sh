@@ -312,6 +312,8 @@ SCRIPTS_EXPECTED=(
   # m6f-c（空の公式形式ディスクの生成器・目印判定器）。合成D88・合成レポートだけで
   # 完結し、公式ROM・公式ディスク・private/には触れない。SKIPは無く常にrc=0を期待する。
   "tools/make_m6fc_blank_disk_selftest.sh:0"
+  # 空のデータディスク生成（l3-disk-format.md 第4節）。合成D88のみ、私物不要。
+  "tools/build_blank_data_disk_selftest.sh:0"
   # m6f-e 器具B。第3版だけから9種の自作媒体と15腕manifestを作り、独立検査器の
   # 全検査項目を項目別の陰性対照で確認する。公式ROM・公式ディスク・私物は不要。
   "tools/make_m6fe_disk_selftest.sh:0"
