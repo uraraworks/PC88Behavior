@@ -163,6 +163,25 @@ ADDENDUM1 = [
 ]
 
 
+# 追補2（l4-s5h 追補2 事前登録）。追補1の測定を見て立てた M_C を、見ていない位置
+# （REM/DATA が文頭以外・語の前後の記号、`?` が文頭以外、GO TO の境界）で確かめる。
+ADDENDUM2 = [
+    ("b01", "1+rem x end"), ("b02", "a=rem x end"), ("b03", "(rem x end)"),
+    ("b04", "a$rem x end"), ("b05", "1rem x end"), ("b06", "a.rem x end"),
+    ("b07", "a rem x end"), ("b08", "a,rem x end"), ("b09", "a;rem x end"),
+    ("b10", "rem$ x end"), ("b11", "rem% x end"), ("b12", "rem! x end"),
+    ("b13", "rem# x end"), ("b14", "rem= x end"), ("b15", "a=1:  rem x end"),
+    ("b16", "a=1 data x end"), ("b17", "data$ x,end"), ("b18", "1+data x end:end"),
+    ("b19", "a$data x end"),
+    ("b20", "a=?1"), ("b21", "1+?1"), ("b22", "print ?1"), ("b23", '?"x"?1'),
+    ("b24", "?a?b"), ("b25", "x?y"), ("b26", 'a$="?"+"?"'), ("b27", "rem ?x end"),
+    ("b28", "?'x end"),
+    ("b29", "go to to"), ("b30", "a go to 10"), ("b31", "go to 10 go to 20"),
+    ("b32", "go sub10"), ("b33", "go tox"), ("b34", "go  sub 10"),
+    ("b35", "go to:end"), ("b36", "go to.5"),
+]
+
+
 def build_arms(addendum: bool = True) -> list[tuple[str, str]]:
     arms: list[tuple[str, str]] = []
     words = load_words()
@@ -174,6 +193,8 @@ def build_arms(addendum: bool = True) -> list[tuple[str, str]]:
         arms.append((cid, body))
     if addendum:
         for cid, body in ADDENDUM1:
+            arms.append((cid, body))
+        for cid, body in ADDENDUM2:
             arms.append((cid, body))
     return arms
 
@@ -328,6 +349,80 @@ def predict_body_b(body: str) -> str:
     return "".join(out)
 
 
+# ----------------------------------------------------------------------
+# 候補 M_C（追補2、追補1の測定を見たあとに立てた事後の候補）: 「語（名前の連なり）」
+# で見る。名前の連なり = 英数字と `.` の最大の並び。
+#   - 連なりが ちょうど `rem` なら REM にして、以降は打鍵どおり。位置は問わない。
+#   - 連なりが ちょうど `data` なら DATA にして、以降は `:`（引用符の外）まで打鍵どおり。
+#   - 連なり `go` + 空白ちょうど1個 + 連なり `to`/`sub` は GOTO／GOSUB に詰める。
+#   - `?` は文字列の外ならどこでも PRINT に展開し、直後が [a-z0-9.&] のときだけ空白を1個入れる。
+#   - `'` 以降・引用符の中は打鍵どおり。それ以外の英字はすべて大文字。
+# 数値定数は予測しない。
+# ----------------------------------------------------------------------
+def predict_body_c(body: str) -> str:
+    body = body.lower()
+    out: list[str] = []
+    i = 0
+    n = len(body)
+
+    def namech(ch: str) -> bool:
+        return ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch == "."
+
+    def run_at(k: int) -> str:
+        j = k
+        while j < n and namech(body[j]):
+            j += 1
+        return body[k:j]
+
+    def copy_quoted(k: int) -> int:
+        j = body.find('"', k + 1)
+        j = n if j < 0 else j + 1
+        out.append(body[k:j])
+        return j
+
+    while i < n:
+        c = body[i]
+        if c == '"':
+            i = copy_quoted(i)
+            continue
+        if c == "'":
+            out.append(body[i:])
+            break
+        if c == "?":
+            nxt = body[i + 1:i + 2]
+            out.append("PRINT" + (" " if nxt and (namech(nxt) or nxt == "&") else ""))
+            i += 1
+            continue
+        if namech(c):
+            w = run_at(i)
+            if w == "rem":
+                out.append("REM")
+                out.append(body[i + 3:])
+                break
+            if w == "data":
+                out.append("DATA")
+                i += 4
+                while i < n and body[i] != ":":
+                    if body[i] == '"':
+                        i = copy_quoted(i)
+                    else:
+                        out.append(body[i])
+                        i += 1
+                continue
+            if w == "go" and body[i + 2:i + 3] == " ":
+                w2 = run_at(i + 3)
+                if w2 in ("to", "sub"):
+                    out.append("GOTO" if w2 == "to" else "GOSUB")
+                    i += 3 + len(w2)
+                    continue
+            out.append(w.upper())
+            i += len(w)
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def line_text(lineno: int, body: str) -> str:
     return f"{lineno} {body.lstrip(' ')}"
 
@@ -339,6 +434,10 @@ def predicted_list_text(lineno: int, body: str) -> str:
 
 def predicted_list_text_b(lineno: int, body: str) -> str:
     return f"{lineno} {predict_body_b(body.lstrip(' '))}"
+
+
+def predicted_list_text_c(lineno: int, body: str) -> str:
+    return f"{lineno} {predict_body_c(body.lstrip(' '))}"
 
 
 def sig(text: str) -> str:
@@ -417,6 +516,7 @@ def measure(rom_dir: str, official: bool) -> list[dict]:
                 obs = listed[j] if gate_ok else None
                 pred = predicted_list_text(ln, body)
                 pred_b = predicted_list_text_b(ln, body)
+                pred_c = predicted_list_text_c(ln, body)
                 records.append({
                     "id": aid,
                     "typed": line_text(ln, body),
@@ -427,17 +527,22 @@ def measure(rom_dir: str, official: bool) -> list[dict]:
                     "match": (obs == pred) if obs is not None else None,
                     "match_b": (obs == pred_b) if obs is not None else None,
                     "pred_b": pred_b,
+                    "pred_c": pred_c,
+                    "pred_c_sig": sig(pred_c),
+                    "match_c": (obs == pred_c) if obs is not None else None,
                 })
     return records
 
 
 def write_tsv(records, path):
     with open(path, "w", encoding="utf-8") as f:
-        f.write("# id\tobs_sig\tpred_MA_sig\tmatch_MA\tpred_MB_sig\tmatch_MB\n")
+        f.write("# id\tobs_sig\tpred_MA_sig\tmatch_MA\tpred_MB_sig\tmatch_MB"
+                "\tpred_MC_sig\tmatch_MC\n")
         for r in records:
             nm = {True: "match", False: "differs", None: "gate_failed"}
             f.write(f"{r['id']}\t{r['obs_sig']}\t{r['pred_sig']}\t{nm[r['match']]}"
-                    f"\t{r['pred_b_sig']}\t{nm[r['match_b']]}\n")
+                    f"\t{r['pred_b_sig']}\t{nm[r['match_b']]}"
+                    f"\t{r['pred_c_sig']}\t{nm[r['match_c']]}\n")
 
 
 def cmd_measure(a) -> int:
@@ -448,11 +553,13 @@ def cmd_measure(a) -> int:
     nd = sum(1 for r in rec if r["match"] is False)
     ng = sum(1 for r in rec if r["match"] is None)
     nb = sum(1 for r in rec if r["match_b"] is True)
-    print(f"arms={len(rec)} match_MA={nm} differs_MA={nd} match_MB={nb} gate_failed={ng}")
+    nc = sum(1 for r in rec if r["match_c"] is True)
+    print(f"arms={len(rec)} match_MA={nm} differs_MA={nd} match_MB={nb} "
+          f"match_MC={nc} gate_failed={ng}")
     if a.show_differs:
         for r in rec:
-            if r["match_b"] is False:
-                print(f"{r['id']}\t{r['typed']}\t=>\t{r['obs']}\t(M_B: {r['pred_b']})")
+            if r["match_c"] is False:
+                print(f"{r['id']}\t{r['typed']}\t=>\t{r['obs']}\t(M_C: {r['pred_c']})")
     return 0 if ng == 0 else 1
 
 
@@ -532,6 +639,16 @@ def cmd_selftest(a) -> int:
     }
     for body, want in cases_b.items():
         expect(f"予測 M_B: {body!r}", predict_body_b(body) == want)
+    cases_c = {
+        "a=1 rem x end": "A=1 REM x end", "if a thenrem x end": "IF A THENREM X END",
+        "rem.x end": "REM.X END", "data1,abc": "DATA1,ABC", "?.5": "PRINT .5",
+        "go  to 10": "GO  TO 10", "go to 10": "GOTO 10", "go to10": "GO TO10",
+        "?\"x\"": "PRINT\"x\"", "?-1": "PRINT-1", "?abs(1)": "PRINT ABS(1)",
+        "remabc end": "REMABC END", "xrem abc end": "XREM ABC END",
+        "if a then 10 else rem abc end": "IF A THEN 10 ELSE REM abc end",
+    }
+    for body, want in cases_c.items():
+        expect(f"予測 M_C: {body!r}", predict_body_c(body) == want)
     # 検出力: 現行(PRINTだけ大文字化)の自作ROM相当の出力は M_A と食い違う
     only_print = lambda b: b.replace("print", "PRINT")
     diffs = sum(1 for _, b in CONTEXTS if only_print(b) != predict_body(b))
