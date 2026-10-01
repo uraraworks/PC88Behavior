@@ -109,7 +109,14 @@ for arm in "${ARMS[@]}"; do
     cp "$WORK/media/B0.d88" "$run/drive1.d88" || exit 2
   fi
   cp "$WORK/media/$media.d88" "$run/before.d88" || exit 2
-  if [ "$arm" = J-D1 ]; then :; elif [ "$arm" != J-6 ]; then cp "$run/before.d88" "$run/drive2.d88" || exit 2; fi
+  if [ "$arm" = J-D1 ]; then
+    # hybrid の J-D1 はドライブ2に別媒体(B1)を挿し、書き込み先Dの誤りで
+    # そちらへ書かれたら「もう一方のドライブ不変」の検査で落とす。
+    if [ "$MODE" = hybrid ]; then
+      cp "$WORK/media/B1.d88" "$run/drive2.d88" || exit 2
+      disk2_hash="$(shasum -a 256 "$run/drive2.d88" | cut -d' ' -f1)"
+    fi
+  elif [ "$arm" != J-6 ]; then cp "$run/before.d88" "$run/drive2.d88" || exit 2; fi
   command="$(python3 - "$REPO/tools" "$earm" <<'PY'
 import sys
 sys.path.insert(0,sys.argv[1])
@@ -127,21 +134,31 @@ PY
     cp "$run/before.d88" "$run/drive2.d88" || exit 2
     args+=(--expect-disk2-empty --insert-disk2 "$run/drive2.d88"
       --insert-disk2-at 1200 --screen-signature-at preinsert:1100)
-  elif [ "$arm" != J-D1 ]; then
+  elif [ "$arm" != J-D1 ] || [ "$MODE" = hybrid ]; then
     args+=(--disk2 "$run/drive2.d88")
   fi
   rc=0
   SAVE_CONFORM_ARM="$arm" SAVE_CONFORM_EXPECTED_FOR_FAKE="$EXPECTED" \
     /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${args[@]}" \
     >"$run/stdout.txt" 2>"$run/stderr.txt" || rc=$?
-  if [ "$MODE" = hybrid ] && [ "$arm" != J-D1 ] && [ "$disk1_hash" != "$(shasum -a 256 "$run/drive1.d88" | cut -d' ' -f1)" ]; then rc=1; fi
-  if [ "$rc" -eq 0 ] && [ -s "$run/signatures.tsv" ]; then
+  # 段ごとの結果を $run/stage.txt に残す（どの判定で落ちたかを後から示すため）。
+  fe_rc=$rc; other_state=na; compare_state=skipped
+  if [ "$MODE" = hybrid ]; then
+    other_state=ok
+    if [ "$arm" = J-D1 ]; then other_now="$(shasum -a 256 "$run/drive2.d88" | cut -d' ' -f1)"; other_ref="$disk2_hash"
+    else other_now="$(shasum -a 256 "$run/drive1.d88" | cut -d' ' -f1)"; other_ref="$disk1_hash"; fi
+    [ "$other_now" = "$other_ref" ] || { other_state=changed; rc=1; }
+  fi
+  if [ "$fe_rc" -eq 0 ] && [ -s "$run/signatures.tsv" ]; then
     img="$run/drive2.d88"; [ "$arm" = J-D1 ] && img="$run/drive1.d88"
-    python3 "$CHECK" compare "$EXPECTED" "$earm" "$img" \
-      "$run/signatures.tsv" "$run/before.d88" >"$run/compare.out" 2>"$run/compare.err" || rc=$?
+    if python3 "$CHECK" compare "$EXPECTED" "$earm" "$img" \
+        "$run/signatures.tsv" "$run/before.d88" >"$run/compare.out" 2>"$run/compare.err"; then
+      compare_state=ok
+    else compare_state=ng; rc=1; fi
   else
     rc=1
   fi
+  printf 'frontend_rc=%s\nother_drive=%s\ncompare=%s\n' "$fe_rc" "$other_state" "$compare_state" >"$run/stage.txt"
   if [ "$rc" -eq 0 ]; then printf '%s\tOK\n' "$arm"; else printf '%s\tNG\n' "$arm"; overall=1; fi
 done
 exit "$overall"

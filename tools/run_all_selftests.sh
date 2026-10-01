@@ -359,6 +359,9 @@ SCRIPTS_EXPECTED=(
   # SAVE ,A の実Z80境界・FAT・事前エラー判定と陰性対照。
   "tools/l4_save_z80_selftest.sh:0"
   "tools/save_write_protocol_selftest.sh:0"
+  # hybrid の J-1/J-D1 が書き込み先Dの誤りを検出できるかの故障注入（D常に0/常に1）。
+  # 公式環境が無ければ SKIP で rc=0。
+  "tools/save_drive_fault_selftest.sh:0"
   # 自作ROMと自作媒体のみでJ-1〜J-6の凍結期待値に照合する。
   "tools/conform_save.sh:0"
   "tools/m6fd_relocate_selftest.sh:0"
