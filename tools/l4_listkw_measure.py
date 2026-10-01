@@ -124,7 +124,46 @@ CONTEXTS = [
 ]
 
 
-def build_arms() -> list[tuple[str, str]]:
+# 追補1（l4-s5h 追補1 事前登録）。初回600腕で M_A と食い違った箇所
+# （GO TO・THEN/ELSE 直後の REM・`remabc`・`?` 展開の空白・数値定数）の境界を詰める。
+ADDENDUM1 = [
+    # REM の境界
+    ("a01", "rema"), ("a02", "rem1"), ("a03", 'rem"x end'), ("a04", "rem'x end"),
+    ("a05", "rem.x end"), ("a06", "rem(x end)"), ("a07", "rem-x end"),
+    ("a08", "rem x:end y"), ("a09", "rem  x end"), ("a10", "a=1:rem x end"),
+    ("a11", "if a thenrem x end"), ("a12", "if a elserem x end"),
+    ("a13", "a=1 rem x end"), ("a14", "print rem x end"), ("a15", "for rem x end"),
+    ("a16", "remx end"),
+    # DATA の境界
+    ("d01", "dataabc,end"), ("d02", "data1,abc"), ("d03", 'data"x",abc'),
+    ("d04", "if a then data abc,end"), ("d05", "if a else data abc,end"),
+    ("d06", "a=1:data abc,end:print abc"), ("d07", "data abc ,end"),
+    ("d08", "datax end"),
+    # ? の展開と空白
+    ("q01", "?a"), ("q02", "?1"), ("q03", '?"x"'), ("q04", "?-1"), ("q05", "?(1)"),
+    ("q06", "?:end"), ("q07", "?"), ("q08", "? 1"), ("q09", "?;1"), ("q10", "?a$"),
+    ("q11", "?abs(1)"), ("q12", "?chr$(65)"), ("q13", "?#1,a"), ("q14", "?,a"),
+    ("q15", '? "x"'), ("q16", "a=1:?1"), ("q17", "if a then ?1"), ("q18", "?1:?2"),
+    ("q19", "?.5"), ("q20", "?&hff"), ("q21", "?x$;y"), ("q22", "? a"),
+    ("q23", "?tab(3);1"), ("q24", '?using"#";1'),
+    # GO TO・GO SUB
+    ("g01", "goto 10"), ("g02", "go  to 10"), ("g03", "go to10"),
+    ("g04", "on x go to 10,20"), ("g05", "if a then go to 10"), ("g06", "gosub 10"),
+    ("g07", "go sub 10"), ("g08", "goto10"), ("g09", "go"), ("g10", "go to"),
+    ("g11", "xgo toy"),
+    # 数値定数（記録のみ。実装の対象にするかは結果を見て決める）
+    ("n01", "a=.5"), ("n02", "a=0.5"), ("n03", "a=1."), ("n04", "a=1.0"),
+    ("n05", "a=007"), ("n06", "a=1e5"), ("n07", "a=1e-5"), ("n08", "a=1d5"),
+    ("n09", "a=1.5e3"), ("n10", "a=1e+5"), ("n11", "a=100000"),
+    ("n12", "a=123456789"), ("n13", "a=1234567.5"), ("n14", "a=12345678901234567890"),
+    ("n15", "a=1!"), ("n16", "a=1#"), ("n17", "a=1%"), ("n18", "a=32768"),
+    ("n19", "a=&h10"), ("n20", "a=&hffff"), ("n21", "a=&o17"), ("n22", "a=&10"),
+    ("n23", "a=&b101"), ("n24", "a=.5e1"), ("n25", "a=1.5e-3"), ("n26", "a=0.0001"),
+    ("n27", "a=12345.678"), ("n28", "a=1234567890"),
+]
+
+
+def build_arms(addendum: bool = True) -> list[tuple[str, str]]:
     arms: list[tuple[str, str]] = []
     words = load_words()
     for fam, fmt in (("w1", "{w}"), ("w2", "({w})"), ("w3", "x{w}y")):
@@ -133,6 +172,9 @@ def build_arms() -> list[tuple[str, str]]:
             arms.append((f"{fam}_{i:03d}", fmt.format(w=wl)))
     for cid, body in CONTEXTS:
         arms.append((cid, body))
+    if addendum:
+        for cid, body in ADDENDUM1:
+            arms.append((cid, body))
     return arms
 
 
@@ -194,12 +236,109 @@ def predict_body(body: str) -> str:
     return "".join(out)
 
 
+# ----------------------------------------------------------------------
+# 候補 M_B（追補1、初回測定のあとに立てた事後の候補）: M_A に次を足す。
+#   - 打鍵はすべて小文字で届く（ハーネスの性質）ので、本文は先に小文字にする。
+#   - 文頭に THEN／ELSE の直後も数える（語の直前が英数字でないときだけ）。
+#   - REM／DATA は、直後が英字でないときだけ語として認める（`remabc` は名前）。
+#   - `?` は PRINT に展開し、直後が英数字のときだけ空白を1個入れる。
+#   - `go` + 空白 + `to` は GOTO、`go` + 空白 + `sub` は GOSUB に詰める。
+# 数値定数は予測しない（打鍵どおり＝大文字化のみ。食い違いは記録される）。
+# ----------------------------------------------------------------------
+def predict_body_b(body: str) -> str:
+    body = body.lower()
+    out: list[str] = []
+    i = 0
+    n = len(body)
+    stmt_start = True
+
+    def alpha(ch: str) -> bool:
+        return "a" <= ch <= "z"
+
+    def alnum(ch: str) -> bool:
+        return alpha(ch) or ("0" <= ch <= "9")
+
+    def copy_quoted(i: int) -> int:
+        j = body.find('"', i + 1)
+        j = n if j < 0 else j + 1
+        out.append(body[i:j])
+        return j
+
+    while i < n:
+        c = body[i]
+        rest = body[i:]
+        prev = body[i - 1] if i > 0 else " "
+        if c == '"':
+            i = copy_quoted(i)
+            stmt_start = False
+            continue
+        if c == "'":
+            out.append(body[i:])
+            break
+        if stmt_start and rest[:3] == "rem" and not alpha(rest[3:4] or " "):
+            out.append("REM")
+            out.append(body[i + 3:])
+            break
+        if stmt_start and rest[:4] == "data" and not alpha(rest[4:5] or " "):
+            out.append("DATA")
+            i += 4
+            while i < n and body[i] != ":":
+                if body[i] == '"':
+                    i = copy_quoted(i)
+                else:
+                    out.append(body[i])
+                    i += 1
+            stmt_start = False
+            continue
+        if c == "?" and stmt_start:
+            nxt = rest[1:2]
+            out.append("PRINT" + (" " if nxt and alnum(nxt) else ""))
+            i += 1
+            stmt_start = False
+            continue
+        if not alnum(prev) and rest[:2] == "go":
+            j = 2
+            while j < len(rest) and rest[j] == " ":
+                j += 1
+            if j > 2:
+                if rest[j:j + 2] == "to":
+                    out.append("GOTO")
+                    i += j + 2
+                    stmt_start = False
+                    continue
+                if rest[j:j + 3] == "sub":
+                    out.append("GOSUB")
+                    i += j + 3
+                    stmt_start = False
+                    continue
+        if not alnum(prev) and (rest[:4] == "then" or rest[:4] == "else"):
+            out.append(rest[:4].upper())
+            i += 4
+            stmt_start = True
+            continue
+        if c == ":":
+            out.append(c)
+            stmt_start = True
+        elif c == " ":
+            out.append(c)
+        else:
+            out.append(c.upper())
+            stmt_start = False
+        i += 1
+    return "".join(out)
+
+
 def line_text(lineno: int, body: str) -> str:
     return f"{lineno} {body.lstrip(' ')}"
 
 
 def predicted_list_text(lineno: int, body: str) -> str:
-    return f"{lineno} {predict_body(body.lstrip(' '))}"
+    # 打鍵は小文字で届く（ハーネスの性質。初回測定の c01 で判明、追補1に記録）。
+    return f"{lineno} {predict_body(body.lstrip(' ').lower())}"
+
+
+def predicted_list_text_b(lineno: int, body: str) -> str:
+    return f"{lineno} {predict_body_b(body.lstrip(' '))}"
 
 
 def sig(text: str) -> str:
@@ -277,23 +416,28 @@ def measure(rom_dir: str, official: bool) -> list[dict]:
                 ln = (j + 1) * 10
                 obs = listed[j] if gate_ok else None
                 pred = predicted_list_text(ln, body)
+                pred_b = predicted_list_text_b(ln, body)
                 records.append({
                     "id": aid,
                     "typed": line_text(ln, body),
                     "obs": obs,
                     "obs_sig": sig(obs) if obs is not None else "gate_failed",
                     "pred_sig": sig(pred),
+                    "pred_b_sig": sig(pred_b),
                     "match": (obs == pred) if obs is not None else None,
+                    "match_b": (obs == pred_b) if obs is not None else None,
+                    "pred_b": pred_b,
                 })
     return records
 
 
 def write_tsv(records, path):
     with open(path, "w", encoding="utf-8") as f:
-        f.write("# id\tobs_sig\tpred_MA_sig\tmatch_MA\n")
+        f.write("# id\tobs_sig\tpred_MA_sig\tmatch_MA\tpred_MB_sig\tmatch_MB\n")
         for r in records:
-            m = {True: "match", False: "differs", None: "gate_failed"}[r["match"]]
-            f.write(f"{r['id']}\t{r['obs_sig']}\t{r['pred_sig']}\t{m}\n")
+            nm = {True: "match", False: "differs", None: "gate_failed"}
+            f.write(f"{r['id']}\t{r['obs_sig']}\t{r['pred_sig']}\t{nm[r['match']]}"
+                    f"\t{r['pred_b_sig']}\t{nm[r['match_b']]}\n")
 
 
 def cmd_measure(a) -> int:
@@ -303,11 +447,12 @@ def cmd_measure(a) -> int:
     nm = sum(1 for r in rec if r["match"] is True)
     nd = sum(1 for r in rec if r["match"] is False)
     ng = sum(1 for r in rec if r["match"] is None)
-    print(f"arms={len(rec)} match_MA={nm} differs={nd} gate_failed={ng}")
+    nb = sum(1 for r in rec if r["match_b"] is True)
+    print(f"arms={len(rec)} match_MA={nm} differs_MA={nd} match_MB={nb} gate_failed={ng}")
     if a.show_differs:
         for r in rec:
-            if r["match"] is False:
-                print(f"{r['id']}\t{r['typed']}\t=>\t{r['obs']}")
+            if r["match_b"] is False:
+                print(f"{r['id']}\t{r['typed']}\t=>\t{r['obs']}\t(M_B: {r['pred_b']})")
     return 0 if ng == 0 else 1
 
 
@@ -378,6 +523,15 @@ def cmd_selftest(a) -> int:
     }
     for body, want in cases.items():
         expect(f"予測 M_A: {body!r}", predict_body(body) == want)
+    # M_B: 初回測定で観測した食い違い（事後に取り込んだもの）を再現する
+    cases_b = {
+        "go to 10": "GOTO 10", "if a then rem abc end": "IF A THEN REM abc end",
+        "remabc end": "REMABC END", '?"x";a': 'PRINT"x";A', "?1": "PRINT 1",
+        "xrem abc end": "XREM ABC END", "a=1:'abc end": "A=1:'abc end",
+        "rem abc print end Ab": "REM abc print end ab",
+    }
+    for body, want in cases_b.items():
+        expect(f"予測 M_B: {body!r}", predict_body_b(body) == want)
     # 検出力: 現行(PRINTだけ大文字化)の自作ROM相当の出力は M_A と食い違う
     only_print = lambda b: b.replace("print", "PRINT")
     diffs = sum(1 for _, b in CONTEXTS if only_print(b) != predict_body(b))
