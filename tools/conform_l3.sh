@@ -1346,7 +1346,26 @@ compare_path_streams() {
   done
 }
 
+# q88measure の起動時クラッシュ（SIGABRT, rc=134。既知欠陥、
+# docs/notes/m7az-write-conformance.md）だけは最大5回まで再試行する。
+# コアはROMディレクトリ側へ実行状態を置くので、再試行ごとにROM・媒体の
+# 作成からやり直す（1回ごとに run_path_measurement_once が全て作り直す）。
+# 他の失敗・タイムアウトは再試行しない。
 run_path_measurement() {
+  local attempt=1 rc=0
+  while :; do
+    run_path_measurement_once "$@"
+    rc=$?
+    if [ "$rc" -eq 134 ] && [ "$attempt" -lt 5 ]; then
+      echo "  [注記] $1-$2-run$4: 起動時クラッシュ(rc=134)のためROM・媒体から作り直して再試行 ${attempt}/5" >&2
+      attempt=$((attempt + 1))
+      continue
+    fi
+    return "$rc"
+  done
+}
+
+run_path_measurement_once() {
   local label="$1" mode="$2" scenario="$3" run="$4"
   local base="$WORK/path.${label}.${mode}.run${run}"
   local rom="${base}.rom" disk_a="${base}.a.d88" disk_b="${base}.b.d88"
@@ -1356,6 +1375,7 @@ run_path_measurement() {
   local -a extra_args
   extra_args=()
 
+  rm -rf "$rom" "$disk_a" "$disk_b" "$disk_insert" "${base}.m3u" "${base}.media"
   copy_entry_roms "$mode" "$rom" || return 1
   cp "$DISK" "$disk_a" || return 1
   case "$scenario" in

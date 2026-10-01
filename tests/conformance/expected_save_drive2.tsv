@@ -1,2 +1,5 @@
-# SAVE 2ドライブ構成（drive2宛）。公式ROM一式の固定値は未固定（初回測定で校正する）。
+# SAVE 2ドライブ構成・B:宛（SAVE"2:Q8E"）。公式ROM一式、A/B同内容の使い捨て複製（保護解除）。
+# 公式を同条件で2回実測し、全イベント列・画面が2回とも一致した値を固定（2026-10-01）。
 # name cpu port kind count sha256
+save-drive2-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
+save-drive2-main-fc	main	00FC	IN	7976	83275f9f07bf26aa6519e2ce2095d5f58daeafcb61f3d02d95a7676b17019b58
