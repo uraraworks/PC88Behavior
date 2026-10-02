@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -30,6 +31,17 @@ class ScreenSignature:
     line_count: int
     char_count: int
     sha256: str
+
+
+def without_ready_prompt(signature: ScreenSignature) -> list[tuple[int, LineSignature]]:
+    rows = [(row, item) for row, item in sorted(signature.lines.items()) if row != 19]
+    if not rows:
+        raise SignatureInputError("ready_prompt_missing")
+    row, item = rows[-1]
+    digest = hashlib.sha256(f"{row}\tOk\n".encode("ascii")).hexdigest()
+    if item != LineSignature(2, digest):
+        raise SignatureInputError("ready_prompt_signature")
+    return rows[:-1]
 
 
 def _uint(value: str, *, maximum: int | None = None) -> int:

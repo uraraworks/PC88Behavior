@@ -124,11 +124,9 @@ BASIC_HANDLE_LINE:
     RET
 _bhl_direct:
     CALL BASIC_RUN_DIRECT
-    LD A,(SAVE_DONE_FLAG)
-    PUSH AF
+    ; SAVEの成功フラグは通信完了判定用。直接モードは通常のOkへ戻る。
     XOR A
     LD (SAVE_DONE_FLAG),A
-    POP AF
     RET
 
 ; ---------------------------------------------------------------------

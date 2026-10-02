@@ -79,12 +79,8 @@ def load_expected(path: pathlib.Path) -> dict[str, tuple[tuple[int, int, str], .
 
 
 def entry_lines(signature: css.ScreenSignature) -> tuple[tuple[int, int, str], ...]:
-    rows = [(row, item.char_count, item.sha256)
-            for row, item in sorted(signature.lines.items()) if row != 19]
-    if not rows:
-        return ()
-    prompt_row = rows[-1][0]
-    return tuple(item for item in rows if item[0] != prompt_row)
+    return tuple((row, item.char_count, item.sha256)
+                 for row, item in css.without_ready_prompt(signature))
 
 
 def mismatch(expected: tuple[tuple[int, int, str], ...],

@@ -140,9 +140,7 @@ def load(path: Path) -> dict[str, dict[str, str]]:
 
 def screen_rows(report: Path, snapshot: str) -> str:
     sig = css.read_report(report, snapshot)
-    rows = [(row, item) for row, item in sorted(sig.lines.items()) if row != 19]
-    if rows:
-        rows.pop()  # 入力待ち行は公式ROMと自作ROMで異なる。
+    rows = css.without_ready_prompt(sig)
     return ",".join(f"{row}:{item.char_count}:{item.sha256}" for row, item in rows)
 
 
@@ -167,7 +165,9 @@ def compare(arm: str, expected: dict[str, str], image: Path, report: Path, befor
     if screen_rows(report, "late") != values["screen"]:
         return False
     if arm == "J-6":
-        values["preinsert_empty"] = str(screen_rows(report, "preinsert") == "").lower()
+        # 挿入前は実行中で入力待ちではない。行を除外せず空画面を要求する。
+        values["preinsert_empty"] = str(not any(
+            row != 19 for row in css.read_report(report, "preinsert").lines)).lower()
     return values == expected
 
 

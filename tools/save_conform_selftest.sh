@@ -96,7 +96,7 @@ if arm in os.environ.get('SAVE_FAKE_BAD_ARMS','').split():
 prompt_row=max([r for r,_,_ in rows],default=-1)+1
 prompt=(prompt_row,2,hashlib.sha256(f'{prompt_row}\tOk\n'.encode()).hexdigest())
 def snapshot(name,visible):
-    current=visible+[prompt]
+    current=visible if name=='preinsert' else visible+[prompt]
     output=[f'snapshot_id\t{name}','physical_row\tchar_count\tsha256']
     output.extend(f'{r}\t{n}\t{h}' for r,n,h in current)
     output.extend((f'line_count\t{len(current)}',f'char_count\t{sum(n for _,n,_ in current)}',f'sha256\t{"3"*64}'))
@@ -172,3 +172,28 @@ printf '%s\n%s\n' "$CANARY" "$FAT_CANARY" >"$WORK/leak-control.txt"
 grep -qF "$CANARY" "$WORK/leak-control.txt" || ng 漏えい陰性対照
 grep -qF "$FAT_CANARY" "$WORK/leak-control.txt" || ng FAT漏えい陰性対照
 printf 'OK SAVE適合器: 6腕、選択NG、漏えい陰性対照\n'
+
+python3 - "$REPO/tools" "$WORK" <<'PY'
+import hashlib,sys
+from pathlib import Path
+tools,work=map(Path,sys.argv[1:]);sys.path.insert(0,str(tools))
+import compare_screen_signatures as css
+import save_conform_check as check
+def signature(rows):
+    lines={r:css.LineSignature(n,h) for r,n,h in rows}
+    return css.ScreenSignature(lines,len(lines),sum(x.char_count for x in lines.values()),'0'*64)
+def invoke(rows):
+    report=work/'prompt-control.tsv'
+    text=['snapshot_id\tfinal','physical_row\tchar_count\tsha256']
+    text += [f'{r}\t{n}\t{h}' for r,n,h in rows]
+    text += [f'line_count\t{len(rows)}',f'char_count\t{sum(n for _,n,_ in rows)}','sha256\t'+'0'*64]
+    report.write_text('\n'.join(text)+'\n',encoding='ascii')
+    return check.screen_rows(report,'final')
+digest=hashlib.sha256(b'0\tOk\n').hexdigest()
+assert not invoke([(0,2,digest)])
+for rows in ([],[(19,2,'0'*64)],[(0,2,'0'*64)],[(0,1,digest)],[(1,2,digest)]):
+    try: invoke(rows)
+    except ValueError: pass
+    else: raise SystemExit('NG 入力待ちOk陰性対照')
+PY
+printf 'OK 入力待ちOk: 欠落・非Ok・文字数・行番号の陰性対照\n'

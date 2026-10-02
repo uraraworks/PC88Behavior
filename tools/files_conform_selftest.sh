@@ -79,7 +79,7 @@ fi
 ok "陰性対照: 2走不一致を拒否"
 
 # q88measureと同じ署名reportだけを書く偽フロントエンド。合成本文は漏えい
-# 目印を含む入力待ち行だけだが、メモリ内で直ちにSHA-256化する。
+# 目印を含むbaseline行はメモリ内で直ちにSHA-256化する。
 cat >"$WORK/fake_frontend.py" <<'PY'
 #!/usr/bin/env python3
 import hashlib, os, pathlib, sys
@@ -109,8 +109,8 @@ if arm in bad:
         rows.append((0, 1, "0" * 64))
 prompt_row = (max((row for row, _, _ in rows), default=-1) + 1)
 canary = os.environ.get("FILES_FAKE_CANARY", "synthetic")
-encoded = f"{prompt_row}\t{canary}\n".encode("utf-8")
-final = rows + [(prompt_row, len(canary), hashlib.sha256(encoded).hexdigest()),
+encoded = f"{prompt_row}\tOk\n".encode("utf-8")
+final = rows + [(prompt_row, 2, hashlib.sha256(encoded).hexdigest()),
                 (19, 1, "1" * 64)]
 
 def snapshot(name, values):
@@ -119,7 +119,8 @@ def snapshot(name, values):
     result += [f"line_count\t{len(values)}",
                f"char_count\t{sum(value[1] for value in values)}", f"sha256\t{'2' * 64}"]
     return result
-baseline = [(0, 1, "3" * 64), (19, 1, "1" * 64)]
+baseline = [(0, len(canary), hashlib.sha256(f"0\t{canary}\n".encode()).hexdigest()),
+            (19, 1, "1" * 64)]
 records = snapshot("baseline", baseline) + snapshot("final", final) + snapshot("late", final)
 if "--screen-signature-at" in args and "preinsert:1100" in args:
     records += snapshot("preinsert", baseline)
@@ -186,3 +187,23 @@ grep -qF "$CANARY" "$WORK/leaking-output" || ng "漏えい監査の陰性対照�
 ok "陰性対照: 壊した出力の漏えい目印を検出"
 
 ok "全項目合格"
+
+python3 - "$REPO/tools" "$WORK" <<'PY'
+import hashlib,sys
+from pathlib import Path
+tools,work=map(Path,sys.argv[1:]);sys.path.insert(0,str(tools))
+import compare_screen_signatures as css
+import files_conform_check as check
+def signature(rows):
+    lines={r:css.LineSignature(n,h) for r,n,h in rows}
+    return css.ScreenSignature(lines,len(lines),sum(x.char_count for x in lines.values()),'0'*64)
+def invoke(rows):
+    return check.entry_lines(signature(rows))
+digest=hashlib.sha256(b'0\tOk\n').hexdigest()
+assert not invoke([(0,2,digest)])
+for rows in ([],[(19,2,'0'*64)],[(0,2,'0'*64)],[(0,1,digest)],[(1,2,digest)]):
+    try: invoke(rows)
+    except ValueError: pass
+    else: raise SystemExit('NG 入力待ちOk陰性対照')
+PY
+printf 'OK 入力待ちOk: 欠落・非Ok・文字数・行番号の陰性対照\n'

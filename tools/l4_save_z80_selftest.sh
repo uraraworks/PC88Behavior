@@ -325,7 +325,12 @@ T_FAIL_HALT:
     JR T_FAIL_HALT
 '''
 # 偽のsub ROMを使い、BANK2本体をN88 ROMの0x6000へ直接配置する。
-source=harness+'\n'+bank
+program=(repo/'src/l4_basic/program.asm').read_text(encoding='utf-8')
+direct=program[program.index('_bhl_direct:\n'):].split('\n; ---------------------------------------------------------------------',1)[0]
+if fault=='prompt':
+    direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
+harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_FAIL7\n    LD A,1\n    LD (T_PASS),A')
+source=harness+'\nSAVE_DONE_FLAG EQU 0E24Bh\nBASIC_RUN_DIRECT:\n    LD A,1\n    LD (SAVE_DONE_FLAG),A\n    RET\n'+direct+'\n'+bank
 p=out/'save_test.asm'; p.write_text(source,encoding='utf-8')
 a=z80text.Assembler(); code=a.assemble(p)
 if len(code)>0x8000: raise SystemExit('試験ROM超過')
@@ -358,6 +363,8 @@ read -r pass fail writes bodies <<<"$(run_one normal)"
 [ "$pass" = 01 ] && [ "$fail" = 00 ] || { echo "NG: 正例($pass/$fail/$writes/$bodies)" >&2; exit 1; }
 read -r pass fail writes bodies <<<"$(run_one order)"
 [ "$pass" != 01 ] && [ "$fail" != 00 ] || { echo 'NG: 割当順の陰性対照' >&2; exit 1; }
+read -r pass fail writes bodies <<<"$(run_one prompt)"
+[ "$pass" != 01 ] && [ "$fail" != 00 ] || { echo 'NG: Ok抑止の陰性対照' >&2; exit 1; }
 # LISTそのもののCR LF・0x1Aは公式なしのJ-1/J-2本体照合で確認する。
 bash "$REPO/tools/conform_save.sh" >"$WORK/conform.out"
 [ "$(grep -c $'\tOK$' "$WORK/conform.out")" = 6 ] || { echo 'NG: SAVE適合' >&2; exit 1; }

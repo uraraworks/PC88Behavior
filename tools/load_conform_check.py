@@ -54,8 +54,7 @@ def expected(path):
 
 
 def entries(sig):
-    rows = [(r, x.char_count, x.sha256) for r, x in sorted(sig.lines.items()) if r != 19]
-    return rows[:-1]
+    return [(r, x.char_count, x.sha256) for r, x in css.without_ready_prompt(sig)]
 
 
 def summary(sig):
@@ -75,9 +74,11 @@ def compare(data, arm, report):
         # 安定性と、仕様12.1節の2行（LOAD後のOkと通常の入力待ち）を検査する。
         first = css.read_report(report, "load")
         second = css.read_report(report, "load_late")
-        first_rows = [v for r, v in sorted(first.lines.items()) if r != 19]
-        if (summary(first) != summary(second) or len(first_rows) != 2 or
-                first_rows[-1].char_count != 2):
+        first_rows = css.without_ready_prompt(first)
+        second_rows = css.without_ready_prompt(second)
+        # 入力待ちのOk（without_ready_prompt が署名で確かめる）の手前は1行（打った行）。
+        if (summary(first) != summary(second) or len(first_rows) != 1 or
+                first_rows != second_rows):
             bad.append(25)
     if bad:
         print(f"NG\t{len(set(bad))}\t{min(bad)}")
