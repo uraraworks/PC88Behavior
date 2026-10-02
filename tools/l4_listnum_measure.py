@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""l4-s5i: LIST数値定数の測定器具と候補N_A・追補1候補N_B・追補2候補N_C。
+"""l4-s5i: LIST数値定数の測定器具と候補N_A・追補1候補N_B・追補2候補N_C・追補3候補N_D。
 
 測定の打鍵・行抽出はlistkwと共有する。各腕2走。画面全体は出力しない。
 期待値は親が測定後に作る tests/conformance/expected_l4_listnum.tsv。
@@ -85,13 +85,33 @@ def build_arms_s5i_add2() -> list[tuple[str, str, bool]]:
     return arms
 
 
+def build_arms_s5i_add3() -> list[tuple[str, str, bool]]:
+    """追補3の新しい18腕だけ。全腕に予測を持つ。"""
+    groups = [
+        ('else', ['1e l', '1e  l', '1e ls', '1.5e l', '1d l']),
+        ('small', ['1e-39', '1d-39', '1e-40', '1e-38', '5e-39']),
+        ('entry', ['&o8', '&18', '&o78', '&o177778', '&9', '&o19']),
+        ('control', ['&h1g', '&o17']),
+    ]
+    return [(f'add3-{group}-{i:02d}', 'a=' + value, False)
+            for group, values in groups for i, value in enumerate(values, 1)]
+
+
+class EntrySyntax(Exception):
+    """N_Dの8進定数に8・9があり、2番で入力拒否。"""
+
+
+# 指数バイト1、仮数の先頭ビットだけが立つMBFの最小正値。
+FLOAT_MIN = {kind: Fraction(2) ** -128 for kind in ('single', 'double')}
+
+
 # MBF: 最大指数255、単精度24bit・倍精度56bitの仮数。
 FLOAT_MAX = {kind: Fraction((1 << bits) - 1) * Fraction(2) ** (127 - bits)
              for kind, bits in [('single', 24), ('double', 56)]}
 FLOAT_MAX_TEXT = {'single': '1.70141E+38', 'double': '1.701411834604692D+38'}
 
 
-def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False, n_c=False, entry=None) -> tuple[str, int]:
+def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False, n_c=False, entry=None, n_d=False) -> tuple[str, int]:
     """空白は次の数値文字を受理する時だけ消費し、語前の空白は残す。"""
     n = len(body)
     i = start
@@ -118,6 +138,8 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False,
         while (k := next_at(i)) < n and body[k] in valid:
             digits += body[k]
             i = k + 1
+        if n_d and base == 8 and k < n and body[k] in '89':
+            raise EntrySyntax
         value = int(digits or '0', base)
         if n_c and value > 65535:
             entry[:] = [True, False]
@@ -138,7 +160,8 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False,
     exp_digits = ''
     exp_sign = ''
     k = next_at(i)
-    if k < n and body[k] in 'ed' and not (n_b and (body.startswith('el', k) if n_c else body.startswith('else', k))):
+    spaced_el = n_d and body[k:k + 1] == 'e' and body[next_at(k + 1):next_at(k + 1) + 1] == 'l'
+    if k < n and body[k] in 'ed' and not spaced_el and not (n_b and (body.startswith('el', k) if n_c else body.startswith('else', k))):
         exponent = body[k]
         i = k + 1
         k = next_at(i)
@@ -179,6 +202,8 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False,
     if n_c and value > FLOAT_MAX[kind]:
         entry[:] = [True, True]
         return FLOAT_MAX_TEXT[kind], i
+    if n_d and 0 < value < FLOAT_MIN[kind]:
+        return ('0!' if kind == 'single' else '0#'), i
     number = (away.encode_single_away(value) if kind == 'single'
               else oracle.GwNum.from_fraction(value, 'double'))
     # l4_mbf_conform.expected_fout / expected_dfout と同じPRINT書式。
@@ -192,7 +217,7 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False,
     return text, i
 
 
-def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False, n_c=False, entry=None) -> str:
+def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False, n_c=False, entry=None, n_d=False) -> str:
     # 非数値の枝はpredict_body_cと同じ。14.1(5)の?直前の空白も扱う。
     body = body.lower()
     out = []
@@ -227,7 +252,7 @@ def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False, n_c=False
             out.append('PRINT' + (' ' if nxt and (namech(nxt) or nxt == '&') else ''))
             i += 1
         elif c.isdigit() or c == '&' or (c == '.' and body[i + 1:i + 2].isdigit()):
-            text, i = _number(body, i, skip_spaces, suffixes, n_b, n_c, entry)
+            text, i = _number(body, i, skip_spaces, suffixes, n_b, n_c, entry, n_d)
             out.append(text)
             if run_at(i) == 'rem':
                 out.append(' ')
@@ -283,6 +308,24 @@ def predict_arm_n_c(body: str) -> tuple[str | None, tuple[bool, bool | None]]:
 
 def predict_body_n_c(body: str) -> str | None:
     return predict_arm_n_c(body)[0]
+
+
+def predict_arm_n_d(body: str):
+    """LIST本文と番号別の入力探り予測。"""
+    entry = [False, None]
+    syntax = (False, False)
+    try:
+        text = _predict(body, n_b=True, n_c=True, n_d=True, entry=entry)
+    except EntryOverflow:
+        text = None
+    except EntrySyntax:
+        text = None
+        syntax = (True, False)
+    return text, {6: (bool(entry[0]), bool(entry[1])), 2: syntax}
+
+
+def predict_body_n_d(body: str) -> str | None:
+    return predict_arm_n_d(body)[0]
 
 
 def predicted_list_text(lineno, body):
@@ -644,6 +687,89 @@ def cmd_predict_add2(a):
     return 0
 
 
+def measure_add3(rom_dir: str, official: bool) -> list[dict]:
+    records = []
+    with tempfile.TemporaryDirectory() as td:
+        work = pathlib.Path(td)
+        for k, chunk in kw.chunk_arms(build_arms_s5i_add3()):
+            typed = [kw.line_text((j + 1) * 10, body) for j, (_, body, _) in enumerate(chunk)]
+            predictions = [None if observed else predict_arm_n_d(body)
+                           for _, body, observed in chunk]
+            runs = []
+            for repeat in range(2):
+                listed, _, untypable = kw.run_chunk(rom_dir, official, typed, work,
+                                                   f'add3c{k:04d}r{repeat}')
+                by_no = {}
+                for row in listed:
+                    digits = ''
+                    for ch in row.lstrip(' '):
+                        if not ch.isdigit():
+                            break
+                        digits += ch
+                    by_no.setdefault(int(digits), []).append(row)
+                allowed = set(range(10, 10 * len(chunk) + 1, 10))
+                gate = (not untypable and set(by_no) <= allowed
+                        and all(len(rows) == 1 for rows in by_no.values()))
+                # LIST走とは別の単独入力を、入場する8番の腕も両走で探る。
+                entries = {}
+                for j, (_, body, _) in enumerate(chunk):
+                    dump = _probe_entry_dump(rom_dir, official, body)
+                    entries[j] = {number: entry_message_status(dump, number)
+                                  for number in (6, 2)}
+                runs.append((by_no, gate, entries))
+            for j, (aid, _, observed) in enumerate(chunk):
+                no = (j + 1) * 10
+                obs = [run[0].get(no, [None])[0] for run in runs]
+                entry = [run[2].get(j) for run in runs]
+                gates = [run[1] for run in runs]
+                body_pred, entry_pred = (None, None) if observed else predictions[j]
+                pred = None if body_pred is None else f'{no} {body_pred}'
+                status = classify_add2(obs, entry, pred, entry_pred, observed, gates)
+                records.append(dict(id=aid, observation=observed, obs=obs, pred=pred,
+                                    entry=entry, entry_pred=entry_pred, gates=gates, status=status))
+    return records
+
+
+def cmd_measure_add3(a):
+    records = measure_add3(a.rom_dir, a.official)
+    with open(a.out, 'w', encoding='utf-8') as f:
+        f.write('# id\tobservation\tobs_sig\tobs_run2_sig\tpred_ND_sig'
+                + ''.join(f'\tentry_{n}_contains\tentry_{n}_exact'
+                        f'\tentry_{n}_contains_run2\tentry_{n}_exact_run2'
+                        f'\tpred_entry_{n}_contains\tpred_entry_{n}_exact' for n in (6, 2))
+                + '\tgate_run1\tgate_run2\tstatus\n')
+        for r in records:
+            fields = [r['id'], str(int(r['observation'])),
+                      *[kw.sig(v) if v is not None else 'absent' for v in r['obs']],
+                      'observational' if r['observation'] else (kw.sig(r['pred']) if r['pred'] is not None else 'absent'),
+                      *[v for n in (6, 2) for status in
+                        (r['entry'][0][n], r['entry'][1][n], r['entry_pred'][n])
+                        for v in _entry_fields(status)],
+                      *[str(int(v)) for v in r['gates']], r['status']]
+            f.write('\t'.join(fields) + '\n')
+    counts = {s: sum(r['status'] == s for r in records)
+              for s in ('agree', 'differ', 'unstable', 'observed')}
+    holds = not counts['differ'] and not counts['unstable']
+    print(f'arms={len(records)} ' + ' '.join(f'{s}={v}' for s, v in counts.items())
+          + (' N_D_holds' if holds else ' N_D_partial'))
+    return int(any(not all(r['gates']) or r['status'] == 'unstable' for r in records))
+
+
+def cmd_predict_add3(a):
+    path = pathlib.Path(a.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', encoding='utf-8') as f:
+        f.write('# id\tobservation\tprediction\tentry_6_contains\tentry_6_exact'
+                '\tentry_2_contains\tentry_2_exact\n')
+        for _, chunk in kw.chunk_arms(build_arms_s5i_add3()):
+            for j, (aid, body, observed) in enumerate(chunk):
+                pred, entry = (None, None) if observed else predict_arm_n_d(body)
+                value = 'observational' if observed else ('None' if pred is None else f'{(j + 1) * 10} {pred}')
+                f.write('\t'.join([aid, str(int(observed)), value, *[v for n in (6, 2) for v in _entry_fields(entry[n])]]) + '\n')
+    print(f'arms={len(build_arms_s5i_add3())} out={path}')
+    return 0
+
+
 EXAMPLES = {
     '1e5': '100000!', '1d5': '100000#', '1.5e-3': '.0015', '0.5': '.5',
     '007': '7', '100000': '100000!', '1.': '1!', '1.0': '1!',
@@ -997,6 +1123,60 @@ def cmd_selftest(a):
             cmd_measure_add2(SimpleNamespace(rom_dir='synthetic-unused', official=False, out=out))
         expect('追補2全体判定陰性: 探りの不一致でpartial', 'N_C_partial' in summary.getvalue())
 
+    for body, want in {'a=1e l': 'A=1E L', 'a=&o177778': None,
+                       'a=1e-39': 'A=0!', 'a=1d-39': 'A=0#'}.items():
+        try:
+            old = predict_body_n_c(body)
+        except (ValueError, OverflowError):
+            old = object()
+        expect('追補3公式表示: ' + body,
+               predict_body_n_d(body) == want
+               and (old != want or any(b == body and observed
+                    for _, b, observed in build_arms_s5i_add2())))
+    expect('追補3新規18腕', len(build_arms_s5i_add3()) == 18)
+    expect('追補3空白・d対照', predict_body_n_d('a=1e  l') == 'A=1E  L'
+           and predict_body_n_d('a=1.5e l') == 'A=1.5E L'
+           and predict_body_n_d('a=1d l') == 'A=1# L')
+    expect('追補3最小値境界', Fraction('1e-39') < FLOAT_MIN['single'] < Fraction('5e-39')
+           and predict_body_n_d('a=5e-39') != 'A=0!'
+           and predict_body_n_d('a=1e-38') != 'A=0!')
+    expect('追補3番号別予測', predict_arm_n_d('a=&o8')[1] == {6: (False, False), 2: (True, False)}
+           and predict_arm_n_d('a=1e-39')[1] == {6: (False, False), 2: (False, False)}
+           and predict_arm_n_d('a=1e39')[1][6] == (True, True)
+           and predict_arm_n_d('a=&o200000')[1][6] == (True, False))
+
+    def fake_add3(rom_dir, official, lines, work, tag):
+        rows = []
+        for line in lines:
+            no, body = line.split(' ', 1)
+            pred = predict_body_n_d(body)
+            if pred is not None:
+                rows.append(no + ' ' + pred)
+        return rows, [], False
+
+    def fake_add3_dump(rom_dir, official, body):
+        entries = predict_arm_n_d(body)[1]
+        return mk({i: ('Overflow' if n == 6 else 'Syntax error')
+                   + ('' if exact else '\x80')
+                   for i, (n, (contains, exact)) in enumerate(entries.items()) if contains})
+
+    with patch.object(kw, 'run_chunk', side_effect=fake_add3), patch(
+            __name__ + '._probe_entry_dump', side_effect=fake_add3_dump) as prober:
+        records = measure_add3('synthetic-unused', False)
+        expect('追補3両走・番号別照合', all(r['status'] == 'agree' for r in records)
+               and prober.call_count == 36)
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()) as summary:
+            out = pathlib.Path(td) / 'measure.tsv'
+            result = cmd_measure_add3(SimpleNamespace(rom_dir='synthetic-unused', official=False, out=out))
+            table = out.read_text().splitlines()
+        expect('追補3TSVと全体判定', result == 0 and 'N_D_holds' in summary.getvalue()
+               and len(table) == 19 and all(len(row.split('\t')) == 20 for row in table))
+    good = {6: (False, False), 2: (True, False)}
+    wrong = {6: (True, False), 2: (False, False)}
+    expect('追補3番号違いと不安定の分類',
+           classify_add2([None] * 2, [wrong] * 2, None, good) == 'differ'
+           and classify_add2([None] * 2, [good, wrong], None, good) == 'unstable')
+
     # 自作ROMだけを一時ビルドする。陽性対照は上限外の行番号で構文エラー。
     with tempfile.TemporaryDirectory() as td:
         rom = pathlib.Path(td) / 'rom'
@@ -1047,11 +1227,18 @@ def main():
     m.add_argument('--official', action='store_true')
     p = sub.add_parser('predict-add2')
     p.add_argument('--out', default=str(kw.REPO.parent / 'tmp/l4s5i-work/predict_add2.tsv'))
+    m = sub.add_parser('measure-add3')
+    m.add_argument('--rom-dir', required=True)
+    m.add_argument('--out', required=True)
+    m.add_argument('--official', action='store_true')
+    p = sub.add_parser('predict-add3')
+    p.add_argument('--out', default=str(kw.REPO.parent / 'tmp/l4s5i-work/predict_add3.tsv'))
     a = ap.parse_args()
     return {'measure': cmd_measure, 'check': cmd_check, 'predict': cmd_predict, 'selftest': cmd_selftest,
             'measure-add1': cmd_measure_add1, 'probe-entry': cmd_probe_entry,
             'predict-add1': cmd_predict_add1, 'predict-add2': cmd_predict_add2,
-            'measure-add2': cmd_measure_add2}[a.cmd](a)
+            'measure-add2': cmd_measure_add2, 'measure-add3': cmd_measure_add3,
+            'predict-add3': cmd_predict_add3}[a.cmd](a)
 
 
 if __name__ == '__main__':
