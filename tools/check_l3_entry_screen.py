@@ -264,6 +264,27 @@ def reached_output_success(rows: list[str], command: str) -> bool:
     return len(rows) >= 12 and ok_pos >= 1
 
 
+def reached_signature_prompt(path: Path, command: str, snapshot_id: str = "ready") -> bool:
+    """行署名で追加のREM打鍵と直後のOkを確認し、入力待ち復帰を示す。
+
+    REMは媒体を操作しない。測定対象の署名採取後に送るため候補画面を変えない。
+    生の画面本文を読まず、コマンド反映だけの停止画面も受理しない。
+    """
+    import hashlib
+    from compare_screen_signatures import read_report
+    screen = read_report(path, snapshot_id)
+    rows = sorted((row, value) for row, value in screen.lines.items() if row != 19)
+    def matches(row, value, text):
+        digest = hashlib.sha256(f"{row}\t{text}\n".encode("utf-8")).hexdigest()
+        return value.char_count == len(text) and value.sha256 == digest
+    for index, (row, value) in enumerate(rows[:-1]):
+        if matches(row, value, command):
+            next_row, response = rows[index+1]
+            if index+1 == len(rows)-1 and next_row == row+1 and matches(next_row, response, "Ok"):
+                return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", required=True, type=Path)
