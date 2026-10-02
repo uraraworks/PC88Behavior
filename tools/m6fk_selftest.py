@@ -111,6 +111,12 @@ def judgments():
             covered[arm].add(expect(arm, build(script.MEDIA[arm]), screen, candidate))
         changed = bytearray(build(script.MEDIA[arm])); rename(changed)
         expect(arm, changed, 'error_53', 'other')
+    # 追補1: 印のある媒体での改名。画面が no_line で形が N-1 と同じときだけ受理する（陰性対照2種）。
+    renamed_kp = bytearray(build('KP')); rename(renamed_kp)
+    covered['N-4'].add(expect('N-4', renamed_kp, 'no_line', 'renamed_ignoring_protect'))
+    expect('N-4', renamed_kp, 'ok_line', 'other')
+    widened = bytearray(renamed_kp); widened[record(widened, 0)+11] = 0x42
+    expect('N-4', widened, 'no_line', 'other')
     for arm in ('K-4', 'N-6'):
         data = bytearray(build('KM'))
         if arm == 'K-4':

@@ -42,6 +42,7 @@ def candidate_ids() -> dict[str, list[str]]:
         result[arm] = errors + ["no_error_media_unchanged", "other"]
     for arm in ("K-4", "N-6"):
         result[arm] = ["case_insensitive", "error_53_unchanged", "other"]
+    result["N-4"] = ["renamed_ignoring_protect"] + result["N-4"]  # 追補1
     return result
 
 
@@ -86,6 +87,10 @@ def classify(arm: str, before: dict, after: dict, lines: list[dict], changes: di
     elif arm in ("K-2", "K-3", "N-2", "N-3", "N-4"):
         candidates = errors_matched if unchanged and errors_matched else (
             ["no_error_media_unchanged"] if unchanged and screen != "other" else ["other"])
+        # 追補1: 印のある媒体でも N-1 と同じ形で改名した場合（N-4 のみ）。
+        if (arm == "N-4" and candidates == ["other"] and screen == "no_line" and renamed(0)
+                and others_same(0) and slots_same and fat_same and external_same):
+            candidates = ["renamed_ignoring_protect"]
     elif arm in ("K-4", "N-6"):
         changed = (new[2][0] in (0, 255) and new[2] != old[2]) if arm == "K-4" else (new[2][:9] == list(b"qsd".ljust(9, b" ")))
         candidates = (["case_insensitive"] if changed and others_same(2) and external_same and slots_same else
