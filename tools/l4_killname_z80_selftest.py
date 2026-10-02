@@ -273,7 +273,7 @@ T_BEFORE:
     if fault == 'prompt':
         direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
     harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_BAD4\n    LD A,1\n    LD (T_PASS),A')
-    harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU 0E24Bh\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
+    harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU 0E24Bh\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
     source = harness + data(image) + '    ORG 04000h\nT_EXPECTED:\n' + data(expected) + bank
     out.mkdir()
     asm = out/'killname_test.asm'

@@ -465,7 +465,15 @@ def run_chunk(rom_dir: str, official: bool, lines: list[str], work: pathlib.Path
     if official:
         args += ["--type-at", "300", "--type", "\n", "--type-at", "420", "--type", txt]
     else:
-        args += ["--type-at", "60", "--type", txt]
+        # 保存時にもFIN/FOUTを行う。倍精度の変換が次行の打鍵に重ならないよう
+        # 行ごとに120フレーム待つ（腕・行番号・照合の関門は同じ）。
+        at = 60
+        for line in ['new', *lines, 'cls', 'list']:
+            text = line + "\n"
+            args += ["--type-at", str(at), "--type", text]
+            at += len(text) * 8 + 120
+        frames = max(frames, at + 300)
+        args[args.index("--frames") + 1] = str(frames)
     args += ["--vram-dump", str(dump), "--vram-dump-at", str(frames - 50)]
     env = dict(os.environ, M6FH_LONG_TYPING="1")  # 打鍵数の上限(512)だけを緩める
     p = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)

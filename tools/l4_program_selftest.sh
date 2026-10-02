@@ -100,10 +100,19 @@ def run(label, typed, steps):
     dump = work / f"{label}.vram.bin"
     out = work / f"{label}.stdout.txt"
     err = work / f"{label}.stderr.txt"
+    # 数値定数は保存時にFIN/FOUTを行う。行間に変換完了の待ちを置く。
+    args = [frontend, "--core", core, "--rom-dir", rom]
+    at = 60
+    for line in typed.split("\\n"):
+        if not line:
+            continue
+        args += ["--type-at", str(at), "--type", line + "\\n"]
+        at += (len(line) + 1) * 8 + 120
+    frames = max(4000, at + 300)
+    args += ["--frames", str(frames), "--vram-dump", str(dump),
+             "--vram-dump-at", str(frames - 100)]
     proc = subprocess.run(
-        [frontend, "--core", core, "--rom-dir", rom, "--frames", "4000",
-         "--type", typed, "--type-at", "60",
-         "--vram-dump", str(dump), "--vram-dump-at", "3900"],
+        args,
         stdout=open(out, "wb"), stderr=open(err, "wb"))
     if proc.returncode != 0:
         fail(f"q88measure({label})が失敗")

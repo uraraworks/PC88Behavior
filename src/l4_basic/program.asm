@@ -9,7 +9,7 @@
 ;   行番号つきの行はエコーのみでOk等が出ない       … l4-program.md 第1節
 ;   LISTの書式(行番号そのまま・命令語大文字化・     … l4-program.md 第2節
 ;   空白保持・?→PRINT展開時だけ空白挿入・:前後空白なし・
-;   定数/文字列は打鍵どおり・大きい行番号もそのまま)
+;   文字列は打鍵どおり・数値は第14.5節の保存時正規化)
 ;   同一行番号は置換・行番号だけの行は削除・LISTは行番号順 … 第3節
 ;   トークン番号とは無関係（打鍵の再現でよい）        … 第4節
 ;
@@ -18,7 +18,8 @@
 ; （トークン番号）は一切使わない（docs/notes/l4-token-design.md）。
 ; LISTは保存した本文を LIST_RENDER_TEXT で整形して出す。規則は
 ; docs/spec/l4-basic.md 第14節（l4-s5h、公式ROM723腕の測定）: 語・変数名の
-; 英字は大文字、文字列の中・'以降・REM以降・DATAの:まで・数値定数は打鍵どおり、
+; 英字は大文字、文字列の中・'以降・REM以降・DATAの:までは打鍵どおり、
+; 数値定数は保存前にlistnum.asm（バンク3）が第14.5節の形へ書き換える。
 ; GO TOはGOTOに詰め、?はPRINTに展開する。最初の版（l4-program.md 第2節だけが
 ; 根拠）はPRINTと?しか知らず、ENDなどが小文字のまま残った。
 ;
@@ -119,11 +120,30 @@ BASIC_HANDLE_LINE:
     JR NC,_bhl_direct
     CALL PARSE_LINENUM
     JR C,_bhl_direct          ; 行番号として解釈できない -> 直接モードへ
+    ; BはEXT_BANK_CALLの内部で破壊されるので、桁数をRAMで渡す。
+    LD A,B
+    LD (0C5B4h),A
+    PUSH HL
+    PUSH BC
+    LD HL,06500h
+    LD A,3
+    CALL EXT_BANK_CALL
+    POP BC
+    POP HL
+    JR C,_bhl_stored
     CALL PROGRAM_STORE_LINE
+_bhl_stored:
     LD A,1
     RET
 _bhl_direct:
+    XOR A
+    LD (0C5B4h),A
+    LD HL,064C0h
+    LD A,3
+    CALL EXT_BANK_CALL
+    JR C,_bhl_direct_done
     CALL BASIC_RUN_DIRECT
+_bhl_direct_done:
     ; SAVEの成功フラグは通信完了判定用。直接モードは通常のOkへ戻る。
     XOR A
     LD (SAVE_DONE_FLAG),A

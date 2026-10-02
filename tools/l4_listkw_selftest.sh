@@ -4,7 +4,7 @@
 # tests/conformance/expected_l4_listkw.tsv にコミット済み。本文は無い）。
 #
 #   1. 器具の自己検査（tools/l4_listkw_measure.py selftest）
-#   2. 現行の自作ROMを全腕に通し、期待値（公式の署名）と一致する（除外27腕を除く）
+#   2. 現行の自作ROMを全腕に通し、期待値（公式の署名）と一致する（除外は go sub10 の1腕）
 #   3. 陰性対照A: 修正前のソース（ea7efba）から組んだROMでは、多数の腕で不一致になる
 #      （END だけ小文字のまま残る症状を含む。検査が対象を踏んでいる証拠）
 #   4. 陰性対照B: 期待値の署名を1つ壊す／1行消すと、その腕が不一致・欠落として落ちる
@@ -35,7 +35,7 @@ python3 "$REPO/src/build_main_rom.py" "$WORK/rom_new" >"$WORK/build_new.txt" 2>&
 python3 "$TOOL" check --rom-dir "$WORK/rom_new" --expected "$EXPECTED" >"$WORK/check_new.txt" 2>&1
 rc=$?
 tail -1 "$WORK/check_new.txt"
-if [ $rc -eq 0 ]; then ok "現行ROMは期待値と一致（除外27腕は実装しないと決めたもの）"; else ng "現行ROMが期待値と不一致"; head -5 "$WORK/check_new.txt"; fi
+if [ $rc -eq 0 ]; then ok "現行ROMは期待値と一致（除外は go sub10 の1腕）"; else ng "現行ROMが期待値と不一致"; head -5 "$WORK/check_new.txt"; fi
 
 say "3. 陰性対照A: 修正前のソースから組んだROMは落ちる"
 mkdir -p "$WORK/old/PC88Behavior"

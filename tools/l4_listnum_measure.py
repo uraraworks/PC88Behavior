@@ -393,33 +393,92 @@ def cmd_measure(a):
     return int(bool(counts['gate_failed'] or counts['unstable']))
 
 
+def check_records(records, expected, show_differs=False):
+    """凍結署名と探りを照合。14.5(14)の未測定文字だけは既知差。"""
+    bad = 0
+    ids = [r['id'] for r in records]
+    if len(ids) != len(set(ids)):
+        print('NG 腕のid重複')
+        bad += 1
+    for aid in sorted(set(expected) ^ set(ids)):
+        print(f'NG {aid}: 期待値/腕のid不整合')
+        bad += 1
+    for r in records:
+        fields = expected.get(r['id'])
+        if fields is None:
+            continue
+        obs_sig = [kw.sig(v) if v is not None else 'absent' for v in r['obs']]
+        ok = all(r['gates']) and obs_sig == [fields[0]] * 2
+        entry = r['entry']
+        ok &= entry[0] == entry[1]
+        for index, number in enumerate((6, 2)):
+            contains, exact = fields[1 + index * 2:3 + index * 2]
+            if contains == exact == '-':
+                continue
+            known = fields[0] == 'absent' and contains == '1' and exact == '0'
+            if known:
+                print(f'KNOWN {r["id"]} entry_{number}_exact: '
+                      '14.5節14の未測定非ASCII文字を再現しない（自作1・公式0）')
+            for run in entry:
+                if run is None:
+                    ok = False
+                    continue
+                pair = run[number]
+                if contains != '-':
+                    ok &= str(int(pair[0])) == contains
+                if exact != '-':
+                    ok &= str(int(pair[1])) == ('1' if known else exact)
+        if not ok:
+            bad += 1
+            print(f'NG {r["id"]}: 署名・探り不一致、欠落または関門失敗')
+            if show_differs:
+                print(f'{r["typed"]} => {r["obs"]} entry={entry}')
+    print(f'arms={len(records)} checked={len(records)} ng={bad}')
+    return int(bad != 0)
+
+
+def measure_check(rom_dir, expected):
+    # 追補2・追補3それぞれのbuild/chunkを維持し、行番号を変えない。
+    records = []
+    with tempfile.TemporaryDirectory() as td:
+        work = pathlib.Path(td)
+        for group, arms in ((2, build_arms_s5i_add2()), (3, build_arms_s5i_add3())):
+            for k, chunk in kw.chunk_arms(arms):
+                typed = [kw.line_text((j + 1) * 10, body)
+                         for j, (_, body, _) in enumerate(chunk)]
+                runs = []
+                for repeat in range(2):
+                    listed, _, untypable = kw.run_chunk(
+                        rom_dir, False, typed, work, f'check{group}c{k:04d}r{repeat}')
+                    by_no = {}
+                    for row in listed:
+                        no = int(row.lstrip().split(' ', 1)[0])
+                        by_no.setdefault(no, []).append(row)
+                    allowed = set(range(10, len(chunk) * 10 + 1, 10))
+                    gate = (not untypable and set(by_no) <= allowed
+                            and all(len(rows) == 1 for rows in by_no.values()))
+                    entries = {}
+                    for j, (aid, body, _) in enumerate(chunk):
+                        if any(v != '-' for v in expected.get(aid, [''] + ['-'] * 4)[1:]):
+                            dump = _probe_entry_dump(rom_dir, False, body)
+                            entries[j] = {n: entry_message_status(dump, n) for n in (6, 2)}
+                    runs.append((by_no, gate, entries))
+                for j, (aid, _, _) in enumerate(chunk):
+                    records.append(dict(id=aid, typed=typed[j],
+                        obs=[run[0].get((j + 1) * 10, [None])[0] for run in runs],
+                        gates=[run[1] for run in runs], entry=[run[2].get(j) for run in runs]))
+    return records
+
+
 def cmd_check(a):
     expected = {}
-    excluded = set()
     for line in pathlib.Path(a.expected).read_text(encoding='utf-8').splitlines():
-        if line.startswith('# excluded\t'):
-            excluded.update(line.split('\t')[1].split(','))
-        elif line and not line.startswith('#'):
+        if line and not line.startswith('#'):
             fields = line.split('\t')
-            if fields[0] in expected:
-                raise SystemExit('期待値のid重複')
-            expected[fields[0]] = fields[1]
-    records = measure(a.rom_dir, False)
-    bad = 0
-    for r in records:
-        if r['id'] in excluded:
-            continue
-        if r['status'] in ('gate_failed', 'unstable') or any(s != expected.get(r['id']) for s in r['obs_sig']):
-            bad += 1
-            print(f'NG {r["id"]}: 署名不一致・欠落・関門失敗')
-            if a.show_differs:
-                print(f'{r["typed"]}\t=>\t{r["obs"]}')
-    ids = {r['id'] for r in records}
-    for aid in sorted(((set(expected) | excluded) - ids) | (set(expected) & excluded)):
-        bad += 1
-        print(f'NG {aid}: 期待値/除外のid不整合')
-    print(f'arms={len(records)} checked={len(ids - excluded)} excluded={len(excluded)} ng={bad}')
-    return int(bad != 0)
+            if len(fields) != 6 or fields[0] in expected:
+                raise SystemExit('期待値の列数またはid重複')
+            expected[fields[0]] = fields[1:]
+    return check_records(measure_check(a.rom_dir, expected), expected, a.show_differs)
 
 
 def cmd_predict(a):
@@ -466,7 +525,7 @@ def _probe_entry_dump(rom_dir: str, official: bool, body: str, *, lineno=10) -> 
         raise ValueError('本文は改行なしの小文字ASCIIで指定する')
     with tempfile.TemporaryDirectory() as td:
         dump = pathlib.Path(td) / 'entry.bin'
-        txt = 'new\n' + kw.line_text(lineno, body) + '\n'
+        txt = 'new\n' + (body if lineno is None else kw.line_text(lineno, body)) + '\n'
         start = 420 if official else 60
         frame = start + 8 * len(txt) + 600
         args = [str(kw.FRONT), '--core', str(kw.find_core()), '--rom-dir', rom_dir,
@@ -1177,6 +1236,48 @@ def cmd_selftest(a):
            classify_add2([None] * 2, [wrong] * 2, None, good) == 'differ'
            and classify_add2([None] * 2, [good, wrong], None, good) == 'unstable')
 
+    # 新checkの対照。署名・入場拒否・contains・exact・両走・関門を別々に壊す。
+    import copy
+    expected_check = {'ok': [kw.sig('10 A=1'), '0', '0', '0', '0'],
+                      'reject': ['absent', '1', '0', '0', '0'],
+                      'float': [kw.sig('30 A=1.70141E+38'), '1', '1', '0', '0']}
+    good_check = [dict(id=aid, typed=aid, obs=[obs] * 2, gates=[True] * 2,
+                      entry=[entries.copy(), entries.copy()])
+                  for aid, obs, entries in (
+                      ('ok', '10 A=1', {6: (False, False), 2: (False, False)}),
+                      ('reject', None, {6: (True, True), 2: (False, False)}),
+                      ('float', '30 A=1.70141E+38', {6: (True, True), 2: (False, False)}))]
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        result = check_records(good_check, expected_check)
+    expect('193腕check陽性: 既知差の理由を明示', result == 0 and '14.5節14' in output.getvalue())
+    for fault in ('signature', 'missing', 'extra', 'duplicate', 'gate', 'unstable',
+                  'contains', 'known_exact', 'float_exact'):
+        broken = copy.deepcopy(good_check)
+        if fault == 'signature':
+            broken[0]['obs'] = ['10 A=2'] * 2
+        elif fault == 'missing':
+            broken.pop(0)
+        elif fault == 'extra':
+            broken.append(dict(broken[0], id='unknown'))
+        elif fault == 'duplicate':
+            broken.append(broken[0])
+        elif fault == 'gate':
+            broken[0]['gates'][0] = False
+        elif fault == 'unstable':
+            broken[0]['entry'][1][6] = (True, True)
+        elif fault == 'contains':
+            for run in broken[1]['entry']:
+                run[6] = (False, True)
+        elif fault == 'known_exact':
+            for run in broken[1]['entry']:
+                run[6] = (True, False)
+        else:
+            for run in broken[2]['entry']:
+                run[6] = (True, False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = check_records(broken, expected_check)
+        expect('193腕check陰性: ' + fault, result == 1)
+
     # 自作ROMだけを一時ビルドする。陽性対照は上限外の行番号で構文エラー。
     with tempfile.TemporaryDirectory() as td:
         rom = pathlib.Path(td) / 'rom'
@@ -1187,6 +1288,18 @@ def cmd_selftest(a):
             expect('探り陰性対照: a=1で番号なし', probe_entry(str(rom), False, 'a=1') == [])
             expect('探り陽性対照: 上限外行番号で番号2',
                    probe_entry(str(rom), False, 'a=1', lineno=65530) == [2])
+            for body, number in (('a=32768%', 6), ('a=32767.5%', 6),
+                                 ('a=&h10000', 6), ('a=&o200000', 6),
+                                 ('a=&o8', 2), ('a=&18', 2)):
+                expect('直接モードの整数入力拒否: ' + body,
+                       probe_entry_status(str(rom), False, body, number=number, lineno=None)
+                       == (True, True))
+            with tempfile.TemporaryDirectory() as td_check:
+                listed, _, untypable = kw.run_chunk(str(rom), False,
+                    ['10 a=32767.499%', '20 a=32767.500%',
+                     '30 a=7', '30 a=32768%'], pathlib.Path(td_check), 'round-retain')
+                expect('整数の厳密丸め・拒否で既存行を保持', not untypable
+                       and listed == ['10 A=32767', '30 A=7'])
             expect('2値探り陰性対照: a=1',
                    probe_entry_status(str(rom), False, 'a=1', number=2) == (False, False))
             expect('2値探り陽性対照: 上限外行番号',
