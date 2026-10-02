@@ -1,6 +1,6 @@
 # L4 BASIC — 直接モードの PRINT
 
-仕様書 第3.15版 / 2026-10-01
+仕様書 第3.16版 / 2026-10-02
 
 測定対象: エミュレータ QUASI88 libretro 版、コア既定 N88 V2、ディスク無し、公式ROM一式。
 
@@ -39,6 +39,7 @@
 | 第3.13版 | 2026-09-28 | 親セッション | `m6f-i`（2回目・追補2、`docs/notes/m6f-i-attempt2-and-addendum2.md`・`docs/notes/m6f-i-addendum2-results.md`）から第12節「観測 — LOAD（ASCII 形式）」を新設した。種別 `0x00` 以外のファイルの扱いは自作側の判断として12.3節に分けて書いた |
 | 第3.14版 | 2026-09-29 | 親セッション | `m6f-j`（`docs/notes/m6f-j-attempt1-and-addendum1.md`・`docs/notes/m6f-j-addendum1-results.md`）から第13節「観測 — SAVE（ASCII 形式）」を新設した |
 | 第3.15版 | 2026-10-01 | サブエージェント | `l4-s5h`（`docs/notes/l4-s5h-list-lowercase-words-preregistration.md`・`l4-s5h-round1-results-and-addendum1-preregistration.md`・`l4-s5h-round2-results-and-addendum2-preregistration.md`・`l4-s5h-round3-results.md`）から第14節「観測 — プログラム行の LIST 表示（小文字で打った語）」を新設した。WebQ88 で `end` だけが LIST で小文字のまま残った症状が起点（原因は自作が `PRINT` しか大文字化していなかったこと）。公式ROMで723腕を測定し、語・変数名の大文字化、REM／DATA／`'`／文字列の中身、`GO TO` の詰め、`?` の展開の空白の規則を確定した。数値定数の読み直し等は未実装として明記した |
+| 第3.16版 | 2026-10-02 | 親セッション | `m6f-k`（`docs/notes/m6f-k-kill-name-behavior-preregistration.md`・`m6f-k-round1-results-and-addendum1.md`・`m6f-k-addendum1-results.md`）から第15節「観測 — KILL・NAME」を新設した |
 
 ---
 
@@ -1209,3 +1210,25 @@ REM・DATA・`GO TO`/`GO SUB`・`?`・`'` だけである。
 - 数値定数の読み直しの全体の規則（桁数による型の境目、`&H`/`&O` の桁、指数の書式の全域）。
 - 行頭が数字の本文（上記のとおり行番号に混ざる）、全角・半角カナを含む語、`REM` の中の長い文。
 - 予約語を変数名の途中に含む識別子の、実行時の解釈（LIST の表示としては第14.1節のとおり大文字になるだけ）。
+
+## 15. 観測 — KILL・NAME
+
+第11〜13節と同じくディスクを入れた状態で測定した（ドライブ1に参照ディスク、ドライブ2に自作の生成器で作った媒体）。
+根拠は `docs/notes/m6f-k-kill-name-behavior-preregistration.md`（事前登録）、`docs/notes/m6f-k-round1-results-and-addendum1.md`、
+`docs/notes/m6f-k-addendum1-results.md`（最終、器具 `1b724dd`）。媒体の変わり方は `l3-disk-format.md` 1.6節。
+
+### 15.1 規則
+
+1. `KILL "<ドライブ>:<名前>"` はファイルを消す。完了しても **`Ok` の行を足さない**。
+2. `NAME "<ドライブ>:<旧名>" AS "<ドライブ>:<新名>"` はファイルの名前を変える。完了しても **`Ok` の行を足さない**。
+3. 名前が見つからなければ **`ERR 53`**（`KILL` の名前、`NAME` の旧名）。名前は大文字・小文字を区別する。
+4. `NAME` の新名が既にあれば **`ERR 65`**。
+5. `NAME` の新名にドライブを書かないと **`ERR 73`**（旧名がドライブ2のとき）。
+6. 書き込み禁止の媒体では、`KILL` は **`ERR 61`**。**`NAME` はエラーにならず改名する。**
+7. 規則3〜6のエラーでは媒体は変わらない（規則6の `NAME` を除く）。
+
+### 15.2 測っていない範囲
+
+- ドライブをまたぐ `NAME`、両方ともドライブを省略した `NAME`・`KILL`（省略時の既定ドライブ）。
+- 名前の長さの規則、開いているファイルの `KILL`、媒体の無いドライブ。
+- エラーの判定の順（例: 旧名が無く新名もある場合）。
