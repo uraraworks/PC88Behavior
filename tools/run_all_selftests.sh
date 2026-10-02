@@ -256,6 +256,7 @@ SCRIPTS_EXPECTED=(
   # 修正前のソースから組んだROMが落ちることも確かめる。公式ROM・私物は不要で、
   # SKIPは無く常にrc=0を期待する。
   "tools/l4_listkw_selftest.sh:0"
+  "tools/l4_listnum_selftest.sh:0"
   # M7段階5終盤（2026-09-16）。l4-c5(代表プログラム集の適合場面)用の
   # 打鍵計画・記録器 tools/l4_program_typeplan.py・
   # tools/l4_program_conform_record.py。合成VRAM写しだけで完結するので
