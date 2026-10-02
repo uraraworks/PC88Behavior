@@ -2,9 +2,6 @@
 # 行の本文は置かない（署名のみ）。腕の定義は tools/l4_listkw_measure.py build_arms()。
 # 根拠: docs/notes/l4-s5h-round3-results.md（器具 ea7efba、公式ROM、2走一致）
 # 列: id<TAB>obs_sig
-# excluded	c38,c39,n02,n03,n04,n05,n06,n07,n08,n09,n10,n11,n12,n13,n14,n17,n18,n22,n23,n24,n25,n26,n27,n28	数値定数は値として読み直されて書き直される（1e5 -> 100000! など）。実装しない
-# excluded	b05	数字の直後の rem は REM と読まれ空白が1個入る（1rem）。実装しない
-# excluded	b16	`1 d` が指数部 1d(倍精度)と読まれ 1# になる（数値定数の読み直し）。実装しない
 # excluded	b32	go sub の直後に数字が接する形の詰め方が未確定（go sub10）。実装しない
 w1_000	374fcdb93221c17f
 w1_001	7895d4c855264c63
@@ -702,3 +699,30 @@ b33	3a038c9fd79f0692
 b34	91cd9ba73511d38d
 b35	b1e71fd592492792
 b36	39b1a229e33fabc2
+# 以下26腕は l4-s5i の実装に合わせて 2026-10-02 に公式ROMで取り直した署名（2走一致、器具は build_arms() と同じ行番号）。docs/notes/l4-s5i-round4-results.md §3
+b05	dcb5e5f45a02a607
+b16	3e3b443ccfeb5d2b
+c38	983803aed23ee55e
+c39	e2e6058152c83ab6
+n02	3e1e0437f61cd8bb
+n03	f21ef979607290f6
+n04	62515ad43271edde
+n05	79159ac7f6538bbf
+n06	9e309cb2f7c4e315
+n07	f5726af614297e65
+n08	e577b1b42fd967a9
+n09	cc952eb7c124d52c
+n10	83c4b0f4f7562e9b
+n11	cad3a9cdae64f44d
+n12	0dc69fed2082d14d
+n13	6c6bef7bb76e59d6
+n14	5c9d3453c0d955c6
+n17	818646d8c0ff6ba7
+n18	1d453caf5260c3d4
+n22	e09637e42fbcee4a
+n23	ebd503adca580f49
+n24	4b98dc37cd7fe657
+n25	03a993d55d26d43b
+n26	486ca7a905b91a1b
+n27	cd5199b898b976d9
+n28	734fc8793766ef75
