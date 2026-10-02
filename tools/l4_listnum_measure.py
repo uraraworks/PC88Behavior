@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""l4-s5i: LIST数値定数の測定器具と候補N_A・追補1候補N_B。
+"""l4-s5i: LIST数値定数の測定器具と候補N_A・追補1候補N_B・追補2候補N_C。
 
 測定の打鍵・行抽出はlistkwと共有する。各腕2走。画面全体は出力しない。
 期待値は親が測定後に作る tests/conformance/expected_l4_listnum.tsv。
 
 追補1: predict-add1 は作業TSVを生成、measure-add1 は159腕を2走する。
+追補2: predict-add2 / measure-add2 は175腕。8・9と観察腕は入力探りも各2走、
+6番の含む・完全一致を記録し、LISTと合わせてN_Cを判定する。
 probe-entry --arm ID（または --body BODY）はnew後の単独入力を探り、
 エラー表と完全一致した番号だけを出す。追補1の観測本文は出力しない。
 selftest は合成検査に加え、一時ビルドした自作ROMで探りの対照を検査する。
@@ -48,7 +50,7 @@ def build_arms_s5i() -> list[tuple[str, str]]:
 
 
 class EntryOverflow(Exception):
-    """N_B が行の入力拒否を予測する。"""
+    """N_B・N_C が行の入力拒否を予測する。"""
 
 
 def build_arms_s5i_add1() -> list[tuple[str, str, bool]]:
@@ -68,7 +70,28 @@ def build_arms_s5i_add1() -> list[tuple[str, str, bool]]:
     return arms
 
 
-def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False) -> tuple[str, int]:
+def build_arms_s5i_add2() -> list[tuple[str, str, bool]]:
+    """追補1の順序・本文を維持し、旧観察4腕にも予測を付ける。"""
+    arms = [(aid, body, False) for aid, body, _ in build_arms_s5i_add1()]
+    groups = [
+        ('space', ['&o1 2 3', '&o 1 7', '&1 2', '& 1 7']),
+        ('else', ['1el', '1elx', '1e l', '1.5el', '1e5l']),
+        ('entry', ['1e40', '1e-39', '1d-39', '1d40', '9.9e38', '&o177777', '&o177778']),
+    ]
+    for group, values in groups:
+        arms.extend((f'add2-{group}-{i:02d}', 'a=' + value,
+                     value in ('1e-39', '1d-39'))
+                    for i, value in enumerate(values, 1))
+    return arms
+
+
+# MBF: 最大指数255、単精度24bit・倍精度56bitの仮数。
+FLOAT_MAX = {kind: Fraction((1 << bits) - 1) * Fraction(2) ** (127 - bits)
+             for kind, bits in [('single', 24), ('double', 56)]}
+FLOAT_MAX_TEXT = {'single': '1.70141E+38', 'double': '1.701411834604692D+38'}
+
+
+def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False, n_c=False, entry=None) -> tuple[str, int]:
     """空白は次の数値文字を受理する時だけ消費し、語前の空白は残す。"""
     n = len(body)
     i = start
@@ -88,7 +111,7 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False)
             base = 16 if body[k] == 'h' else 8
             prefix = '&H' if base == 16 else '&O'
             i = k + 1
-            if n_b:
+            if n_b and (not n_c or base == 16):
                 skip_spaces = False
         digits = ''
         valid = '0123456789abcdef' if base == 16 else '01234567'
@@ -96,6 +119,9 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False)
             digits += body[k]
             i = k + 1
         value = int(digits or '0', base)
+        if n_c and value > 65535:
+            entry[:] = [True, False]
+            raise EntryOverflow
         return prefix + format(value, 'X' if base == 16 else 'o'), i
 
     mantissa = ''
@@ -112,7 +138,7 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False)
     exp_digits = ''
     exp_sign = ''
     k = next_at(i)
-    if k < n and body[k] in 'ed' and not (n_b and body.startswith('else', k)):
+    if k < n and body[k] in 'ed' and not (n_b and (body.startswith('el', k) if n_c else body.startswith('else', k))):
         exponent = body[k]
         i = k + 1
         k = next_at(i)
@@ -144,10 +170,15 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False)
             shifted = value + Fraction(1, 2)
             rounded = shifted.numerator // shifted.denominator
             if rounded > 32767:
+                if n_c:
+                    entry[:] = [True, False]
                 raise EntryOverflow
             return str(rounded), i
         # N_Aは整数の10進書き出しのみ。範囲・実行時のエラーは測定対象外。
         return str(int(value)), i
+    if n_c and value > FLOAT_MAX[kind]:
+        entry[:] = [True, True]
+        return FLOAT_MAX_TEXT[kind], i
     number = (away.encode_single_away(value) if kind == 'single'
               else oracle.GwNum.from_fraction(value, 'double'))
     # l4_mbf_conform.expected_fout / expected_dfout と同じPRINT書式。
@@ -161,7 +192,7 @@ def _number(body: str, start: int, skip_spaces: bool, suffixes: bool, n_b=False)
     return text, i
 
 
-def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False) -> str:
+def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False, n_c=False, entry=None) -> str:
     # 非数値の枝はpredict_body_cと同じ。14.1(5)の?直前の空白も扱う。
     body = body.lower()
     out = []
@@ -196,7 +227,7 @@ def _predict(body: str, *, skip_spaces=True, suffixes=True, n_b=False) -> str:
             out.append('PRINT' + (' ' if nxt and (namech(nxt) or nxt == '&') else ''))
             i += 1
         elif c.isdigit() or c == '&' or (c == '.' and body[i + 1:i + 2].isdigit()):
-            text, i = _number(body, i, skip_spaces, suffixes, n_b)
+            text, i = _number(body, i, skip_spaces, suffixes, n_b, n_c, entry)
             out.append(text)
             if run_at(i) == 'rem':
                 out.append(' ')
@@ -238,6 +269,20 @@ def predict_body_n_b(body: str) -> str | None:
         return _predict(body, n_b=True)
     except EntryOverflow:
         return None
+
+
+def predict_arm_n_c(body: str) -> tuple[str | None, tuple[bool, bool | None]]:
+    """LIST予測と6番の探り予測（含む、完全一致）。無検出時は(False, None)。"""
+    entry = [False, None]
+    try:
+        text = _predict(body, n_b=True, n_c=True, entry=entry)
+    except EntryOverflow:
+        text = None
+    return text, tuple(entry)
+
+
+def predict_body_n_c(body: str) -> str | None:
+    return predict_arm_n_c(body)[0]
 
 
 def predicted_list_text(lineno, body):
@@ -359,7 +404,20 @@ def entry_error_numbers(data: bytes) -> list[int]:
     return sorted(found)
 
 
-def probe_entry(rom_dir: str, official: bool, body: str, *, lineno=10) -> list[int]:
+def entry_message_status(dump: bytes, number: int) -> tuple[bool, bool]:
+    """指定文言を含む行と完全一致行の有無だけ返し、本文を返さない。"""
+    if len(dump) < kw.STRIDE * kw.ROWS:
+        raise ValueError('画面写しが短い')
+    messages = dict(line.split('\t') for line in
+                    (kw.REPO / 'src/l4_basic/errors.tsv').read_text(encoding='utf-8').splitlines()
+                    if line and not line.startswith('#'))
+    message = messages[str(number)].encode('ascii')
+    rows = [dump[r * kw.STRIDE:r * kw.STRIDE + kw.COLS].strip(b' ')
+            for r in range(kw.ROWS)]
+    return any(message in row for row in rows), any(message == row for row in rows)
+
+
+def _probe_entry_dump(rom_dir: str, official: bool, body: str, *, lineno=10) -> bytes:
     # 行番号付きの1行を入力する。実行やclsはしない。
     if not body.isascii() or body != body.lower() or '\n' in body or '\r' in body:
         raise ValueError('本文は改行なしの小文字ASCIIで指定する')
@@ -379,7 +437,15 @@ def probe_entry(rom_dir: str, official: bool, body: str, *, lineno=10) -> list[i
         err = p.stderr.decode('utf-8', errors='replace').lower()
         if p.returncode or 'untypable' in err or '打てない' in err:
             raise SystemExit('入力時エラーの探りに失敗')
-        return entry_error_numbers(dump.read_bytes())
+        return dump.read_bytes()
+
+
+def probe_entry(rom_dir: str, official: bool, body: str, *, lineno=10) -> list[int]:
+    return entry_error_numbers(_probe_entry_dump(rom_dir, official, body, lineno=lineno))
+
+
+def probe_entry_status(rom_dir: str, official: bool, body: str, *, number=6, lineno=10):
+    return entry_message_status(_probe_entry_dump(rom_dir, official, body, lineno=lineno), number)
 
 
 def classify_add1(first, second, prediction, observation=False, gates=(True, True)):
@@ -479,6 +545,102 @@ def cmd_predict_add1(a):
                 value = 'observational' if observed else ('None' if pred is None else f'{(j + 1) * 10} {pred}')
                 f.write(f'{aid}\t{int(observed)}\t{value}\n')
     print(f'arms={len(build_arms_s5i_add1())} out={path}')
+    return 0
+
+
+def classify_add2(obs, entry, prediction, entry_prediction, observation=False, gates=(True, True)):
+    if not all(gates):
+        return 'differ'
+    if obs[0] != obs[1] or entry[0] != entry[1]:
+        return 'unstable'
+    if observation:
+        return 'observed'
+    if obs[0] != prediction:
+        return 'differ'
+    if entry[0] is not None and entry[0] != entry_prediction:
+        return 'differ'
+    return 'agree'
+
+
+def measure_add2(rom_dir: str, official: bool) -> list[dict]:
+    records = []
+    with tempfile.TemporaryDirectory() as td:
+        work = pathlib.Path(td)
+        for k, chunk in kw.chunk_arms(build_arms_s5i_add2()):
+            typed = [kw.line_text((j + 1) * 10, body) for j, (_, body, _) in enumerate(chunk)]
+            predictions = [None if observed else predict_arm_n_c(body)
+                           for _, body, observed in chunk]
+            runs = []
+            for repeat in range(2):
+                listed, _, untypable = kw.run_chunk(rom_dir, official, typed, work,
+                                                   f'add2c{k:04d}r{repeat}')
+                by_no = {}
+                for row in listed:
+                    digits = ''
+                    for ch in row.lstrip(' '):
+                        if not ch.isdigit():
+                            break
+                        digits += ch
+                    by_no.setdefault(int(digits), []).append(row)
+                allowed = set(range(10, 10 * len(chunk) + 1, 10))
+                gate = (not untypable and set(by_no) <= allowed
+                        and all(len(rows) == 1 for rows in by_no.values()))
+                # LIST走とは別の単独入力を、入場する8番の腕も両走で探る。
+                entries = {j: probe_entry_status(rom_dir, official, body)
+                           for j, (_, body, observed) in enumerate(chunk)
+                           if observed or predictions[j][1][0]}
+                runs.append((by_no, gate, entries))
+            for j, (aid, _, observed) in enumerate(chunk):
+                no = (j + 1) * 10
+                obs = [run[0].get(no, [None])[0] for run in runs]
+                entry = [run[2].get(j) for run in runs]
+                gates = [run[1] for run in runs]
+                body_pred, entry_pred = (None, None) if observed else predictions[j]
+                pred = None if body_pred is None else f'{no} {body_pred}'
+                status = classify_add2(obs, entry, pred, entry_pred, observed, gates)
+                records.append(dict(id=aid, observation=observed, obs=obs, pred=pred,
+                                    entry=entry, entry_pred=entry_pred, gates=gates, status=status))
+    return records
+
+
+def _entry_fields(status):
+    return ['-', '-'] if status is None else [str(int(status[0])),
+                                             '-' if status[1] is None else str(int(status[1]))]
+
+
+def cmd_measure_add2(a):
+    records = measure_add2(a.rom_dir, a.official)
+    with open(a.out, 'w', encoding='utf-8') as f:
+        f.write('# id\tobservation\tobs_sig\tobs_run2_sig\tpred_NC_sig'
+                '\tentry_contains\tentry_exact\tentry_contains_run2\tentry_exact_run2'
+                '\tpred_entry_contains\tpred_entry_exact\tgate_run1\tgate_run2\tstatus\n')
+        for r in records:
+            fields = [r['id'], str(int(r['observation'])),
+                      *[kw.sig(v) if v is not None else 'absent' for v in r['obs']],
+                      'observational' if r['observation'] else (kw.sig(r['pred']) if r['pred'] is not None else 'absent'),
+                      *_entry_fields(r['entry'][0]), *_entry_fields(r['entry'][1]),
+                      *_entry_fields(r['entry_pred']),
+                      *[str(int(v)) for v in r['gates']], r['status']]
+            f.write('\t'.join(fields) + '\n')
+    counts = {s: sum(r['status'] == s for r in records)
+              for s in ('agree', 'differ', 'unstable', 'observed')}
+    holds = not counts['differ'] and not counts['unstable']
+    print(f'arms={len(records)} ' + ' '.join(f'{s}={v}' for s, v in counts.items())
+          + (' N_C_holds' if holds else ' N_C_partial'))
+    return int(any(not all(r['gates']) or r['status'] == 'unstable' for r in records))
+
+
+def cmd_predict_add2(a):
+    path = pathlib.Path(a.out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', encoding='utf-8') as f:
+        f.write('# id\tobservation\tprediction\tentry_contains\tentry_exact\n')
+        for _, chunk in kw.chunk_arms(build_arms_s5i_add2()):
+            for j, (aid, body, observed) in enumerate(chunk):
+                pred, entry = (None, None) if observed else predict_arm_n_c(body)
+                value = 'observational' if observed else ('None' if pred is None else f'{(j + 1) * 10} {pred}')
+                f.write('\t'.join([aid, str(int(observed)), value, *_entry_fields(entry)]) + '\n')
+    print(f'arms={len(build_arms_s5i_add2())} out={path}')
     return 0
 
 
@@ -679,6 +841,162 @@ def cmd_selftest(a):
            and classify_add1(None, None, None) == 'agree'
            and classify_add1('10 A=1', '10 A=1', None) == 'differ')
 
+    round2 = {
+        'a=&o 7': 'A=&O7', 'a=&o1 7': 'A=&O17', 'a=1els': 'A=1ELS',
+        'a=1e39': 'A=1.70141E+38', 'a=1d39': 'A=1.701411834604692D+38',
+        'a=&h10000': None, 'a=&o200000': None,
+    }
+    for i, (body, want) in enumerate(round2.items(), 1):
+        try:
+            old = predict_body_n_b(body)
+            old_matches = old == want
+        except OverflowError:
+            old_matches = False
+        expect(f'追補2既知腕{i}: N_C再現・N_B不一致',
+               predict_body_n_c(body) == want and not old_matches)
+    add2arms = build_arms_s5i_add2()
+    expect('追補2の腕: 追補1本文順序維持・175腕・観察2腕・小文字',
+           [(aid, b) for aid, b, _ in add2arms[:159]] == [(aid, b) for aid, b, _ in addarms]
+           and len(add2arms) == len({aid for aid, _, _ in add2arms}) == 175
+           and {b for _, b, o in add2arms if o} == {'a=1e-39', 'a=1d-39'}
+           and all(b == b.lower() and b.isascii() and len(b) < 70 for _, b, _ in add2arms))
+    new_cases = {
+        '&o1 2 3': '&O123', '&o 1 7': '&O17', '&1 2': '&O12', '& 1 7': '&O17',
+        '1el': '1EL', '1elx': '1ELX', '1e l': '1! L', '1.5el': '1.5EL',
+        '1e5l': '100000!L', '1end': '1!ND',
+        '1e40': FLOAT_MAX_TEXT['single'], '1d40': FLOAT_MAX_TEXT['double'],
+        '9.9e38': FLOAT_MAX_TEXT['single'], '&o177777': '&O177777', '&o177778': '&O177778',
+    }
+    expect('追補2追加腕の予測・8は8進数字でない',
+           all(predict_body_n_c('a=' + b) == 'A=' + w for b, w in new_cases.items()))
+    expect('単精度最大値との比較: 9.9e38は上限外・最大値は上限内',
+           Fraction('9.9e38') > FLOAT_MAX['single']
+           and predict_arm_n_c('a=1e38')[1] == (False, None)
+           and predict_arm_n_c('a=9.9e38')[1] == (True, True))
+    expect('探り予測: 8・9・その他',
+           predict_arm_n_c('a=1d40')[1] == (True, True)
+           and all(predict_arm_n_c(b)[1] == (True, False)
+                   for b in ('a=32768%', 'a=32767.5%', 'a=40000%', 'a=&h10000', 'a=&o200000'))
+           and predict_arm_n_c('a=1')[1] == (False, None))
+    expect('探り合成対照: 含むが完全一致しない',
+           entry_message_status(mk({0: 'Overflow\x80'}), 6) == (True, False)
+           and entry_error_numbers(mk({0: 'Overflow\x80'})) == [])
+    expect('探り合成対照: 完全一致・陰性・短い写し',
+           entry_message_status(mk({0: 'Overflow'}), 6) == (True, True)
+           and entry_message_status(mk({0: '10 a=1', 1: 'Ok'}), 6) == (False, False))
+    try:
+        entry_message_status(b'', 6)
+    except ValueError:
+        short_rejected = True
+    else:
+        short_rejected = False
+    expect('探り合成陰性: 短い写しを拒否', short_rejected)
+
+    def fake_add2(rom_dir, official, lines, work, tag):
+        rows = []
+        for line in lines:
+            no, body = line.split(' ', 1)
+            pred = 'A=0' if body in ('a=1e-39', 'a=1d-39') else predict_body_n_c(body)
+            if pred is not None:
+                rows.append(f'{no} {pred}')
+        return rows, 2, False
+
+    def fake_entry2(rom_dir, official, body):
+        return (False, False) if body in ('a=1e-39', 'a=1d-39') else predict_arm_n_c(body)[1]
+
+    probe_arms = [b for _, b, observed in add2arms if observed or predict_arm_n_c(b)[1][0]]
+    with patch.object(kw, 'run_chunk', side_effect=fake_add2) as runner, patch(
+            __name__ + '.probe_entry_status', side_effect=fake_entry2) as prober:
+        records = measure_add2('synthetic-unused', False)
+        expect('追補2合成陽性: 173一致・2観察・別探り各2走',
+               sum(r['status'] == 'agree' for r in records) == 173
+               and sum(r['status'] == 'observed' for r in records) == 2
+               and all(all(r['gates']) for r in records)
+               and runner.call_count == 2 * len(list(kw.chunk_arms(add2arms)))
+               and prober.call_count == 2 * len(probe_arms)
+               and all(sum(call.args[2] == b for call in prober.call_args_list) == 2 for b in probe_arms))
+
+    def wrong_entry2(rom_dir, official, body):
+        result = fake_entry2(rom_dir, official, body)
+        return (True, False) if body == 'a=1e39' else result
+
+    with patch.object(kw, 'run_chunk', side_effect=fake_add2), patch(
+            __name__ + '.probe_entry_status', side_effect=wrong_entry2):
+        records = measure_add2('synthetic-unused', False)
+        expect('追補2合成陰性: LIST一致でも完全一致値の違いはdiffer',
+               [r['id'] for r in records if r['status'] == 'differ'] == ['add1-entry-03'])
+    counts2 = {}
+
+    def unstable_probe2(rom_dir, official, body):
+        counts2[body] = counts2.get(body, 0) + 1
+        result = fake_entry2(rom_dir, official, body)
+        if counts2[body] == 2:
+            if body == 'a=1e39':
+                return (False, False)
+            if body == 'a=1e-39':
+                return (True, True)
+        return result
+
+    with patch.object(kw, 'run_chunk', side_effect=fake_add2), patch(
+            __name__ + '.probe_entry_status', side_effect=unstable_probe2):
+        records = measure_add2('synthetic-unused', False)
+        expect('追補2合成陰性: 入場腕・観察腕の探り2走差',
+               {r['id'] for r in records if r['status'] == 'unstable'} == {'add1-entry-03', 'add2-entry-02'})
+    expect('追補2判定: LIST欠落・予測外入場・関門・観察2走差',
+           classify_add2([None, None], [None, None], '10 A=1', (False, None)) == 'differ'
+           and classify_add2(['10 A=1'] * 2, [(True, False)] * 2, None, (True, False)) == 'differ'
+           and classify_add2([None] * 2, [None] * 2, None, None, True, [False, True]) == 'differ'
+           and classify_add2([None, '10 A=0'], [None] * 2, None, None, True) == 'unstable')
+
+    for fault in ('missing', 'unstable', 'duplicate', 'unexpected', 'untypable'):
+        def broken_add2(*args):
+            rows, other, untypable = fake_add2(*args)
+            if args[-1].startswith('add2c0000'):
+                if fault == 'missing' or (fault == 'unstable' and args[-1].endswith('r1')):
+                    rows.pop(0)
+                elif fault == 'duplicate':
+                    rows.append(rows[0])
+                elif fault == 'unexpected':
+                    rows.append('999 A=1')
+                elif fault == 'untypable':
+                    untypable = True
+            return rows, other, untypable
+
+        with patch.object(kw, 'run_chunk', side_effect=broken_add2), patch(
+                __name__ + '.probe_entry_status', side_effect=fake_entry2):
+            records = measure_add2('synthetic-unused', False)
+            if fault in ('missing', 'unstable'):
+                valid = (records[0]['status'] == ('differ' if fault == 'missing' else 'unstable')
+                         and all(records[0]['gates'])
+                         and all(r['status'] == 'agree' for r in records[1:15]))
+            else:
+                valid = all(r['gates'] == [False, False] and r['status'] == 'differ'
+                            for r in records[:15])
+            expect('追補2測定陰性: ' + fault, valid)
+
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory() as td, patch.object(kw, 'run_chunk', side_effect=fake_add2), patch(
+            __name__ + '.probe_entry_status', side_effect=fake_entry2):
+        out = pathlib.Path(td) / 'results.tsv'
+        summary = io.StringIO()
+        with contextlib.redirect_stdout(summary):
+            result = cmd_measure_add2(SimpleNamespace(rom_dir='synthetic-unused', official=False, out=out))
+        lines = out.read_text(encoding='utf-8').splitlines()
+        fields = {line.split('\t')[0]: line.split('\t') for line in lines[1:]}
+        expect('追補2TSV: 2値各2走・予測・署名のみ・全体判定',
+               result == 0 and len(fields) == 175
+               and fields['add1-entry-03'][5:11] == ['1', '1', '1', '1', '1', '1']
+               and fields['add1-entry-05'][5:11] == ['1', '0', '1', '0', '1', '0']
+               and fields['add2-entry-02'][5:11] == ['0', '0', '0', '0', '-', '-']
+               and all(len(row) == 14 for row in fields.values())
+               and all('A=' not in line for line in lines)
+               and 'N_C_holds' in summary.getvalue())
+        with patch(__name__ + '.probe_entry_status', side_effect=wrong_entry2), contextlib.redirect_stdout(summary):
+            cmd_measure_add2(SimpleNamespace(rom_dir='synthetic-unused', official=False, out=out))
+        expect('追補2全体判定陰性: 探りの不一致でpartial', 'N_C_partial' in summary.getvalue())
+
     # 自作ROMだけを一時ビルドする。陽性対照は上限外の行番号で構文エラー。
     with tempfile.TemporaryDirectory() as td:
         rom = pathlib.Path(td) / 'rom'
@@ -689,7 +1007,11 @@ def cmd_selftest(a):
             expect('探り陰性対照: a=1で番号なし', probe_entry(str(rom), False, 'a=1') == [])
             expect('探り陽性対照: 上限外行番号で番号2',
                    probe_entry(str(rom), False, 'a=1', lineno=65530) == [2])
-    print(f'arms={len(arms)} add1_arms={len(addarms)} ng={len(fails)}')
+            expect('2値探り陰性対照: a=1',
+                   probe_entry_status(str(rom), False, 'a=1', number=2) == (False, False))
+            expect('2値探り陽性対照: 上限外行番号',
+                   probe_entry_status(str(rom), False, 'a=1', number=2, lineno=65530) == (True, True))
+    print(f'arms={len(arms)} add1_arms={len(addarms)} add2_arms={len(add2arms)} ng={len(fails)}')
     return int(bool(fails))
 
 
@@ -719,10 +1041,17 @@ def main():
     selection.add_argument('--body')
     p = sub.add_parser('predict-add1')
     p.add_argument('--out', default=str(kw.REPO.parent / 'tmp/l4s5i-work/predict_add1.tsv'))
+    m = sub.add_parser('measure-add2')
+    m.add_argument('--rom-dir', required=True)
+    m.add_argument('--out', required=True)
+    m.add_argument('--official', action='store_true')
+    p = sub.add_parser('predict-add2')
+    p.add_argument('--out', default=str(kw.REPO.parent / 'tmp/l4s5i-work/predict_add2.tsv'))
     a = ap.parse_args()
     return {'measure': cmd_measure, 'check': cmd_check, 'predict': cmd_predict, 'selftest': cmd_selftest,
             'measure-add1': cmd_measure_add1, 'probe-entry': cmd_probe_entry,
-            'predict-add1': cmd_predict_add1}[a.cmd](a)
+            'predict-add1': cmd_predict_add1, 'predict-add2': cmd_predict_add2,
+            'measure-add2': cmd_measure_add2}[a.cmd](a)
 
 
 if __name__ == '__main__':
