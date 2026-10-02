@@ -1,0 +1,12 @@
+# killname-conform-expected-v1
+# arm	judgment
+K-1	first_byte_00_rest_kept/units_freed/no_line
+K-2	error_53
+K-3	error_61
+K-4	error_53_unchanged
+N-1	same_slot_name_only/no_line
+N-2	error_65
+N-3	error_53
+N-4	renamed_ignoring_protect
+N-5	error_73
+N-6	error_53_unchanged

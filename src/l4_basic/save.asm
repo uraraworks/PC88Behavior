@@ -27,3 +27,13 @@ _save_capture_call:
     POP BC
     POP HL
     RET
+
+; KILL/NAMEもSAVEと同じ通信完了フラグを使う。常駐部は入口だけ。
+KILL_STMT:
+    LD A,2
+    LD HL,07100h
+    JP EXT_BANK_CALL
+NAME_STMT:
+    LD A,2
+    LD HL,07110h
+    JP EXT_BANK_CALL

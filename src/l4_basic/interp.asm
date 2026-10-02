@@ -262,6 +262,10 @@ ERRKIND_TABLE:
     DW ERR_MSG_61
     DB 64
     DW ERR_MSG_64
+    DB 65
+    DW ERR_MSG_65
+    DB 73
+    DW ERR_MSG_73
     DB 68
     DW ERR_MSG_68
     DB 0
@@ -302,6 +306,12 @@ _l4dl_have_stmt:
     JR Z,_l4dl_call_load
     CP 10
     JR Z,_l4dl_call_save
+    CP 11
+    JR Z,_l4dl_call_kill
+    CP 12
+    JR Z,_l4dl_call_name
+    CP 13
+    JR Z,_l4dl_call_rem
     CALL PRINT_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
@@ -330,6 +340,15 @@ _l4dl_call_files:
     JR _l4dl_after_stmt
 _l4dl_call_load:
     CALL LOAD_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_rem:
+    CALL REM_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_kill:
+    CALL KILL_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_name:
+    CALL NAME_STMT
     JR _l4dl_after_stmt
 _l4dl_call_save:
     CALL SAVE_STMT
@@ -436,28 +455,17 @@ _l4msk_try_color:
     LD A,1
     RET
 _l4msk_try_files:
-    ; FILESは直接モードとプログラム中で同じFILES_STMTを使う。
-    CALL TRY_MATCH_FILES
-    OR A
-    JR Z,_l4msk_try_load
-    LD A,8
+    CALL TRY_MATCH_DISK_STMT
     LD (STMT_KIND),A
-    LD A,1
-    RET
-_l4msk_try_load:
-    CALL TRY_MATCH_LOAD
     OR A
-    JR Z,_l4msk_try_save
-    LD A,9
-    LD (STMT_KIND),A
-    LD A,1
-    RET
-_l4msk_try_save:
-    CALL TRY_MATCH_SAVE
+    JR NZ,_l4msk_ext_matched
+    ; m6f-kの入力待ち確認は直接REM。RUNと同じ照合・本文処理を使う。
+    CALL TRY_MATCH_REM_ANY
     OR A
     RET Z
-    LD A,10
+    LD A,13
     LD (STMT_KIND),A
+_l4msk_ext_matched:
     LD A,1
     RET
 

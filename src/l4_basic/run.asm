@@ -59,7 +59,8 @@
 
 RUN_STMT_KIND      EQU 0D000h  ; 1B (0=PRINT 1=GOTO 2=GOSUB 3=RETURN
                                  ; 4=FOR 5=NEXT 6=END 7=STOP 8=ASSIGN、
-                                 ; 19=ON ERROR 20=RESUME 21=FILES)
+                                 ; 19=ON ERROR 20=RESUME 21=FILES 22=LOAD 23=SAVE
+                                 ; 24=KILL 25=NAME)
 RUN_CUR_RECORD     EQU 0D001h  ; 2B 現在実行中のPROGRAM_AREAレコード先頭
 RUN_CUR_LINENO     EQU 0D003h  ; 2B 現在の行番号(エラー表示用にキャッシュ)
 RUN_CTRL           EQU 0D005h  ; 1B 0=通常続行 1=ジャンプ済み 2=停止
@@ -2690,26 +2691,10 @@ _rmsk_try_resume:
     LD A,1
     RET
 _rmsk_try_files:
-    CALL TRY_MATCH_FILES
-    OR A
-    JR Z,_rmsk_try_load
-    LD A,21
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_load:
-    CALL TRY_MATCH_LOAD
-    OR A
-    JR Z,_rmsk_try_save
-    LD A,22
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_save:
-    CALL TRY_MATCH_SAVE
+    CALL TRY_MATCH_DISK_STMT
     OR A
     JR Z,_rmsk_try_assign
-    LD A,23
+    ADD A,13
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2807,6 +2792,10 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_load
     CP 23
     JR Z,_reos_save
+    CP 24
+    JR Z,_reos_kill
+    CP 25
+    JR Z,_reos_name
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2860,6 +2849,10 @@ _reos_load:
     JP LOAD_STMT
 _reos_save:
     JP SAVE_STMT
+_reos_kill:
+    JP KILL_STMT
+_reos_name:
+    JP NAME_STMT
 _reos_unmatched:
     LD A,1
     LD (ERROR_FLAG),A
@@ -3821,34 +3814,11 @@ TRY_MATCH_COLOR:
 STMT_COLOR_TEXT: DB "COLOR"
 STMT_COLOR_LEN EQU 5
 
-; FILESは直接モード(interp.asm)とプログラム実行の両方から使う。
-TRY_MATCH_FILES:
-    LD HL,STMT_FILES_TEXT
-    LD (RUN_KW_TEXT),HL
-    LD A,STMT_FILES_LEN
-    LD (RUN_KW_LEN),A
-    JP TRY_MATCH_KEYWORD_GENERIC
-STMT_FILES_TEXT: DB "FILES"
-STMT_FILES_LEN EQU 5
-
-; LOADも直接モードとプログラム中で同じ文入口を使う。
-TRY_MATCH_LOAD:
-    LD HL,STMT_LOAD_TEXT
-    LD (RUN_KW_TEXT),HL
-    LD A,STMT_LOAD_LEN
-    LD (RUN_KW_LEN),A
-    JP TRY_MATCH_KEYWORD_GENERIC
-STMT_LOAD_TEXT: DB "LOAD"
-STMT_LOAD_LEN EQU 4
-
-TRY_MATCH_SAVE:
-    LD HL,STMT_SAVE_TEXT
-    LD (RUN_KW_TEXT),HL
-    LD A,STMT_SAVE_LEN
-    LD (RUN_KW_LEN),A
-    JP TRY_MATCH_KEYWORD_GENERIC
-STMT_SAVE_TEXT: DB "SAVE"
-STMT_SAVE_LEN EQU 4
+; ディスク文はバンク2でまとめて照合する（8〜12、未一致0）。
+TRY_MATCH_DISK_STMT:
+    LD A,2
+    LD HL,07000h
+    JP EXT_BANK_CALL
 
 TRY_MATCH_ON:
     LD HL,STMT_ON_TEXT

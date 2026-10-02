@@ -61,6 +61,14 @@ S2_ERROR_FLAG   EQU 0E880h
 S2_ERROR_KIND   EQU 0E8A0h
 
 EXT_BANK2_SAVE_COMMAND:
+    CALL s2_filename
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    JP s2_save_suffix
+
+; SAVE/KILL/NAME共通。明示ドライブと9バイトの名前を大小変換せず読む。
+s2_filename:
     CALL s2_skip
     CALL s2_peek
     CP '"'
@@ -121,6 +129,8 @@ s2_name_end:
     JP Z,s2_syntax
     CALL s2_adv
     CALL s2_skip
+    RET
+s2_save_suffix:
     CALL s2_peek
     CP ','
     JP NZ,s2_unsupported
@@ -154,6 +164,14 @@ s2_parse_done:
     LD DE,S2_FAT
     LD BC,256
     LDIR
+    CALL s2_find_slot
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    JP s2_save_dir_done
+
+; 読み取りだけの共通探索。FOUNDは同名、CHOSENは同名または空き枠。
+s2_find_slot:
     XOR A
     LD (S2_FOUND),A
     LD (S2_CHOSEN),A
@@ -240,6 +258,8 @@ s2_next_entry:
     CP 13
     JP C,s2_dir_sector
 s2_dir_done:
+    RET
+s2_save_dir_done:
     LD A,(S2_CHOSEN)
     OR A
     JP Z,s2_full
@@ -272,25 +292,7 @@ s2_sectors_ready:
     LD A,(S2_FOUND)
     OR A
     JR Z,s2_allocate
-    LD A,(S2_OLDUNIT)
-    LD (S2_UNIT),A
-    LD B,160
-s2_release_loop:
-    LD A,(S2_UNIT)
-    CP 160
-    JR NC,s2_allocate
-    LD L,A
-    LD H,0
-    LD DE,S2_FAT
-    ADD HL,DE
-    LD A,(HL)
-    LD (S2_NEXT),A
-    LD (HL),0FFh
-    LD A,(S2_NEXT)
-    CP 160
-    JR NC,s2_allocate
-    LD (S2_UNIT),A
-    DJNZ s2_release_loop
+    CALL s2_release_chain
 s2_allocate:
     XOR A
     LD (S2_COUNT),A
@@ -427,30 +429,8 @@ s2_body_loop:
     LD A,(S2_SECTORS)
     CP B
     JR NZ,s2_body_loop
-    LD A,14
-    LD (S2_INDEX),A
-s2_fat_loop:
-    LD D,37
-    LD A,(S2_INDEX)
-    LD E,A
-    CALL s2_read
-    JP C,s2_disk_error
-    LD HL,S2_FAT
-    LD DE,S2_BUF
-    LD BC,160
-    LDIR
-    LD D,37
-    LD A,(S2_INDEX)
-    LD E,A
-    LD HL,S2_BUF
-    LD A,(S2_DRIVE)
-    CALL s2_write
-    JP C,s2_disk_error
-    LD A,(S2_INDEX)
-    INC A
-    LD (S2_INDEX),A
-    CP 17
-    JR C,s2_fat_loop
+    CALL s2_flush_fat
+    RET C
     LD D,37
     LD A,(S2_SECTOR)
     LD E,A
@@ -651,3 +631,340 @@ s2_order:
     DB 152,153,156,157,78,79,82,83,86,87,90,91,94,95,98,99
     DB 102,103,106,107,110,111,114,115,118,119,122,123,126,127,130,131
     DB 134,135,138,139,142,143,146,147,150,151,154,155,158,159
+
+; SAVE/KILL共通。単位0〜159だけを解放し、終端のセクタ数を読まない。
+s2_release_chain:
+    LD A,(S2_OLDUNIT)
+    LD (S2_UNIT),A
+    LD B,160
+s2_release_loop:
+    LD A,(S2_UNIT)
+    CP 160
+    RET NC
+    LD L,A
+    LD H,0
+    LD DE,S2_FAT
+    ADD HL,DE
+    LD A,(HL)
+    LD (S2_NEXT),A
+    LD (HL),0FFh
+    LD A,(S2_NEXT)
+    CP 160
+    RET NC
+    LD (S2_UNIT),A
+    DJNZ s2_release_loop
+    RET
+
+; 呼出し側の事前判定が済んだ後だけ使う。
+s2_flush_fat:
+    LD A,14
+    LD (S2_INDEX),A
+s2_fat_loop:
+    LD D,37
+    LD A,(S2_INDEX)
+    LD E,A
+    CALL s2_read
+    JR C,s2_flush_error
+    LD HL,S2_FAT
+    LD DE,S2_BUF
+    LD BC,160
+    LDIR
+    LD D,37
+    LD A,(S2_INDEX)
+    LD E,A
+    LD HL,S2_BUF
+    LD A,(S2_DRIVE)
+    CALL s2_write
+    JR C,s2_flush_error
+    LD A,(S2_INDEX)
+    INC A
+    LD (S2_INDEX),A
+    CP 17
+    JR C,s2_fat_loop
+    OR A
+    RET
+s2_flush_error:
+    CALL s2_disk_error
+    SCF
+    RET
+
+; 文字列で保存する処理系なので tokens.tsv の KILL=D8/NAME=F4 に対応する
+; 文キーワードをここで大小を区別せず照合する。名前欄は折り畳まない。
+    ORG 0x7000
+EXT_BANK2_DISK_MATCH:
+K2_CUR_PTR EQU 0E883h
+K2_LINE_END EQU 0E881h
+K2_MATCH_KIND EQU 0E276h
+K2_MATCH_LEN EQU 0E277h
+    LD IX,k2_words
+k2_match_word:
+    LD A,(IX+0)
+    OR A
+    RET Z
+    LD (K2_MATCH_LEN),A
+    LD A,(IX+1)
+    LD (K2_MATCH_KIND),A
+    LD HL,(K2_LINE_END)
+    LD DE,(K2_CUR_PTR)
+    OR A
+    SBC HL,DE
+    LD A,(K2_MATCH_LEN)
+    CP L
+    JR Z,k2_match_compare
+    JR NC,k2_match_next
+k2_match_compare:
+    LD HL,(K2_CUR_PTR)
+    PUSH IX
+    POP DE
+    INC DE
+    INC DE
+    LD A,(K2_MATCH_LEN)
+    LD B,A
+k2_match_chars:
+    LD A,(HL)
+    CALL k2_upper
+    LD C,A
+    LD A,(DE)
+    CP C
+    JR NZ,k2_match_next
+    INC HL
+    INC DE
+    DJNZ k2_match_chars
+    LD DE,(K2_LINE_END)
+    PUSH HL
+    OR A
+    SBC HL,DE
+    POP HL
+    JR Z,k2_match_ok
+    LD A,(HL)
+    CALL k2_upper
+    CP 'A'
+    JR C,k2_match_ok
+    CP 'Z'+1
+    JR C,k2_match_next
+k2_match_ok:
+    LD (K2_CUR_PTR),HL
+    LD A,(K2_MATCH_KIND)
+    RET
+k2_match_next:
+    PUSH IX
+    POP HL
+    LD A,(K2_MATCH_LEN)
+    ADD A,2
+    LD E,A
+    LD D,0
+    ADD HL,DE
+    PUSH HL
+    POP IX
+    JR k2_match_word
+k2_upper:
+    CP 'a'
+    RET C
+    CP 'z'+1
+    RET NC
+    SUB 32
+    RET
+k2_words:
+    DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",0
+
+    ORG 0x7100
+EXT_BANK2_KILL_ENTRY:
+    CALL k2_init
+    JP k2_kill
+    ORG 0x7110
+EXT_BANK2_NAME_ENTRY:
+    CALL k2_init
+    JP k2_name
+
+; SAVEの共有領域の直後。旧枠は新名探索が上書きするS2_*とは別に保存する。
+K2_OLDSEC EQU 0E269h
+K2_OLDSLOT EQU 0E26Ah
+K2_OLDDRIVE EQU 0E26Bh
+k2_init:
+    XOR A
+    LD (S2_DONE),A
+    LD (S2_WRITE_COUNT),A
+    LD (S2_ERROR_FLAG),A
+    LD A,64
+    LD (S2_ERROR_KIND),A
+    RET
+k2_kill:
+    CALL s2_filename
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL k2_end_statement
+    RET C
+    ; 保護判定はSAVEと同じREADと同じ印を使う。
+    LD D,37
+    LD E,13
+    CALL s2_read
+    JP C,s2_disk_error
+    LD A,(S2_BUF)
+    AND 010h
+    JP NZ,s2_protected
+    CALL k2_find_old
+    RET C
+    LD D,37
+    LD E,14
+    CALL s2_read
+    JP C,s2_disk_error
+    LD HL,S2_BUF
+    LD DE,S2_FAT
+    LD BC,256
+    LDIR
+    CALL s2_release_chain
+    ; ERR53/61の判定は完了した。3複製の0〜159だけを変更する。
+    CALL s2_flush_fat
+    RET C
+    CALL k2_read_old
+    RET C
+    LD (HL),0
+    JP k2_write_old
+k2_name:
+    CALL s2_filename
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL k2_find_old
+    RET C
+    CALL s2_peek
+    CALL k2_upper
+    CP 'A'
+    JP NZ,s2_syntax
+    CALL s2_adv
+    CALL s2_peek
+    CALL k2_upper
+    CP 'S'
+    JP NZ,s2_syntax
+    CALL s2_adv
+    CALL s2_skip
+    CALL s2_peek
+    CP '"'
+    JP NZ,s2_syntax
+    ; 新名は明示ドライブが必要。跨るNAMEは未測定のためERR73とする。
+    CALL s2_adv
+    CALL s2_peek
+    CP '1'
+    JR Z,k2_new_drive1
+    CP '2'
+    JP NZ,k2_drive_error
+    LD A,1
+    JR k2_new_drive
+k2_new_drive1:
+    XOR A
+k2_new_drive:
+    LD B,A
+    LD A,(K2_OLDDRIVE)
+    CP B
+    JP NZ,k2_drive_error
+    CALL s2_adv
+    CALL s2_peek
+    CP ':'
+    JP NZ,k2_drive_error
+    ; 共通のファイル名パーサへ引用符の位置から渡す。
+    LD HL,(K2_CUR_PTR)
+    DEC HL
+    DEC HL
+    LD (K2_CUR_PTR),HL
+    CALL s2_filename
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL k2_end_statement
+    RET C
+    CALL s2_find_slot
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,(S2_FOUND)
+    OR A
+    JP NZ,k2_exists
+    ; 印のセクタ・FATには触れず、旧枠の名前欄だけを書き換える。
+    CALL k2_read_old
+    RET C
+    LD DE,S2_NAME
+    LD B,9
+k2_rename_bytes:
+    LD A,(DE)
+    LD (HL),A
+    INC HL
+    INC DE
+    DJNZ k2_rename_bytes
+k2_write_old:
+    LD HL,S2_BUF
+    LD D,37
+    LD A,(K2_OLDSEC)
+    LD E,A
+    LD A,(K2_OLDDRIVE)
+    CALL s2_write
+    JP C,s2_disk_error
+    XOR A
+    LD (S2_ERROR_FLAG),A
+    INC A
+    LD (S2_DONE),A
+    RET
+k2_find_old:
+    CALL s2_find_slot
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    JR NZ,k2_carry
+    LD A,(S2_FOUND)
+    OR A
+    JR Z,k2_missing
+    LD A,(S2_SECTOR)
+    LD (K2_OLDSEC),A
+    LD A,(S2_SLOTIDX)
+    LD (K2_OLDSLOT),A
+    LD A,(S2_DRIVE)
+    LD (K2_OLDDRIVE),A
+    OR A
+    RET
+k2_missing:
+    LD A,53
+    CALL s2_error
+k2_carry:
+    SCF
+    RET
+k2_read_old:
+    LD A,(K2_OLDDRIVE)
+    LD (S2_DRIVE),A
+    LD D,37
+    LD A,(K2_OLDSEC)
+    LD E,A
+    CALL s2_read
+    JR C,k2_read_error
+    LD A,(K2_OLDSLOT)
+    LD L,A
+    LD H,0
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    LD DE,S2_BUF
+    ADD HL,DE
+    OR A
+    RET
+k2_read_error:
+    CALL s2_disk_error
+    SCF
+    RET
+k2_end_statement:
+    CALL s2_skip
+    CALL s2_peek
+    OR A
+    RET Z
+    CP ':'
+    JR Z,k2_end_ok
+    CALL s2_syntax
+    SCF
+    RET
+k2_end_ok:
+    OR A
+    RET
+k2_exists:
+    LD A,65
+    JP s2_error
+k2_drive_error:
+    LD A,73
+    JP s2_error

@@ -365,6 +365,9 @@ SCRIPTS_EXPECTED=(
   "tools/save_conform_selftest.sh:0"
   # SAVE ,A の実Z80境界・FAT・事前エラー判定と陰性対照。
   "tools/l4_save_z80_selftest.sh:0"
+  # KILL/NAMEは合成媒体の実Z80と偽結果JSONだけ。公式測定は登録しない。
+  "tools/l4_killname_z80_selftest.sh:0"
+  "tools/killname_conform_selftest.sh:0"
   "tools/save_write_protocol_selftest.sh:0"
   # hybrid の J-1/J-D1 が書き込み先Dの誤りを検出できるかの故障注入（D常に0/常に1）。
   # 公式環境が無ければ SKIP で rc=0。
