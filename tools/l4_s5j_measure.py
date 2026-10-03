@@ -255,9 +255,19 @@ def measure(rom_dir, official, arms=None, work=WORK):
     with tempfile.TemporaryDirectory(prefix='measure-', dir=work) as td:
         for arm in build_arms() if arms is None else arms:
             observations, signatures, entries, others = [], [], [], []
+            run_failed = False
             for repeat in range(2):
-                listed, other, untypable = kw.run_chunk(rom_dir, official,
-                    [*arm.seed, arm.typed], pathlib.Path(td), f'{arm.id}-r{repeat}')
+                try:
+                    listed, other, untypable = kw.run_chunk(rom_dir, official,
+                        [*arm.seed, arm.typed], pathlib.Path(td), f'{arm.id}-r{repeat}')
+                except (SystemExit, Exception):
+                    # 失敗を腕内に閉じ、次の腕の測定を続ける。
+                    run_failed = True
+                    observations.append([])
+                    signatures.append('gate_failed')
+                    others.append(0)
+                    entries.append(None)
+                    continue
                 rows = extract_band(listed, arm.band)
                 gate = not untypable and len(rows) == len(set(rows))
                 if arm.group == 'A':
@@ -269,12 +279,15 @@ def measure(rom_dir, official, arms=None, work=WORK):
                                lineno=None, number=2) if arm.probe else None)
             predictions = {c: signature(predict(arm, c)) for c in arm.candidates}
             statuses = {c: classify(*signatures, p) for c, p in predictions.items()}
+            if run_failed:
+                statuses = {c: 'gate_failed' for c in arm.candidates}
             stable = signatures[0] == signatures[1] and entries[0] == entries[1]
-            if entries[0] != entries[1]:
+            if not run_failed and entries[0] != entries[1]:
                 statuses = {c: 'unstable' for c in arm.candidates}
             records.append(dict(arm=arm, obs=observations, signatures=signatures,
                                 entries=entries, others=others, stable=stable,
-                                predictions=predictions, statuses=statuses))
+                                predictions=predictions, statuses=statuses,
+                                gate_reason='q88measure_failed' if run_failed else None))
     return records
 
 
@@ -363,6 +376,18 @@ def selftest(work):
     with patch.object(kw, 'run_chunk', return_value=(['110 GOSUB 0'], 0, True)):
         broken = measure('', False, [arms[0]], work)[0]
     expect('打てない文字の関門', all(s == 'gate_failed' for s in broken['statuses'].values()))
+    failed_arm, following_arm = build_add3_arms()[60:62]
+    def fail_one_arm(rom, official, lines, work, tag):
+        if lines[-1] == failed_arm.typed:
+            raise SystemExit('q88measure failed')
+        return predict(following_arm, 'G_H'), 0, False
+    with patch.object(kw, 'run_chunk', side_effect=fail_one_arm) as run:
+        isolated = measure('', False, [failed_arm, following_arm], work)
+    expect('run_chunk失敗腕を関門化し後続腕を継続',
+           isolated[0]['gate_reason'] == 'q88measure_failed'
+           and all(v == 'gate_failed' for v in isolated[0]['statuses'].values())
+           and isolated[1]['arm'] == following_arm and isolated[1]['statuses']['G_H'] == 'agree'
+           and run.call_count == 4)
     add_arms = build_add1_arms()
     expect('追補78腕・初回54腕の入力不変・小文字ASCII', len(add_arms) == 78
            and [replace(a, add1=False) for a in add_arms[:54]] == arms
