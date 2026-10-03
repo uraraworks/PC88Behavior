@@ -2,7 +2,6 @@
 # 行の本文は置かない（署名のみ）。腕の定義は tools/l4_listkw_measure.py build_arms()。
 # 根拠: docs/notes/l4-s5h-round3-results.md（器具 ea7efba、公式ROM、2走一致）
 # 列: id<TAB>obs_sig
-# excluded	b32	go sub の直後に数字が接する形の詰め方が未確定（go sub10）。実装しない
 w1_000	374fcdb93221c17f
 w1_001	7895d4c855264c63
 w1_002	b3f64612cdce1c5a
@@ -695,6 +694,7 @@ b28	204372cfc892de11
 b29	b9c98e0d57b51186
 b30	3aa6bb7e632f620f
 b31	e2f338c939ff228e
+b32	d9fe7ee7de05bf7f
 b33	3a038c9fd79f0692
 b34	91cd9ba73511d38d
 b35	b1e71fd592492792
@@ -726,3 +726,4 @@ n25	03a993d55d26d43b
 n26	486ca7a905b91a1b
 n27	cd5199b898b976d9
 n28	734fc8793766ef75
+# b32 は l4-s5j（go sub の詰め G_H）の実装に合わせて 2026-10-03 に公式ROMで取り直した署名（2走一致、器具は build_arms() と同じ行番号）。docs/notes/l4-s5j-addendum3-results.md

@@ -1203,7 +1203,7 @@ REM・DATA・`GO TO`/`GO SUB`・`?`・`'` だけである。
 自作はプログラム行の保存前に、数値定数を第14.5節の形へ書き換える（`src/l4_basic/listnum.asm`、拡張バンク3）。LIST が保存した本文を上記の規則で整形して出す（中間コードを持たない。
 `SAVE ,A` の本体も同じ整形を通る）。**実行（RUN）の文キーワード照合は大文字小文字を区別しない**ので、
 実行のキーワードは小文字のままでも照合できる。数値定数は RUN・`SAVE ,A` とも保存時に書き換えた本文を見る。実装は `tests/conformance/expected_l4_listkw.tsv`（公式で測った署名）に対し、
-723腕のうち722腕が一致する（`go sub10` の1腕は除外。検査は `tools/l4_listkw_selftest.sh`、修正前ROMで落ちる陰性対照つき）。
+723腕すべてが一致する（`go sub10` の b32 は l4-s5j の実装後に公式署名を取り直して照合に戻した。検査は `tools/l4_listkw_selftest.sh`、修正前ROMで落ちる陰性対照つき）。
 
 ### 14.3 照合から除外しているもの
 
@@ -1211,7 +1211,7 @@ REM・DATA・`GO TO`/`GO SUB`・`?`・`'` だけである。
 `expected_l4_s5j.tsv` はB群36腕・A群77腕を照合対象とし、a71は `@` を打てない器具の関門失敗として除外する。
 
 - 数値定数の書き直し・`1rem`・`1 d` の26腕は、第14.5節の実装に合わせて公式の署名を取り直し、照合に戻した（`docs/notes/l4-s5i-round4-results.md` §3）。
-- `expected_l4_listkw.tsv` の旧b32署名は据え置く。実装後に親が `tools/l4_listkw_measure.py` の元の行番号で公式署名を取り直して照合に戻す。
+- `expected_l4_listkw.tsv` の b32（`go sub10`）は、l4-s5j の実装後に `tools/l4_listkw_measure.py` の元の行番号で公式署名を取り直し（2走一致、2026-10-03）、照合に戻した。
 
 ### 14.4 測っていない範囲
 
