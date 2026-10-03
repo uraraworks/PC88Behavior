@@ -2,6 +2,8 @@
 """l4-s8a の事前予測と PRINT 測定。公式画面の本文は保存しない。"""
 import argparse
 import csv
+from fractions import Fraction
+import hashlib
 import json
 import math
 import os
@@ -14,11 +16,86 @@ import time
 from unittest.mock import patch
 
 import l4_listkw_measure as kw
+import l4_mbf_oracle_v2 as mbf
+from l4_mbf_oracle_v11_away import encode_single_away, expected_binop_away
 
 WORK = kw.REPO.parent / 'tmp/l4s8a-work'
 MOD = 1 << 24
 INITIAL = 0x4fc752
 CANDIDATES = ('R_GW', 'R_GW_S')
+# 追補1からの部分モデル。全データを再現する R_A は未発見。
+ADD2_CANDIDATES = ('R_P',)
+RP_MULTIPLIERS = (-26514538, 16129081, -11769122, 13098250,
+                  -10080595, -10426890, -13483109, 12482518)
+
+
+def rp_scramble(number):
+    packed = (number.mant & 0x7fffff) | (number.sign << 23)
+    swapped = int.from_bytes((packed ^ 0x4f).to_bytes(3, 'little'), 'big')
+    return encode_single_away(Fraction((swapped << 8) | number.exp, 1 << 32))
+
+
+def rp_literal(expr):
+    # 十進入力は未確定。測定時の負種は標本0のMBFを条件にして予測する。
+    number = mbf.parse_literal(expr, fin_algo='gw', dfin_algo='drep10a')
+    return encode_single_away(number.exact())
+
+
+class RPState:
+    """丸め済みMBF単精度＋8周期の位置。171個目の不一致を補修しない。"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.number = encode_single_away(Fraction(0xcfc752, MOD))
+        self.index = 1
+
+    def rnd(self, arg=1):
+        if arg < 0:
+            seed = encode_single_away(abs(Fraction(arg)))
+            seed.sign = 1
+            self.number = rp_scramble(seed)
+            self.index = 0
+        elif arg:
+            multiplier = encode_single_away(Fraction(RP_MULTIPLIERS[self.index]))
+            product = expected_binop_away('*', self.number, multiplier)
+            self.number = rp_scramble(product)
+            self.index = (self.index + 1) % 8
+        return self.number.exact()
+
+    def randomize(self, arg):
+        n = math.floor(abs(Fraction(arg)) + Fraction(1, 2)) * (-1 if arg < 0 else 1)
+        packed = ((n & 65535) << 8) | (self.number.mant & 255)
+        self.number = mbf.GwNum('single', sign=packed >> 23,
+            exp=self.number.exp, mant=(packed & 0x7fffff) | 0x800000)
+        self.rnd(1)
+
+
+def rp_prediction(arm, candidate='R_P', seed_row=None):
+    if candidate not in ADD2_CANDIDATES:
+        raise ValueError('追補2の候補が不正')
+    if 'expected' in arm:
+        return list(arm['expected'])
+    state, rows, seed = RPState(), [], None
+    for op, arg, j in arm['rp_ops']:
+        if op == 'reset':
+            state.reset()
+        elif op == 'input':
+            seed = (encode_single_away(Fraction(decode(seed_row))) if seed_row is not None
+                    else rp_literal(arg))
+            rows.append(encode(seed.exact(), j))
+        elif op == 'negative':
+            rows.append(encode(state.rnd(-seed.exact()), j))
+        elif op == 'randomize':
+            state.randomize(arg)
+        elif op == 'skip':
+            for _ in range(arg):
+                state.rnd(1)
+        elif op == 'rnd':
+            rows.append(encode(state.rnd(arg), j))
+        else:
+            raise ValueError('追補2の操作が不正')
+    return rows
 # 符号・指数・上位12ビット・下位12ビット。復元値は s*(h*4096+l)/2^24*2^e。
 ENCODER = [
     '900 s=sgn(x):a=abs(x):e=0',
@@ -355,6 +432,70 @@ def add1_arms():
     return result
 
 
+def add2_controls():
+    result = []
+    for control in controls(direct=True):
+        arm = paged_arm('add2-' + control['id'], [dict(
+            lines=['cls', *control['lines']], numbers=[1])])
+        arm['expected'] = control['expected']
+        result.append(arm)
+    return result
+
+
+def interval_pages(first, last):
+    return [dict(lines=['cls', f'for j={lo} to {min(lo+15, last)}:x=rnd(1):gosub 900:next'],
+                 numbers=list(range(lo, min(lo+15, last)+1)))
+            for lo in range(first, last+1, 16)]
+
+
+def add2_arms():
+    result = []
+
+    def add(aid, pages, ops):
+        arm = paged_arm('add2-' + aid, pages)
+        arm['rp_ops'] = ops
+        result.append(arm)
+
+    def negative(name, expr, skip=0):
+        prefix = [f'for k=1 to {skip}:y=rnd(1):next'] if skip else []
+        lines = ['cls', *prefix, f'y={expr}:j=0:x=y:gosub 900',
+                 'j=1:x=rnd(-y):gosub 900', 'j=2:x=rnd(0):gosub 900',
+                 'for j=3 to 12:x=rnd(1):gosub 900:next']
+        ops = ([('skip', skip, None)] if skip else []) + [
+            ('input', expr, 0), ('negative', None, 1), ('rnd', 0, 2)] + [
+            ('rnd', 1, j) for j in range(3, 13)]
+        add(name, [dict(lines=lines, numbers=list(range(13)))], ops)
+
+    for expr in ('7.25', '1e20', '.3', '12345.678'):
+        negative('negative-' + expr, expr)
+    for n in (12345, -12345, 4096, 99):
+        add(f'randomize-{n}', [dict(lines=['cls', f'randomize {n}',
+            'j=0:x=rnd(0):gosub 900', loop('rnd(1)', 10)], numbers=list(range(11)))],
+            [('randomize', n, None), ('rnd', 0, 0)] + [('rnd', 1, j) for j in range(1, 11)])
+    pages = interval_pages(401, 1000)
+    pages[0]['lines'].insert(1, 'for k=1 to 400:y=rnd(1):next')
+    add('start-401-1000', pages, [('skip', 400, None)] +
+        [('rnd', 1, j) for j in range(401, 1001)])
+    pages = [dict(lines=['cls', 'y=7.25:j=0:x=y:gosub 900',
+        'j=1:x=rnd(-y):gosub 900', 'for j=2 to 15:x=rnd(1):gosub 900:next'],
+        numbers=list(range(16))), *interval_pages(16, 401)]
+    add('negative-7.25-long', pages, [('input', '7.25', 0), ('negative', None, 1)] +
+        [('rnd', 1, j) for j in range(2, 402)])
+    program = ['10 for j=1 to 5:x=rnd(1):gosub 900:next', '20 end']
+    add('randomize-12345-run', [dict(lines=['cls', 'randomize 12345',
+        'j=0:x=rnd(0):gosub 900', loop('rnd(1)', 3)], numbers=list(range(4))),
+        dict(lines=[*program, 'cls', 'run'], numbers=list(range(1, 6))),
+        dict(lines=['cls', 'for j=6 to 10:x=rnd(1):gosub 900:next'], numbers=list(range(6, 11)))],
+        [('randomize', 12345, None), ('rnd', 0, 0)] + [('rnd', 1, j) for j in range(1, 4)] +
+        [('reset', 0, None)] + [('rnd', 1, j) for j in range(1, 11)])
+    negative('history-137-negative-.3', '.3', 137)
+    add('history-17-randomize-99', [dict(lines=['cls', 'for k=1 to 17:y=rnd(1):next',
+        'randomize 99', 'j=0:x=rnd(0):gosub 900', loop('rnd(1)', 10)],
+        numbers=list(range(11)))], [('skip', 17, None), ('randomize', 99, None), ('rnd', 0, 0)] +
+        [('rnd', 1, j) for j in range(1, 11)])
+    return result
+
+
 def page_valid(rows, numbers):
     # 値形式は既存の関門と共有し、番号はページの範囲と完全一致を要求する。
     if any(len(row) != 5 for row in rows) or [r[0] for r in rows] != numbers:
@@ -380,6 +521,9 @@ def paged_schedule(arm, official):
             at += (len(line) + 1) * 8 + 240
             if line == 'run' or ('gosub 900' in line and not line[0].isdigit()):
                 at += 3000
+            skip = re.fullmatch(r'for k=1 to (\d+):y=rnd\(1\):next', line)
+            if skip:
+                at += 125 * int(skip[1])
         snapshots.append(at + 200)
         at += 400  # 次のCLS以前に確実に採取する。
     return events, snapshots, at + 100
@@ -483,8 +627,230 @@ def cmd_measure_add1(args):
     return 0 if all(r['gate'] for r in records) else 1
 
 
+def add2_comparison(record, candidate):
+    arm = record['arm']
+    observed = [tuple(row) for part in record['obs'][0] for row in part]
+    conditional = any(op == 'input' for op, _, _ in arm.get('rp_ops', []))
+    seed_row = observed[0] if conditional and record['gate'] and observed else None
+    predicted = rp_prediction(arm, candidate, seed_row)
+    status = ('gate_failed' if not record['gate'] else
+              'agree' if observed == predicted else 'differ')
+    return status, predicted
+
+
+def cmd_predict_add2(args):
+    write_tsv(args.out, ['arm', 'candidate', 'candidate_scope', 'prediction_condition',
+        'prediction', 'page_sample_numbers', 'typed_lines'],
+        [(arm['id'], candidate, '追補1で棄却済みの部分モデル',
+          '負種は標本0の入力MBFを条件にする。以下はGW入力模型による暫定数値' if
+          any(op == 'input' for op, _, _ in arm.get('rp_ops', [])) else '固定数値',
+          json.dumps(rp_prediction(arm, candidate)),
+          json.dumps([page['numbers'] for page in arm['pages']]),
+          json.dumps([*ENCODER, *(line for page in arm['pages'] for line in page['lines'])], ensure_ascii=False))
+         for arm in add2_controls() + add2_arms() for candidate in ADD2_CANDIDATES])
+    return 0
+
+
+def cmd_measure_add2(args):
+    selected = add2_controls() + add2_arms()
+    records = measure_add1(args.rom_dir, args.official, selected, args.work_dir)
+    calibration = all(r['gate'] and add2_comparison(r, 'R_P')[0] == 'agree' for r in records[:7])
+    output = []
+    for record in records:
+        arm = record['arm']
+        comparisons = {c: add2_comparison(record, c) for c in ADD2_CANDIDATES}
+        conditional = any(op == 'input' for op, _, _ in arm.get('rp_ops', []))
+        for repeat in range(2):
+            output.append((arm['id'], repeat+1,
+                json.dumps([*ENCODER, *(line for p in arm['pages'] for line in p['lines'])], ensure_ascii=False),
+                json.dumps([p['numbers'] for p in arm['pages']]),
+                json.dumps([row for part in record['obs'][repeat] for row in part]),
+                json.dumps(record['obs'][repeat]), json.dumps(record['others'][repeat]),
+                'pass' if calibration and record['gate'] else 'gate_failed',
+                record['reasons'][repeat] or ('' if calibration else '定数対照不成立'),
+                *(comparisons[c][0] if calibration else 'gate_failed' for c in ADD2_CANDIDATES),
+                json.dumps({c: comparisons[c][1] for c in ADD2_CANDIDATES}),
+                '標本0の入力MBF（RND出力は使わない）' if conditional else '固定数値',
+                paged_frames(arm, args.official)))
+    write_tsv(args.out, ['arm', 'repeat', 'typed_lines', 'page_sample_numbers',
+        'print_values', 'page_print_values', 'other_line_counts', 'gate', 'gate_reason',
+        *ADD2_CANDIDATES, 'candidate_predictions', 'prediction_condition', 'scheduled_frames'], output)
+    print(f'追補2記録完了: {len(records)}腕×2走、関門通過 {sum(calibration and r["gate"] for r in records)}腕')
+    return 0 if calibration and all(r['gate'] for r in records) else 1
+
+
+def rp_training_predictions():
+    """既測定腕の再計算。入力対照の条件以外に観測RND値を使わない。"""
+    result = {}
+    seeds = {'1': Fraction(1), '1.5': Fraction(3, 2), '1.25': Fraction(5, 4),
+        '1.125': Fraction(9, 8), '1-ulp': 1 + Fraction(1, 8388608),
+        '1-plus-2^-16': 1 + Fraction(1, 65536), '1-plus-2^-8': 1 + Fraction(1, 256),
+        '0.5': Fraction(1, 2), '4': Fraction(4), '3': Fraction(3),
+        '1e-10': Fraction(0xdbe6fd, MOD) * Fraction(2)**-33, '65536': Fraction(65536)}
+    for arm in add1_arms():
+        name, state = arm['id'], RPState()
+        if name.startswith('add1-negative-'):
+            seed = seeds[name.removeprefix('add1-negative-')]
+            rows = [encode(seed, 0), encode(state.rnd(-seed), 1)]
+            rows += [encode(state.rnd(1), j) for j in range(2, 12)]
+        elif name.startswith('add1-randomize-'):
+            state.randomize(int(name.removeprefix('add1-randomize-')))
+            rows = [encode(state.rnd(0), 0)] + [encode(state.rnd(1), j) for j in range(1, 11)]
+        elif name == 'add1-rerun':
+            rows = []
+            for _ in range(3):
+                state.reset()
+                rows += [encode(state.rnd(1), j) for j in range(1, 6)]
+        else:
+            rows = [encode(state.rnd(1), j) for j in range(1, sum(len(p['numbers']) for p in arm['pages'])+1)]
+        result[name] = rows
+    for arm in controls() + arms():
+        name, state, rows = arm['id'], RPState(), []
+        if 'expected' in arm:
+            rows = arm['expected']
+        else:
+            for op, arg in arm['ops']:
+                if op == 'reset':
+                    state.reset()
+                elif op == 'randomize':
+                    state.randomize(Fraction(str(arg)))
+                elif op == 'rnd':
+                    j = len(rows) % 5 + 1 if name == 'rerun' else len(rows)+1
+                    rows.append(encode(state.rnd(rp_literal(str(arg)).exact()), j))
+                elif op == 'range':
+                    values = [state.rnd(1) for _ in range(arg)]
+                    rows = [encode(min(values), 1), encode(max(values), 2),
+                        (values.count(0), values.count(1), sum(x < 0 or x >= 1 for x in values))]
+        if name.startswith('start-'):
+            rows = rows[3:]  # 当初の一画面採取で実際に残った番号4〜20。
+        if name == 'rerun':
+            rows = [row for i in range(3) for row in rows[i*5:(i+1)*5] + [(6, *rows[i*5+4][1:])]]
+        result['round1-' + name] = rows
+    return result
+
+
+def rows_digest(rows):
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def rp_selftest(work):
+    # 全値の照合はリポジトリ外の解析で実施。本検査は代表値と自己整合。
+    # 全データ再現の成功を偽装せず、既知の171・342個目の棄却も検査する。
+    training = rp_training_predictions()
+    matching = {name: rows[1:] if name.startswith('add1-negative-') else rows
+        for name, rows in training.items() if name not in ('add1-start-400', 'round1-range')}
+    assert len(matching) == 53 and sum(map(len, matching.values())) == 437
+    assert rows_digest(matching) == '95231f0375c2024647221398789619d91a0d60296ca5b69506a9d4e213abf79f'
+    assert rows_digest(training['add1-start-400'][:170]) == 'e16f98e359e5b9a74d0fc492530f04f69251f5badf4190f0d293c63ee9334aaa'
+    assert rows_digest(training['add1-start-400']) != '89e71b7a9a8183de1f4b67fce2503e318c57c6c7ed7e19800f96688a6f35f26a'
+    assert rows_digest(training['round1-range']) != 'b226f1e5e5fcc784fb8d4979ad2119f1c1f3feb2d576b1c5c1a51702bcaf0951'
+    assert training['round1-range'][2] == (0, 0, 0)
+    state = RPState()
+    assert encode(state.rnd(0), 1) == (1, 1, 0, 3324, 1874)
+    first = [(-2, 4016, 286), (-1, 2498, 2401), (-1, 2554, 3303),
+             (0, 2110, 448), (-4, 3821, 2617)]
+    for j, triple in enumerate(first, 1):
+        assert encode(state.rnd(1), j) == (j, 1, *triple)
+    for j in range(6, 171):
+        value = state.rnd(1)
+    assert encode(value, 170) == (170, 1, -1, 2466, 305)
+    assert encode(state.rnd(1), 171) == (171, 1, 0, 2234, 2417)
+    assert encode(state.rnd(0), 171) != (171, 1, 0, 2250, 2162)
+    state.number = encode_single_away(Fraction(0xa26fdb, MOD))
+    state.index = 6
+    assert encode(state.rnd(1), 342) == (342, 1, -1, 2641, 1797)
+    assert encode(state.rnd(0), 342) != (342, 1, -1, 2673, 1287)
+    for x in (1, 2, Fraction(1, 2), 4, 65536):
+        state = RPState()
+        assert encode(state.rnd(-x), 1) == (1, 1, -1, 2528, 257)
+        assert state.index == 0
+        assert encode(state.rnd(0), 2)[1:] == (1, -1, 2528, 257)
+        assert encode(state.rnd(1), 2) == (2, 1, -1, 4086, 3059)
+    state = RPState()
+    assert encode(state.rnd(Fraction(-3, 2)), 1) == (1, 1, -1, 2528, 385)
+    assert encode(state.rnd(1), 2) == (2, 1, 0, 2907, 1530)
+    state = RPState()
+    tiny_seed = Fraction(0xdbe6fd, MOD) * Fraction(2)**-33
+    assert encode(state.rnd(-tiny_seed), 1) == (1, 1, 0, 2862, 1755)
+    for n, zero, next_value in [
+            (0, (0, 2433, 3191), (-1, 2285, 939)),
+            (2, (0, 3586, 119), (-4, 2873, 2522)),
+            (-32768, (0, 2433, 3319), (0, 3894, 2518))]:
+        state = RPState()
+        state.randomize(n)
+        assert encode(state.rnd(0), 0) == (0, 1, *zero)
+        assert encode(state.rnd(1), 1) == (1, 1, *next_value)
+    selected = add2_controls() + add2_arms()
+    assert len(selected) == 20
+    assert sum(len(p['numbers']) for a in selected for p in a['pages']) == 1143
+    predictions = {a['id']: rp_prediction(a) for a in selected}
+    for arm in selected:
+        rows, offset, parts = predictions[arm['id']], 0, []
+        for page in arm['pages']:
+            count = len(page['numbers'])
+            parts.append(rows[offset:offset+count])
+            offset += count
+        assert offset == len(rows) and paged_valid(parts, arm)
+    short = predictions['add2-negative-7.25']
+    long = predictions['add2-negative-7.25-long']
+    assert short[1][1:] == short[2][1:] == long[1][1:]
+    assert [r[1:] for r in short[3:]] == [r[1:] for r in long[2:12]]
+    assert predictions['add2-history-137-negative-.3'] == predictions['add2-negative-.3']
+    reset = predictions['add2-randomize-12345-run'][4:]
+    state = RPState()
+    assert reset == [encode(state.rnd(1), j) for j in range(1, 11)]
+    def fake(rom, official, arm, directory):
+        rows, offset, parts = predictions[arm['id']], 0, []
+        for page in arm['pages']:
+            count = len(page['numbers'])
+            parts.append(list(rows[offset:offset+count]))
+            offset += count
+        return parts, [0] * len(parts)
+    with patch.object(os.sys.modules[__name__], 'run_paged_arm', fake):
+        records = measure_add1('', False, selected, work)
+    assert all(r['gate'] and add2_comparison(r, 'R_P')[0] == 'agree' for r in records)
+    record = next(r for r in records if r['arm']['id'] == 'add2-negative-7.25')
+    altered = [list(part) for part in record['obs'][0]]
+    row = list(altered[0][1])
+    row[4] ^= 1
+    altered[0][1] = tuple(row)
+    assert add2_comparison(dict(record, obs=[altered, altered]), 'R_P')[0] == 'differ'
+    assert add2_comparison(dict(record, gate=False), 'R_P')[0] == 'gate_failed'
+    assert add2_comparison(dict(record, gate=False, obs=[[[tuple([1, 2, 3])]], []]), 'R_P')[0] == 'gate_failed'
+    seed_row = (0, 1, 3, 3712, 1)
+    conditioned = rp_prediction(record['arm'], seed_row=seed_row)
+    assert conditioned[0] == seed_row and conditioned != predictions[record['arm']['id']]
+    with tempfile.TemporaryDirectory(prefix='add2-selftest-', dir=work) as temp:
+        root = Path(temp)
+        args = argparse.Namespace(rom_dir='', official=False, out=root/'comparison.tsv', work_dir=root)
+        with patch.object(os.sys.modules[__name__], 'run_paged_arm', fake), patch('builtins.print'):
+            assert cmd_measure_add2(args) == 0
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 40 and all(r['R_P'] == 'agree' and r['gate'] == 'pass' for r in written)
+        def bad_calibration(rom, official, arm, directory):
+            parts, other = fake(rom, official, arm, directory)
+            if arm['id'] == 'add2-constant-zero':
+                parts[0][0] = encode(Fraction(3, 4), 1)
+            return parts, other
+        with patch.object(os.sys.modules[__name__], 'run_paged_arm', bad_calibration), patch('builtins.print'):
+            assert cmd_measure_add2(args) == 1
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 40 and all(r['R_P'] == 'gate_failed' and r['gate'] == 'gate_failed' for r in written)
+        args.out = root/'predictions.tsv'
+        assert cmd_predict_add2(args) == 0
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 20 and all(r['candidate'] == 'R_P' for r in written)
+    print('OK R_P代表値・8周期・負種・RANDOMIZE・RUN、171/342の既知不一致を検出')
+    print('OK 既測定全55腕の再計算: 53腕437組＋起動170組の署名一致、起動400・rangeは不一致')
+    print('OK 追補2の13腕＋対照7腕、1143組の番号・区切り・条件付き種・改変検出、合成TSV・全体対照関門')
+
+
 def selftest(work):
     work.mkdir(parents=True, exist_ok=True)
+    rp_selftest(work)
     fixed = [2035917, 10936412, 14577071, 12243382, 13402529]
     state = INITIAL
     for expected in fixed:
@@ -643,6 +1009,13 @@ def main():
     a.add_argument('--out', type=Path, required=True)
     a.add_argument('--official', action='store_true')
     a.add_argument('--work-dir', type=Path, default=WORK)
+    p2 = subs.add_parser('predict-add2')
+    p2.add_argument('--out', type=Path, required=True)
+    m2 = subs.add_parser('measure-add2')
+    m2.add_argument('--rom-dir', required=True)
+    m2.add_argument('--out', type=Path, required=True)
+    m2.add_argument('--official', action='store_true')
+    m2.add_argument('--work-dir', type=Path, default=WORK)
     s = subs.add_parser('selftest')
     s.add_argument('--work-dir', type=Path, default=WORK)
     args = parser.parse_args()
@@ -650,6 +1023,10 @@ def main():
         return selftest(args.work_dir)
     if args.command == 'measure-add1':
         return cmd_measure_add1(args)
+    if args.command == 'predict-add2':
+        return cmd_predict_add2(args)
+    if args.command == 'measure-add2':
+        return cmd_measure_add2(args)
     selected = controls(direct=args.command == 'measure' and args.official) + arms()
     if args.command == 'predict':
         write_tsv(args.out, ['arm', 'candidate', 'prediction', 'typed_lines'],
