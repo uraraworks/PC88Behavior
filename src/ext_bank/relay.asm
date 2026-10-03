@@ -87,7 +87,7 @@ EXT_BANK_REENTRY_DETECTED  EQU 0E8C9h   ; 1=再入を検出したことがある
 MAIN_SUB_LOGICAL_SENT      EQU 0E010h
 
 ; ---------------------------------------------------------------
-; EXT_BANK_INIT — EXT_BANK_BUSYの初期化。
+; EXT_BANK_INIT — EXT_BANK_BUSYと起動時のBASIC/RND状態の初期化。
 ;
 ; RAM(main_ram)は起動時にゼロクリアされる保証が無い(vendor/
 ; quasi88-libretro/src/memory.c mem_alloc()はmallocでゼロ初期化しない、
@@ -103,7 +103,8 @@ EXT_BANK_INIT:
     LD (EXT_BANK_BUSY),A
     LD (EXT_BANK_REENTRY_DETECTED),A
     LD (MAIN_SUB_LOGICAL_SENT),A
-    RET
+    ; 第16節: RUNと同じ乱数初期状態。直接モードが使う変数/スタックも初期化。
+    JP RUN_RESET_STATE
 
 ; バンク側から main ROM の任意のルーチンを呼ぶ共通の窓外中継。
 ; IX=呼び先、AF/BC/DE/HL は呼び先へそのまま渡す。復帰値とフラグも返す。

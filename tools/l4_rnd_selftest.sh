@@ -3,3 +3,4 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 "$REPO/tools/l4_rnd_measure.py" selftest "$@"
+python3 "$REPO/tools/l4_rnd_bank_conform.py"

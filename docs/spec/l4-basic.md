@@ -1407,3 +1407,57 @@ RANDOMIZE は i,c をリセットしない。内部更新も c に1回数え、
 - 倍精度の RND 引数・結果、倍精度入力からの変換手順。
 - NEW 単独、CLEAR 等ほかの命令で状態 x・i・c が戻るか。
 - RANDOMIZE の丸め後の整数が -32768〜32767 の範囲外となる n、エラー・状態への影響。
+
+### 16.3 自作の実装
+
+以下は自作ROMの実装と未確定部分についての判断であり、16.1の観測規則を
+追加・変更するものではない。
+
+- `src/ext_bank/bank0.asm` の `EXT_BANK0_RND_ENTRY`（`0x6270`）、
+  `EXT_BANK0_RANDOMIZE_ENTRY`（`0x6280`）から末尾の `RND_IMPL`・
+  `RANDOMIZE_IMPL` を呼ぶ。
+  状態は `RND_X=0xC410`（単精度4バイト）、`RND_INDEX=0xC414`、
+  `RND_COUNT=0xC415` に置き、整数種の中継には `0xC416` の2バイトを使う。
+  `RND_UPDATE` が8乗数・位相171・反転後の補正を処理する。
+- `src/l4_basic/interp.asm` の数値関数表と `FTNF_DO_RND` が引数を解析し、
+  既存の数値関数と同じ `EXT_BANK_CALL`（バンク0）で本体を呼ぶ。
+  括弧なしの `RND` は `FTNF_RND_NEXT` から通常更新を行い、結果は単精度。
+  倍精度引数は未測定のため、既存の `VAL_LOAD_CUR_TO_OPA` に従って
+  単精度へ変換してから処理する（自作の判断）。
+- `src/ext_bank/bank2.asm` の文照合表で `RANDOMIZE` を認識し、
+  `src/l4_basic/run.asm` の `RANDOMIZE_STMT` が既存の `PARSE_INT_ARG`
+  による最近接・半分は絶対値の大きい側の16ビット整数化を行う。
+  中継はDEを作業用に使うため、種はRAMで渡す。
+  範囲外は既存の整数化の `Overflow`、引数なしは既存の式解析の
+  `Missing operand` に従う（いずれも未確定部分への自作の判断）。
+- 起動時は `src/ext_bank/relay.asm` の `EXT_BANK_INIT` から
+  `RUN_RESET_STATE` を呼び、RUN時も同じ入口から `RND_RESET` で初期化する。
+  初期化はmain側のRAM書き込みだけで行い、起動時のL1 I/O列にバンク切替を
+  追加しない。初期値は単精度バイト列 `52 C7 4F 80`、i=1、c=0。
+  NEW単独・CLEARでは乱数状態を変えない（未確定部分への自作の判断。
+  CLEARの文自体の対応状況によらず、状態初期化は起動とRUNだけである）。
+- 積は既存の `MBF_MUL` の既定away丸めを使う。32ビット値は
+  `RND_TRANSFORM_BYTES` で指数Eを下位8ビットに含めた整数に組み、
+  `RND_U32_FRACTION` が既存の `FIN_ACC_TO_SINGLE_AWAY` で全32ビットを
+  正規化・丸めてから指数を32下げる。整数0は正規の零として返す。
+  どちらもQと一致し、専用の丸めルーチンは追加しない。
+  呼び先の実番地は `src/build_main_rom.py` が渡し、窓外配置も検査する。
+  `tools/l4_rnd_bank_conform.py` でR_Dの積2000件と真の半分丸め16件、
+  零・小さい整数・指数相当の下位バイト・丸め繰上げを含む32ビット値1017件を
+  実Z80で照合する。状態144件（補正が溢れる8状態を含む）も照合する。
+  `tools/l4_rnd_selftest.sh` からも実行する。
+- 周期補正の24ビット溢れは `mod 2^24` で折り返す（未確定部分への自作の判断）。
+- 観測器の操作列が使う直接モードの代入・FOR・GOSUBも既存のRUN実行器へ
+  接続する。`interp.asm` の `DIRECT_RECORD` は直接行の復帰・終端用の
+  番兵付き仮レコード。`run.asm` のRETURN/NEXTは、保存した文末位置から
+  通常の区切り処理へ戻し、コロンや行末を処理する。
+  直接行の誤りは従来の直接モードの表示経路に返す。
+- `src/ext_bank/make_ext_rom_banks.py` のORG故障注入には新しい2入口も
+  登録する。`run.asm` の `AEL_ROM_LAYOUT_PAD` 直前への中継故障注入の
+  置き場は保持する。
+
+入力対照の既知の残差: RND照合器の `add1-negative-1e-10` の独立入力は
+`E=95,M=0xdbe6fd`、`add3-negative-1e20` は `E=195,M=0xad78ed` を
+予測器の条件にしている。一方、第5.1.1節の採用GW読み取りによる自作の
+入力はそれぞれ `0xdbe6ff`、`0xad78ec` であり、これらの腕は入力段階から
+食い違う。RNDは受け取った入力のE・Mを使い、この残差をRND内で補正しない。

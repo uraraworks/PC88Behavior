@@ -169,6 +169,11 @@ BASIC_RUN_DIRECT:
     LD (LINE_END),HL
     LD HL,LINE_BUF
     LD (CUR_PTR),HL
+    ; 直接FOR/GOSUB/代入もRUNの既存実行器へ渡せるよう番兵付き仮レコードを使う。
+    LD HL,DIRECT_RECORD
+    LD (RUN_CUR_RECORD),HL
+    LD HL,0
+    LD (RUN_CUR_LINENO),HL
     CALL DIRECT_LINE
     LD A,(ERROR_FLAG)
     OR A
@@ -281,11 +286,11 @@ _l4dl_loop:
     CALL MATCH_STMT_KEYWORD
     OR A
     JR NZ,_l4dl_have_stmt
-    LD A,1
-    LD (ERROR_FLAG),A
-    RET
+    JP RUN_EXEC
 _l4dl_have_stmt:
     LD A,(STMT_KIND)
+    CP 14
+    JR Z,_l4dl_call_randomize
     CP 1
     JR Z,_l4dl_call_list
     CP 2
@@ -313,6 +318,9 @@ _l4dl_have_stmt:
     CP 13
     JR Z,_l4dl_call_rem
     CALL PRINT_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_randomize:
+    CALL RANDOMIZE_STMT
     JR _l4dl_after_stmt
 _l4dl_call_list:
     CALL LIST_STMT
@@ -1116,7 +1124,8 @@ JUMP_HL:
 ; FACTOR_TRY_NUM_FUNCS — IDENT_BUF(既にLEX_IDENT_CONSUME済み、kind=1)を
 ;   FTNF_TABLEの語と比較する。一致し直後が'('なら該当ハンドラを呼んで
 ;   A=1(CUR_TYPE/CUR_DATAに結果、ERROR_FLAG参照)で戻る。不一致、または
-;   '('が続かなければA=0(CUR_PTRは識別子を消費した位置のまま、呼び出し元
+;   '('が続かなければA=0(RNDのみ引数なしの更新を許す。CUR_PTRは識別子を
+;   消費した位置のまま、呼び出し元
 ;   はそのまま変数/配列として読み直す)。
 FACTOR_TRY_NUM_FUNCS:
     LD HL,FTNF_TABLE
@@ -1151,7 +1160,20 @@ _ftnf_zero_ok:
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '('
+    JR Z,_ftnf_with_arg
+    ; 括弧なしを許すのはRNDだけ。表のハンドラ番地で識別する。
+    LD A,(HL)
+    CP FTNF_DO_RND & 0xFF
     JR NZ,_ftnf_fail
+    INC HL
+    LD A,(HL)
+    CP FTNF_DO_RND >> 8
+    JR NZ,_ftnf_fail
+    POP HL
+    CALL FTNF_RND_NEXT
+    LD A,1
+    RET
+_ftnf_with_arg:
     LD E,(HL)
     INC HL
     LD D,(HL)
@@ -1173,6 +1195,8 @@ _ftnf_none:
     RET
 
 FTNF_TABLE:
+    DB 3,"RND"
+    DW FTNF_DO_RND
     DB 3
     DB "LEN"
     DW FTNF_DO_LEN
@@ -3094,3 +3118,25 @@ PRINT_FIELD_WRAP_CHECK:
 _l4pfwc_fit:
     POP BC
     RET
+
+; 第16節。引数なしは正引数と同じ更新、結果は常に単精度。
+FTNF_DO_RND:
+    CALL FTNF_NUM_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL VAL_LOAD_CUR_TO_OPA
+    JR FTNF_RND_CALL
+FTNF_RND_NEXT:
+    XOR A
+    LD (MBF_OPA+2),A
+    LD A,129
+    LD (MBF_OPA+3),A
+FTNF_RND_CALL:
+    XOR A
+    LD HL,06270h
+    CALL EXT_BANK_CALL
+    JP VAL_SET_SINGLE_FROM_RES
+
+DIRECT_RECORD:
+    DB 0,0,0,0xFF,0xFF

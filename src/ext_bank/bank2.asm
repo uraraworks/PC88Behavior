@@ -764,8 +764,6 @@ k2_upper:
     RET NC
     SUB 32
     RET
-k2_words:
-    DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",0
 
     ORG 0x7100
 EXT_BANK2_KILL_ENTRY:
@@ -968,3 +966,6 @@ k2_exists:
 k2_drive_error:
     LD A,73
     JP s2_error
+
+k2_words:
+    DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",9,14,"RANDOMIZE",0

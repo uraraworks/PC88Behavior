@@ -375,6 +375,13 @@ EXT_BANK0_LOG_ENTRY:
     CALL AEL_LOG_IMPL
     RET
 
+    ORG 0x6270
+EXT_BANK0_RND_ENTRY:
+    JP RND_IMPL
+    ORG 0x6280
+EXT_BANK0_RANDOMIZE_ENTRY:
+    JP RANDOMIZE_IMPL
+
 ; ---------------------------------------------------------------------
 ; 共通ヘルパ(4byte単精度値のコピー)。
 ; ---------------------------------------------------------------------
@@ -1374,3 +1381,126 @@ _ael_log_eraw_pos:
     LD HL,AEL_LN2
     CALL SC_SET_OPB
     JP AEL_MUL_ADDR                  ; MBF_RES = result(末尾呼び出し)
+
+; 第16.1節 R_D。状態は式ワーク(C405まで)とLIST数値ワーク(C500以降)の間。
+RND_X EQU 0xC410               ; 単精度4B
+RND_INDEX EQU 0xC414           ; 次の乗数位置0..7
+RND_COUNT EQU 0xC415           ; 周期位相0..170
+RND_SEED EQU 0xC416            ; RANDOMIZEの整数種2B
+RND_FIN_AWAY_ADDR EQU 0x1787   ; FIN_ACC_TO_SINGLE_AWAY、ビルド時に実番地へ置換
+RND_FIN_SIGN EQU 0xC09A
+RND_ACC3 EQU 0xC09B
+RND_ACC2 EQU 0xC09C
+RND_ACC1 EQU 0xC09D
+RND_ACC0 EQU 0xC09E
+
+RND_MULTIPLIERS:
+    DB 0x35,0x4A,0xCA,0x99
+    DB 0x39,0x1C,0x76,0x98
+    DB 0x22,0x95,0xB3,0x98
+    DB 0x0A,0xDD,0x47,0x98
+    DB 0x53,0xD1,0x99,0x99
+    DB 0x0A,0x1A,0x9F,0x98
+    DB 0x65,0xBC,0xCD,0x98
+    DB 0xD6,0x77,0x3E,0x98
+
+; 入力MBF_OPA。零は状態を変えず返し、負はT(1,E,M)のみを行う。
+RND_IMPL:
+    LD A,(MBF_OPA+3)
+    OR A
+    JP Z,RND_RETURN_X
+    LD A,(MBF_OPA+2)
+    BIT 7,A
+    JR Z,RND_UPDATE
+    XOR A
+    LD (RND_INDEX),A
+    LD (RND_COUNT),A
+    LD HL,MBF_OPA
+    LD DE,MBF_RES
+    CALL SC_COPY4
+    CALL RND_TRANSFORM
+    JR RND_SAVE_X
+
+; DE=最近接丸め済み符号付き16bit。指数と仮数最下位バイトを保持する。
+RANDOMIZE_IMPL:
+    LD DE,(RND_SEED)
+    LD HL,RND_X+1
+    LD (HL),E
+    INC HL
+    LD (HL),D
+RND_UPDATE:
+    LD HL,RND_X
+    CALL SC_SET_OPA
+    LD A,(RND_INDEX)
+    ADD A,A
+    ADD A,A
+    LD E,A
+    LD D,0
+    LD HL,RND_MULTIPLIERS
+    ADD HL,DE
+    CALL SC_SET_OPB
+    CALL AEL_MUL_ADDR          ; MBF_MULの既定away丸め=Q(A_i*x)
+    LD A,(RND_COUNT)
+    INC A
+    CP 171
+    JR C,rnd_count_ready
+    XOR A
+rnd_count_ready:
+    LD (RND_COUNT),A
+    CALL RND_TRANSFORM_BYTES
+    LD A,(RND_COUNT)
+    OR A
+    JR NZ,rnd_no_correction
+    ; rev24後のRへ0x00ff01を加算。24bit溢れはmod 2^24(自作の判断)。
+    LD A,(RND_ACC1)
+    ADD A,1
+    LD (RND_ACC1),A
+    LD A,(RND_ACC2)
+    ADC A,0xFF
+    LD (RND_ACC2),A
+    LD A,(RND_ACC3)
+    ADC A,0
+    LD (RND_ACC3),A
+rnd_no_correction:
+    CALL RND_U32_FRACTION
+    LD A,(RND_INDEX)
+    INC A
+    AND 7
+    LD (RND_INDEX),A
+RND_SAVE_X:
+    LD HL,MBF_RES
+    LD DE,RND_X
+    CALL SC_COPY4
+RND_RETURN_X:
+    LD HL,RND_X
+    LD DE,MBF_RES
+    JP SC_COPY4
+
+RND_TRANSFORM:
+    CALL RND_TRANSFORM_BYTES
+    JP RND_U32_FRACTION
+; 入力MBF_RESの格納仮数は既にP(σ,M)。バイト反転後、Eを下位8bitへ。
+RND_TRANSFORM_BYTES:
+    LD A,(MBF_RES)
+    XOR 0x4F
+    LD (RND_ACC3),A
+    LD A,(MBF_RES+1)
+    LD (RND_ACC2),A
+    LD A,(MBF_RES+2)
+    LD (RND_ACC1),A
+    LD A,(MBF_RES+3)
+    LD (RND_ACC0),A
+    RET
+; V全32bitを正規化してaway丸め。その後指数を32だけ下げV/2^32にする。
+; V=0は既存変換が正規の零を返すので、指数を引かない。
+RND_U32_FRACTION:
+    XOR A
+    LD (RND_FIN_SIGN),A
+    CALL RND_FIN_AWAY_ADDR
+    LD A,(MBF_RES+3)
+    OR A
+    RET Z
+    SUB 32
+    LD (MBF_RES+3),A
+    RET
+RND_IMPL_END:

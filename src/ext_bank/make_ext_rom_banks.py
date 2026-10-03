@@ -81,6 +81,8 @@ NO_ORG_FAULT_SUBS = (
     ("    ORG 0x6230\n", "    ORG 0x0230\n"),
     ("    ORG 0x6240\n", "    ORG 0x0240\n"),
     ("    ORG 0x6250\n", "    ORG 0x0250\n"),
+    ("    ORG 0x6270\n", "    ORG 0x0270\n"),
+    ("    ORG 0x6280\n", "    ORG 0x0280\n"),
 )
 
 # bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の

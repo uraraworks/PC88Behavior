@@ -2058,9 +2058,9 @@ RETURN_STMT:
     INC HL
     LD A,(HL)
     LD (RUN_CUR_LINENO+1),A
-    LD A,1
-    LD (RUN_CTRL),A
+    ; 保存位置はGOSUB文の末尾。コロン/行末を通常の区切り処理へ返す。
     XOR A
+    LD (RUN_CTRL),A
     LD (ERROR_FLAG),A
     RET
 _ret_nogosub:
@@ -2208,7 +2208,8 @@ _next_have_frame:
     OR A
     JR Z,_next_done
     CALL RUN_FOR_RESTORE_RESUME
-    LD A,1
+    ; 保存位置はFOR文の末尾。区切りを処理してから本体を繰り返す。
+    XOR A
     LD (RUN_CTRL),A
     RET
 _next_done:
@@ -2794,6 +2795,8 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_save
     CP 24
     JR Z,_reos_kill
+    CP 27
+    JP Z,RANDOMIZE_STMT
     CP 25
     JR Z,_reos_name
     CALL ASSIGN_STMT
@@ -2979,14 +2982,21 @@ _run_error:
     LD (ERROR_FLAG),A
     JP _run_loop
 _run_error_emit:
+    ; 仮レコードの直接モードの誤りはBASIC_RUN_DIRECTが従来形式で表示する。
+    LD HL,(RUN_CUR_RECORD)
+    LD DE,DIRECT_RECORD
+    OR A
+    SBC HL,DE
+    RET Z
     CALL RUN_EMIT_ERROR
     XOR A
     LD (ERROR_FLAG),A
     RET
 
-; RUN_RESET_STATE — 変数テーブル・FOR/GOSUBスタックを初期化する
+; RUN_RESET_STATE — 変数テーブル・FOR/GOSUBスタック・RND状態を初期化する
 ;   (ヘッダコメント「RUNは呼ぶたびに初期化する」参照)。
 RUN_RESET_STATE:
+    CALL RND_RESET
     XOR A
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
@@ -5221,3 +5231,25 @@ CONT_STMT:
     OR A
     JP NZ,_run_after_stmt
     RET
+
+; 第16節。解析はmainで完了してから数値関数と同じ中継を通す。
+RND_RESET:
+    ; 起動時のL1 I/O列を変えない。単精度初期値52 C7 4F 80をRAMへ設定する。
+    LD HL,0C752h
+    LD (0C410h),HL
+    LD HL,0804Fh
+    LD (0C412h),HL
+    LD A,1
+    LD (0C414h),A
+    XOR A
+    LD (0C415h),A
+    RET
+RANDOMIZE_STMT:
+    CALL PARSE_INT_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD (RUN_CTRL),A
+    LD (0C416h),DE            ; 中継はDEを作業用に使うためRAMで渡す
+    LD HL,06280h
+    JP EXT_BANK_CALL           ; A=0
