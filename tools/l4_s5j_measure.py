@@ -30,10 +30,13 @@ class Arm:
     probe: bool = False
     add1: bool = False
     add2: bool = False
+    add3: bool = False
 
     @property
     def candidates(self):
         base = ('G_A', 'G_B', 'G_0') if self.group == 'A' else ('L_A', 'L_B', 'L_0')
+        if self.add3:
+            return ('G_A', 'G_B', 'G_0', 'G_C', 'G_D', *ADD2_CANDIDATES, 'G_H')
         if self.add2:
             return ('G_A', 'G_B', 'G_0', 'G_C', 'G_D', *ADD2_CANDIDATES)
         return base + (('G_C', 'G_D') if self.group == 'A' else ('L_C', 'L_D')) if self.add1 else base
@@ -105,6 +108,14 @@ def build_add2_arms():
     return arms
 
 
+def build_add3_arms():
+    arms = [replace(a, add3=True) for a in build_add2_arms()]
+    bodies = ['go subx&o7', 'go subx&7', 'go subx&', 'go suba&h10', 'go sub1&h1', 'go subx<1', 'go subx>1', 'go subx/2', 'go subx^2', 'go subx\\2', 'go subx@', 'go subx!', 'go subx 1.5', 'go subx.', 'go subx..5', 'go subxa.b', 'a=1:go subx&h1:end', 'go sub&&h1']
+    arms.extend(Arm(f'a{i:02d}', 'A', f'{2000 + (i - 61) * 10} {body}',
+                    add1=True, add2=True, add3=True) for i, body in enumerate(bodies, 61))
+    return arms
+
+
 def predict_g(body, candidate):
     # N_Dの字句範囲を共有し、文字列・REM・DATA・名前の内部を改変しない。
     out, i = [], 0
@@ -137,12 +148,13 @@ def predict_g(body, candidate):
                 after = end + 4
                 nxt = body[after:after + 1]
 
-                if candidate in ADD2_CANDIDATES:
+                if candidate in (*ADD2_CANDIDATES, 'G_H'):
                     i = after + bool(nxt)
                     first = body[i:i + 1]
                     spaced = bool(first) and (
                         first.isascii() and first.isalnum()
                         or candidate == 'G_F' and first == '.'
+                        or candidate == 'G_H' and first in ('.', '&')
                         or candidate == 'G_G' and first not in (' ', ':'))
                     out.append('gosub' + (' ' if spaced else ''))
                     continue
@@ -266,21 +278,23 @@ def measure(rom_dir, official, arms=None, work=WORK):
     return records
 
 
-def write_predict(path, add1=False, add2=False):
+def write_predict(path, add1=False, add2=False, add3=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8', newline='') as f:
         writer = csv.writer(f, delimiter='\t')
         writer.writerow(['id', '群', '打った行', '先行入力', '番号帯', '候補', '予測行', '署名'])
-        for arm in build_add2_arms() if add2 else (build_add1_arms() if add1 else build_arms()):
+        for arm in build_add3_arms() if add3 else (build_add2_arms() if add2 else (build_add1_arms() if add1 else build_arms())):
             for c in arm.candidates:
                 rows = predict(arm, c)
                 writer.writerow([arm.id, arm.group, arm.typed, '\\n'.join(arm.seed),
                                  f'{arm.band[0]}-{arm.band[1]}', c, '\\n'.join(rows), signature(rows)])
 
 
-def write_measure(records, path, show_differs, add1=False, add2=False):
+def write_measure(records, path, show_differs, add1=False, add2=False, add3=False):
     candidates = (('G_A', 'G_B', 'G_0', 'G_C', 'G_D', *ADD2_CANDIDATES) if add2
                   else (BASE_CANDIDATES + NEW_CANDIDATES if add1 else BASE_CANDIDATES))
+    if add3:
+        candidates = (*build_add3_arms()[0].candidates,)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8', newline='') as f:
         writer = csv.writer(f, delimiter='\t')
@@ -295,9 +309,9 @@ def write_measure(records, path, show_differs, add1=False, add2=False):
                              'stable' if r['stable'] else 'unstable',
                              *(r['statuses'].get(c, '') for c in candidates),
                              *entry, *r['others']])
-            new = [r['statuses'][c] for c in (ADD2_CANDIDATES if add2 else NEW_CANDIDATES) if c in r['statuses']]
+            new = [r['statuses'][c] for c in (('G_H',) if add3 else (ADD2_CANDIDATES if add2 else NEW_CANDIDATES)) if c in r['statuses']]
             if show_differs and r['stable'] and (all(v == 'differ' for v in r['statuses'].values())
-                    or ((add1 or add2) and new and all(v == 'differ' for v in new))):
+                    or ((add1 or add2 or add3) and new and all(v == 'differ' for v in new))):
                 print(arm.id + '\t' + '\\n'.join(r['obs'][0]))
     for c in candidates:
         print(c + ' ' + ' '.join(f'{s}={sum(r["statuses"].get(c) == s for r in records)}'
@@ -471,6 +485,50 @@ def selftest(work):
     expect('追補2 A群60腕各2走・B探りなし', run.call_count == 120 and probe.call_count == 0
            and all(r['statuses']['G_E'] == 'agree' for r in synthetic_add2))
 
+    add3_arms = build_add3_arms()
+    expect('追補3 A群78腕・新規18腕・既存60腕不変', len(add3_arms) == 78
+           and [replace(a, add3=False) for a in add3_arms[:60]] == add2_arms
+           and len({a.id for a in add3_arms}) == 78
+           and all(a.group == 'A' and not a.probe and a.typed == a.typed.lower()
+                   and all(32 <= ord(c) <= 126 for c in a.typed) for a in add3_arms)
+           and all(2000 <= a.band[0] == a.band[1] <= 2170 for a in add3_arms[60:]))
+    expect('追補3でもG_A〜G_Gの予測不変', all(
+           predict(a, c) == predict(b, c) for a, b in zip(add2_arms, add3_arms)
+           for c in a.candidates))
+    for body, want in [('go subx.5', 'GOSUB .5'), ('go subx&h1', 'GOSUB &H1'),
+                       ('go sub10', 'GOSUB 0'), ('go subx:end', 'GOSUB:END'),
+                       ('go sub1  x', 'GOSUB  X')]:
+        expect('G_H既知観測 ' + body, predict_g(body, 'G_H') == want)
+    # 親の追補2結果のLIST署名のみ。公式ROMのバイト列・画面本文は含まない。
+    observed_add2 = {'a01': '9e8824e3a24edaf0', 'a02': '6f0edcdb7b852769', 'a03': 'a703c99917a3e520', 'a04': 'eeeafb45eaca09b8', 'a05': '476df047a417b6e5', 'a06': '3838ed9615c8cb0e', 'a07': 'c1fc01a83f6e76f4', 'a08': '4ad09c86879353f0', 'a09': '8236644488de95df', 'a10': 'ed06d9f23571be47', 'a11': '5c0338941d7f13a0', 'a12': '0759bb1b14574a15', 'a13': '52c98e9aa30b8dc2', 'a14': '4d53c8c55a59aed1', 'a15': 'c1835b9e73cb1d6c', 'a16': '1eb3d32c4e0da7f0', 'a17': 'f2ea6e15e4219b40', 'a18': '697dd45167cbd4b2', 'a19': '139a405d236b5ed3', 'a20': '563092b5c0a445f7', 'a21': 'dd5f8a038a4f984c', 'a22': '5cdc8d6804f9acea', 'a23': 'd6b8ab3329ad767c', 'a24': '8b94f49f581acd53', 'a25': '0c60f1fb980738d0', 'a26': 'c6f368de391cf270', 'a27': '895b43fbf08f73c2', 'a28': '5b8f75ca783e46f0', 'a29': 'ee0a7e08e428b6f6', 'a30': 'c098ed0c7036e512', 'a31': 'a9b0558cb0b27df3', 'a32': '8a69df7bf5c47fbf', 'a33': 'c8d622a43871e196', 'a34': 'b89c0e27371cbab7', 'a35': '132eb433e238857b', 'a36': '3caab1073c57f6bb', 'a37': '3b9585121ad07726', 'a38': 'd4d189b2994ca084', 'a39': 'd4038b1fd6db0dfc', 'a40': '9b2b7b7cf787ac02', 'a41': '6224ef8f98463c27', 'a42': '3c890a4d09a4dfab', 'a43': 'c20c812c0829e2ae', 'a44': '9accec6dbdae9c5e', 'a45': 'e632f351d2fcd589', 'a46': 'b52e00a30f48ab2d', 'a47': '32750682aae14788', 'a48': '36f9da01f1ae47e7', 'a49': '45ba357582793eb3', 'a50': 'd114f73fb0e90316', 'a51': 'a56629cc8927add7', 'a52': '45fc8a3716c050fc', 'a53': '8b3960a384a4edfd', 'a54': '116f09cbbd8596c9', 'a55': 'cf413737cc3bf6b7', 'a56': 'c4780d6822f22ca1', 'a57': '01f94f1825aae298', 'a58': 'edce4a7e6e1c5bed', 'a59': '0d69e82a0e2eb027', 'a60': '5c4fb4a4eb25d811'}
+    with tempfile.TemporaryDirectory(prefix='add3-output-', dir=work) as td:
+        path = pathlib.Path(td) / 'predict.tsv'
+        write_predict(path, add3=True)
+        with path.open(encoding='utf-8') as f:
+            predictions = list(csv.DictReader(f, delimiter='\t'))
+        expect('predict-add3 A群のみ702予測', len(predictions) == 702
+               and all(r['群'] == 'A' for r in predictions)
+               and {r['候補'] for r in predictions} == set(add3_arms[0].candidates))
+        matching = [r for r in predictions if r['候補'] == 'G_H' and r['id'] in observed_add2]
+        differs = [r['id'] for r in matching if r['署名'] != observed_add2[r['id']]]
+        expect('G_H 既存60腕の署名再現（predict）' + (' 矛盾:' + ','.join(differs) if differs else ''),
+               len(matching) == 60 and not differs)
+        with patch.object(kw, 'run_chunk', side_effect=lambda rom, official, lines, work, tag:
+                          (predict(next(a for a in add3_arms if a.typed == lines[-1]), 'G_H'), 0, False)) as run, \
+             patch.object(num, 'probe_entry_status') as probe:
+            synthetic_add3 = measure('', False, add3_arms, work)
+        expect('追補3 A群78腕各2走・B探りなし', run.call_count == 156 and probe.call_count == 0
+               and all(r['statuses']['G_H'] == 'agree' for r in synthetic_add3))
+        record = dict(synthetic_add3[0], statuses={c: 'agree' for c in add3_arms[0].candidates})
+        record['statuses']['G_H'] = 'differ'
+        output = io.StringIO()
+        with redirect_stdout(output):
+            write_measure([record, dict(record, stable=False),
+                           dict(record, statuses={c: 'gate_failed' for c in record['statuses']})],
+                          pathlib.Path(td) / 'measure.tsv', True, add3=True)
+        expect('追補3 show-differsのG_H条件・不安定/関門抑制',
+               output.getvalue().splitlines().count('a01\t110 GOSUB 0') == 1)
+
     with tempfile.TemporaryDirectory(prefix='selftest-', dir=work) as td:
         rom = pathlib.Path(td) / 'rom'
         built = subprocess.run([sys.executable, str(kw.REPO / 'src/build_main_rom.py'), str(rom)],
@@ -488,10 +546,10 @@ def selftest(work):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for command in ('predict', 'predict-add1', 'predict-add2'):
+    for command in ('predict', 'predict-add1', 'predict-add2', 'predict-add3'):
         p = sub.add_parser(command)
         p.add_argument('--out', type=pathlib.Path, required=True)
-    for command in ('measure', 'measure-add1', 'measure-add2'):
+    for command in ('measure', 'measure-add1', 'measure-add2', 'measure-add3'):
         m = sub.add_parser(command)
         m.add_argument('--rom-dir', required=True)
         m.add_argument('--out', type=pathlib.Path, required=True)
@@ -505,12 +563,13 @@ def main():
         return selftest(args.work_dir)
     add1 = args.cmd.endswith('-add1')
     add2 = args.cmd.endswith('-add2')
-    if args.cmd in ('predict', 'predict-add1', 'predict-add2'):
-        write_predict(args.out, add1, add2)
+    add3 = args.cmd.endswith('-add3')
+    if args.cmd in ('predict', 'predict-add1', 'predict-add2', 'predict-add3'):
+        write_predict(args.out, add1, add2, add3)
     else:
         write_measure(measure(args.rom_dir, args.official,
-                      arms=build_add2_arms() if add2 else (build_add1_arms() if add1 else None), work=args.work_dir),
-                      args.out, args.show_differs, add1, add2)
+                      arms=build_add3_arms() if add3 else (build_add2_arms() if add2 else (build_add1_arms() if add1 else None)), work=args.work_dir),
+                      args.out, args.show_differs, add1, add2, add3)
     return 0
 
 
