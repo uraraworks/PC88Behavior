@@ -16,6 +16,7 @@ import l4_listkw_measure as kw
 import l4_listnum_measure as num
 
 WORK = kw.REPO.parent / 'tmp/l4s5j-work'
+EXPECTED = kw.REPO / 'tests/conformance/expected_l4_s5j.tsv'
 BASE_CANDIDATES = ('G_A', 'G_B', 'G_0', 'L_A', 'L_B', 'L_0')
 NEW_CANDIDATES = ('G_C', 'G_D', 'L_C', 'L_D')
 ADD2_CANDIDATES = ('G_E', 'G_F', 'G_G')
@@ -331,6 +332,42 @@ def write_measure(records, path, show_differs, add1=False, add2=False, add3=Fals
               for s in ('agree', 'differ', 'unstable', 'gate_failed')))
 
 
+def check_arms():
+    return ([a for a in build_add1_arms() if a.group == 'B']
+            + [a for a in build_add3_arms() if a.id != 'a71'])
+
+
+def read_expected(path):
+    expected = {}
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith('#'):
+            continue
+        fields = line.split('\t')
+        if (len(fields) != 2 or fields[0] in expected
+                or not re.fullmatch(r'[0-9a-f]{16}|no_line', fields[1])):
+            raise ValueError('期待値の列・重複・署名形式が不正')
+        expected[fields[0]] = fields[1]
+    if set(expected) != {a.id for a in check_arms()}:
+        raise ValueError('期待値はB群36腕・A群77腕（a71除外）であること')
+    return expected
+
+
+def check(rom_dir, expected_path):
+    try:
+        expected = read_expected(expected_path)
+    except (OSError, ValueError):
+        print('期待値ファイルが不正', file=sys.stderr)
+        return 1
+    # 公式測定用の作業先を使わず、照合用の一時領域だけに書く。
+    with tempfile.TemporaryDirectory(prefix='l4-s5j-check-') as td:
+        records = measure(rom_dir, False, check_arms(), pathlib.Path(td))
+    bad = [r['arm'].id for r in records
+           if not r['stable'] or r['signatures'] != [expected[r['arm'].id]] * 2]
+    for aid in bad:
+        print(aid)
+    return int(bool(bad))
+
+
 def selftest(work):
     failed = []
     def expect(name, ok):
@@ -361,6 +398,31 @@ def selftest(work):
     expect('2走・欠落の判定', [classify(*v) for v in [('x', 'x', 'x'), ('x', 'x', 'y'),
            ('x', 'y', 'x'), ('no_line', 'no_line', 'no_line')]] == ['agree', 'differ', 'unstable', 'agree'])
     work.mkdir(parents=True, exist_ok=True)
+    expected = read_expected(EXPECTED)
+    with patch.object(kw, 'run_chunk', side_effect=lambda rom, official, lines, work, tag:
+                      (predict(next(a for a in check_arms() if a.typed == lines[-1]),
+                               'L_C' if tag.startswith('b') else 'G_H'), 0, False)) as run, \
+         patch.object(num, 'probe_entry_status', return_value=(False, False)):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            rc = check('', EXPECTED)
+    expect('check 113腕各2走・公式期待値一致・本文なし',
+           rc == 0 and run.call_count == 226 and output.getvalue() == '')
+    check_subset = check_arms()
+    synthetic_check = [dict(arm=a, stable=True, signatures=[expected[a.id]] * 2)
+                       for a in check_subset]
+    for signatures, stable in [(['no_line', 'no_line'], True),
+                               (['gate_failed'] * 2, True),
+                               ([expected['a01'], 'no_line'], False)]:
+        broken = [dict(r) for r in synthetic_check]
+        index = next(i for i, r in enumerate(broken) if r['arm'].id == 'a01')
+        broken[index].update(signatures=signatures, stable=stable)
+        output = io.StringIO()
+        with patch('l4_s5j_measure.measure' if __name__ != '__main__' else '__main__.measure',
+                   return_value=broken), redirect_stdout(output):
+            rc = check('', EXPECTED)
+        expect('check 不一致・関門失敗・不安定をidだけで報告 ' + signatures[0],
+               rc == 1 and output.getvalue() == 'a01\n')
     subset = [arms[i] for i in (0, 20, 28, 29, 33, 45)]
     def fake_run(rom, official, lines, work, tag):
         arm = next(a for a in arms if a.typed == lines[-1])
@@ -583,9 +645,14 @@ def main():
         m.add_argument('--work-dir', type=pathlib.Path, default=WORK)
     st = sub.add_parser('selftest')
     st.add_argument('--work-dir', type=pathlib.Path, default=WORK)
+    ck = sub.add_parser('check')
+    ck.add_argument('--rom-dir', required=True)
+    ck.add_argument('--expected', type=pathlib.Path, default=EXPECTED)
     args = ap.parse_args()
     if args.cmd == 'selftest':
         return selftest(args.work_dir)
+    if args.cmd == 'check':
+        return check(args.rom_dir, args.expected)
     add1 = args.cmd.endswith('-add1')
     add2 = args.cmd.endswith('-add2')
     add3 = args.cmd.endswith('-add3')
