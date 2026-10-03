@@ -1663,9 +1663,10 @@ def main():
                 addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK1_MAIN_ADDR_LABELS.items():
             addr = asm.labels.get(label)
-            if addr is None:
-                raise SystemExit(f"error: バンク1呼び先 {label} が見つからない")
-            addr_overrides[eqname] = addr
+            # READ無効構成など、呼び先を意図的に組まない構成がある。番地の
+            # ずれは make_ext_rom_banks の不一致検査で止める。
+            if addr is not None:
+                addr_overrides[eqname] = addr
         for eqname, label in EXT_BANK2_MAIN_ADDR_LABELS.items():
             addr = asm.labels.get(label)
             if addr is not None:
