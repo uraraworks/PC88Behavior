@@ -908,6 +908,159 @@ def rows_digest(rows):
     return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+EXPECTED = kw.REPO / 'tests/conformance/expected_l4_rnd.tsv'
+
+
+def arm_catalog():
+    # round1の公式測定だけ定数を直接モードで打った。他の回も元の打鍵を保持。
+    groups = {'round1': controls(direct=True) + arms(), 'add1': add1_arms(),
+              'add2': add2_controls() + add2_arms(),
+              'add3': add3_controls() + add3_arms(),
+              'add4': add4_controls() + add4_arms()}
+    return {(round_name, arm['id']): arm
+            for round_name, selected in groups.items() for arm in selected}
+
+
+def load_expected(path):
+    with path.open(encoding='utf-8') as stream:
+        rows = list(csv.DictReader((line for line in stream if not line.startswith('#')),
+                                   delimiter='\t'))
+    catalog, seen = arm_catalog(), set()
+    if not rows:
+        raise ValueError('期待値が空')
+    for row in rows:
+        if set(row) != {'arm', 'round', 'sha256_16', 'count'}:
+            raise ValueError('期待値の列が不正')
+        key = (row['round'], row['arm'])
+        if key not in catalog or key in seen:
+            raise ValueError('期待値の腕が未知または重複')
+        seen.add(key)
+        if not re.fullmatch(r'[0-9a-f]{16}', row['sha256_16']):
+            raise ValueError('期待値の署名形式が不正')
+        arm = catalog[key]
+        count = (sum(len(p['numbers']) for p in arm['pages']) if 'pages' in arm
+                 else sum(arm['counts']))
+        if row['count'] != str(count):
+            raise ValueError('期待値の個数が操作列と不一致')
+    return rows
+
+
+def select_expected(rows, pattern=None, all_arms=False):
+    if pattern is not None:
+        regex = re.compile(pattern)
+        return [r for r in rows if regex.search(r['arm'])]
+    return rows if all_arms else [r for r in rows if int(r['count']) <= 20 and r['arm'] != 'range']
+
+
+def cmd_check(args):
+    try:
+        selected = select_expected(load_expected(args.expected), args.arms, args.all)
+    except (ValueError, OSError) as exc:
+        print(f'期待値・腕指定の読み込み失敗: {type(exc).__name__}')
+        return 1
+    if not selected:
+        print('照合対象の腕がない')
+        return 1
+    catalog, failed = arm_catalog(), []
+    # 入力の既定は自作ROM。公式ROMは明示時だけ使用し、画面本文は出力しない。
+    with tempfile.TemporaryDirectory(prefix='l4-rnd-check-') as temp:
+        for row in selected:
+            arm = catalog[(row['round'], row['arm'])]
+            try:
+                if 'pages' in arm:
+                    parts, _ = run_paged_arm(args.rom_dir, args.official, arm, Path(temp))
+                    valid_output = paged_valid(parts, arm)
+                    values = [value for part in parts for value in part]
+                else:
+                    values, _ = run_arm(args.rom_dir, args.official, arm, Path(temp))
+                    valid_output = valid(values, arm['counts']) and all(
+                        len(value) == (3 if arm['id'] == 'range' and i == 2 else 5)
+                        for i, value in enumerate(values))
+                agrees = (valid_output and len(values) == int(row['count']) and
+                          rows_digest(values)[:16] == row['sha256_16'])
+            except Exception:
+                agrees = False
+            finally:
+                for path in Path(temp).glob('screen*.bin'):
+                    path.unlink()
+            if not agrees:
+                failed.append(f"{row['round']}:{row['arm']}")
+            print(f"{row['round']}:{row['arm']} {'一致' if agrees else '不一致'}", flush=True)
+    print(f'署名照合: {len(selected)}腕、不一致 {len(failed)}腕')
+    if failed:
+        print('不一致の腕: ' + ', '.join(failed))
+    return 1 if failed else 0
+
+
+def final_predictions():
+    training = rp_training_predictions(RDState)
+    result = {}
+    for key, arm in arm_catalog().items():
+        round_name, aid = key
+        if round_name == 'round1':
+            result[key] = training['round1-' + aid]
+        elif round_name == 'add1':
+            result[key] = training[aid]
+        else:
+            # 追補3の独立入力PRINTのMBF。RND出力を状態へ差し込まない。
+            seed = (0, 1, 67, 2775, 2285) if aid == 'add3-negative-1e20' else None
+            result[key] = rp_prediction(arm, 'R_D', seed)
+    return result
+
+
+def expected_selftest(work):
+    rows = load_expected(EXPECTED)
+    assert len(rows) == 108 and len(select_expected(rows)) == 85
+    assert {name: sum(r['round'] == name for r in rows)
+            for name in ('round1', 'add1', 'add2', 'add3', 'add4')} == {
+                'round1': 26, 'add1': 26, 'add2': 14, 'add3': 20, 'add4': 22}
+    exclusions = [line.split('\t') for line in EXPECTED.read_text().splitlines()
+                  if line.startswith('# excluded\t')]
+    excluded_keys = {(line[2], line[1]) for line in exclusions}
+    assert len(exclusions) == 9 and all(len(line) == 4 and line[3] for line in exclusions)
+    assert excluded_keys == {('round1', aid) for aid in ('start-0', 'start-137', 'rerun')} | {
+        ('add2', 'add2-' + aid) for aid in ('negative-7.25', 'negative-1e20', 'negative-.3',
+            'negative-12345.678', 'negative-7.25-long', 'history-137-negative-.3')}
+    assert {(r['round'], r['arm']) for r in rows} == set(arm_catalog()) - excluded_keys
+    predictions = final_predictions()
+    for row in rows:
+        key = (row['round'], row['arm'])
+        assert len(predictions[key]) == int(row['count']), key
+        assert rows_digest(predictions[key])[:16] == row['sha256_16'], key
+    assert len(select_expected(rows, all_arms=True)) == 108
+    assert len(select_expected(rows, '^add4-history-0-randomize-25-long$')) == 1
+    # check経路の合成対照: 1走だけ、各回の元の操作列、改変・欠落・実行失敗。
+    catalog = arm_catalog()
+    calls = []
+    def fake_paged(rom, official, arm, directory):
+        key = next(key for key, value in catalog.items() if value['id'] == arm['id'])
+        calls.append(key)
+        values, offset, parts = predictions[key], 0, []
+        for page in arm['pages']:
+            size = len(page['numbers'])
+            parts.append(values[offset:offset+size])
+            offset += size
+        return parts, []
+    def fake_plain(rom, official, arm, directory):
+        key = ('round1', arm['id'])
+        calls.append(key)
+        return predictions[key], []
+    args = argparse.Namespace(expected=EXPECTED, arms=None, all=True, rom_dir='', official=False)
+    with patch.object(os.sys.modules[__name__], 'run_paged_arm', fake_paged), \
+            patch.object(os.sys.modules[__name__], 'run_arm', fake_plain), patch('builtins.print'):
+        assert cmd_check(args) == 0
+    assert len(calls) == len(set(calls)) == 108
+    args.all, args.arms = False, '^zero-first$'
+    for bad in ([(1, 1, 0, 3324, 1875)], [], RuntimeError('合成実行失敗')):
+        def broken(*unused):
+            if isinstance(bad, Exception):
+                raise bad
+            return bad, []
+        with patch.object(os.sys.modules[__name__], 'run_arm', broken), patch('builtins.print'):
+            assert cmd_check(args) == 1
+    print('OK 公式期待値108腕（既定85腕）・除外9腕・署名形式、R_D全署名一致、check改変/欠落/失敗検出')
+
+
 def rp_selftest(work):
     # 全値の照合はリポジトリ外の解析で実施。本検査は代表値と自己整合。
     # 全データ再現の成功を偽装せず、既知の171・342個目の棄却も検査する。
@@ -1218,6 +1371,7 @@ def rc_selftest(work):
 
 def selftest(work):
     work.mkdir(parents=True, exist_ok=True)
+    expected_selftest(work)
     rp_selftest(work)
     ra_selftest(work)
     rc_selftest(work)
@@ -1402,9 +1556,17 @@ def main():
     m4.add_argument('--work-dir', type=Path, default=WORK)
     s = subs.add_parser('selftest')
     s.add_argument('--work-dir', type=Path, default=WORK)
+    c = subs.add_parser('check', help='公式期待値と1走の署名を照合（既定は短い腕）')
+    c.add_argument('--rom-dir', required=True)
+    c.add_argument('--expected', type=Path, default=EXPECTED)
+    c.add_argument('--arms', help='腕idの正規表現。長い腕も明示選択できる')
+    c.add_argument('--all', action='store_true', help='全腕を選択')
+    c.add_argument('--official', action='store_true')
     args = parser.parse_args()
     if args.command == 'selftest':
         return selftest(args.work_dir)
+    if args.command == 'check':
+        return cmd_check(args)
     if args.command == 'measure-add1':
         return cmd_measure_add1(args)
     if args.command == 'predict-add2':

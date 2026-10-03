@@ -1,0 +1,125 @@
+# 根拠: docs/notes/l4-s8a-addendum4-results.md
+# 測定時の器具コミット: ed7a271ede4eb674172be7a47cd29e62194e54e5 (tools/l4_rnd_measure.py)
+# 署名: print_values を整数組の配列としてJSON復号し、json.dumps(rows, sort_keys=True,
+# separators=(',', ':')) のUTF-8文字列（空白・末尾改行なし）をSHA-256、先頭16桁。
+# 番号jを含む5整数組、range末尾の3整数計数組、入力対照も含め、採取順で連結。
+# count は整数組の個数。測定回ごとに各腕2走一致を確認、1走目の署名を収録。
+# 短い腕の既定: count<=20 かつ range以外。--arms はこの既定に優先、--all は全腕。
+# excluded	start-0	round1	番号1〜3が画面から欠落（4〜20のみ）
+# excluded	start-137	round1	番号1〜3が画面から欠落（4〜20のみ）
+# excluded	rerun	round1	各RUNに余分な標本6があり18組、予定15組
+# excluded	add2-negative-7.25	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+# excluded	add2-negative-1e20	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+# excluded	add2-negative-.3	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+# excluded	add2-negative-12345.678	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+# excluded	add2-negative-7.25-long	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+# excluded	add2-history-137-negative-.3	add2	入力標本0欠落、ページ番号・件数不正。追補3再採取で旧関門は変更しない
+arm	round	sha256_16	count
+constant-zero	round1	d6ee8e4835ba925f	1
+constant-threequarters	round1	e1adde1f67444aa2	1
+constant-third	round1	cf9ad9d5d8d9acd2	1
+constant-negative	round1	e838d5b8506ceaa5	1
+constant-one	round1	a9e05181c83f7e7e	1
+constant-large	round1	b6e060f951a0461b	1
+constant-tiny	round1	cb13e0845934ae20	1
+zero-first	round1	cf314db7c1601a16	1
+zero-after	round1	6a48262ea0036815	3
+arg-bare	round1	fc468df93193f309	5
+arg-two	round1	fc468df93193f309	5
+arg-half	round1	fc468df93193f309	5
+arg-large	round1	fc468df93193f309	5
+negative--1	round1	4557befc9500ba4f	6
+negative--2	round1	4557befc9500ba4f	6
+negative--1.5	round1	0c5358a5d6696fbe	6
+negative--1e+10	round1	77fa627d55b40ed2	6
+negative-twice	round1	6837ed1c69476f96	7
+randomize-0	round1	4c2d7782531adc0c	5
+randomize-1	round1	b29be98ad4f26760	5
+randomize-2	round1	4af3cca10a9c767e	5
+randomize-100	round1	b2837ec9a9117de4	5
+randomize--1	round1	67b28d2ad8a9f7d0	5
+randomize-32767	round1	cf6b9dbfefb7953c	5
+randomize-1.5	round1	4af3cca10a9c767e	5
+range	round1	b226f1e5e5fcc784	3
+add1-start-400	add1	89e71b7a9a8183de	400
+add1-negative-1	add1	3ad2019414d4bd87	12
+add1-negative-1.5	add1	1a9c2f210daab0eb	12
+add1-negative-1.25	add1	16319f4290bfa26d	12
+add1-negative-1.125	add1	b81679456392362e	12
+add1-negative-1-ulp	add1	440a0cf5f05d1da2	12
+add1-negative-1-plus-2^-16	add1	5f456b53dd0f39e4	12
+add1-negative-1-plus-2^-8	add1	a80abc18d87c5fd3	12
+add1-negative-0.5	add1	7cc92eee21fec27b	12
+add1-negative-4	add1	75211c0d135ce11b	12
+add1-negative-3	add1	2f4eea119c26fd4d	12
+add1-negative-1e-10	add1	36310b35e7ebe01a	12
+add1-negative-65536	add1	0ed44ab554bbb01b	12
+add1-randomize-0	add1	82543aec2927777c	11
+add1-randomize-1	add1	e14f59bc72af326f	11
+add1-randomize-2	add1	8141ef7dbc7e63ea	11
+add1-randomize-3	add1	70c0cfa17ebbdb97	11
+add1-randomize-255	add1	05fd625eefd83567	11
+add1-randomize-256	add1	be7d05bc83170a65	11
+add1-randomize-257	add1	58e8c8ecf8db2def	11
+add1-randomize--1	add1	492c56040e63814b	11
+add1-randomize--2	add1	a2db9afe0f87adab	11
+add1-randomize--32768	add1	ff2c0597aea5a1d3	11
+add1-randomize-32767	add1	58a2f22e5b084adf	11
+add1-rerun	add1	36efb0df72f75135	15
+add1-start-0	add1	1149a7e8e11f9e28	20
+add2-constant-zero	add2	d6ee8e4835ba925f	1
+add2-constant-threequarters	add2	e1adde1f67444aa2	1
+add2-constant-third	add2	cf9ad9d5d8d9acd2	1
+add2-constant-negative	add2	e838d5b8506ceaa5	1
+add2-constant-one	add2	a9e05181c83f7e7e	1
+add2-constant-large	add2	b6e060f951a0461b	1
+add2-constant-tiny	add2	cb13e0845934ae20	1
+add2-randomize-12345	add2	13a433eff34484a2	11
+add2-randomize--12345	add2	8ec219a250bb9efc	11
+add2-randomize-4096	add2	4bed4fc187cadadf	11
+add2-randomize-99	add2	2f6c2a7d9657b675	11
+add2-start-401-1000	add2	3c80ac00f857e8ae	600
+add2-randomize-12345-run	add2	8b42c08db1070160	14
+add2-history-17-randomize-99	add2	23b22cef6ffef18a	11
+add3-constant-zero	add3	d6ee8e4835ba925f	1
+add3-constant-threequarters	add3	e1adde1f67444aa2	1
+add3-constant-third	add3	cf9ad9d5d8d9acd2	1
+add3-constant-negative	add3	e838d5b8506ceaa5	1
+add3-constant-one	add3	a9e05181c83f7e7e	1
+add3-constant-large	add3	b6e060f951a0461b	1
+add3-constant-tiny	add3	cb13e0845934ae20	1
+add3-negative-7.25	add3	8720d120845853bd	13
+add3-negative-1e20	add3	bca41e3378500f21	13
+add3-negative-.3	add3	8355ac70a51c59bf	13
+add3-negative-12345.678	add3	f7cbd64115de1d97	13
+add3-negative-7.25-long	add3	0fae7bd6afd8cc00	402
+add3-history-137-negative-.3	add3	8355ac70a51c59bf	13
+add3-negative-.625	add3	10a7fc05d42477f2	13
+add3-negative-2.75-long	add3	21e37aca61a6fc12	402
+add3-randomize-2026	add3	e4cb957998320f1e	11
+add3-randomize--2026	add3	5176f12c0b92055f	11
+add3-start-1001-2000	add3	5be736c0c6113d15	1000
+add3-history-170-randomize-2026-long	add3	1d6381b950304d8a	402
+add3-history-342-negative-.625-long	add3	5cef05e2d728a6c8	402
+add4-constant-zero	add4	d6ee8e4835ba925f	1
+add4-constant-threequarters	add4	e1adde1f67444aa2	1
+add4-constant-third	add4	cf9ad9d5d8d9acd2	1
+add4-constant-negative	add4	e838d5b8506ceaa5	1
+add4-constant-one	add4	a9e05181c83f7e7e	1
+add4-constant-large	add4	b6e060f951a0461b	1
+add4-constant-tiny	add4	cb13e0845934ae20	1
+add4-history-0-randomize-2026-long	add4	d97bcd95ac755594	402
+add4-history-1-randomize-2026-long	add4	fc6a337b1e3c2c11	402
+add4-history-85-randomize-2026-long	add4	31dade4844e5b11f	402
+add4-history-169-randomize-2026-long	add4	69040cb2df41b30b	402
+add4-history-171-randomize-2026-long	add4	a797925431bd2371	402
+add4-history-172-randomize-2026-long	add4	3690ff4217db88a9	402
+add4-history-341-randomize-2026-long	add4	8e0525a96d171639	402
+add4-history-0-randomize-2026-then-99-long	add4	d253cdcd3e5efbba	402
+add4-history-169-randomize-2026-then-99-long	add4	d5b5b2e9013aaf90	402
+add4-history-170-randomize-2026-then-99-long	add4	ead2e67eda428f1a	402
+add4-history-0-randomize-92-long	add4	459eabff2bd7a7e2	402
+add4-history-0-randomize-25-long	add4	1d34704c00099c86	402
+add4-history-0-randomize-37-long	add4	0d7bbeb874700662	402
+add4-history-0-randomize-46-long	add4	68aae630e1910284	402
+add4-history-169-negative-.625-long	add4	5cef05e2d728a6c8	402
