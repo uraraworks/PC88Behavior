@@ -1278,7 +1278,8 @@ def cmd_selftest(a):
             result = check_records(broken, expected_check)
         expect('193腕check陰性: ' + fault, result == 1)
 
-    # 自作ROMだけを一時ビルドする。陽性対照は上限外の行番号で構文エラー。
+    # 自作ROMだけを一時ビルドする。陽性対照は14.5節13の不正な8進数字。
+    # 上限外の行番号は14.7節L_Cで本文に切り分け、番号2の対照には使わない。
     with tempfile.TemporaryDirectory() as td:
         rom = pathlib.Path(td) / 'rom'
         built = subprocess.run([sys.executable, str(kw.REPO / 'src/build_main_rom.py'), str(rom)],
@@ -1286,8 +1287,10 @@ def cmd_selftest(a):
         expect('探り対照: 自作ROMビルド', built.returncode == 0)
         if built.returncode == 0:
             expect('探り陰性対照: a=1で番号なし', probe_entry(str(rom), False, 'a=1') == [])
-            expect('探り陽性対照: 上限外行番号で番号2',
-                   probe_entry(str(rom), False, 'a=1', lineno=65530) == [2])
+            expect('探り陽性対照: 不正8進数字で番号2',
+                   probe_entry(str(rom), False, 'a=&o8', lineno=None) == [2])
+            expect('上限外行番号の切り分け: 番号2なし',
+                   probe_entry(str(rom), False, 'a=1', lineno=65530) == [])
             for body, number in (('a=32768%', 6), ('a=32767.5%', 6),
                                  ('a=&h10000', 6), ('a=&o200000', 6),
                                  ('a=&o8', 2), ('a=&18', 2)):
@@ -1302,8 +1305,10 @@ def cmd_selftest(a):
                        and listed == ['10 A=32767', '30 A=7'])
             expect('2値探り陰性対照: a=1',
                    probe_entry_status(str(rom), False, 'a=1', number=2) == (False, False))
-            expect('2値探り陽性対照: 上限外行番号',
-                   probe_entry_status(str(rom), False, 'a=1', number=2, lineno=65530) == (True, True))
+            expect('2値探り陽性対照: 不正8進数字',
+                   probe_entry_status(str(rom), False, 'a=&o8', number=2, lineno=None) == (True, True))
+            expect('2値探り上限外行番号: 番号2なし',
+                   probe_entry_status(str(rom), False, 'a=1', number=2, lineno=65530) == (False, False))
     print(f'arms={len(arms)} add1_arms={len(addarms)} add2_arms={len(add2arms)} ng={len(fails)}')
     return int(bool(fails))
 

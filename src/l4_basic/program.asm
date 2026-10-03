@@ -19,7 +19,7 @@
 ; LISTは保存した本文を LIST_RENDER_TEXT で整形して出す。規則は
 ; docs/spec/l4-basic.md 第14節（l4-s5h、公式ROM723腕の測定）: 語・変数名の
 ; 英字は大文字、文字列の中・'以降・REM以降・DATAの:までは打鍵どおり、
-; 数値定数は保存前にlistnum.asm（バンク3）が第14.5節の形へ書き換える。
+; 数値定数とGO SUBは保存前にlistnum.asm（バンク3）が第14.5節・14.1節4の形へ書き換える。
 ; GO TOはGOTOに詰め、?はPRINTに展開する。最初の版（l4-program.md 第2節だけが
 ; 根拠）はPRINTと?しか知らず、ENDなどが小文字のまま残った。
 ;
@@ -27,13 +27,8 @@
 ;   - 行番号は行の先頭（桁0、前に空白なし）にある場合だけ行番号として
 ;     認識する。行頭に空白があるとその行は直接モードとして扱われ、多くは
 ;     Syntax errorになる（第5節4「行番号の前の空白」は未確定）。
-;   - 行番号の上限は、実測で確認された65529までを妥当な範囲として受け付け、
-;     それを超える数字列（桁数過多を含む）はこの行全体をSyntax errorとして
-;     直接モード側の構文の誤りと同じ経路で扱う（第5節2「行番号の上限」は
-;     未確定）。実装は BASIC_HANDLE_LINE で「行番号として解釈できない
-;     digit-先頭行」を直接モードにフォールバックさせることで実現する
-;     （結果としてDIRECT_LINEがMATCH_STMT_KEYWORDで不一致になりSyntax
-;     errorになる）。
+;   - 行番号の途中の空白と上限超過の切り分けは第14.7節L_Cに従う。
+;     次の数字を採ると65529を超える場合、最後に採った数字の直後から本文。
 ;   - 行番号だけの行（本文長0）は、既存の行があれば削除、無ければ何も
 ;     しない（第5節3「存在しない行番号だけを打った場合の反応」は未確定。
 ;     出力も一切起きない——行番号つきの行は常に無出力、という第1節の
@@ -54,7 +49,7 @@ STMT_KIND          EQU 0E980h  ; 1バイト。MATCH_STMT_KEYWORDが設定する
 PROG_TMP16         EQU 0E981h  ; 2バイト（PARSE_LINENUMの作業領域）
 PROG_DIGIT         EQU 0E983h  ; 2バイト（PARSE_LINENUMの作業領域）
 PROG_CUR_LINENO    EQU 0E985h  ; 2バイト（保存/検索対象の行番号）
-PROG_CUR_LNLEN     EQU 0E987h  ; 1バイト（行番号の桁数=LINE_BUF内での長さ）
+PROG_CUR_LNLEN     EQU 0E987h  ; 1バイト（LINE_BUF内の本文開始位置）
 PROG_CUR_TEXTLEN   EQU 0E988h  ; 1バイト（行番号より後ろの本文の長さ）
 PROG_DEL_SRC       EQU 0E989h  ; 2バイト（PROGRAM_DELETE_ATの作業領域）
 PROG_DEL_DST       EQU 0E98Bh  ; 2バイト
@@ -103,8 +98,7 @@ PROGRAM_CLEAR:
 ;       (BASIC_RUN_DIRECT、旧BASIC_RUN_LINEの中身)を実行する
 ;     - 先頭が数字('0'-'9')の行 … 行番号つきの行として解釈を試みる。
 ;       解釈できれば保存するだけで実行しない（第1節：無出力）。
-;       行番号として解釈できない場合（桁過多・65529超）は直接モードに
-;       フォールバックする（Syntax errorになる、ヘッダコメント参照）。
+;       65529を超える数字は消費せず本文へ残す（第14.7節）。
 ;   出力: A=1のとき「無出力」（呼び出し元はOkを出さない）、
 ;         A=0のとき従来どおり（呼び出し元がOkの要否を判断する）。
 ; ---------------------------------------------------------------------
@@ -120,7 +114,7 @@ BASIC_HANDLE_LINE:
     JR NC,_bhl_direct
     CALL PARSE_LINENUM
     JR C,_bhl_direct          ; 行番号として解釈できない -> 直接モードへ
-    ; BはEXT_BANK_CALLの内部で破壊されるので、桁数をRAMで渡す。
+    ; 最後に採った数字までの文字数（途中の空白を含む）をRAMで渡す。
     LD A,B
     LD (0C5B4h),A
     PUSH HL
@@ -150,56 +144,55 @@ _bhl_direct_done:
     RET
 
 ; ---------------------------------------------------------------------
-; PARSE_LINENUM — LINE_BUF先頭の数字列を10進数として読む
+; PARSE_LINENUM — 第14.7節L_C。数字の間の空白を飛ばして10進数を読む。
 ;   （呼び出し元はLINE_BUF[0]が'0'-'9'であることを保証済み）。
-;   出力: CF=0のとき成功、HL=値(0-65529)、B=消費した桁数(1以上)。
-;         CF=1のとき失敗（桁数が無い、または65529を超える）。
+;   出力: CF=0: HL=値(0-65529)、B=最後に採った数字の直後の位置。
+;         Bは途中の空白を含み、先読みした末尾の空白を含まない。
+;         CF=1: 数字を1つも採れなかった場合だけ。
 ;   破壊: AF,BC,DE,HL。
 ; ---------------------------------------------------------------------
 PARSE_LINENUM:
     LD HL,0
-    LD B,0                       ; B=消費した桁数
-    LD A,(VAR_LINELEN)
-    LD C,A                       ; C=行の長さ(上限)
+    LD BC,0                      ; B=採用済み位置、C=先読み位置
     PUSH IX
     LD IX,LINE_BUF
 _pln_loop:
-    LD A,B
+    LD A,(VAR_LINELEN)
     CP C
     JR Z,_pln_finish
     LD A,(IX+0)
+    CP ' '
+    JR Z,_pln_next
     CP '0'
     JR C,_pln_finish
     CP '9'+1
     JR NC,_pln_finish
+    ; 65529=6552*10+9。現在値が6553以上ならどの数字も採れない。
+    LD DE,6553
+    CALL CP_HL_DE
+    JR NC,_pln_finish
+    LD D,H
+    LD E,L
+    ADD HL,HL                    ; *2
+    ADD HL,HL                    ; *4
+    ADD HL,DE                    ; *5
+    ADD HL,HL                    ; *10
+    LD A,(IX+0)
     SUB '0'
     LD E,A
     LD D,0
-    LD (PROG_DIGIT),DE           ; 桁の値(0-9)を保存
-    LD (PROG_TMP16),HL           ; 元の値(倍率5の計算に使う)を保存
-    ADD HL,HL                    ; *2
-    JR C,_pln_ovfl
-    ADD HL,HL                    ; *4
-    JR C,_pln_ovfl
-    LD DE,(PROG_TMP16)
-    ADD HL,DE                    ; *5
-    JR C,_pln_ovfl
-    ADD HL,HL                    ; *10
-    JR C,_pln_ovfl
-    LD DE,(PROG_DIGIT)
     ADD HL,DE                    ; +桁の値
-    JR C,_pln_ovfl
-    INC IX
+    LD B,C
     INC B
+_pln_next:
+    INC IX
+    INC C
     JR _pln_loop
 _pln_finish:
     LD A,B
     OR A
     JR Z,_pln_ovfl                ; 桁が1つも読めなかった(呼び出し元の前提が
                                    ; 崩れている場合の保険)
-    LD DE,65530
-    CALL CP_HL_DE                 ; CF=1: HL<65530 (=HL<=65529、成功)
-    JR NC,_pln_ovfl
     POP IX
     OR A                          ; CF=0
     RET
@@ -409,7 +402,7 @@ _pia_no_shift:
     LD A,(PROG_CUR_LNLEN)
     LD E,A
     LD D,0
-    ADD HL,DE                       ; HL=LINE_BUF+行番号の桁数(=本文の先頭)
+    ADD HL,DE                       ; HL=LINE_BUF+保存する本文の開始位置
     LD DE,(PROG_TMP_DST2)
     LD A,(PROG_CUR_TEXTLEN)
     LD C,A
@@ -420,21 +413,45 @@ _pia_full:
 
 ; ---------------------------------------------------------------------
 ; PROGRAM_STORE_LINE — 行番号つきの行を保存する（BASIC_HANDLE_LINEから、
-;   PARSE_LINENUMが成功した直後に呼ばれる。HL=行番号、B=桁数が入力）。
-;   本文長0(行番号だけ) -> 既存があれば削除、無ければ何もしない。
+;   PARSE_LINENUMが成功した直後に呼ばれる。HL=行番号、B=採用済み文字数）。
+;   本文先頭の空白を1個だけ除く。空白だけの本文も削除扱い（第14.7節）。
 ;   本文長>0 -> 既存があれば削除してから挿入(=置換)、無ければ挿入。
 ;   いずれも画面には一切出力しない（第1節）。破壊: AF,BC,DE,HL,IX。
 ; ---------------------------------------------------------------------
 PROGRAM_STORE_LINE:
     LD (PROG_CUR_LINENO),HL
-    LD A,B
-    LD (PROG_CUR_LNLEN),A
     LD A,(VAR_LINELEN)
     SUB B
-    LD (PROG_CUR_TEXTLEN),A
+    LD C,A
+    LD HL,LINE_BUF
+    LD E,B
+    LD D,0
+    ADD HL,DE
     OR A
+    JR Z,_psl_text_start
+    LD A,(HL)
+    CP ' '
+    JR NZ,_psl_text_start
+    INC HL
+    INC B
+    DEC C
+_psl_text_start:
+    LD A,B
+    LD (PROG_CUR_LNLEN),A
+    LD A,C
+    LD (PROG_CUR_TEXTLEN),A
+_psl_blank:
+    LD A,C
+    OR A
+    JR Z,_psl_delete
+    LD A,(HL)
+    CP ' '
     JR NZ,_psl_have_text
-    ; 本文長0 -> 削除のみ
+    INC HL
+    DEC C
+    JR _psl_blank
+_psl_delete:
+    ; 本文長0、または空白だけ -> 削除のみ
     CALL PROGRAM_LOCATE
     OR A
     RET Z                          ; 見つからなければ何もしない
@@ -513,32 +530,8 @@ _lra_have:
     PUSH HL                         ; PRINT_CHARはHLを作業用に破壊する
                                      ; (screen.asmヘッダ注記)ので退避する
     LD A,' '
-    CALL PRINT_CHAR                 ; 行番号の直後は常にちょうど空白1個
-                                     ; (仕様書に無い判断。A1/A3/A9(空白1個
-                                     ; 打鍵->そのまま)とA2(空白0個打鍵->
-                                     ; 1個)を両立させるには、本文先頭の
-                                     ; 空白を「区切り」として吸収し常に
-                                     ; 1個へ正規化するしかない。第2.1節
-                                     ; 「行番号の直後は…打鍵どおりの間隔」
-                                     ; はこの正規化後の間隔を指すと解釈
-                                     ; した。本文中の2文字目以降の空白
-                                     ; (A3の命令語後の空白2個等)は正規化
-                                     ; せずそのまま保持する——下のループが
-                                     ; 「本文先頭から続く空白だけ」を
-                                     ; 読み捨てる設計だからである)
-    POP HL                           ; PRINT_CHAR呼び出し前に退避した
-                                      ; 本文先頭ポインタを戻す
-_lra_skip_lead_sp:
-    LD A,C
-    OR A
-    JR Z,_lra_render
-    LD A,(HL)
-    CP ' '
-    JR NZ,_lra_render
-    INC HL
-    DEC C
-    JR _lra_skip_lead_sp
-_lra_render:
+    CALL PRINT_CHAR                 ; 保存時に区切りの空白1個だけ除去済み
+    POP HL
     LD A,C
     CALL LIST_RENDER_TEXT
     CALL NEWLINE
@@ -568,8 +561,8 @@ _lra_done:
 ;     - 「名前の連なり」（英字で始まり英数字と . が続く並び）がちょうど
 ;       REM なら REM にして以降は行末まで打鍵どおり（位置は問わない）、
 ;       ちょうど DATA なら DATA にして `:`（引用符の外）まで打鍵どおり、
-;       `GO TO` / `GO SUB`（空白ちょうど1個、語の直後が名前の文字でない）は
-;       GOTO / GOSUB に詰める
+;       `GO TO`（空白ちょうど1個、語の直後が名前の文字でない）は
+;       GOTOに詰める。GO SUBは保存前にバンク3で詰める
 ;     - `?` は文字列の外ならどこでも PRINT に展開。直後が英数字・.・& なら
 ;       後ろに空白1個、直前の出力が英数字・. なら前にも空白1個
 ;     - それ以外の英字はすべて大文字。語の前後に空白は足さない。数字・記号・
@@ -645,7 +638,7 @@ _lrt_n1:
     OR A
     LD A,B
     JR NZ,_lrt_put                  ; 名前の途中
-    ; 名前の連なりの先頭: REM / DATA / GO TO / GO SUB か調べる
+    ; 名前の連なりの先頭: REM / DATA / GO TO か調べる
     LD HL,LRT_KW
 _lrt_kwloop:
     LD A,(HL)
@@ -804,7 +797,6 @@ LRT_KW:
     DB 2, "REM", 0
     DB 4, "DATA", 0
     DB 0, "GO TO", 0
-    DB 0, "GO SUB", 0
     DB 0FFh
 LRT_W_PRINT:
     DB "PRINT", 0

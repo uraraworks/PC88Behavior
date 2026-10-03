@@ -1,4 +1,4 @@
-; l4-basic 14.5: 保存する前に数値を値として読み、PRINTのFIN/FOUTで書く。
+; l4-basic 14.1規則4・14.5: 保存前のGO SUB詰めと数値のFIN/FOUT書き直し。
 ; バンク3。共有処理は既存の窓外中継を通す（main窓内の呼び先も可）。
 ; C500-C5CFは専用スクラッチ。実行変数・保存済み行とは重ならない。
     ORG 0x64C0
@@ -13,7 +13,7 @@ LN_INPUT EQU 0C500h             ; 入力行80文字 + NUL
 LN_OUTPUT EQU 0C560h            ; 書き換え行80文字
 LN_SRC EQU 0C5B0h
 LN_DST EQU 0C5B2h
-LN_PREFIX EQU 0C5B4h
+LN_PREFIX EQU 0C5B4h            ; 最後に採った行番号数字の直後（途中の空白を含む）
 LN_MODE EQU 0C5B5h             ; 1=引用符 2=行末コメント 4=DATA
 LN_NAME EQU 0C5B6h
 LN_KIND EQU 0C5B7h             ; 0=自動 1=単精度 2=倍精度 3=整数
@@ -39,7 +39,7 @@ LN_DFOUT_LEN EQU 0C29Dh
 LN_LINE_BUF EQU 0E82Bh
 LN_LINE_LEN EQU 0E82Ah
 
-; B=行番号の桁数。CF=1なら行を拒否、CF=0ならLINE_BUFを書き換え済み。
+; LN_PREFIX=行番号部分の文字数。CF=1なら拒否、CF=0ならLINE_BUFを書き換え済み。
 LISTNUM_ENTRY:
     XOR A
     LD (LN_CHECKONLY),A
@@ -86,6 +86,8 @@ _ln_scan:
     LD A,(LN_MODE)
     XOR 1
     LD (LN_MODE),A
+    XOR A
+    LD (LN_NAME),A
     JP _ln_copy
 _ln_noquote:
     LD A,(LN_MODE)
@@ -98,6 +100,7 @@ _ln_noquote:
     JP NZ,_ln_copy
     XOR A
     LD (LN_MODE),A
+    LD (LN_NAME),A
     JP _ln_copy
 _ln_normal:
     LD A,C
@@ -122,6 +125,8 @@ _ln_start:
     JR C,_ln_numeric_start
     CP 'Z'+1
     JR NC,_ln_numeric_start
+    CALL LN_GOSUB
+    JP Z,_ln_scan
     LD DE,LN_REM
     CALL LN_WORD
     JR NZ,_ln_trydata
@@ -143,7 +148,15 @@ _ln_numeric_start:
     CP '&'
     JR Z,_ln_number
     CP '.'
-    JR Z,_ln_number
+    JR NZ,_ln_numeric_digit
+    ; 単独の点や「..5」の最初の点は数にしない。
+    LD HL,(LN_SRC)
+    INC HL
+    LD A,(HL)
+    CALL LN_DIGIT
+    JP C,_ln_copy
+    JR _ln_number
+_ln_numeric_digit:
     CALL LN_DIGIT
     JP C,_ln_copy
 _ln_number:
@@ -278,6 +291,62 @@ _ln_word_done:
     RET
 LN_REM: DB "REM",0
 LN_DATA: DB "DATA",0
+
+; 第14.1節規則4 G_H。保護された文脈・名前内部では呼ばれない。
+; "GO SUB"の直後を1文字消費し、残りを通常の数値書き換えへ戻す。
+; 直接モードでは書き換えず、検査対象の数値範囲も変えない。
+; Z=詰めた、NZ=不一致。BCは呼び出し元の走査文字を保持する。
+LN_GOSUB:
+    LD A,(LN_CHECKONLY)
+    OR A
+    RET NZ
+    PUSH BC
+    LD HL,(LN_SRC)
+    LD DE,LN_GO_SUB
+_ln_go_match:
+    LD A,(DE)
+    OR A
+    JR Z,_ln_go_hit
+    LD B,A
+    LD A,(HL)
+    CALL LN_FOLD
+    CP B
+    JR NZ,_ln_go_done
+    INC HL
+    INC DE
+    JR _ln_go_match
+_ln_go_hit:
+    LD A,(HL)
+    OR A
+    JR Z,_ln_go_tail
+    INC HL                         ; sub直後は文字種にかかわらず1文字だけ消費
+_ln_go_tail:
+    LD (LN_SRC),HL
+    LD DE,LN_GOSUB_TEXT
+_ln_go_put:
+    LD A,(DE)
+    OR A
+    JR Z,_ln_go_space
+    CALL LN_PUT
+    INC DE
+    JR _ln_go_put
+_ln_go_space:
+    LD A,(HL)
+    CP '&'
+    JR Z,_ln_go_addspace
+    CALL LN_NAMECHAR
+    JR C,_ln_go_success
+_ln_go_addspace:
+    LD A,' '
+    CALL LN_PUT
+_ln_go_success:
+    XOR A
+    LD (LN_NAME),A
+_ln_go_done:
+    POP BC
+    RET
+LN_GO_SUB: DB "GO SUB",0
+LN_GOSUB_TEXT: DB "gosub",0
 
 ; 空白を先読みするだけ。次の文字を受理して初めてLN_SRCを進める。
 LN_NEXT:

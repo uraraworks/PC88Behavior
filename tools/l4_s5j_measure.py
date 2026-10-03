@@ -617,16 +617,53 @@ def selftest(work):
                output.getvalue().splitlines().count('a01\t110 GOSUB 0') == 1)
 
     with tempfile.TemporaryDirectory(prefix='selftest-', dir=work) as td:
-        rom = pathlib.Path(td) / 'rom'
-        built = subprocess.run([sys.executable, str(kw.REPO / 'src/build_main_rom.py'), str(rom)],
+        root = pathlib.Path(td)
+        rom, asm_work = root / 'rom', root / 'asm'
+        built = subprocess.run([sys.executable, str(kw.REPO / 'src/build_main_rom.py'), str(rom),
+                                '--work-dir', str(asm_work)],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         expect('自作ROM一時ビルド', built.returncode == 0)
         if built.returncode == 0:
             records = measure(str(rom), False, subset, work)
-            expect('自作ROM陰性対照 G_0/L_0（6腕各2走）', all(
+            expect('自作ROM G_H/L_C（6腕各2走）', all(
+                r['stable'] and r['signatures'] == [signature(predict(r['arm'],
+                    'G_H' if r['arm'].group == 'A' else 'L_C'))] * 2 for r in records))
+
+            # 期待値や実装ソースを変えず、詰め処理と途中空白だけをROMで無効化。
+            # 命令長を保つため、他の呼び先・レイアウトは動かさない。
+            sys.path.insert(0, str(kw.REPO / 'tools/asm'))
+            import z80text
+            main_asm = z80text.Assembler()
+            main_asm.assemble(asm_work / 'n88_main_gen.asm')
+            main_rom = bytearray((rom / 'N88.ROM').read_bytes())
+            start = main_asm.labels['PARSE_LINENUM']
+            end = main_asm.labels['_pln_finish']
+            pattern = bytes.fromhex('dd7e00fe2028')  # LD A,(IX); CP ' '; JR Z
+            assert main_rom[start:end].count(pattern) == 1
+            branch = main_rom.index(pattern, start, end) + len(pattern) - 1
+            offset = end - (branch + 2)
+            assert -128 <= offset <= 127
+            main_rom[branch + 1] = offset & 255
+            (rom / 'N88.ROM').write_bytes(main_rom)
+
+            bank_src = root / 'bank3.asm'
+            bank_src.write_text((kw.REPO / 'src/ext_bank/bank3.asm').read_text(encoding='utf-8')
+                                + '\n' + (kw.REPO / 'src/l4_basic/listnum.asm').read_text(encoding='utf-8'),
+                                encoding='utf-8')
+            bank_asm = z80text.Assembler()
+            bank_asm.assemble(bank_src)
+            bank_rom = bytearray((rom / 'N88_3.ROM').read_bytes())
+            entry = bank_asm.labels['LN_GOSUB'] - 0x6000
+            assert bank_rom[entry:entry + 3] == bytes.fromhex('3acfc5')
+            bank_rom[entry:entry + 3] = bytes.fromhex('f601c9')  # OR 1; RET (NZ)
+            (rom / 'N88_3.ROM').write_bytes(bank_rom)
+            negative_subset = [arms[0], arms[28]]
+            records = measure(str(rom), False, negative_subset, work)
+            expect('故障ROM陰性対照 G_0/L_0（2腕各2走）', all(
                 r['statuses']['G_0' if r['arm'].group == 'A' else 'L_0'] == 'agree' for r in records))
-            expect('自作ROMで新候補との差を検出', records[0]['statuses']['G_A'] == 'differ'
-                   and records[2]['statuses']['L_A'] == 'differ')
+            expect('故障ROMでG_H/L_Cとの差を検出', all(
+                r['stable'] and r['signatures'] != [signature(predict(r['arm'],
+                    'G_H' if r['arm'].group == 'A' else 'L_C'))] * 2 for r in records))
     return int(bool(failed))
 
 

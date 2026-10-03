@@ -151,6 +151,11 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     except z80text.AsmError as e:
         raise SystemExit(f"{asm_path.name}: z80text アセンブルエラー: {e}")
 
+    # mainの実ラベルから渡したEQUが、バンクの呼び先にも反映されたか検査。
+    for name, addr in (addr_overrides or {}).items():
+        if name in asm.labels and asm.labels[name] != addr:
+            raise SystemExit(f"error: {asm_path.name}: {name} の呼び先番地が不一致")
+
     # ORGによる先頭の詰め物(baseバイト)を切り落として、ファイル先頭
     # (=実行時は常に窓の先頭0x6000)からの内容にする。ORGを使わない
     # バンク(bank1-3)はbase=0でここは無害な no-op。
