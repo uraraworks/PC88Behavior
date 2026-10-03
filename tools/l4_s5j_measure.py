@@ -18,6 +18,7 @@ import l4_listnum_measure as num
 WORK = kw.REPO.parent / 'tmp/l4s5j-work'
 BASE_CANDIDATES = ('G_A', 'G_B', 'G_0', 'L_A', 'L_B', 'L_0')
 NEW_CANDIDATES = ('G_C', 'G_D', 'L_C', 'L_D')
+ADD2_CANDIDATES = ('G_E', 'G_F', 'G_G')
 
 
 @dataclass(frozen=True)
@@ -28,10 +29,13 @@ class Arm:
     seed: tuple[str, ...] = ()
     probe: bool = False
     add1: bool = False
+    add2: bool = False
 
     @property
     def candidates(self):
         base = ('G_A', 'G_B', 'G_0') if self.group == 'A' else ('L_A', 'L_B', 'L_0')
+        if self.add2:
+            return ('G_A', 'G_B', 'G_0', 'G_C', 'G_D', *ADD2_CANDIDATES)
         return base + (('G_C', 'G_D') if self.group == 'A' else ('L_C', 'L_D')) if self.add1 else base
 
     @property
@@ -89,6 +93,18 @@ def build_add1_arms():
     return arms
 
 
+def build_add2_arms():
+    arms = [replace(a, add2=True) for a in build_add1_arms() if a.group == 'A']
+    bodies = ['go subx(1)', 'go subx+1', 'go subx"a"', 'go subx,1',
+              'go subx.5', 'go subx&h1', "go subx'c", 'go subx?1',
+              'go subx=1', 'go subx$', 'go subx;1', 'go subx-1',
+              'go subx*2', 'go subx#', 'go subx%', 'go subx 1',
+              'go subx1', 'go subxx']
+    arms.extend(Arm(f'a{i:02d}', 'A', f'{1000 + (i - 43) * 10} {body}',
+                    add1=True, add2=True) for i, body in enumerate(bodies, 43))
+    return arms
+
+
 def predict_g(body, candidate):
     # N_Dの字句範囲を共有し、文字列・REM・DATA・名前の内部を改変しない。
     out, i = [], 0
@@ -120,6 +136,16 @@ def predict_g(body, candidate):
             if word == 'go' and body[end:end + 4] == ' sub' and candidate != 'G_0':
                 after = end + 4
                 nxt = body[after:after + 1]
+
+                if candidate in ADD2_CANDIDATES:
+                    i = after + bool(nxt)
+                    first = body[i:i + 1]
+                    spaced = bool(first) and (
+                        first.isascii() and first.isalnum()
+                        or candidate == 'G_F' and first == '.'
+                        or candidate == 'G_G' and first not in (' ', ':'))
+                    out.append('gosub' + (' ' if spaced else ''))
+                    continue
                 if candidate in ('G_C', 'G_D'):
                     if not nxt:
                         out.append('gosub')
@@ -240,20 +266,21 @@ def measure(rom_dir, official, arms=None, work=WORK):
     return records
 
 
-def write_predict(path, add1=False):
+def write_predict(path, add1=False, add2=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8', newline='') as f:
         writer = csv.writer(f, delimiter='\t')
         writer.writerow(['id', '群', '打った行', '先行入力', '番号帯', '候補', '予測行', '署名'])
-        for arm in build_add1_arms() if add1 else build_arms():
+        for arm in build_add2_arms() if add2 else (build_add1_arms() if add1 else build_arms()):
             for c in arm.candidates:
                 rows = predict(arm, c)
                 writer.writerow([arm.id, arm.group, arm.typed, '\\n'.join(arm.seed),
                                  f'{arm.band[0]}-{arm.band[1]}', c, '\\n'.join(rows), signature(rows)])
 
 
-def write_measure(records, path, show_differs, add1=False):
-    candidates = BASE_CANDIDATES + NEW_CANDIDATES if add1 else BASE_CANDIDATES
+def write_measure(records, path, show_differs, add1=False, add2=False):
+    candidates = (('G_A', 'G_B', 'G_0', 'G_C', 'G_D', *ADD2_CANDIDATES) if add2
+                  else (BASE_CANDIDATES + NEW_CANDIDATES if add1 else BASE_CANDIDATES))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8', newline='') as f:
         writer = csv.writer(f, delimiter='\t')
@@ -268,9 +295,9 @@ def write_measure(records, path, show_differs, add1=False):
                              'stable' if r['stable'] else 'unstable',
                              *(r['statuses'].get(c, '') for c in candidates),
                              *entry, *r['others']])
-            new = [r['statuses'][c] for c in NEW_CANDIDATES if c in r['statuses']]
+            new = [r['statuses'][c] for c in (ADD2_CANDIDATES if add2 else NEW_CANDIDATES) if c in r['statuses']]
             if show_differs and r['stable'] and (all(v == 'differ' for v in r['statuses'].values())
-                    or (add1 and new and all(v == 'differ' for v in new))):
+                    or ((add1 or add2) and new and all(v == 'differ' for v in new))):
                 print(arm.id + '\t' + '\\n'.join(r['obs'][0]))
     for c in candidates:
         print(c + ' ' + ' '.join(f'{s}={sum(r["statuses"].get(c) == s for r in records)}'
@@ -385,6 +412,65 @@ def selftest(work):
             write_measure([record, dict(record, stable=False)], pathlib.Path(td) / 'measure.tsv', True, True)
         expect('show-differsの新候補条件・不安定腕抑制',
                output.getvalue().splitlines().count('a07\t170 GOSUB 0') == 1)
+
+    add2_arms = build_add2_arms()
+    expect('追補2 A群60腕・新規18腕・既存42腕不変', len(add2_arms) == 60
+           and [replace(a, add2=False) for a in add2_arms[:42]]
+               == [a for a in add_arms if a.group == 'A']
+           and len({a.id for a in add2_arms}) == 60
+           and all(a.group == 'A' and not a.probe and a.typed.isascii()
+                   and a.typed == a.typed.lower() for a in add2_arms)
+           and all(a.band[0] >= 1000 and a.band[1] <= 1170 for a in add2_arms[42:]))
+    expect('追補2でも既存G候補の予測不変', all(
+           predict(a, c) == predict(b, c) for a, b in
+           zip([a for a in add_arms if a.group == 'A'], add2_arms)
+           for c in a.candidates))
+    observations_add1 = {'a31': ['410 GOSUB  X'], 'a33': ['430 GOSUB  10'],
+                         'a35': ['450 GOSUB:END'], 'a38': ['480 GOSUB  B']}
+    with patch.object(kw, 'run_chunk', side_effect=lambda rom, official, lines, work, tag:
+                      (observations_add1[tag.split('-')[0]], 0, False)):
+        reproduced = measure('', False,
+                             [a for a in add2_arms if a.id in observations_add1], work)
+    expect('G_E 追補1外れ4腕の合成再現', all(
+           r['statuses']['G_E'] == 'agree' and r['stable'] for r in reproduced))
+    for body, want in [('go sub10', 'GOSUB 0'), ('go sub:end', 'GOSUB END'),
+                       ('go suba', 'GOSUB')]:
+        expect('G_E既知観測 ' + body, predict_g(body, 'G_E') == want)
+    expect('追補2 G候補の保護文脈', all(
+           predict_g(body, c) == predict_g(body, 'G_A')
+           for c in ADD2_CANDIDATES for body in
+           ('rem go suba', 'print "go suba"', 'data go suba', "'go suba", 'xgo suba')))
+    # 親の追補1結果から、入力に対応するLIST署名だけを固定。ROM本文は含まない。
+    observed_add1 = {'a01': '9e8824e3a24edaf0', 'a02': '6f0edcdb7b852769', 'a03': 'a703c99917a3e520', 'a04': 'eeeafb45eaca09b8', 'a05': '476df047a417b6e5', 'a06': '3838ed9615c8cb0e', 'a07': 'c1fc01a83f6e76f4', 'a08': '4ad09c86879353f0', 'a09': '8236644488de95df', 'a10': 'ed06d9f23571be47', 'a11': '5c0338941d7f13a0', 'a12': '0759bb1b14574a15', 'a13': '52c98e9aa30b8dc2', 'a14': '4d53c8c55a59aed1', 'a15': 'c1835b9e73cb1d6c', 'a16': '1eb3d32c4e0da7f0', 'a17': 'f2ea6e15e4219b40', 'a18': '697dd45167cbd4b2', 'a19': '139a405d236b5ed3', 'a20': '563092b5c0a445f7', 'a21': 'dd5f8a038a4f984c', 'a22': '5cdc8d6804f9acea', 'a23': 'd6b8ab3329ad767c', 'a24': '8b94f49f581acd53', 'a25': '0c60f1fb980738d0', 'a26': 'c6f368de391cf270', 'a27': '895b43fbf08f73c2', 'a28': '5b8f75ca783e46f0', 'a29': 'ee0a7e08e428b6f6', 'a30': 'c098ed0c7036e512', 'a31': 'a9b0558cb0b27df3', 'a32': '8a69df7bf5c47fbf', 'a33': 'c8d622a43871e196', 'a34': 'b89c0e27371cbab7', 'a35': '132eb433e238857b', 'a36': '3caab1073c57f6bb', 'a37': '3b9585121ad07726', 'a38': 'd4d189b2994ca084', 'a39': 'd4038b1fd6db0dfc', 'a40': '9b2b7b7cf787ac02', 'a41': '6224ef8f98463c27', 'a42': '3c890a4d09a4dfab'}
+    with tempfile.TemporaryDirectory(prefix='add2-output-', dir=work) as td:
+        path = pathlib.Path(td) / 'predict.tsv'
+        write_predict(path, add2=True)
+        with path.open(encoding='utf-8') as f:
+            predictions = list(csv.DictReader(f, delimiter='\t'))
+        expect('predict-add2 A群のみ480予測', len(predictions) == 480
+               and all(r['群'] == 'A' for r in predictions)
+               and {r['候補'] for r in predictions} == set(add2_arms[0].candidates))
+        for c in ADD2_CANDIDATES:
+            matching = [r for r in predictions if r['候補'] == c and r['id'] in observed_add1]
+            differs = [r['id'] for r in matching if r['署名'] != observed_add1[r['id']]]
+            expect(c + ' 既存42腕の署名再現（predict）' + (' 矛盾:' + ','.join(differs) if differs else ''),
+                   len(matching) == 42 and not differs)
+        record = dict(reproduced[0], statuses={c: 'differ' for c in add2_arms[0].candidates})
+        record['statuses']['G_C'] = 'agree'
+        output = io.StringIO()
+        with redirect_stdout(output):
+            write_measure([record, dict(record, stable=False),
+                           dict(record, statuses={c: 'gate_failed' for c in record['statuses']})],
+                          pathlib.Path(td) / 'measure.tsv', True, add2=True)
+        expect('追補2 show-differsの3新候補条件・不安定/関門抑制',
+               output.getvalue().splitlines().count('a31\t410 GOSUB  X') == 1)
+    with patch.object(kw, 'run_chunk', side_effect=lambda rom, official, lines, work, tag:
+                      (predict(next(a for a in add2_arms if a.typed == lines[-1]), 'G_E'), 0, False)) as run, \
+         patch.object(num, 'probe_entry_status') as probe:
+        synthetic_add2 = measure('', False, add2_arms, work)
+    expect('追補2 A群60腕各2走・B探りなし', run.call_count == 120 and probe.call_count == 0
+           and all(r['statuses']['G_E'] == 'agree' for r in synthetic_add2))
+
     with tempfile.TemporaryDirectory(prefix='selftest-', dir=work) as td:
         rom = pathlib.Path(td) / 'rom'
         built = subprocess.run([sys.executable, str(kw.REPO / 'src/build_main_rom.py'), str(rom)],
@@ -402,10 +488,10 @@ def selftest(work):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for command in ('predict', 'predict-add1'):
+    for command in ('predict', 'predict-add1', 'predict-add2'):
         p = sub.add_parser(command)
         p.add_argument('--out', type=pathlib.Path, required=True)
-    for command in ('measure', 'measure-add1'):
+    for command in ('measure', 'measure-add1', 'measure-add2'):
         m = sub.add_parser(command)
         m.add_argument('--rom-dir', required=True)
         m.add_argument('--out', type=pathlib.Path, required=True)
@@ -418,12 +504,13 @@ def main():
     if args.cmd == 'selftest':
         return selftest(args.work_dir)
     add1 = args.cmd.endswith('-add1')
-    if args.cmd in ('predict', 'predict-add1'):
-        write_predict(args.out, add1)
+    add2 = args.cmd.endswith('-add2')
+    if args.cmd in ('predict', 'predict-add1', 'predict-add2'):
+        write_predict(args.out, add1, add2)
     else:
         write_measure(measure(args.rom_dir, args.official,
-                      arms=build_add1_arms() if add1 else None, work=args.work_dir),
-                      args.out, args.show_differs, add1)
+                      arms=build_add2_arms() if add2 else (build_add1_arms() if add1 else None), work=args.work_dir),
+                      args.out, args.show_differs, add1, add2)
     return 0
 
 
