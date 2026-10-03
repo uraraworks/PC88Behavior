@@ -26,6 +26,7 @@ CANDIDATES = ('R_GW', 'R_GW_S')
 # 追補2は棄却済み部分モデルの登録を保持。追補3に探索候補を追加する。
 ADD2_CANDIDATES = ('R_P',)
 ADD3_CANDIDATES = ('R_A', 'R_B', 'R_P')
+ADD4_CANDIDATES = ('R_C', 'R_D', 'R_A', 'R_B')
 RP_MULTIPLIERS = (-26514538, 16129081, -11769122, 13098250,
                   -10080595, -10426890, -13483109, 12482518)
 RA_MULTIPLIERS = (*RP_MULTIPLIERS[:4], -20161190, *RP_MULTIPLIERS[5:])
@@ -87,13 +88,28 @@ class RAState(RPState):
             self.count = (self.count + 1) % 171
             multiplier = encode_single_away(Fraction(RA_MULTIPLIERS[self.index]))
             product = expected_binop_away('*', self.number, multiplier)
-            if self.count == 0:
-                # 正規化後の整数仮数に加算してから再正規化する。
-                product = encode_single_away(Fraction((-1)**product.sign) *
-                    (product.mant + 0x00feff) * Fraction(2)**(product.exp - 152))
-            self.number = rp_scramble(product)
+            self.number = self.transform(product)
             self.index = (self.index + 1) % 8
         return self.number.exact()
+
+    def transform(self, product):
+        if self.count == 0:
+            # 正規化後の整数仮数に加算してから再正規化する。
+            product = encode_single_away(Fraction((-1)**product.sign) *
+                (product.mant + self.correction(product)) * Fraction(2)**(product.exp - 152))
+        return rp_scramble(product)
+
+    def correction(self, product):
+        return 0x00feff
+
+
+class RCState(RAState):
+    """追補3後の暫定候補。位相はR_A、境界の低バイト零だけ追加32。
+
+    この分岐の一般化は未確認。補正と積の丸めのどちらの差かも未分離。
+    """
+    def correction(self, product):
+        return 0x00ff1f if product.mant & 255 == 0 else 0x00feff
 
 
 class RBState(RAState):
@@ -103,12 +119,25 @@ class RBState(RAState):
         super().randomize(arg)
 
 
+class RDState(RAState):
+    """追補3後の事後候補。T内のバイト反転後に整数0x00ff01を加算。
+
+    24ビット溢れは未確定。器具は暫定的にmod 2^24を使う。
+    """
+    def transform(self, product):
+        packed = (product.mant & 0x7fffff) | (product.sign << 23)
+        r = int.from_bytes((packed ^ 0x4f).to_bytes(3, 'little'), 'big')
+        if self.count == 0:
+            r = (r + 0x00ff01) & 0xffffff
+        return encode_single_away(Fraction((r << 8) | product.exp, 1 << 32))
+
+
 def rp_prediction(arm, candidate='R_P', seed_row=None):
-    if candidate not in ADD3_CANDIDATES:
+    if candidate not in set(ADD3_CANDIDATES + ADD4_CANDIDATES):
         raise ValueError('候補が不正')
     if 'expected' in arm:
         return list(arm['expected'])
-    state, rows, seed = {'R_A': RAState, 'R_B': RBState, 'R_P': RPState}[candidate](), [], None
+    state, rows, seed = {'R_A': RAState, 'R_B': RBState, 'R_C': RCState, 'R_D': RDState, 'R_P': RPState}[candidate](), [], None
     for op, arg, j in arm['rp_ops']:
         if op == 'reset':
             state.reset()
@@ -576,6 +605,37 @@ def add3_arms():
     return result
 
 
+def add4_controls():
+    return [dict(arm, id=arm['id'].replace('add2-', 'add4-', 1)) for arm in add2_controls()]
+
+
+def add4_arms():
+    # 全腕未測定。正更新前歴と連続RANDOMIZEで位相保持を分離する。
+    result = []
+    for skip, seeds in [(k, (2026,)) for k in (0, 1, 85, 169, 171, 172, 341)] + [
+            (0, (2026, 99)), (169, (2026, 99)), (170, (2026, 99)), (0, (92,)),
+            (0, (25,)), (0, (37,)), (0, (46,))]:
+        prefix = [f'for k=1 to {skip}:y=rnd(1):next'] if skip else []
+        name = f'add4-history-{skip}-randomize-' + '-then-'.join(map(str, seeds)) + '-long'
+        pages = [dict(lines=[*prefix, 'cls', *[f'randomize {n}' for n in seeds],
+            'j=0:x=rnd(0):gosub 900', loop('rnd(1)', 10)], numbers=list(range(11))),
+            *interval_pages(11, 401)]
+        ops = ([('skip', skip, None)] if skip else []) + [
+            ('randomize', n, None) for n in seeds] + [('rnd', 0, 0)] + [
+            ('rnd', 1, j) for j in range(1, 402)]
+        result.append(dict(id=name, pages=pages, rp_ops=ops))
+    # 周期直前の負RNDがcを消すか。負RND自体を正更新として数えない。
+    pages = [dict(lines=['for k=1 to 169:y=rnd(1):next', 'cls',
+                        'y=.625:j=0:x=y:gosub 900'], numbers=[0]),
+        dict(lines=['cls', 'j=1:x=rnd(-y):gosub 900',
+                    'for j=2 to 12:x=rnd(1):gosub 900:next'], numbers=list(range(1, 13))),
+        *interval_pages(13, 401)]
+    ops = [('skip', 169, None), ('input', '.625', 0), ('negative', None, 1)] + [
+        ('rnd', 1, j) for j in range(2, 402)]
+    result.append(dict(id='add4-history-169-negative-.625-long', pages=pages, rp_ops=ops))
+    return result
+
+
 def page_valid(rows, numbers):
     # 値形式は既存の関門と共有し、番号はページの範囲と完全一致を要求する。
     if any(len(row) != 5 for row in rows) or [r[0] for r in rows] != numbers:
@@ -775,6 +835,23 @@ def cmd_predict_add3(args):
 def cmd_measure_add3(args):
     # 追補2と同じ2走・全ページ・定数対照関門、候補ごとに全列を比較。
     return cmd_measure_add2(args, add3_controls() + add3_arms(), ADD3_CANDIDATES, '追補3')
+
+
+def cmd_predict_add4(args):
+    write_tsv(args.out, ['arm', 'candidate', 'candidate_scope', 'prediction_condition',
+        'prediction', 'page_sample_numbers', 'typed_lines'],
+        [(arm['id'], c, '追補3後の事後候補・溢れ未確定' if c == 'R_D' else
+          '追補3後の暫定探索候補' if c == 'R_C' else '追補3で棄却済み',
+          '標本0の入力MBFに条件付け' if
+          any(op == 'input' for op, _, _ in arm.get('rp_ops', [])) else '固定数値',
+          json.dumps(rp_prediction(arm, c)), json.dumps([p['numbers'] for p in arm['pages']]),
+          json.dumps([*ENCODER, *(line for p in arm['pages'] for line in p['lines'])], ensure_ascii=False))
+         for arm in add4_controls() + add4_arms() for c in ADD4_CANDIDATES])
+    return 0
+
+
+def cmd_measure_add4(args):
+    return cmd_measure_add2(args, add4_controls() + add4_arms(), ADD4_CANDIDATES, '追補4')
 
 
 def rp_training_predictions(state_class=RPState):
@@ -1032,10 +1109,118 @@ def ra_selftest(work):
     print('OK 標本0別ページ、追補3の13腕＋対照7腕、2715組、各2走・3候補TSV・欠落関門')
 
 
+def rc_selftest(work):
+    # 追補3の実測代表値。整数組以外の測定内容を読まない。
+    history = next(a for a in add3_arms() if a['id'] == 'add3-history-170-randomize-2026-long')
+    rows = rp_prediction(history, 'R_C')
+    assert rows[0] == (0, 1, 0, 2099, 1878)
+    assert rows[171] == (171, 1, -2, 4077, 2038)
+    assert rows[342] == (342, 1, -1, 2574, 3767)
+    assert rp_prediction(history, 'R_D') == rows
+    assert rp_training_predictions(RDState) == rp_training_predictions(RCState)
+    # 両候補の差はTの整数加算。独立に固定した未測定予測を照合する。
+    for mant, c_row, d_row in [
+            (0x9e51d0, (0, 2053, 32), (0, 2565, 32)),
+            (0x89cd80, (-2, 3123, 42), (0, 3340, 3083)),
+            (0xffb7cf, (-2, 2582, 3074), (0, 2075, 1665))]:
+        c, d = RCState(), RDState()
+        product = mbf.GwNum('single', sign=0, exp=152 if mant == 0x9e51d0 else 150, mant=mant)
+        assert encode(c.transform(product).exact(), 0)[2:] == c_row
+        assert encode(d.transform(product).exact(), 0)[2:] == d_row
+    # 起動2000個はR_Aと同一、負種は前歴にかかわらずc=0。
+    assert rp_training_predictions(RCState) == rp_training_predictions(RAState)
+    state = RCState()
+    for _ in range(170):
+        state.rnd()
+    state.randomize(2026)
+    assert state.count == 0 and state.index == 4
+    before = (state.number.exact(), state.count, state.index)
+    state.rnd(0)
+    assert before == (state.number.exact(), state.count, state.index)
+    state.randomize(99)
+    assert state.count == 1 and state.index == 5
+    state.rnd(Fraction(-5, 8))
+    assert state.count == 0 and state.index == 0
+    selected = add4_controls()+add4_arms()
+    assert len(selected) == 22 and len(add4_arms()) == 15
+    assert sum(len(p['numbers']) for a in selected for p in a['pages']) == 6037
+    assert sum(len(a['pages']) for a in selected) == 398
+    predictions = {a['id']: rp_prediction(a, 'R_C') for a in selected}
+    d_predictions = {a['id']: rp_prediction(a, 'R_D') for a in selected}
+    split_ids = {a['id'] for a in selected if predictions[a['id']] != d_predictions[a['id']]}
+    assert split_ids == {
+        'add4-history-171-randomize-2026-long',
+        'add4-history-169-randomize-2026-then-99-long',
+        *(f'add4-history-0-randomize-{n}-long' for n in (25, 37, 46))}
+    for n in (25, 37, 46):
+        aid = f'add4-history-0-randomize-{n}-long'
+        assert predictions[aid][:170] == d_predictions[aid][:170]
+        assert predictions[aid][170] != d_predictions[aid][170]
+    discriminator = next(a for a in selected if a['id'] == 'add4-history-0-randomize-92-long')
+    a, c = rp_prediction(discriminator, 'R_A'), predictions[discriminator['id']]
+    assert a[:170] == c[:170] and a[170] != c[170]
+    negative = predictions['add4-history-169-negative-.625-long']
+    reference = next(a for a in add3_arms() if a['id'] == 'add3-history-342-negative-.625-long')
+    assert negative == rp_prediction(reference, 'R_C')
+    for arm in selected:
+        assert all(len(line) < 80 for p in arm['pages'] for line in p['lines'])
+        assert len(predictions[arm['id']]) == sum(len(p['numbers']) for p in arm['pages'])
+
+    def fake(rom, official, arm, directory):
+        rows, offset, parts = predictions[arm['id']], 0, []
+        for page in arm['pages']:
+            count = len(page['numbers'])
+            parts.append(rows[offset:offset+count])
+            offset += count
+        assert paged_valid(parts, arm)
+        return parts, [0]*len(parts)
+
+    with tempfile.TemporaryDirectory(prefix='add4-selftest-', dir=work) as temp:
+        root = Path(temp)
+        args = argparse.Namespace(rom_dir='', official=False, out=root/'comparison.tsv', work_dir=root)
+        with patch.object(os.sys.modules[__name__], 'run_paged_arm', fake), patch('builtins.print'):
+            assert cmd_measure_add4(args) == 0
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 44 and all(r['gate'] == 'pass' and r['R_C'] == 'agree' for r in written)
+        assert all(r['R_A'] == 'differ' for r in written if r['arm'] == discriminator['id'])
+        assert all(r['R_D'] == ('differ' if r['arm'] in split_ids else 'agree') for r in written)
+        c_predictions = predictions
+        predictions = d_predictions
+        with patch.object(os.sys.modules[__name__], 'run_paged_arm', fake), patch('builtins.print'):
+            assert cmd_measure_add4(args) == 0
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 44 and all(r['gate'] == 'pass' and r['R_D'] == 'agree' for r in written)
+        assert all(r['R_C'] == ('differ' if r['arm'] in split_ids else 'agree') for r in written)
+        predictions = c_predictions
+        def missing(rom, official, arm, directory):
+            parts, counts = fake(rom, official, arm, directory)
+            if arm['id'] == discriminator['id']:
+                parts[0] = parts[0][1:]
+            return parts, counts
+        with patch.object(os.sys.modules[__name__], 'run_paged_arm', missing), patch('builtins.print'):
+            assert cmd_measure_add4(args) == 1
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert all(r[c] == 'gate_failed' for r in written if r['arm'] == discriminator['id'] for c in ADD4_CANDIDATES)
+        args.out = root/'predictions.tsv'
+        assert cmd_predict_add4(args) == 0
+        with args.out.open() as stream:
+            written = list(csv.DictReader(stream, delimiter='\t'))
+        assert len(written) == 88 and {r['candidate'] for r in written} == set(ADD4_CANDIDATES)
+        assert all(r['candidate_scope'] == '追補3後の事後候補・溢れ未確定'
+                   for r in written if r['candidate'] == 'R_D')
+    print('OK R_C暫定: 位相保持・追補3の171/342・起動列・負種リセット・零引数非更新')
+    print('OK R_D事後候補: 追補3代表列・起動列再現、追加3腕と既存2腕の分離、両候補合成採取')
+    print('OK 追補4: 未測定15腕＋対照7腕、6037組・398ページ、各2走・4候補・欠落関門')
+
+
 def selftest(work):
     work.mkdir(parents=True, exist_ok=True)
     rp_selftest(work)
     ra_selftest(work)
+    rc_selftest(work)
     fixed = [2035917, 10936412, 14577071, 12243382, 13402529]
     state = INITIAL
     for expected in fixed:
@@ -1208,6 +1393,13 @@ def main():
     m3.add_argument('--out', type=Path, required=True)
     m3.add_argument('--official', action='store_true')
     m3.add_argument('--work-dir', type=Path, default=WORK)
+    p4 = subs.add_parser('predict-add4')
+    p4.add_argument('--out', type=Path, required=True)
+    m4 = subs.add_parser('measure-add4')
+    m4.add_argument('--rom-dir', required=True)
+    m4.add_argument('--out', type=Path, required=True)
+    m4.add_argument('--official', action='store_true')
+    m4.add_argument('--work-dir', type=Path, default=WORK)
     s = subs.add_parser('selftest')
     s.add_argument('--work-dir', type=Path, default=WORK)
     args = parser.parse_args()
@@ -1223,6 +1415,10 @@ def main():
         return cmd_predict_add3(args)
     if args.command == 'measure-add3':
         return cmd_measure_add3(args)
+    if args.command == 'predict-add4':
+        return cmd_predict_add4(args)
+    if args.command == 'measure-add4':
+        return cmd_measure_add4(args)
     selected = controls(direct=args.command == 'measure' and args.official) + arms()
     if args.command == 'predict':
         write_tsv(args.out, ['arm', 'candidate', 'prediction', 'typed_lines'],
