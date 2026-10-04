@@ -74,7 +74,34 @@ def addendum2_arms():
     return out
 
 
+def addendum3_known_arms():
+    """追補3の関門。追補1のGOSUB第3引数256（深さ23・ERR 7）を、打鍵行も追補1と一致させて再現。"""
+    return [dict(id='a3-known-gosub-256', kind='knowndepth', sub='gosub', stack=256,
+                 rows=[['s9da', 1, 1], ['s9de', 2, 7], ['s9dv', 2, 23], DONE.copy()])]
+
+
+SCAN_BODY = {
+    # ERR 26 の性質。印: s9dv 2 1=FORの本体を実行、s9dv 2 2=FOR/NEXTの後の行へ到達。
+    'a3-nonext': ['20 for i=1 to 1:print "s9dv";2;1', '30 print "s9dv";2;2'],
+    'a3-wrongvar': ['20 for i=1 to 2:print "s9dv";2;1', '30 next j', '40 print "s9dv";2;2'],
+    'a3-nextbefore': ['20 goto 40', '30 next i', '40 for i=1 to 2:print "s9dv";2;1',
+                      '50 print "s9dv";2;2'],
+    'a3-withnext': ['20 for i=1 to 2:print "s9dv";2;1:next i', '30 print "s9dv";2;2'],
+}
+
+
+def addendum3_arms():
+    """追補3: NEXT付き入れ子FORの深さ＋ERR 26の性質。予測は立てない（観測）。"""
+    out = []
+    for n in (64, 128, 256, 512, 1024, None):
+        out.append(dict(id='a3-fornext-'+('default' if n is None else str(n)),
+                        kind='depth', sub='fornext', stack=n))
+    out += [dict(id=i, kind='scan') for i in SCAN_BODY]
+    return out
+
+
 def selection(addendum):
+    if addendum == 3: return controls()+addendum3_known_arms()+addendum3_arms()
     if addendum == 2: return controls()+addendum2_known_arms()+addendum2_arms()
     return controls()+(known_arms()+addendum1_arms() if addendum == 1 else arms())
 
@@ -87,7 +114,7 @@ def for_levels(n):
 
 
 def prediction(a):
-    if a['kind'] == 'known': return [r.copy() for r in a['rows']]
+    if a['kind'] in ('known', 'knowndepth'): return [r.copy() for r in a['rows']]
     if a['kind'] == 'constant': return [['s9dv', 1, a['expected']], DONE.copy()]
     if a['kind'] == 'error': return [['s9de', 1, a['expected']], DONE.copy()]
     return None  # 番地・FRE値・境界ERR番号は予測しない。
@@ -103,6 +130,19 @@ def depth_program(a):
         lines += ['50 d=0:gosub 100', '60 print "s9dv";2;d', '70 goto 800',
                   f'100 d=d+1:if d<{DEPTH_CAP} then gosub 100', '110 return']
         var = 'd'
+    elif a['sub'] == 'fornext':
+        # 入れ子FORの後ろに、対応するNEXTを逆順にすべて置く（1行80字未満）。
+        k = for_levels(n)
+        lines.append('50 l=0:goto 1000')
+        segs = [f'for {chr(97+i//10)}{i%10}=0 to 0:l={i+1}' for i in range(k)]
+        no = 1000
+        for j in range(0, k, 3):
+            lines.append(f'{no} '+':'.join(segs[j:j+3])); no += 10
+        names = [f'{chr(97+i//10)}{i%10}' for i in reversed(range(k))]
+        for j in range(0, names and k, 14):
+            lines.append(f'{no} next '+','.join(names[j:j+14])); no += 10
+        lines.append(f'{no} print "s9dv";2;l:goto 800')
+        var = 'l'
     else:
         k = for_levels(n)
         lines.append('50 l=0')
@@ -123,6 +163,12 @@ def depth_program(a):
 def program(a, trap=True):
     k = a['kind']
     if k == 'depth': return depth_program(a)
+    if k == 'knowndepth': return depth_program(a)
+    if k == 'scan':
+        lines = ['new', '5 on error goto 950', '10 print "s9da";1;1', *SCAN_BODY[a['id']],
+                 '800 print "s9dd";1;1', '810 end', '950 print "s9de";2;err:resume 800', 'cls', 'run']
+        assert all(len(s) < 80 and s == s.lower() and '@' not in s for s in lines)
+        return lines
     lines = ['new']
     if trap: lines.append('5 on error goto 950')
     if k in ('limit', 'default', 'known'):
@@ -168,7 +214,14 @@ def extract(data):
 
 def valid(rows, a):
     if not rows or rows[-1] != DONE: return False
-    if a['kind'] == 'known': return rows == prediction(a)
+    if a['kind'] in ('known', 'knowndepth'): return rows == prediction(a)
+    if a['kind'] == 'scan':
+        body = rows[:-1]
+        if not body or body[0] != ['s9da', 1, 1]: return False
+        mid = body[1:]
+        if any(r[0] not in ('s9dv', 's9de') or r[1] != 2 for r in mid): return False
+        if sum(r[0] == 's9de' for r in mid) > 1: return False
+        return all(r[2] in (1, 2) for r in mid if r[0] == 's9dv')
     if a['kind'] == 'depth':
         body = rows[:-1]
         if len(body) == 1 and body[0][:2] == ['s9de', 1]: return True  # CLEAR自体が誤り
@@ -384,6 +437,69 @@ def addendum2_selftest(work):
     print('OK 追補2: 腕9＋関門4の合成陽性・陰性、known腕の打鍵行が1回目と一致、既知値ずれで停止')
 
 
+def addendum3_selftest(work):
+    sel = selection(3); obs = addendum3_arms()
+    assert len(obs) == 10 and len(addendum3_known_arms()) == 1 and len(sel) == 13
+    assert len({a['id'] for a in sel}) == len(sel)
+    used = {a['id'] for a in selection(1)} | {a['id'] for a in selection(2)} | {a['id'] for a in arms()}
+    assert not any(a['id'] in used for a in obs+addendum3_known_arms())
+    # 関門: 既知腕の打鍵行は追補1のGOSUB 256腕と完全一致、期待値は追補1の公式観測
+    k = addendum3_known_arms()[0]
+    a1 = [a for a in addendum1_arms() if a['id'] == 'a1-gosub-256'][0]
+    assert program(k) == program(a1) and '20 clear ,49152,256' in program(k)
+    ref = WORK/'official_add1b.tsv'
+    if ref.exists():
+        got = {r['arm']: json.loads(r['print_values']) for r in csv.DictReader(ref.open(), delimiter='\t') if r['repeat'] == '1'}
+        assert prediction(k) == got['a1-gosub-256']
+    # FOR+NEXT: 段数ぶんのNEXT変数が逆順で、FORと過不足なく対応
+    for a in obs:
+        if a['kind'] != 'depth': continue
+        pg = program(a); n = a['stack']; lv = for_levels(n)
+        fors = re.findall(r'for ([a-z]\d)=', ' '.join(pg))
+        nxt = [v for l in pg if re.match(r'\d+ next ', l) for v in l.split(' next ')[1].split(',')]
+        assert len(fors) == lv and nxt == fors[::-1], a['id']
+        assert all(l.count('next') <= 1 for l in pg)
+    assert not any('next' in l for l in program([a for a in addendum1_arms() if a['id'] == 'a1-for-256'][0]))
+    sc = {a['id']: program(a) for a in obs if a['kind'] == 'scan'}
+    assert not any('next' in l for l in sc['a3-nonext'][:-1]) and '30 next j' in sc['a3-wrongvar']
+    assert sc['a3-nextbefore'].index('30 next i') < sc['a3-nextbefore'].index('40 for i=1 to 2:print "s9dv";2;1')
+    # 合成陽性・陰性
+    ok = [['s9da', 1, 1], ['s9de', 2, 7], ['s9dv', 2, 40], DONE.copy()]
+    for a in obs:
+        if a['kind'] == 'depth':
+            assert valid(ok, a) and not valid(ok[:-1], a)
+            assert not valid([['s9da', 1, 1], ['s9dv', 2, 40], ['s9de', 2, 7], DONE], a)
+        else:
+            for rows in ([['s9da', 1, 1], ['s9de', 2, 26], DONE.copy()],
+                         [['s9da', 1, 1], ['s9dv', 2, 1], ['s9dv', 2, 1], ['s9dv', 2, 2], DONE.copy()],
+                         [['s9da', 1, 1], ['s9dv', 2, 1], ['s9de', 2, 26], DONE.copy()]):
+                assert extract(common.screen_of(rows))[0] == rows and valid(rows, a)
+                assert not valid(rows[:-1], a)
+            assert not valid([['s9de', 2, 26], DONE.copy()], a)
+            assert not valid([['s9da', 1, 1], ['s9de', 1, 26], DONE.copy()], a)
+            assert not valid([['s9da', 1, 1], ['s9dv', 2, 3], DONE.copy()], a)
+            assert not valid([['s9da', 1, 1], ['s9de', 2, 26], ['s9de', 2, 26], DONE.copy()], a)
+    def sample(a):
+        if prediction(a) is not None: return prediction(a)
+        return ok if a['kind'] == 'depth' else [['s9da', 1, 1], ['s9de', 2, 26], DONE.copy()]
+    calls = []
+    def drift(rom, official, a, work, trap=True):
+        calls.append(a['id'])
+        if a['id'] == 'a3-known-gosub-256': return [['s9da', 1, 1], ['s9de', 2, 7], ['s9dv', 2, 24], DONE.copy()], 0
+        return sample(a), 0
+    with tempfile.TemporaryDirectory(prefix='addendum3-', dir=work) as t:
+        root = Path(t)
+        with patch(__name__+'.run_arm', lambda rom, official, a, work, trap=True: (sample(a), 0)):
+            records = measure('', False, sel, root)
+        assert emit(root/'good.tsv', records)
+        with patch(__name__+'.run_arm', drift): records = measure('', False, sel, root)
+        assert not emit(root/'drift.tsv', records)
+        assert 'a3-fornext-64' not in calls and len(calls) == 6
+        rows = list(csv.DictReader((root/'drift.tsv').open(), delimiter='\t'))
+        assert all(r['gate'] == 'gate_failed' for r in rows) and len(rows) == 2*len(sel)
+    print('OK 追補3: 腕10＋関門3の合成陽性・陰性、NEXT逆順の対応、known腕の打鍵行が追補1と一致、既知値ずれで停止')
+
+
 def selftest(work):
     work.mkdir(parents=True, exist_ok=True)
     selected = controls()+arms()
@@ -417,6 +533,7 @@ def selftest(work):
     print('OK 合成取り出しの陽性・陰性、CLEAR/FRE誤りの区別、関門停止')
     addendum_selftest(work)
     addendum2_selftest(work)
+    addendum3_selftest(work)
     with tempfile.TemporaryDirectory(prefix='own-rom-', dir=work) as t:
         root = Path(t); rom = root/'rom'
         p = subprocess.run([os.sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom),
@@ -443,8 +560,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__); sub = p.add_subparsers(dest='command', required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path, default=WORK)
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
-    q = sub.add_parser('predict'); q.add_argument('--out', type=Path, required=True); q.add_argument('--addendum', type=int, choices=[1, 2])
-    m = sub.add_parser('measure'); m.add_argument('--rom-dir', required=True); m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK); m.add_argument('--out', type=Path, required=True); m.add_argument('--addendum', type=int, choices=[1, 2])
+    q = sub.add_parser('predict'); q.add_argument('--out', type=Path, required=True); q.add_argument('--addendum', type=int, choices=[1, 2, 3])
+    m = sub.add_parser('measure'); m.add_argument('--rom-dir', required=True); m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK); m.add_argument('--out', type=Path, required=True); m.add_argument('--addendum', type=int, choices=[1, 2, 3])
     args = p.parse_args()
     if args.command == 'selftest': return selftest(args.work_dir)
     if args.command == 'check':
