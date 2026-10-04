@@ -327,6 +327,14 @@ def write(path, header, rows):
         writer.writerow(header); writer.writerows(rows)
 
 
+def comparable(value):
+    """予測・期待値との比較だけからexactを除く。保存観測は変更しない。"""
+    if value is None:
+        return None
+    return {name: dict(rows=v['rows'], errors=[e[:2] for e in v['errors']])
+            for name, v in value.items()}
+
+
 def emit(path, records):
     # 保存された gate を信用せず、2走と既知の採取形を再評価する。
     known = {a['id']: a for a in controls()+arms()}
@@ -338,7 +346,8 @@ def emit(path, records):
     cs = [r for r in records if r['arm']['id'].startswith('control-')]
     calibrated = (len(cs) == len(controls())
                   and {r['arm']['id'] for r in cs} == {a['id'] for a in controls()}
-                  and all(r['gate'] and r['obs'][0] == prediction(r['arm']) for r in cs))
+                  and all(r['gate'] and comparable(r['obs'][0]) ==
+                          comparable(prediction(r['arm'])) for r in cs))
     write(path, ['arm', 'repeat', 'typed_lines', 'observation', 'other_line_counts',
                  'gate', 'E_GW', 'typing_or_capture_failed'],
           [(r['arm']['id'], i+1, json.dumps(program(r['arm']), ensure_ascii=False),
@@ -346,9 +355,39 @@ def emit(path, records):
             'pass' if calibrated and r['gate'] else 'gate_failed',
             'gate_failed' if not calibrated or not r['gate'] else
             'unpredicted' if prediction(r['arm']) is None else
-            'agree' if r['obs'][0] == prediction(r['arm']) else 'differ',
+            'agree' if comparable(r['obs'][0]) == comparable(prediction(r['arm'])) else 'differ',
             int(r['failed'][i])) for r in records for i in range(2)])
     return calibrated and bool(records) and all(r['gate'] for r in records)
+
+
+def rejudge(measured, out):
+    """保存TSVの観測からmeasureと同じemitを使う。旧判定列は参照しない。"""
+    if measured.resolve() == out.resolve():
+        raise ValueError('再判定の入力と出力は別ファイルにする')
+    known = {a['id']: a for a in controls()+arms()}
+    grouped = {}
+    with measured.open(encoding='utf-8', newline='') as stream:
+        for row in csv.DictReader(stream, delimiter='\t'):
+            aid, repeat = row['arm'], row['repeat']
+            if aid not in known or repeat not in ('1', '2'):
+                raise ValueError('腕または走番号が不正')
+            runs = grouped.setdefault(aid, {})
+            if repeat in runs or json.loads(row['typed_lines']) != json.loads(
+                    json.dumps(program(known[aid]))):
+                raise ValueError('走の重複または打鍵計画の不一致')
+            if row['typing_or_capture_failed'] not in ('0', '1'):
+                raise ValueError('採取失敗フラグが不正')
+            runs[repeat] = row
+    records = []
+    for aid, runs in grouped.items():
+        if set(runs) != {'1', '2'}:
+            raise ValueError('2走の記録が不足')
+        rows = [runs[str(i)] for i in (1, 2)]
+        records.append(dict(arm=known[aid], gate=True,
+                            obs=[json.loads(r['observation']) for r in rows],
+                            others=[json.loads(r['other_line_counts']) for r in rows],
+                            failed=[r['typing_or_capture_failed'] == '1' for r in rows]))
+    return emit(out, records)
 
 
 def check(expected, measured):
@@ -364,7 +403,7 @@ def check(expected, measured):
             aid = r['arm']
             if aid not in known or not valid(value, known[aid]):
                 return False
-            if aid in targets and targets[aid] != value:
+            if aid in targets and comparable(targets[aid]) != comparable(value):
                 return False
             targets[aid] = value
         grouped = {}
@@ -375,15 +414,17 @@ def check(expected, measured):
         cs = {aid for aid in targets if aid.startswith('control-')}
         if cs != {a['id'] for a in controls()}:
             return False
-        if any(targets[aid] != prediction(known[aid]) for aid in cs):
+        if any(comparable(targets[aid]) != comparable(prediction(known[aid])) for aid in cs):
             return False
         for aid, value in targets.items():
             runs = grouped[aid]
             if len(runs) != 2 or {r['repeat'] for r in runs} != {'1', '2'}:
                 return False
+            if json.loads(runs[0]['observation']) != json.loads(runs[1]['observation']):
+                return False
             if any(r['gate'] != 'pass' or r['typing_or_capture_failed'] != '0'
                    or not valid(json.loads(r['observation']), known[aid])
-                   or json.loads(r['observation']) != value for r in runs):
+                   or comparable(json.loads(r['observation'])) != comparable(value) for r in runs):
                 return False
         return True
     except (ValueError, KeyError, TypeError, OSError):
@@ -502,6 +543,58 @@ def selftest(work=None):
                   [(a['id'], json.dumps(prediction(a))) for a in chosen])
         freeze(selected)
         assert emit(measured, records) and check(expected, measured)
+        # exactだけの差は全腕の期待値比較から除外し、観測には残す。
+        changed = copy.deepcopy(records)
+        for r in changed:
+            for o in r['obs']:
+                for v in o.values():
+                    for e in v['errors']:
+                        e[2] = not e[2]
+        assert emit(measured, changed) and check(expected, measured)
+        with measured.open() as stream:
+            saved = list(csv.DictReader(stream, delimiter='\t'))
+        assert all(r['E_GW'] == 'agree' for r in saved)
+        assert json.loads(next(r for r in saved if r['arm'] ==
+                               'control-direct-17')['observation'])['result']['errors'] == [[17, True, False]]
+        # 旧全体gate_failedから、保存観測だけを使って回復する。
+        for r in saved:
+            r['gate'] = r['E_GW'] = 'gate_failed'
+        write(measured, list(saved[0]), [list(r.values()) for r in saved])
+        rejudged = root/'rejudged.tsv'
+        assert rejudge(measured, rejudged) and check(expected, rejudged)
+        # 本体の番号違いは校正通過でもdiffer。exactの2走差は関門失敗。
+        different = copy.deepcopy(changed)
+        target = next(r for r in different if r['arm']['id'] == 'new-cont')
+        for o in target['obs']:
+            o['result']['errors'][0][0] = 8
+        assert emit(measured, different) and not check(expected, measured)
+        assert rejudge(measured, rejudged)
+        with rejudged.open() as stream:
+            assert all(r['E_GW'] == 'differ' for r in csv.DictReader(stream, delimiter='\t')
+                       if r['arm'] == 'new-cont')
+        target['obs'][1]['result']['errors'][0][2] = True
+        assert not emit(measured, different) and not check(expected, measured)
+        assert not rejudge(measured, rejudged)
+        # 欠落・重複した走、未知腕、失敗フラグ・打鍵計画の破損を拒否。
+        for mutation in ('missing', 'duplicate', 'unknown', 'flag', 'typing'):
+            bad_rows = copy.deepcopy(saved)
+            if mutation == 'missing':
+                bad_rows.pop()
+            elif mutation == 'duplicate':
+                bad_rows.append(copy.deepcopy(bad_rows[0]))
+            elif mutation == 'unknown':
+                bad_rows[0]['arm'] = 'unknown'
+            elif mutation == 'flag':
+                bad_rows[0]['typing_or_capture_failed'] = '2'
+            else:
+                bad_rows[0]['typed_lines'] = '[]'
+            write(measured, list(saved[0]), [list(r.values()) for r in bad_rows])
+            try:
+                rejudge(measured, rejudged)
+                raise AssertionError('保存TSVの破損を受理')
+            except ValueError:
+                pass
+        print('OK exactだけの差はagree、番号違いはdiffer、保存TSV再構成と2走・形式の拒否', flush=True)
         assert not emit(root/'empty.tsv', []) and not check(expected, root/'empty.tsv')
         assert not emit(root/'missing.tsv', records[1:])
         for mutation in ('value', 'repeat', 'capture', 'error', 'skip'):
@@ -540,7 +633,7 @@ def selftest(work=None):
                           ('vars', 'cont', 'gosub', 'for', 'data', 'return-goto', 'next-goto')]
         observed = measure(rom, False, own, root)
         bad_ids = [r['arm']['id'] for r in observed
-                   if not r['gate'] or r['obs'][0] != prediction(r['arm'])]
+                   if not r['gate'] or comparable(r['obs'][0]) != comparable(prediction(r['arm']))]
         if bad_ids:
             print('NG 自作ROMの既知値対照: '+','.join(bad_ids))
             for r in observed:
@@ -567,6 +660,8 @@ def main():
     m.add_argument('--work-dir', type=Path, default=WORK)
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True)
     c.add_argument('--measured', type=Path, required=True)
+    r = sub.add_parser('rejudge'); r.add_argument('--measured', type=Path, required=True)
+    r.add_argument('--out', type=Path, required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
     args = parser.parse_args()
     if args.command == 'selftest':
@@ -574,6 +669,10 @@ def main():
     if args.command == 'check':
         ok = check(args.expected, args.measured)
         print('照合一致' if ok else '照合不一致'); return 0 if ok else 1
+    if args.command == 'rejudge':
+        ok = rejudge(args.measured, args.out)
+        print('再判定完了: 関門'+('通過' if ok else '失敗'))
+        return 0 if ok else 1
     selected = controls()+arms()
     if args.command == 'predict':
         write(args.out, ['arm', 'candidate', 'prediction', 'typed_lines'],
