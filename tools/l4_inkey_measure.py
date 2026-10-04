@@ -41,9 +41,25 @@ def arms():
     return result
 
 
+def addendum_arms():
+    return [dict(id=name,kind='buffer',text=text,offset=100,
+                 wait=30000,reads=30,packed=True)
+            for name,text in [('buffer-abcde-long','abcde'),
+                              ('buffer-10','abcdefghij'),
+                              ('buffer-20','abcdefghijklmnopqrst')]]
+
+
+def selected_arms(addendum=None):
+    # 定数3腕は追補でも全体関門に必要。既存のINKEY$腕は再測定しない。
+    return controls()+(addendum_arms() if addendum==1 else arms())
+
+
 def program(arm):
     kind=arm['kind']
     lines=['new',*ENCODER]
+    if arm.get('packed'):
+        lines[-1:] = ['920 if n=1 or n mod 2=1 then print:return',
+                      '925 print ":";:return']
     if kind=='constant':
         lines += ['10 n=1:a$='+arm['expr'], '20 gosub 900']
     elif kind=='timing':
@@ -60,8 +76,8 @@ def program(arm):
                   '20 a$=inkey$:if a$="" then 20', '30 n=2:gosub 900']
     elif kind=='buffer':
         lines += ['10 n=1:a$=inkey$:gosub 900',
-                  '20 for j=1 to 3000:next',
-                  '30 for n=2 to 9:a$=inkey$:gosub 900:next']
+                  f"20 for j=1 to {arm.get('wait',3000)}:next",
+                  f"30 for n=2 to {arm.get('reads',8)+1}:a$=inkey$:gosub 900:next"]
     elif kind=='echo':
         # 画面出力は全ポーリング終了後。10000回の窓で非空回数と最大長を採る。
         lines += ['10 n=1:a$=inkey$:gosub 900', '20 c=0:m=0:x$=""',
@@ -106,9 +122,11 @@ def extract(data):
         raw=data[i*120:i*120+80]
         if raw==b' '*80:
             continue
-        match=MARK.fullmatch(raw.decode('ascii',errors='replace').rstrip(' '))
-        if match:
-            rows.append([match[1].lower(),*(int(t) for t in TOKEN.findall(match[2]))])
+        parts=raw.decode('ascii',errors='replace').rstrip(' ').split(':')
+        matches=[MARK.fullmatch(part) for part in parts]
+        if all(matches) and (len(parts)==1 or
+                             len(parts)==2 and all(m[1].lower()=='ik' for m in matches)):
+            rows.extend([m[1].lower(),*(int(t) for t in TOKEN.findall(m[2]))] for m in matches)
         else:
             other+=1
     return rows,other
@@ -119,7 +137,7 @@ def valid(arm,rows):
         return False
     kind=arm['kind']
     indices={'constant':[1],'once':[1],'idle':[],'key':[1,2],
-             'buffer':list(range(1,10)),'echo':[1,2]}[kind]
+             'buffer':list(range(1,arm.get('reads',8)+2)),'echo':[1,2]}[kind]
     reads=[r for r in rows[:-1] if r[0]=='ik']
     stats=[r for r in rows[:-1] if r[0]=='iks']
     if [r[1] for r in reads if len(r)>=3]!=indices:
@@ -153,7 +171,7 @@ def prediction(arm,candidate):
         return [['ik',1,0],['ik',2,1,ord(arm['text'])]]+end
     if kind=='buffer':
         text=arm['text'] if candidate=='K_BUF' else arm['text'][-1:] if candidate=='K_LAST' else ''
-        values=[[ord(ch)] for ch in text]+[[]]*(8-len(text))
+        values=[[ord(ch)] for ch in text]+[[]]*(arm.get('reads',8)-len(text))
         return [['ik',1,0]]+[['ik',i+2,len(v),*v] for i,v in enumerate(values)]+end
     # RETURNのコード、ポーリング窓の回数・リピート数は予測しない。
     return None
@@ -258,7 +276,7 @@ def check(expected,measured,candidate='K_BUF'):
             wanted=list(csv.DictReader(f,delimiter='\t'))
         with measured.open() as f:
             actual=list(csv.DictReader(f,delimiter='\t'))
-        selected={a['id']:a for a in controls()+arms()}
+        selected={a['id']:a for a in controls()+arms()+addendum_arms()}
         targets={}
         for r in wanted:
             if r.get('candidate',candidate)!=candidate:
@@ -285,9 +303,25 @@ def check(expected,measured,candidate='K_BUF'):
         return False
 
 
+def synthetic_screen(arm,rows):
+    if not arm.get('packed'):
+        return sf.screen_of(rows)
+    def encoded(row):
+        return row[0]+''.join(' '+str(x)+' ' for x in row[1:])
+    lines=[encoded(rows[0])]
+    for i in range(1,len(rows)-1,2):
+        lines.append(':'.join(encoded(r) for r in rows[i:min(i+2,len(rows)-1)]))
+    lines.append(encoded(rows[-1]))
+    assert len(lines)<=25 and all(len(line)<80 for line in lines)
+    data=bytearray(b' '*3000)
+    for i,line in enumerate(lines):
+        data[i*120:i*120+len(line)]=line.encode('ascii')
+    return bytes(data)
+
+
 def selftest(work):
     work.mkdir(parents=True,exist_ok=True)
-    selected=controls()+arms()
+    selected=controls()+arms()+addendum_arms()
     assert len({a['id'] for a in selected})==len(selected)
     for a in selected:
         program(a);events,cap,origin=schedule(a)
@@ -297,7 +331,7 @@ def selftest(work):
         for c in CANDIDATES:
             value=prediction(a,c)
             if value is not None:
-                assert valid(a,value) and extract(sf.screen_of(value))==(value,0)
+                assert valid(a,value) and extract(synthetic_screen(a,value))==(value,0)
     good=prediction(controls()[0],'K_BUF')
     assert not valid(controls()[0],extract(sf.screen_of(good).replace(b'ik ',b'zz ',1))[0])
     assert not valid(controls()[0],[['ik',1,3,97,98],['ikd',1]])
@@ -339,6 +373,58 @@ def selftest(work):
         with patch(__name__+'.run_arm',side_effect=RuntimeError('合成失敗')):
             broken=measure('',False,controls(),root)
         assert not emit(root/'failed.tsv',broken)
+        # 追補だけ＋必須定数の選択と、既知候補列への完全一致／1標本改変の拒否。
+        extra=selected_arms(1)
+        assert [a['id'] for a in extra]==[a['id'] for a in controls()+addendum_arms()]
+        with patch(__name__+'.run_arm',replay):
+            extra_records=measure('',False,extra,root)
+        assert emit(root/'addendum.tsv',extra_records)
+        sf.write(root/'addendum-expected.tsv',['arm','prediction'],
+                 [(a['id'],json.dumps(prediction(a,'K_BUF'))) for a in extra])
+        assert check(root/'addendum-expected.tsv',root/'addendum.tsv')
+        extra_records[-1]['obs'][1][1][3]=ord('z')
+        assert emit(root/'addendum-changed.tsv',extra_records)
+        assert not check(root/'addendum-expected.tsv',root/'addendum-changed.tsv')
+        # 合成写しを実際の run_arm 経路に渡し、最終打鍵後の待ち関門も検査。
+        for a in addendum_arms():
+            frames=buffer_probe_frames(a)
+            _,cap,origin=schedule(a)
+            assert frames==[origin+99,origin+100+len(a['text'])*12+16]
+            assert len(frames)+1<=16 and frames[-1]<origin+1000<cap
+            def capture(args,**kwargs):
+                for i,arg in enumerate(args):
+                    if arg=='--vram-dump':
+                        path=Path(args[i+1]);frame=int(args[i+3])
+                        rows=prediction(a,'K_BUF') if frame==cap else [['ik',1,0]]
+                        dumped(path,frame).write_bytes(
+                            synthetic_screen(a,rows) if frame==cap else sf.screen_of(rows))
+                return subprocess.CompletedProcess(args,0,b'',b'')
+            with patch.object(subprocess,'run',capture):
+                observed,count=run_arm('',False,a,root)
+            assert count==0 and observed==prediction(a,'K_BUF') and valid(a,observed)
+            for damage in ('late','marker','missing','length'):
+                def damaged_capture(args,**kwargs):
+                    result=capture(args,**kwargs)
+                    for i,arg in enumerate(args):
+                        if arg!='--vram-dump':
+                            continue
+                        frame=int(args[i+3]);path=dumped(Path(args[i+1]),frame)
+                        if damage=='late' and frame==frames[-1]:
+                            path.write_bytes(sf.screen_of([['ik',1,0],['ik',2,0]]))
+                        elif frame==cap and damage!='late':
+                            data=path.read_bytes()
+                            if damage=='marker':
+                                data=data.replace(b'ik ',b'zz ',1)
+                            elif damage=='missing':
+                                data=data.replace(b'ikd',b'zzz',1)
+                            else:
+                                data=data.replace(b'ik 2  1 ',b'ik 2  2 ',1)
+                            path.write_bytes(data)
+                    return result
+                with patch.object(subprocess,'run',damaged_capture):
+                    damaged=measure('',False,[a],root)
+                assert not damaged[0]['gate'],damage
+            assert not list(root.glob('*.f[0-9]*.bin*'))
         # 時刻対照: 待ち窓が600～800の合成INPUT受信器。
         # 同じ生成済みイベントを渡し、--type-atを無視する故障も拒否する。
         a=dict(id='timing',kind='constant',expr='""',value=[],text='a',offset=24)
@@ -377,7 +463,7 @@ def selftest(work):
         assert check(root/'expected.tsv',root/'measured.tsv')
         sf.write(root/'wrong.tsv',['arm','prediction'],[(a['id'],json.dumps(wrong if i==0 else prediction(a,'K_BUF'))) for i,a in enumerate(controls())])
         assert not check(root/'wrong.tsv',root/'measured.tsv')
-    print('OK 採取陽性・陰性、全腕2走合成、関門伝播、合成・実フロントエンド打鍵時刻対照、自作ROM定数3腕×2走、check陰性')
+    print('OK 採取陽性・陰性、追補3腕の待ち関門・詰め印行・完全一致、全腕2走合成、関門伝播、合成・実フロントエンド打鍵時刻対照、自作ROM定数3腕×2走、check陰性')
     return 0
 
 
@@ -387,12 +473,14 @@ def main():
     m=sub.add_parser('measure');m.add_argument('--rom-dir',required=True);m.add_argument('--official',action='store_true');m.add_argument('--out',type=Path,required=True);m.add_argument('--work-dir',type=Path,default=WORK)
     c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,required=True);c.add_argument('--candidate',choices=CANDIDATES,default='K_BUF')
     s=sub.add_parser('selftest');s.add_argument('--work-dir',type=Path,default=WORK)
+    for parser in (pred,m):
+        parser.add_argument('--addendum',type=int,choices=[1])
     args=p.parse_args()
     if args.command=='selftest':
         return selftest(args.work_dir)
     if args.command=='check':
         ok=check(args.expected,args.measured,args.candidate);print('照合一致' if ok else '照合不一致');return 0 if ok else 1
-    selected=controls()+arms()
+    selected=selected_arms(args.addendum)
     if args.command=='predict':
         sf.write(args.out,['arm','candidate','prediction','typed_lines','events_self','events_official'],
                  [(a['id'],c,json.dumps(prediction(a,c)),json.dumps(program(a)),
