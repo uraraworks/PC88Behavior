@@ -1116,12 +1116,17 @@ _l4factor_bad:
     JR Z,_l4factor_bad_missing
     CALL PEEK_CHAR
     CP ':'
-    JR NZ,_l4factor_bad_ret
+    JR NZ,_l4factor_bad_str
 _l4factor_bad_missing:
     LD A,22
     LD (ERROR_KIND),A
 _l4factor_bad_ret:
     RET
+_l4factor_bad_str:
+    ; 数値の被演算子の位置に文字列リテラルがあれば Type mismatch(13、第21.4節)。
+    CP '"'
+    RET NZ
+    JR _l4factor_ident_typeerr
 
 ; =======================================================================
 ; M7段階5c-2a: LEN/VAL/ASC(数値を返す文字列関数、第4.14節)。

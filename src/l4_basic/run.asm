@@ -4229,6 +4229,11 @@ _ne_ovfl:
 ;   比較(連鎖はしない、仕様書に無い判断・第8節15)。真=-1・偽=0
 ;   (第4.8節)。
 COMPARE_EXPR:
+    ; 第21節: 左辺が文字列式なら文字列の比較(バンク3 0x7900)。A=1で処理済み。
+    LD HL,07900h
+    CALL S9_BANK_CALL
+    OR A
+    RET NZ
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -4741,34 +4746,23 @@ ARRAY_ASSIGN_STMT:
     LD (ERROR_FLAG),A
     RET
 _aas_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,13
-    LD (ERROR_KIND),A
-    RET
+    JR _aas_err
 _aas_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JR _aas_err
 _aas_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JR _aas_err
 _aas_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,7
-    LD (ERROR_KIND),A
-    RET
+    JR _aas_err
 _aas_range:
+    LD A,9
+_aas_err:
+    LD (ERROR_KIND),A
     LD A,1
     LD (ERROR_FLAG),A
-    LD A,9
-    LD (ERROR_KIND),A
     RET
 
 ; =======================================================================

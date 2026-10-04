@@ -698,3 +698,172 @@ S9_FIND_LINE_ADDR EQU 0x1787
 S9_FIND_LINE:
     LD IX,S9_FIND_LINE_ADDR
     JP B3_MAIN_CALL_ADDR
+
+; ---- 第21節 文字列の比較（l4-s9e）。mainのCOMPARE_EXPR先頭から呼ぶ ----
+; 入口 0x7900。出力 A=0: 左辺が文字列式ではない(何もしていない・通常の数値比較へ)。
+;   A=1: 処理した(結果は整数-1/0、または誤りはERROR_FLAG)。
+; 左辺の複写 CB00(長さ)・CB01〜(最大255B)。他の用途と重ならない空き。
+; 演算子の真偽は順序(bit0:左<右 bit1:等しい bit2:左>右)との論理積で決める。
+; 比較は符号なしバイトで先頭から、先に尽きた側が小さい。結果の整数はそのまま
+; AND/OR/NOT・算術へ渡る。文字列と数値の混在は誤り13(両順)。
+S9E_L_LEN EQU 0CB00h
+S9E_L_BUF EQU 0CB01h
+
+    ORG 0x7900
+    JP S9E_CMP
+S9E_CMP:
+    ; 左辺が文字列式か(先頭が'"'、または英字で始まる識別子の末尾が'$')を、
+    ; CUR_PTRを読むだけで判定する。字句の試し読み(LEX_IDENT_PEEK)は
+    ; IDENT_BUFとRUN_TMP16を壊し、数値の比較に副作用を残すので使わない。
+    LD HL,(CUR_PTR)
+    LD DE,(LINE_END)
+s9e_sk:
+    CALL s9e_more
+    JR NC,s9e_no
+    LD A,(HL)
+    CP ' '
+    JR NZ,s9e_c1
+    INC HL
+    JR s9e_sk
+s9e_c1:
+    CP '"'
+    JR Z,s9e_is_str
+    OR 20h
+    CP 'a'
+    JR C,s9e_no
+    CP 'z'+1
+    JR NC,s9e_no
+s9e_id:
+    INC HL
+    CALL s9e_more
+    JR NC,s9e_no
+    LD A,(HL)
+    CP '$'
+    JR Z,s9e_is_str
+    CP '0'
+    JR C,s9e_no
+    CP '9'+1
+    JR C,s9e_id
+    OR 20h
+    CP 'a'
+    JR C,s9e_no
+    CP 'z'+1
+    JR C,s9e_id
+s9e_no:
+    XOR A
+    RET
+s9e_more:                    ; 文字が残っていればCY=1
+    PUSH HL
+    OR A
+    SBC HL,DE
+    POP HL
+    RET
+s9e_is_str:
+    CALL B3_SKIP_SPACES        ; 先頭の空白を読み進める
+    CALL S9_STRING_EXPR
+    CALL S9_BAD
+    JR NZ,s9e_done
+    LD A,(S9_TMP_LEN)
+    LD (S9E_L_LEN),A
+    LD C,A
+    LD B,0
+    OR A
+    JR Z,s9e_lcopied
+    LD HL,S9_TMP
+    LD DE,S9E_L_BUF
+    LDIR
+s9e_lcopied:
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    LD D,2                   ; '=' : 等しい
+    CP '='
+    JR Z,s9e_op1
+    LD D,1                   ; '<'
+    CP '<'
+    JR Z,s9e_lt
+    LD D,4                   ; '>'
+    CP '>'
+    JR Z,s9e_gt
+s9e_type:
+    CALL S9_TYPE
+s9e_done:
+    LD A,1
+    RET
+s9e_lt:
+    CALL B3_ADV_PTR
+    CALL B3_PEEK_CHAR
+    CP '>'
+    LD D,5                   ; '<>' : 左<右 または 左>右
+    JR Z,s9e_op1
+    CP '='
+    LD D,3                   ; '<=' : 左<右 または 等しい
+    JR Z,s9e_op1
+    LD D,1
+    JR s9e_rhs
+s9e_gt:
+    CALL B3_ADV_PTR
+    CALL B3_PEEK_CHAR
+    CP '='
+    LD D,6                   ; '>=' : 等しい または 左>右
+    JR Z,s9e_op1
+    LD D,4
+    JR s9e_rhs
+s9e_op1:
+    CALL B3_ADV_PTR
+s9e_rhs:
+    PUSH DE                  ; D=許す順序。右辺の評価(入れ子の比較)から守る
+    CALL S9_IS_STRING
+    OR A
+    JR Z,s9e_rhs_num
+    CALL S9_STRING_EXPR
+    CALL S9_BAD
+    JR NZ,s9e_rhs_fail
+    LD A,(S9E_L_LEN)
+    LD B,A
+    LD A,(S9_TMP_LEN)
+    LD C,A
+    LD HL,S9E_L_BUF
+    LD DE,S9_TMP
+s9e_loop:
+    LD A,B
+    OR A
+    JR Z,s9e_lend
+    LD A,C
+    OR A
+    JR Z,s9e_ord_gt              ; 右が尽きた: 左>右
+    LD A,(DE)
+    CP (HL)                  ; 右 - 左
+    JR C,s9e_ord_gt              ; 右の方が小さい
+    JR NZ,s9e_ord_lt             ; 右の方が大きい
+    INC HL
+    INC DE
+    DEC B
+    DEC C
+    JR s9e_loop
+s9e_lend:
+    LD A,C
+    OR A
+    LD A,2                   ; 両方尽きた: 等しい
+    JR Z,s9e_fin
+s9e_ord_lt:
+    LD A,1                   ; 左<右
+    JR s9e_fin
+s9e_ord_gt:
+    LD A,4                   ; 左>右
+s9e_fin:
+    POP DE
+    AND D
+    LD HL,0
+    JR Z,s9e_set
+    DEC HL                   ; 真は-1
+s9e_set:
+    CALL S9_SET_INT
+    CALL S9_OK
+    LD A,1
+    RET
+s9e_rhs_num:
+    POP DE
+    JP s9e_type
+s9e_rhs_fail:
+    POP DE
+    JP s9e_done
