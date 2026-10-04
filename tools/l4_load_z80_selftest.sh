@@ -17,6 +17,8 @@ make_rom() {
 import pathlib,sys
 repo,out,fault=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),sys.argv[3]
 sys.path.insert(0,str(repo/'tools'/'asm'))
+sys.path.insert(0, str(repo / "src"))
+import memmap
 import z80text
 bank=(repo/'src/ext_bank/bank1.asm').read_text(encoding='utf-8')
 # この検査の小型ROMでは、mainの試験関数を窓外に直接置く。
@@ -257,7 +259,7 @@ HALT_FAIL:
     JR HALT_FAIL
 '''
 src=harness+'\n'+gap+'\n'+bank
-asm_path=out/'test.asm';asm_path.write_text(src,encoding='utf-8')
+asm_path=out/'test.asm';asm_path.write_text(memmap.asm_prelude() + src,encoding='utf-8')
 code=z80text.Assembler().assemble(asm_path)
 if len(code)>0x8000: raise SystemExit('ROM容量')
 rom=bytearray(0x8000);rom[:len(code)]=code

@@ -40,8 +40,14 @@ import sys
 repo, path, repl = Path(sys.argv[1]), Path(sys.argv[2]), bytes.fromhex(sys.argv[3])
 sys.path.insert(0, str(repo / 'tools' / 'asm'))
 import z80text
+import tempfile
+sys.path.insert(0, str(repo / "src"))
+import memmap
 asm = z80text.Assembler()
-asm.assemble(repo / 'src' / 'ext_bank' / 'bank2.asm')
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'bank2.asm'
+    source.write_text(memmap.asm_prelude() + (repo / 'src/ext_bank/bank2.asm').read_text())
+    asm.assemble(source)
 offset = asm.labels['s2_write_stream'] - 0x6000
 rom = bytearray(path.read_bytes())
 if rom[offset:offset + 2] != b'\xe6\x01':

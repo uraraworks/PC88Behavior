@@ -14,8 +14,14 @@ import sys
 repo, path = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(repo / 'tools' / 'asm'))
 import z80text
+import tempfile
+sys.path.insert(0, str(repo / "src"))
+import memmap
 asm = z80text.Assembler()
-asm.assemble(repo / 'src' / 'ext_bank' / 'bank2.asm')
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'bank2.asm'
+    source.write_text(memmap.asm_prelude() + (repo / 'src/ext_bank/bank2.asm').read_text())
+    asm.assemble(source)
 offset = asm.labels['s2_ws_request'] - 0x6000 + 7
 rom = bytearray(path.read_bytes())
 if rom[offset - 1:offset + 1] != b'\x3e\x01':
@@ -41,8 +47,14 @@ import sys
 repo, path = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(repo / 'tools' / 'asm'))
 import z80text
+import tempfile
+sys.path.insert(0, str(repo / "src"))
+import memmap
 asm = z80text.Assembler()
-asm.assemble(repo / 'src' / 'ext_bank' / 'bank2.asm')
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'bank2.asm'
+    source.write_text(memmap.asm_prelude() + (repo / 'src/ext_bank/bank2.asm').read_text())
+    asm.assemble(source)
 offset = asm.labels['s2_ws_later'] - 0x6000 + 1
 rom = bytearray(path.read_bytes())
 if rom[offset - 1:offset + 1] != b'\x3e\x06':

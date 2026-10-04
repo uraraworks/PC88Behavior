@@ -53,18 +53,18 @@ S9B_ADDRESS_CUR:
     OR A
     JR Z,s9b_address_round
     CALL S9_LOAD_OPA
-    LD A,(0C003h)
+    LD A,(MM_MBF_OPA+3)
     CP 144
     JR NZ,s9b_address_round
-    LD A,(0C002h)
+    LD A,(MM_MBF_OPA+2)
     BIT 7,A
     JR NZ,s9b_address_round
     XOR A
-    LD (0C004h),A
-    LD (0C005h),A
-    LD (0C006h),A
+    LD (MM_MBF_OPB),A
+    LD (MM_MBF_OPB+1),A
+    LD (MM_MBF_OPB+2),A
     LD A,145
-    LD (0C007h),A
+    LD (MM_MBF_OPB+3),A
     CALL S9_MBF_SUB
     CALL S9_SET_SINGLE
 s9b_address_round:

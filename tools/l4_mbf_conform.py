@@ -54,6 +54,8 @@ import sys
 from fractions import Fraction
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "src"))
+import memmap
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tools" / "asm"))
 
@@ -961,7 +963,7 @@ def encode_vectors(op: str, vecs) -> bytes:
 def assemble_rom(op: str, vecs, mbf_src: str, workdir: pathlib.Path) -> pathlib.Path:
     asm_text = build_driver_asm(op, len(vecs), mbf_src)
     asm_path = workdir / f"{op}.asm"
-    asm_path.write_text(asm_text)
+    asm_path.write_text(memmap.asm_prelude() + asm_text)
     rom = bytearray([0] * N88_SIZE)
     # z80text.py の公開APIは (source,out) のファイルI/Oのみ(CLI)なので、それを使う。
     out_bin = workdir / f"{op}.bin"

@@ -2,23 +2,23 @@
 ; C600-C601: 長文字列16スロットの使用ビット、8000-8FFF: 各256B。
 ; 31文字までは既存レコード内、32文字以上のみ別領域。満杯はOut of memory。
 ; SAVE捕捉9000-BFFF、MBF/式評価C000-C5FFとは重ならない。
-S9_TMP_LEN EQU 0D031h
-S9_TMP EQU 0C700h
-S9_ARG EQU 0C800h
-S9_CUR_TYPE EQU 0E8A2h
-S9_CUR_DATA EQU 0E8A3h
-S9_REC EQU 0CA00h
-S9_START EQU 0CA02h
-S9_TARGET_LEN EQU 0CA03h
-S9_NEEDLE_LEN EQU 0CA04h
-S9_POS EQU 0CA05h
-S9_BASE EQU 0CA06h
-S9_DIGITS EQU 0CA07h
-S9_DIGBUF EQU 0CA08h
-S9_RESUME_REC EQU 0D979h
-S9_RESUME_PTR EQU 0D97Bh
-S9_RESUME_END EQU 0D97Dh
-RUN_ERROR_ACTIVE EQU 0D977h
+S9_TMP_LEN EQU MM_RUN_STR_TMP_LEN
+S9_TMP EQU MM_RUN_STR_TMP_BUF
+S9_ARG EQU MM_RUN_STR_ARG1_BUF
+S9_CUR_TYPE EQU MM_CUR_TYPE
+S9_CUR_DATA EQU MM_CUR_DATA
+S9_REC EQU MM_S9_REC
+S9_START EQU MM_S9_START
+S9_TARGET_LEN EQU MM_S9_TARGET_LEN
+S9_NEEDLE_LEN EQU MM_S9_NEEDLE_LEN
+S9_POS EQU MM_S9_POS
+S9_BASE EQU MM_S9_BASE
+S9_DIGITS EQU MM_S9_DIGITS
+S9_DIGBUF EQU MM_S9_DIGBUF
+S9_RESUME_REC EQU MM_S9_RESUME_REC
+S9_RESUME_PTR EQU MM_S9_RESUME_PTR
+S9_RESUME_END EQU MM_S9_RESUME_END
+RUN_ERROR_ACTIVE EQU MM_RUN_ERROR_ACTIVE
 
     ORG 0x7400
     JP S9_CHR
@@ -197,19 +197,19 @@ s9_radix_number:
     OR A
     JR Z,s9_radix_round
     CALL S9_LOAD_OPA
-    LD A,(0C003h)            ; MBF exponent、32768以上は144以上
+    LD A,(MM_MBF_OPA+3)            ; MBF exponent、32768以上は144以上
     CP 144
     JR NZ,s9_radix_round
-    LD A,(0C002h)
+    LD A,(MM_MBF_OPA+2)
     BIT 7,A
     JR NZ,s9_radix_round
     ; 指数144は[32768,65536)。MBF_OPB=65536、既存単精度減算。
     XOR A
-    LD (0C004h),A
-    LD (0C005h),A
-    LD (0C006h),A
+    LD (MM_MBF_OPB),A
+    LD (MM_MBF_OPB+1),A
+    LD (MM_MBF_OPB+2),A
     LD A,145
-    LD (0C007h),A
+    LD (MM_MBF_OPB+3),A
     CALL S9_MBF_SUB
     CALL S9_SET_SINGLE
 s9_radix_round:
@@ -478,8 +478,8 @@ S9_OOM:
     LD A,7
     JP S9_ERROR
 S9_SLOT_ALLOC:
-    LD DE,08000h
-    LD HL,0C600h
+    LD DE,MM_STRING_PAGE_BASE
+    LD HL,MM_STRING_FLAGS
     LD C,1
     LD B,16
 s9_slot_loop:
@@ -501,7 +501,7 @@ s9_slot_found:
     LD A,1
     RET
 S9_SLOT_FREE:
-    LD HL,0C600h
+    LD HL,MM_STRING_FLAGS
     CP 8
     JR C,s9_slot_low
     SUB 8
@@ -523,7 +523,7 @@ s9_slot_mask:
 
 ; 捕捉直前の実行位置。RESUME NEXTは引用符内のコロンを飛び越して次文へ。
 S9_SAVE_ERROR:
-    LD HL,(0CA10h)           ; 文頭は捕捉時だけ保存、ハンドラの文頭と分離
+    LD HL,(MM_STMT_START)           ; 文頭は捕捉時だけ保存、ハンドラの文頭と分離
     LD (S9_RESUME_PTR),HL
     LD HL,(RUN_CUR_RECORD)
     LD (S9_RESUME_REC),HL
@@ -532,21 +532,21 @@ S9_SAVE_ERROR:
     RET
 S9_SKIP_QUOTED_STMT:
     XOR A
-    LD (0CA0Fh),A
+    LD (MM_S9_RESUME_SKIP),A
 s9_skip_loop:
     CALL B3_AT_END
     RET Z
     CALL B3_PEEK_CHAR
     CP '"'
     JR NZ,s9_skip_colon
-    LD A,(0CA0Fh)
+    LD A,(MM_S9_RESUME_SKIP)
     XOR 1
-    LD (0CA0Fh),A
+    LD (MM_S9_RESUME_SKIP),A
     JR s9_skip_next
 s9_skip_colon:
     CP ':'
     JR NZ,s9_skip_next
-    LD A,(0CA0Fh)
+    LD A,(MM_S9_RESUME_SKIP)
     OR A
     RET Z
 s9_skip_next:
@@ -706,8 +706,8 @@ S9_FIND_LINE:
 ; 演算子の真偽は順序(bit0:左<右 bit1:等しい bit2:左>右)との論理積で決める。
 ; 比較は符号なしバイトで先頭から、先に尽きた側が小さい。結果の整数はそのまま
 ; AND/OR/NOT・算術へ渡る。文字列と数値の混在は誤り13(両順)。
-S9E_L_LEN EQU 0CB00h
-S9E_L_BUF EQU 0CB01h
+S9E_L_LEN EQU MM_S9E_L_LEN
+S9E_L_BUF EQU MM_S9E_L_BUF
 
     ORG 0x7900
     JP S9E_CMP

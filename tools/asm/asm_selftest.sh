@@ -288,7 +288,7 @@ fi
 # 5. 単独実行（tools/asm/ を伴わない）: 生成器ファイル自身の方針
 #    （冒頭docstring）は「外部依存ゼロで、第三者が
 #    `python3 make_ipl_rom.py/make_subrom.py <出力先>` だけで同じROMを
-#    再生成できる」こと。生成器ファイルだけを一時ディレクトリへコピー
+#    再生成できる」こと。生成器ファイル（IPLはRAM正典memmap.pyも）を一時ディレクトリへコピー
 #    （tools/asm が無い状態）して実行し、
 #      ①既定実行が rc=0 で通る
 #      ②出力ROMのsha256が上のEXPECT_*と一致（バイト不変）
@@ -337,6 +337,7 @@ STANDALONE_IPL="$WORK/standalone_ipl"
 STANDALONE_SUB="$WORK/standalone_sub"
 mkdir -p "$STANDALONE_IPL" "$STANDALONE_SUB"
 cp src/l1_ipl/make_ipl_rom.py "$STANDALONE_IPL/make_ipl_rom.py"
+cp src/memmap.py "$STANDALONE_IPL/memmap.py"
 cp src/l3_service/make_subrom.py "$STANDALONE_SUB/make_subrom.py"
 
 # 5a. 単独コピー・既定実行（tools/asmは同梱していない）
@@ -399,6 +400,7 @@ STANDALONE_IPL_BROKEN="$WORK/standalone_ipl_broken"
 STANDALONE_SUB_BROKEN="$WORK/standalone_sub_broken"
 mkdir -p "$STANDALONE_IPL_BROKEN" "$STANDALONE_SUB_BROKEN"
 cp src/l1_ipl/make_ipl_rom.py "$STANDALONE_IPL_BROKEN/make_ipl_rom.py"
+cp src/memmap.py "$STANDALONE_IPL_BROKEN/memmap.py"
 cp src/l3_service/make_subrom.py "$STANDALONE_SUB_BROKEN/make_subrom.py"
 revert_to_unconditional_import "$STANDALONE_IPL_BROKEN/make_ipl_rom.py"
 revert_to_unconditional_import "$STANDALONE_SUB_BROKEN/make_subrom.py"

@@ -39,8 +39,10 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO / "tools" / "asm"))
+sys.path.insert(0, str(REPO / "src"))
 
 import z80text  # noqa: E402
+import memmap  # noqa: E402
 
 BANK_SIZE = 0x2000     # 8KB。窓(0x6000-0x7FFF)と同じ大きさ
 BANK_ORG = 0x6000      # 窓の先頭番地
@@ -156,7 +158,8 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         if text.count(MBF_ADD_ADDR_OLD) != 1:
             raise SystemExit(f"{asm_path.name}: MBF_ADD_ADDRの置換対象が一意でない")
         text = text.replace(MBF_ADD_ADDR_OLD, f"MBF_ADD_ADDR EQU 0x{mbf_add_addr:04X}")
-    text = _generic_addr_subs(text, addr_overrides)
+    # RAMの正典はROM呼び先の実測置換と独立。アセンブル単位ごとに一度配る。
+    text = memmap.asm_prelude() + _generic_addr_subs(text, addr_overrides)
     src_path = work / f"{asm_path.stem}_gen.asm"
     src_path.write_text(text, encoding="utf-8")
 

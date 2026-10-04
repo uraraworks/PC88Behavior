@@ -91,24 +91,24 @@
 ;
 ; RAM変数は lexer.asm 側にまとめて宣言してある(ERROR_FLAG, LINE_END,
 ; CUR_PTR, SUPPRESS_NL 等)。ここでは追加で以下を使う。
-PUD_VALUE   EQU 0E89Ah   ; 2バイト
-PUD_PLACE   EQU 0E89Ch   ; 2バイト
-PUD_DIGIT   EQU 0E89Eh
-PUD_STARTED EQU 0E89Fh
-ERROR_KIND  EQU 0E8A0h   ; 誤りの形の番号(2/6/11/22、既定2)。errors.asm生成の
+PUD_VALUE   EQU MM_PUD_VALUE   ; 2バイト
+PUD_PLACE   EQU MM_PUD_PLACE   ; 2バイト
+PUD_DIGIT   EQU MM_PUD_DIGIT
+PUD_STARTED EQU MM_PUD_STARTED
+ERROR_KIND  EQU MM_ERROR_KIND   ; 誤りの形の番号(2/6/11/22、既定2)。errors.asm生成の
                          ; ERR_MSG_番号 を選ぶために BASIC_RUN_LINE が読む。
                          ; 判定方針は 第7.1.1節 対応、この段階の選択は
                          ; SELECT_ERROR_MSG の直前コメント参照。
-ERROR_IS_RUNTIME EQU 0E8A1h  ; 1=範囲外/0除算(第5.6節、出力2行)、
+ERROR_IS_RUNTIME EQU MM_ERROR_IS_RUNTIME  ; 1=範囲外/0除算(第5.6節、出力2行)、
                          ; 0=構文の誤り(出力1行)。BASIC_RUN_LINEが読む。
 
 ; ---- M7段階4a-2: 値の型付き表現(整数/単精度)。M7段階4b-3で倍精度
 ;   (CUR_TYPE=2)を追加。ヘッダコメント参照 ----
-CUR_TYPE   EQU 0E8A2h        ; 0=整数16bit 1=単精度MBF 2=倍精度MBF
-CUR_DATA   EQU 0E8A3h        ; 8バイト(整数は下位2バイト、単精度は下位4
+CUR_TYPE   EQU MM_CUR_TYPE        ; 0=整数16bit 1=単精度MBF 2=倍精度MBF
+CUR_DATA   EQU MM_CUR_DATA        ; 8バイト(整数は下位2バイト、単精度は下位4
                               ; バイトだけ意味を持つ。段階4b-3で4→8へ拡張)
-RHS_TYPE   EQU 0E8ABh
-RHS_DATA   EQU 0E8ACh        ; 8バイト(同上)
+RHS_TYPE   EQU MM_RHS_TYPE
+RHS_DATA   EQU MM_RHS_DATA        ; 8バイト(同上)
 
 ; 段階4b-3: VAL_STACK(32slot*9byte=288B)・LIT_*はここ(E8xx、program.asmの
 ; STMT_KIND=E980以降と隣接)に収まらなくなった(CUR_DATA/RHS_DATAを4→8Bへ
@@ -116,23 +116,23 @@ RHS_DATA   EQU 0E8ACh        ; 8バイト(同上)
 ; のワークエリア(0xC200-0xC2AB、172B)の直後・実行エンジン(run.asm、
 ; 0xD000-0xD059)より手前の空き番地(0xC2C0以降)へ再配置した。
 ; 仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
-INTERP_EXT_RAM_BASE EQU 0C2C0h
+INTERP_EXT_RAM_BASE EQU MM_INTERP_EXT_RAM_BASE
 VAL_STACK       EQU INTERP_EXT_RAM_BASE          ; 32slot*9byte(型1+データ8) = 288バイト
 VAL_STACK_DEPTH EQU 32
-VAL_SP          EQU INTERP_EXT_RAM_BASE+0120h    ; 1バイト(次に積む位置、0..32) = C3E0
+VAL_SP          EQU MM_VAL_SP ; 1バイト(次に積む位置、0..32) = C3E0
 
 ; ---- 数値リテラルの生バイト列(MBF_FIN/MBF_DFINへ渡す前の字句、LEX_NUMBER) ----
-LIT_BUF       EQU INTERP_EXT_RAM_BASE+0121h      ; 24バイト(FIN_BUFと同じ上限) = C3E1
-LIT_LEN       EQU INTERP_EXT_RAM_BASE+0139h      ; C3F9
-LIT_HASDOT    EQU INTERP_EXT_RAM_BASE+013Ah      ; C3FA
-LIT_HASEXP    EQU INTERP_EXT_RAM_BASE+013Bh      ; C3FB
-LIT_HASSUFFIX EQU INTERP_EXT_RAM_BASE+013Ch      ; C3FC
+LIT_BUF       EQU MM_LIT_BUF ; 24バイト(FIN_BUFと同じ上限) = C3E1
+LIT_LEN       EQU MM_LIT_LEN ; C3F9
+LIT_HASDOT    EQU MM_LIT_HASDOT ; C3FA
+LIT_HASEXP    EQU MM_LIT_HASEXP ; C3FB
+LIT_HASSUFFIX EQU MM_LIT_HASSUFFIX ; C3FC
 
 ; ---- 段階4b-3: 整数どうしの乗算の範囲内判定(VAL_MUL_INT16)の作業領域 ----
-MULI_SIGN  EQU INTERP_EXT_RAM_BASE+013Dh   ; C3FD 1バイト(結果の符号 0/1)
-MULI_A     EQU INTERP_EXT_RAM_BASE+013Eh   ; C3FE 2バイト(|CUR|)
-MULI_B     EQU INTERP_EXT_RAM_BASE+0140h   ; C400 2バイト(|RHS|)
-MULI_COUNT EQU INTERP_EXT_RAM_BASE+0142h   ; C402 1バイト(シフト加算ループの残り回数)
+MULI_SIGN  EQU MM_MULI_SIGN ; C3FD 1バイト(結果の符号 0/1)
+MULI_A     EQU MM_MULI_A ; C3FE 2バイト(|CUR|)
+MULI_B     EQU MM_MULI_B ; C400 2バイト(|RHS|)
+MULI_COUNT EQU MM_MULI_COUNT ; C402 1バイト(シフト加算ループの残り回数)
 
 ; ゾーン幅(l4-basic.md 第4節zone_14)。故障注入(検査「ゾーンの幅を変えた
 ; 変種」)がこの1行だけを書き換える対象。

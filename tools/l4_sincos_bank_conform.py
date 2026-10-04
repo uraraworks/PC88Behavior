@@ -25,6 +25,8 @@ import sys
 from fractions import Fraction
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "src"))
+import memmap
 sys.path.insert(0, str(REPO / "tools"))
 
 import l4_bank_dup_equ as bank_dup_equ  # noqa: E402
@@ -226,7 +228,7 @@ def load_bank0_src(fault: str | None, mbf_src: str) -> str:
 
 
 def assemble(text: str, out_bin: pathlib.Path, asm_path: pathlib.Path):
-    asm_path.write_text(text)
+    asm_path.write_text(memmap.asm_prelude() + text)
     r = subprocess.run(
         [sys.executable, str(REPO / "tools" / "asm" / "z80text.py"), str(asm_path), "-o", str(out_bin)],
         capture_output=True, text=True,
@@ -241,7 +243,7 @@ def resolve_addrs(prefix: str, mbf_src: str, bank0_src_placeholder: str,
     tail = TAIL_TMPL.format(vec_table_addr=VEC_TABLE_ADDR)
     probe_text = prefix + "\n\n" + mbf_src + "\n\n" + bank0_src_placeholder + "\n" + tail
     asm_path = workdir / "probe.asm"
-    asm_path.write_text(probe_text)
+    asm_path.write_text(memmap.asm_prelude() + probe_text)
     sys.path.insert(0, str(REPO / "tools" / "asm"))
     import z80text  # noqa: E402
     asm = z80text.Assembler()

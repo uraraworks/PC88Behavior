@@ -56,7 +56,7 @@ def _b6_boot(branch: str) -> str:
     tag = B6_BRANCHES.index(branch) + 1
     init = mainrom.M6IB_INIT.replace(
         "    RET\n", f"    LD A,{tag:03X}h\n    LD (M6IB_BRANCH_TAG),A\n    RET\n")
-    prefix = mainrom.M6IB_COMMON_EQU + "M6IB_BRANCH_TAG          EQU 0E00Dh\n" + init + """
+    prefix = mainrom.M6IB_COMMON_EQU + "M6IB_BRANCH_TAG          EQU MM_M6IB_BRANCH_TAG\n" + init + """
 MAIN_SUB_READ_BOOT_ONCE:
     LD A,(MAIN_SUB_BOOT_DONE)
     OR A

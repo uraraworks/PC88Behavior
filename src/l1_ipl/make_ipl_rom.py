@@ -8,7 +8,8 @@ make_ipl_rom.py — L1 IPL（起動時のハードウェア初期化）の N88.R
 
   なぜ Python でバイト列を組むのか:
   この環境に Z80 アセンブラが無い。外部依存ゼロなら第三者が
-  `python3 make_ipl_rom.py <出力先>` だけで同じ ROM を再生成できる。
+  `make_ipl_rom.py` とRAM正典 `memmap.py` を同梱し、
+  `python3 make_ipl_rom.py <出力先>` で同じ ROM を再生成できる。
   出自の主張が「信じてくれ」ではなく再現性で立つ。
 
   ここで出力するバイト列はすべて自分で書いたものである。
@@ -46,11 +47,14 @@ import os
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import memmap
+
 # M7段階0: .asm書き出し(--emit-asm-dir)用の共通ヘルパ。tools/asm/ はこの
 # リポジトリ内のツールでpython3だけで完結する（外部依存を増やさない）。
 # ただし本ファイル自身の方針（冒頭docstring）は「外部依存ゼロで、第三者が
 # `python3 make_ipl_rom.py <出力先>` だけで同じROMを再生成できる」こと
-# なので、tools/asm/ を伴わずにこのファイル単体をコピーして実行しても
+# なので、tools/asm/ を伴わずにこのファイルとmemmap.pyをコピーして実行しても
 # ROM生成そのものは動かなければならない。見つかれば使い、無ければ
 # --emit-asm-dir 未使用時は無害なフォールバックで動作し、使用時だけ
 # 分かりやすいエラーで終了する（下記 _require_asm_emit）。
@@ -187,7 +191,7 @@ N88_SIZE = 0x8000   # 32KB。0000-7FFF に載る
 DISK_SIZE = 0x0800  # サブ CPU 用。ディスクを使わないので止まるだけ
 FILL = 0x00
 
-STACK = 0xF000      # メイン RAM。テキスト VRAM (F3C8) より下に置く
+STACK = memmap.addresses()["MM_STACK_TOP"]  # CPUスタックの上端
 
 P_SYSCTRL1 = 0x30   # OUT: システムコントロール(1) / IN: DIP スイッチ(1)
 P_SYSCTRL2 = 0x31   # OUT: システムコントロール(2) / IN: DIP スイッチ(2)
@@ -723,7 +727,7 @@ def sub_vsync_handler(a):
 # フォント見本（--font-sample。L2 検証専用。L1 の適合条件には無関係）
 # --------------------------------------------------------------------------
 
-TEXT_BASE   = 0xF3C8   # テキストVRAM先頭（docs/spec/l1-ipl.md 第5d節「F3C8である理由」）
+TEXT_BASE   = memmap.addresses()["MM_TEXT_BASE"]  # テキストVRAM先頭
 TEXT_COLS   = 80       # 1行の文字数（同 第0節）
 TEXT_STRIDE = 120      # 1行の間隔 = 80桁 + 40アトリビュート（同 第0節・第2節）
 

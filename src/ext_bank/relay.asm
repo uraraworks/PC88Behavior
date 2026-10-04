@@ -80,11 +80,11 @@
 ; ことを確認している。
 
 ; EXT_BANK_CALLの再入検出用フラグ(RAM)。上記「再入不可」参照。
-EXT_BANK_BUSY              EQU 0E8C8h   ; 1=EXT_BANK_CALL実行中
-EXT_BANK_REENTRY_DETECTED  EQU 0E8C9h   ; 1=再入を検出したことがある
+EXT_BANK_BUSY              EQU MM_EXT_BANK_BUSY   ; 1=EXT_BANK_CALL実行中
+EXT_BANK_REENTRY_DETECTED  EQU MM_EXT_BANK_REENTRY_DETECTED   ; 1=再入を検出したことがある
 ; main_sub_read.asmの「0x17,0x0F送信済み」フラグ（1.36a節）。RAMがゼロ初期化される
 ; 保証が無いので、EXT_BANK_INITが起動時に0へ戻す。
-MAIN_SUB_LOGICAL_SENT      EQU 0E010h
+MAIN_SUB_LOGICAL_SENT      EQU MM_MAIN_SUB_LOGICAL_SENT
 
 ; ---------------------------------------------------------------
 ; EXT_BANK_INIT — EXT_BANK_BUSYと起動時のBASIC/RND状態の初期化。
@@ -154,8 +154,8 @@ EXT_BANK_MAIN_CALL:
     RET
 _ext_bank_main_jump:
     JP (IX)
-EXT_BANK_MAIN_PORT71 EQU 0E8CAh
-EXT_BANK_MAIN_PORT32 EQU 0E8CBh
+EXT_BANK_MAIN_PORT71 EQU MM_EXT_BANK_MAIN_PORT71
+EXT_BANK_MAIN_PORT32 EQU MM_EXT_BANK_MAIN_PORT32
 
 ; ポート(l1-ipl.md 第5c節・ext-rom-bank.md 第1節)
 EXT_PORT_BANKSEL EQU 0x32   ; bit1-0 = EROMSL(内蔵拡張ROMバンク選択0-3)
@@ -307,15 +307,15 @@ EXT_BANK_JUMP_HL:
 
 ; 結果格納領域(RAM)。既存の使用域(E800-E8B9、E980-E99C、EA00-)と
 ; 衝突しない空き(E8BA以降)を使う。
-EXT_BANK_ST_VAL0      EQU 0E8C0h   ; バンク0を呼んだ返り値
-EXT_BANK_ST_VAL1      EQU 0E8C1h   ; バンク1
-EXT_BANK_ST_VAL2      EQU 0E8C2h   ; バンク2
-EXT_BANK_ST_VAL3      EQU 0E8C3h   ; バンク3
-EXT_BANK_ST_PASS      EQU 0E8C4h   ; 4バンク中、期待値と一致した本数(0-4)
-EXT_BANK_ST_WINCALL   EQU 0E8C5h   ; 1=窓の中(run部)から呼んでも正しく戻れた
-EXT_BANK_ST_LOOP_DONE EQU 0E8C6h   ; 1=多数回呼び出し試験を実行済み
-EXT_BANK_ST_LOOP_OK   EQU 0E8C7h   ; 1=多数回呼び出し試験が全数一致
-EXT_BANK_ST_LOOP_CNT  EQU 0E8CCh   ; 2バイト: 残り回数のカウンタ。
+EXT_BANK_ST_VAL0      EQU MM_EXT_BANK_ST_VAL0   ; バンク0を呼んだ返り値
+EXT_BANK_ST_VAL1      EQU MM_EXT_BANK_ST_VAL1   ; バンク1
+EXT_BANK_ST_VAL2      EQU MM_EXT_BANK_ST_VAL2   ; バンク2
+EXT_BANK_ST_VAL3      EQU MM_EXT_BANK_ST_VAL3   ; バンク3
+EXT_BANK_ST_PASS      EQU MM_EXT_BANK_ST_PASS   ; 4バンク中、期待値と一致した本数(0-4)
+EXT_BANK_ST_WINCALL   EQU MM_EXT_BANK_ST_WINCALL   ; 1=窓の中(run部)から呼んでも正しく戻れた
+EXT_BANK_ST_LOOP_DONE EQU MM_EXT_BANK_ST_LOOP_DONE   ; 1=多数回呼び出し試験を実行済み
+EXT_BANK_ST_LOOP_OK   EQU MM_EXT_BANK_ST_LOOP_OK   ; 1=多数回呼び出し試験が全数一致
+EXT_BANK_ST_LOOP_CNT  EQU MM_EXT_BANK_ST_LOOP_CNT   ; 2バイト: 残り回数のカウンタ。
                                    ; EXT_BANK_CALLがB/C/D/Eを作業用に
                                    ; 使う(上記「壊すレジスタ」参照)ため、
                                    ; BC/DEに置くと呼ぶたびに潰れる。
@@ -337,14 +337,14 @@ EXT_BANK_EXPECT3 EQU 0xB3
 ; 「壊れている」ことの検出になる)。
 EXT_BANK0_ABS_ENTRY_OFFSET EQU 0x10
 EXT_BANK0_ABS_EXPECT       EQU 0xC5
-EXT_BANK_ST_ABS_VAL EQU 0E8CFh   ; 1バイト: 絶対番地試験の生の返り値
-EXT_BANK_ST_ABS_OK  EQU 0E8CEh   ; 1バイト: 1=期待値0xC5と一致
+EXT_BANK_ST_ABS_VAL EQU MM_EXT_BANK_ST_ABS_VAL   ; 1バイト: 絶対番地試験の生の返り値
+EXT_BANK_ST_ABS_OK  EQU MM_EXT_BANK_ST_ABS_OK   ; 1バイト: 1=期待値0xC5と一致
 
 ; バンク0の「常駐の単精度演算(MBF_ADD)を呼んで正しい結果を返す」試験
 ; (src/ext_bank/bank0.asm EXT_BANK0_MBF_TEST_ENTRY、docs/spec/
 ; ext-rom-bank.md 第2節 制約3)。offset 0x30固定。
 EXT_BANK0_MBF_ENTRY_OFFSET EQU 0x30
-EXT_BANK_ST_MBF_OK  EQU 0E8D0h   ; 1バイト: 1=MBF_ADD(1.0+2.0)が3.0と一致
+EXT_BANK_ST_MBF_OK  EQU MM_EXT_BANK_ST_MBF_OK   ; 1バイト: 1=MBF_ADD(1.0+2.0)が3.0と一致
 
 ; ---------------------------------------------------------------
 ; EXT_BANK_SELFTEST — 割り込み無しで行える範囲の自己検査(常駐部から

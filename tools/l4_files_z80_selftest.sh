@@ -25,6 +25,8 @@ repo = pathlib.Path(sys.argv[1])
 out = pathlib.Path(sys.argv[2])
 fault = sys.argv[3]
 sys.path.insert(0, str(repo / "tools" / "asm"))
+sys.path.insert(0, str(repo / "src"))
+import memmap
 import z80text
 
 bank = (repo / "src" / "ext_bank" / "bank1.asm").read_text(encoding="utf-8")
@@ -307,7 +309,7 @@ T_FAIL_HALT:
 '''
 src = harness + "\n" + bank
 tmp = out / "files_test.asm"
-tmp.write_text(src, encoding="utf-8")
+tmp.write_text(memmap.asm_prelude() + src, encoding="utf-8")
 asm = z80text.Assembler()
 code = asm.assemble(tmp)
 if len(code) > 0x8000:

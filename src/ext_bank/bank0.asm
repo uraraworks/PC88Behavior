@@ -60,16 +60,16 @@ EXT_BANK0_ABS_TABLE:
 ; いれば呼び出し先が変わり、この自己検査が不一致(またはハング)を検出
 ; する——密結合を隠さず、崩れたら検出できる形にしてある。
 MBF_ADD_ADDR EQU 0x1787
-MBF_OPA EQU 0xC000
-MBF_OPB EQU 0xC004
-MBF_RES EQU 0xC008
+MBF_OPA EQU MM_MBF_OPA
+MBF_OPB EQU MM_MBF_OPB
+MBF_RES EQU MM_MBF_RES
 ; 2026-09-20追記(ATN/EXP/LOG、第4.16b節): MBF_STATUS(EXPのオーバーフロー
 ; 信号)・MBF_OUT_CMP(ATN/LOGのMBF_CMP結果)・MBF_IN_INT(LOGのe_raw→
 ; MBF_INT_TO_SINGLE入力)。mbf_single.asmの同名EQUと同じ値(密結合は
 ; コメントで明示、MBF_OPA等と同じ方針)。
-MBF_STATUS EQU 0xC00C
-MBF_IN_INT EQU 0xC00D
-MBF_OUT_CMP EQU 0xC00F
+MBF_STATUS EQU MM_MBF_STATUS
+MBF_IN_INT EQU MM_MBF_IN_INT
+MBF_OUT_CMP EQU MM_MBF_OUT_CMP
 
     ORG 0x6030
 EXT_BANK0_MBF_TEST_ENTRY:
@@ -144,17 +144,17 @@ MBF_DTOS_ADDR EQU 0x1787
 ; （mbf_double.asmヘッダのMBF_DOUBLE_RAM_BASE=0xC200と同じ値、
 ; 密結合はコメントで明示——ズレれば自己検査ではなく実機能そのものが
 ; 不一致になる。将来この番地を動かす場合はここも合わせて直す）。
-MBF_DOPA_RAM EQU 0xC200
-MBF_DOPB_RAM EQU 0xC208
-MBF_DRES_RAM EQU 0xC210
+MBF_DOPA_RAM EQU MM_MBF_DOUBLE_RAM_BASE
+MBF_DOPB_RAM EQU MM_MBF_DOPB_RAM
+MBF_DRES_RAM EQU MM_MBF_DRES_RAM
 
 ; SQR専用の作業域(倍精度8byte×2)。mbf_single.asm(0xC000-0xC169)にも
 ; mbf_double.asm(0xC200-0xC2AC)にも重ならない0xC300以降を使う
 ; (仕様書に無い判断ではなく、両ファイルのコメントにある「衝突しない
 ; 空きを選ぶ」方針の踏襲)。
-SQR_X EQU 0xC300   ; ニュートン法の間、常に元の値xを保持(8byte)
-SQR_Y EQU 0xC308   ; ニュートン法の現在の近似値y(8byte)
-SQR_ITER_LEFT EQU 0xC310   ; 残り反復回数(1byte、レジスタ渡しは
+SQR_X EQU MM_SQR_X   ; ニュートン法の間、常に元の値xを保持(8byte)
+SQR_Y EQU MM_SQR_Y   ; ニュートン法の現在の近似値y(8byte)
+SQR_ITER_LEFT EQU MM_SQR_ITER_LEFT   ; 残り反復回数(1byte、レジスタ渡しは
                            ; 常駐呼び出しで潰れるためRAMに置く)
 
 SQR_ITER_COUNT EQU 10   ; 初期誤差<=sqrt(2)(高々1bit)からの2次収束。
@@ -281,23 +281,23 @@ SIN_TRUNC_ADDR EQU 0x1787
 ; (SQR_X/SQR_Y/SQR_ITER_LEFT、0xC300-0xC310)のいずれとも重ならない
 ; 0xC320以降を使う(同ファイルのSQR作業域コメントにある「衝突しない
 ; 空きを選ぶ」方針の踏襲)。
-SC_X       EQU 0xC320   ; |x|(単精度、範囲縮約の入力)
-SC_Y       EQU 0xC324   ; x*IN2PI_SINGLE
-SC_N       EQU 0xC328   ; floor(SC_Y)
-SC_FRAC    EQU 0xC32C   ; 範囲縮約結果(frac_turns、[0,1))
-SC_QUAD    EQU 0xC330   ; frac_turns*4([0,4))
-SC_QNUM    EQU 0xC334   ; floor(SC_QUAD)(0/1/2/3のいずれか、単精度表現のまま)
-SC_SUB     EQU 0xC338   ; quad-q_num(象限内の位置、[0,1))
-SC_REDUCED EQU 0xC33C   ; SC_SUB/4(多項式評価・微小角判定の入力)
-SC_X2      EQU 0xC340   ; SC_REDUCED^2(Horner多項式の変数)
-SC_ACC     EQU 0xC344   ; Horner多項式評価のアキュムレータ
-SC_RESULT  EQU 0xC348   ; sin本体の結果(象限・外側符号の反転前後で共有)
-SC_TMP_A   EQU 0xC34C   ; COS用一時領域(x+PI2)
-SC_TAN_X   EQU 0xC350   ; TAN用: 元のxの退避(SIN/COSがMBF_OPAを上書きするため)
-SC_SINVAL  EQU 0xC354   ; TAN用: sin(x)の保存
-SC_COSVAL  EQU 0xC358   ; TAN用: cos(x)の保存
-SC_Q       EQU 0xC35C   ; 象限(0-3、1byte)
-SC_NEG     EQU 0xC35D   ; outer_neg(0/1、1byte)
+SC_X       EQU MM_SC_X   ; |x|(単精度、範囲縮約の入力)
+SC_Y       EQU MM_SC_Y   ; x*IN2PI_SINGLE
+SC_N       EQU MM_SC_N   ; floor(SC_Y)
+SC_FRAC    EQU MM_SC_FRAC   ; 範囲縮約結果(frac_turns、[0,1))
+SC_QUAD    EQU MM_SC_QUAD   ; frac_turns*4([0,4))
+SC_QNUM    EQU MM_SC_QNUM   ; floor(SC_QUAD)(0/1/2/3のいずれか、単精度表現のまま)
+SC_SUB     EQU MM_SC_SUB   ; quad-q_num(象限内の位置、[0,1))
+SC_REDUCED EQU MM_SC_REDUCED   ; SC_SUB/4(多項式評価・微小角判定の入力)
+SC_X2      EQU MM_SC_X2   ; SC_REDUCED^2(Horner多項式の変数)
+SC_ACC     EQU MM_SC_ACC   ; Horner多項式評価のアキュムレータ
+SC_RESULT  EQU MM_SC_RESULT   ; sin本体の結果(象限・外側符号の反転前後で共有)
+SC_TMP_A   EQU MM_SC_TMP_A   ; COS用一時領域(x+PI2)
+SC_TAN_X   EQU MM_SC_TAN_X   ; TAN用: 元のxの退避(SIN/COSがMBF_OPAを上書きするため)
+SC_SINVAL  EQU MM_SC_SINVAL   ; TAN用: sin(x)の保存
+SC_COSVAL  EQU MM_SC_COSVAL   ; TAN用: cos(x)の保存
+SC_Q       EQU MM_SC_Q   ; 象限(0-3、1byte)
+SC_NEG     EQU MM_SC_NEG   ; outer_neg(0/1、1byte)
 
 ; 定数(単精度4byte、tools/l4_mbf_oracle_v3.py・v5_m5.pyの値をそのまま
 ; バイト列化。出所は各定数のコメントを参照——GW-BASIC MIT公開ソース
@@ -801,34 +801,34 @@ AEL_ITOS_ADDR EQU 0x1787   ; MBF_INT_TO_SINGLE(LOGのe_raw→単精度)
 ; ATN・EXP・LOGは呼び出し元(interp.asm)が同時に2つ以上を実行することは
 ; ない(BASICインタプリタは単一スレッド)ため、関数間で作業域を再利用
 ; していない——判読性を優先し、各関数専用の番地を割り当てる。
-AEL_ATN_X      EQU 0xC380   ; xx(範囲縮約後の作業値、poly_eval/polyx_evalの入力にもなる)
-AEL_ATN_XPS    EQU 0xC384   ; x+sqrt(3)
-AEL_ATN_NUM    EQU 0xC388   ; poly_eval(xx, ATNC1) = x*sqrt(3)-1相当
-AEL_ATN_RESULT EQU 0xC38C   ; 結果(PI6加算・PI2減算・outer_negの前後で共有)
-AEL_ATN_NEG    EQU 0xC390   ; outer_neg(0/1、1byte)
-AEL_ATN_PI6    EQU 0xC391   ; need_pi6(0/1、1byte)
-AEL_ATN_PI2    EQU 0xC392   ; need_pi2(0/1、1byte)
+AEL_ATN_X      EQU MM_AEL_ATN_X   ; xx(範囲縮約後の作業値、poly_eval/polyx_evalの入力にもなる)
+AEL_ATN_XPS    EQU MM_AEL_ATN_XPS   ; x+sqrt(3)
+AEL_ATN_NUM    EQU MM_AEL_ATN_NUM   ; poly_eval(xx, ATNC1) = x*sqrt(3)-1相当
+AEL_ATN_RESULT EQU MM_AEL_ATN_RESULT   ; 結果(PI6加算・PI2減算・outer_negの前後で共有)
+AEL_ATN_NEG    EQU MM_AEL_ATN_NEG   ; outer_neg(0/1、1byte)
+AEL_ATN_PI6    EQU MM_AEL_ATN_PI6   ; need_pi6(0/1、1byte)
+AEL_ATN_PI2    EQU MM_AEL_ATN_PI2   ; need_pi2(0/1、1byte)
 
-AEL_EXP_Y      EQU 0xC3A0   ; y = x*LOG2E
-AEL_EXP_NY     EQU 0xC3A4   ; ny_single = floor(y)(単精度のまま、厳密な整数値)
-AEL_EXP_FRAC   EQU 0xC3A8   ; frac = y - ny_single
-AEL_EXP_POLY   EQU 0xC3AC   ; poly_eval(frac, EXPCN)
-AEL_EXP_POW2   EQU 0xC3B0   ; 2^ny(単精度、仮数0=1.xxxxの意味で厳密)
+AEL_EXP_Y      EQU MM_AEL_EXP_Y   ; y = x*LOG2E
+AEL_EXP_NY     EQU MM_AEL_EXP_NY   ; ny_single = floor(y)(単精度のまま、厳密な整数値)
+AEL_EXP_FRAC   EQU MM_AEL_EXP_FRAC   ; frac = y - ny_single
+AEL_EXP_POLY   EQU MM_AEL_EXP_POLY   ; poly_eval(frac, EXPCN)
+AEL_EXP_POW2   EQU MM_AEL_EXP_POW2   ; 2^ny(単精度、仮数0=1.xxxxの意味で厳密)
 
-AEL_LOG_M      EQU 0xC3C0   ; xの仮数はそのまま・指数だけ128に固定した値([0.5,1))
-AEL_LOG_P      EQU 0xC3C4   ; poly_eval(m, LOGP)
-AEL_LOG_Q      EQU 0xC3C8   ; poly_eval(m, LOGQ)
-AEL_LOG_PQ     EQU 0xC3CC   ; P/Q
-AEL_LOG_EFLOAT EQU 0xC3D0   ; float(e_raw)(e_raw=xの指数バイト-128)
-AEL_LOG_LOG2X  EQU 0xC3D4   ; e_float + P/Q = log2(x)
+AEL_LOG_M      EQU MM_AEL_LOG_M   ; xの仮数はそのまま・指数だけ128に固定した値([0.5,1))
+AEL_LOG_P      EQU MM_AEL_LOG_P   ; poly_eval(m, LOGP)
+AEL_LOG_Q      EQU MM_AEL_LOG_Q   ; poly_eval(m, LOGQ)
+AEL_LOG_PQ     EQU MM_AEL_LOG_PQ   ; P/Q
+AEL_LOG_EFLOAT EQU MM_AEL_LOG_EFLOAT   ; float(e_raw)(e_raw=xの指数バイト-128)
+AEL_LOG_LOG2X  EQU MM_AEL_LOG_LOG2X   ; e_float + P/Q = log2(x)
 
 ; Horner多項式評価(poly_eval、_polyx_evalではなくvariableをそのまま
 ; 使う側)の共有作業域。ATN(ATNC2はx^2側で使うため事前にAEL_POLY_VARへ
 ; x^2を書く)・EXP(EXPCN)・LOG(LOGP・LOGQ)のいずれも実行順は逐次
 ; (呼び出し元が単一スレッド)のため共有して構わない。
-AEL_POLY_VAR   EQU 0xC3E0   ; Hornerの掛け算対象(x、または_polyx_eval由来のx^2)
-AEL_POLY_ACC   EQU 0xC3E4   ; Hornerのアキュムレータ
-AEL_TMP_SHIFT  EQU 0xC3E8   ; AEL_EXP_NY_TO_INT16の作業用シフトカウンタ(1byte)
+AEL_POLY_VAR   EQU MM_AEL_POLY_VAR   ; Hornerの掛け算対象(x、または_polyx_eval由来のx^2)
+AEL_POLY_ACC   EQU MM_AEL_POLY_ACC   ; Hornerのアキュムレータ
+AEL_TMP_SHIFT  EQU MM_AEL_TMP_SHIFT   ; AEL_EXP_NY_TO_INT16の作業用シフトカウンタ(1byte)
 
 ; 定数(単精度4byte)。出所は各定数のコメントを参照——GW-BASIC MIT公開
 ; ソースMATH1.ASM/MATH2.ASMのインライン即値、8進DB列を16進へ変換した
@@ -903,8 +903,8 @@ AEL_LOGQ3:
 ; TRUNC_HADFRAC/TRUNC_SIGN(mbf_single.asmのRAM番地、同じ値のEQUをここに
 ; も持つ——bank0.asmはmbf_single.asmをINCLUDEしないため、MBF_DOPA_RAM等
 ; 既存のRAM番地EQUと同じ「密結合はコメントで明示」方針の踏襲)。
-AEL_TRUNC_HADFRAC EQU 0xC0F0
-AEL_TRUNC_SIGN    EQU 0xC0F1
+AEL_TRUNC_HADFRAC EQU MM_TRUNC_HADFRAC
+AEL_TRUNC_SIGN    EQU MM_TRUNC_SIGN
 
 AEL_FLOOR:
     CALL AEL_TRUNC_ADDR         ; MBF_RES = trunc(MBF_OPA)、TRUNC_HADFRAC/TRUNC_SIGN設定
@@ -1383,16 +1383,16 @@ _ael_log_eraw_pos:
     JP AEL_MUL_ADDR                  ; MBF_RES = result(末尾呼び出し)
 
 ; 第16.1節 R_D。状態は式ワーク(C405まで)とLIST数値ワーク(C500以降)の間。
-RND_X EQU 0xC410               ; 単精度4B
-RND_INDEX EQU 0xC414           ; 次の乗数位置0..7
-RND_COUNT EQU 0xC415           ; 周期位相0..170
-RND_SEED EQU 0xC416            ; RANDOMIZEの整数種2B
+RND_X EQU MM_RND_X               ; 単精度4B
+RND_INDEX EQU MM_RND_INDEX           ; 次の乗数位置0..7
+RND_COUNT EQU MM_RND_COUNT           ; 周期位相0..170
+RND_SEED EQU MM_RND_SEED            ; RANDOMIZEの整数種2B
 RND_FIN_AWAY_ADDR EQU 0x1787   ; FIN_ACC_TO_SINGLE_AWAY、ビルド時に実番地へ置換
-RND_FIN_SIGN EQU 0xC09A
-RND_ACC3 EQU 0xC09B
-RND_ACC2 EQU 0xC09C
-RND_ACC1 EQU 0xC09D
-RND_ACC0 EQU 0xC09E
+RND_FIN_SIGN EQU MM_FIN_SIGN
+RND_ACC3 EQU MM_FIN_ACC3
+RND_ACC2 EQU MM_FIN_ACC2
+RND_ACC1 EQU MM_FIN_ACC1
+RND_ACC0 EQU MM_FIN_ACC0
 
 RND_MULTIPLIERS:
     DB 0x35,0x4A,0xCA,0x99

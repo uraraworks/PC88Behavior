@@ -40,7 +40,7 @@ def check_batch(kind, cases, work):
     if kind == 'state':
         save_state = ('LD A,(RND_INDEX)\n    LD (DE),A\n    INC DE\n    '
                       'LD A,(RND_COUNT)\n    LD (DE),A\n    INC DE')
-    prefix = f'''ORG 0
+    prefix = harness.memmap.asm_prelude() + f'''ORG 0
     DI
     LD SP,0xFFF0
     LD HL,VECTORS

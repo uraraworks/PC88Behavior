@@ -57,38 +57,38 @@
 ; 0xC2xx台、L3/L4作業域・program.asm=0xE800-0xE99A、PROGRAM_AREA=
 ; 0xEA00-0xEDFF、スタックSP=0xF000。いずれとも重ならない)。
 
-RUN_STMT_KIND      EQU 0D000h  ; 1B (0=PRINT 1=GOTO 2=GOSUB 3=RETURN
+RUN_STMT_KIND      EQU MM_RUN_STMT_KIND  ; 1B (0=PRINT 1=GOTO 2=GOSUB 3=RETURN
                                  ; 4=FOR 5=NEXT 6=END 7=STOP 8=ASSIGN、
                                  ; 19=ON ERROR 20=RESUME 21=FILES 22=LOAD 23=SAVE
                                  ; 24=KILL 25=NAME)
-RUN_CUR_RECORD     EQU 0D001h  ; 2B 現在実行中のPROGRAM_AREAレコード先頭
-RUN_CUR_LINENO     EQU 0D003h  ; 2B 現在の行番号(エラー表示用にキャッシュ)
-RUN_CTRL           EQU 0D005h  ; 1B 0=通常続行 1=ジャンプ済み 2=停止
-IDENT_BUF          EQU 0D006h  ; 8B 直近に読んだ識別子(畳み込み済み)
-IDENT_LEN          EQU 0D00Eh  ; 1B 消費した文字数(接尾辞含む)
-IDENT_KIND         EQU 0D00Fh  ; 1B 0=識別子でない 1=無印 2=% 3=$ 4=#
-RUN_ASSIGN_KIND    EQU 0D010h  ; 1B
-RUN_ASSIGN_NAME    EQU 0D011h  ; 8B
-RUN_FOR_VARNAME    EQU 0D019h  ; 8B (FOR_STMT一時)
-RUN_FOR_LIMIT_TYPE EQU 0D021h  ; 1B
-RUN_FOR_LIMIT_DATA EQU 0D022h  ; 4B
-RUN_FOR_STEP_TYPE  EQU 0D026h  ; 1B
-RUN_FOR_STEP_DATA  EQU 0D027h  ; 4B
-RUN_FOR_FRAME_PTR  EQU 0D02Bh  ; 2B
-RUN_FOR_CMP_RESULT EQU 0D02Dh  ; 1B
-RUN_FOR_SEARCH_IDX EQU 0D02Eh  ; 1B
-RUN_TMP16          EQU 0D02Fh  ; 2B
-RUN_STR_TMP_LEN    EQU 0D031h  ; 1B
-RUN_STR_TMP_BUF    EQU 0C700h  ; 255B、第17節
-RUN_SCAN_DEPTH     EQU 0D051h  ; 1B (FOR/NEXTスキャンの入れ子深さ)
-RUN_GOSUB_SP       EQU 0D052h  ; 1B
-RUN_FOR_SP         EQU 0D053h  ; 1B
-RUN_TMP_E          EQU 0D054h  ; 1B (MBF_ROUND_TO_INT16作業領域)
-RUN_TMP_SHIFT      EQU 0D055h
-RUN_TMP_M2         EQU 0D056h
-RUN_TMP_M1         EQU 0D057h
-RUN_TMP_M0         EQU 0D058h
-RUN_TMP_RBIT       EQU 0D059h
+RUN_CUR_RECORD     EQU MM_RUN_CUR_RECORD  ; 2B 現在実行中のPROGRAM_AREAレコード先頭
+RUN_CUR_LINENO     EQU MM_RUN_CUR_LINENO  ; 2B 現在の行番号(エラー表示用にキャッシュ)
+RUN_CTRL           EQU MM_RUN_CTRL  ; 1B 0=通常続行 1=ジャンプ済み 2=停止
+IDENT_BUF          EQU MM_IDENT_BUF  ; 8B 直近に読んだ識別子(畳み込み済み)
+IDENT_LEN          EQU MM_IDENT_LEN  ; 1B 消費した文字数(接尾辞含む)
+IDENT_KIND         EQU MM_IDENT_KIND  ; 1B 0=識別子でない 1=無印 2=% 3=$ 4=#
+RUN_ASSIGN_KIND    EQU MM_RUN_ASSIGN_KIND  ; 1B
+RUN_ASSIGN_NAME    EQU MM_RUN_ASSIGN_NAME  ; 8B
+RUN_FOR_VARNAME    EQU MM_RUN_FOR_VARNAME  ; 8B (FOR_STMT一時)
+RUN_FOR_LIMIT_TYPE EQU MM_RUN_FOR_LIMIT_TYPE  ; 1B
+RUN_FOR_LIMIT_DATA EQU MM_RUN_FOR_LIMIT_DATA  ; 4B
+RUN_FOR_STEP_TYPE  EQU MM_RUN_FOR_STEP_TYPE  ; 1B
+RUN_FOR_STEP_DATA  EQU MM_RUN_FOR_STEP_DATA  ; 4B
+RUN_FOR_FRAME_PTR  EQU MM_RUN_FOR_FRAME_PTR  ; 2B
+RUN_FOR_CMP_RESULT EQU MM_RUN_FOR_CMP_RESULT  ; 1B
+RUN_FOR_SEARCH_IDX EQU MM_RUN_FOR_SEARCH_IDX  ; 1B
+RUN_TMP16          EQU MM_RUN_TMP16  ; 2B
+RUN_STR_TMP_LEN    EQU MM_RUN_STR_TMP_LEN  ; 1B
+RUN_STR_TMP_BUF    EQU MM_RUN_STR_TMP_BUF  ; 255B、第17節
+RUN_SCAN_DEPTH     EQU MM_RUN_SCAN_DEPTH  ; 1B (FOR/NEXTスキャンの入れ子深さ)
+RUN_GOSUB_SP       EQU MM_RUN_GOSUB_SP  ; 1B
+RUN_FOR_SP         EQU MM_RUN_FOR_SP  ; 1B
+RUN_TMP_E          EQU MM_RUN_TMP_E  ; 1B (MBF_ROUND_TO_INT16作業領域)
+RUN_TMP_SHIFT      EQU MM_RUN_TMP_SHIFT
+RUN_TMP_M2         EQU MM_RUN_TMP_M2
+RUN_TMP_M1         EQU MM_RUN_TMP_M1
+RUN_TMP_M0         EQU MM_RUN_TMP_M0
+RUN_TMP_RBIT       EQU MM_RUN_TMP_RBIT
 ; 次の空き: 0xD05A
 
 ; ---- 変数テーブル ----
@@ -97,26 +97,26 @@ RUN_TMP_RBIT       EQU 0D059h
 ;   短文字列: VALUE[0]=len(0-31) VALUE[1..31]=chars
 ;   長文字列: KIND=2、VALUE[0]=len、VALUE[1..2]=専用ページへのポインタ。
 ;   8000-8FFFに16ページ（32〜255文字）、不足時はOut of memory(7)。
-RUN_VARTAB          EQU 0D100h
+RUN_VARTAB          EQU MM_RUN_VARTAB
 RUN_VARTAB_REC_SIZE EQU 42
 RUN_VARTAB_CAP      EQU 40
 VARREC_USED         EQU 8
 VARREC_KIND         EQU 9
 VARREC_VALUE        EQU 10
-RUN_VAR_FREE_PTR    EQU 0D0F0h  ; 2B (VAR_FINDが記録する最初の空きスロット)
+RUN_VAR_FREE_PTR    EQU MM_RUN_VAR_FREE_PTR  ; 2B (VAR_FINDが記録する最初の空きスロット)
 ; RUN_VARTAB終端 = D100+42*40 = D760
 
 ; ---- FORスタック ----
 ; フレーム(24B): [NAME 8B][LIMIT type1+data4][STEP type1+data4]
 ;                [RESUME record2+curptr2+lineend2]
-RUN_FOR_STACK       EQU 0D800h
+RUN_FOR_STACK       EQU MM_RUN_FOR_STACK
 RUN_FOR_FRAME_SIZE  EQU 24
 RUN_FOR_STACK_CAP   EQU 8
 ; 終端 = D800+192 = D8C0
 
 ; ---- GOSUBスタック ----
 ; フレーム(6B): [record2][curptr2][lineend2]
-RUN_GOSUB_STACK      EQU 0D900h
+RUN_GOSUB_STACK      EQU MM_RUN_GOSUB_STACK
 RUN_GOSUB_FRAME_SIZE EQU 6
 RUN_GOSUB_STACK_CAP  EQU 8
 ; 終端 = D900+48 = D930
@@ -133,41 +133,41 @@ RUN_INTXT: DB " in ",0
 ;   0xD8BF、GOSUB=0xD900-0xD92F、L3/L4作業域・PROGRAM_AREA=0xE800台、
 ;   スタックSP=0xF000。いずれとも重ならない)。
 ; =======================================================================
-RUN_KW_TEXT             EQU 0D930h ; 2B 汎用キーワード照合(下記)のスクラッチ
-RUN_KW_LEN              EQU 0D932h ; 1B
-LOGIC_TMP_RIGHT         EQU 0D933h ; 2B AND/OR演算中の右辺int16退避
-RUN_CMP_OP              EQU 0D935h ; 1B 比較演算子種別(0=,1<>,2<,3>,4<=,5>=)
-RUN_CMP_RAW             EQU 0D936h ; 1B VAL_COMPARE_CUR_RHSの生の結果
-RUN_DATA_WANT_KIND      EQU 0D937h ; 1B DATA_READ_ONEの要求型(0数値/1文字列)
-RUN_DATA_REC            EQU 0D938h ; 2B DATA走査中のレコード先頭(0=未着手)
-RUN_DATA_PTR            EQU 0D93Ah ; 2B DATA走査/読み取りの再開位置
-RUN_DATA_END            EQU 0D93Ch ; 2B 同レコードのLINE_END
-RUN_DATA_STATE          EQU 0D93Eh ; 1B 0=次を探す必要/1=読み取り位置あり/2=尽きた
-RUN_DATA_MAIN_SAVE_PTR  EQU 0D93Fh ; 2B DATA処理中の本線CUR_PTR退避
-RUN_DATA_MAIN_SAVE_END  EQU 0D941h ; 2B 同LINE_END
-RUN_DATA_NEG            EQU 0D943h ; 1B DATA数値リテラルの'-'
-RUN_CONT_REC            EQU 0D944h ; 2B CONT再開レコード(0=無効、第4.11節)
-RUN_CONT_PTR            EQU 0D946h ; 2B
-RUN_CONT_END            EQU 0D948h ; 2B
-RUN_ARITH_L             EQU 0D94Ah ; 2B \・MODの左辺int16
-RUN_ARITH_R             EQU 0D94Ch ; 2B \・MODの右辺int16
-SDIV_SIGNQ              EQU 0D94Eh ; 1B SDIV16の商の符号
-SDIV_SIGNR              EQU 0D94Fh ; 1B SDIV16の剰余の符号
-RUN_POW_EXP             EQU 0D950h ; 2B ^の指数(int16、符号付き)
-RUN_POW_NEG             EQU 0D952h ; 1B 指数が負か
-RUN_POW_COUNT           EQU 0D953h ; 2B 指数の絶対値(乗算回数)
-RUN_POW_BASE            EQU 0D955h ; 9B ^の底(型1+データ8)を退避
-RUN_VAL_SAVE9           EQU 0D95Eh ; 9B 配列代入の右辺退避(型1+データ8)
-RUN_ARRAY_IDX           EQU 0D967h ; 2B 配列の添字(int16)
-RUN_ARRAY_FREE_PTR      EQU 0D969h ; 2B ARRAY_FINDが記録する空きスロット
-RUN_ARRAY_NAME          EQU 0D96Bh ; 8B 配列名(IDENT_BUFの退避)
-RUN_DIM_COUNT           EQU 0D973h ; 1B DIMの要素数(添字上限+1)
-RUN_IF_TRUE             EQU 0D974h ; 1B IF条件の真偽
+RUN_KW_TEXT             EQU MM_RUN_KW_TEXT ; 2B 汎用キーワード照合(下記)のスクラッチ
+RUN_KW_LEN              EQU MM_RUN_KW_LEN ; 1B
+LOGIC_TMP_RIGHT         EQU MM_LOGIC_TMP_RIGHT ; 2B AND/OR演算中の右辺int16退避
+RUN_CMP_OP              EQU MM_RUN_CMP_OP ; 1B 比較演算子種別(0=,1<>,2<,3>,4<=,5>=)
+RUN_CMP_RAW             EQU MM_RUN_CMP_RAW ; 1B VAL_COMPARE_CUR_RHSの生の結果
+RUN_DATA_WANT_KIND      EQU MM_RUN_DATA_WANT_KIND ; 1B DATA_READ_ONEの要求型(0数値/1文字列)
+RUN_DATA_REC            EQU MM_RUN_DATA_REC ; 2B DATA走査中のレコード先頭(0=未着手)
+RUN_DATA_PTR            EQU MM_RUN_DATA_PTR ; 2B DATA走査/読み取りの再開位置
+RUN_DATA_END            EQU MM_RUN_DATA_END ; 2B 同レコードのLINE_END
+RUN_DATA_STATE          EQU MM_RUN_DATA_STATE ; 1B 0=次を探す必要/1=読み取り位置あり/2=尽きた
+RUN_DATA_MAIN_SAVE_PTR  EQU MM_RUN_DATA_MAIN_SAVE_PTR ; 2B DATA処理中の本線CUR_PTR退避
+RUN_DATA_MAIN_SAVE_END  EQU MM_RUN_DATA_MAIN_SAVE_END ; 2B 同LINE_END
+RUN_DATA_NEG            EQU MM_RUN_DATA_NEG ; 1B DATA数値リテラルの'-'
+RUN_CONT_REC            EQU MM_RUN_CONT_REC ; 2B CONT再開レコード(0=無効、第4.11節)
+RUN_CONT_PTR            EQU MM_RUN_CONT_PTR ; 2B
+RUN_CONT_END            EQU MM_RUN_CONT_END ; 2B
+RUN_ARITH_L             EQU MM_RUN_ARITH_L ; 2B \・MODの左辺int16
+RUN_ARITH_R             EQU MM_RUN_ARITH_R ; 2B \・MODの右辺int16
+SDIV_SIGNQ              EQU MM_SDIV_SIGNQ ; 1B SDIV16の商の符号
+SDIV_SIGNR              EQU MM_SDIV_SIGNR ; 1B SDIV16の剰余の符号
+RUN_POW_EXP             EQU MM_RUN_POW_EXP ; 2B ^の指数(int16、符号付き)
+RUN_POW_NEG             EQU MM_RUN_POW_NEG ; 1B 指数が負か
+RUN_POW_COUNT           EQU MM_RUN_POW_COUNT ; 2B 指数の絶対値(乗算回数)
+RUN_POW_BASE            EQU MM_RUN_POW_BASE ; 9B ^の底(型1+データ8)を退避
+RUN_VAL_SAVE9           EQU MM_RUN_VAL_SAVE9 ; 9B 配列代入の右辺退避(型1+データ8)
+RUN_ARRAY_IDX           EQU MM_RUN_ARRAY_IDX ; 2B 配列の添字(int16)
+RUN_ARRAY_FREE_PTR      EQU MM_RUN_ARRAY_FREE_PTR ; 2B ARRAY_FINDが記録する空きスロット
+RUN_ARRAY_NAME          EQU MM_RUN_ARRAY_NAME ; 8B 配列名(IDENT_BUFの退避)
+RUN_DIM_COUNT           EQU MM_RUN_DIM_COUNT ; 1B DIMの要素数(添字上限+1)
+RUN_IF_TRUE             EQU MM_RUN_IF_TRUE ; 1B IF条件の真偽
 ; FILESのERR 70/13をm6f-eの捕捉用プログラムから読めるようにする最小の
 ; ON ERROR GOTO/ERR/RESUME状態。D975-D97Fは配列表D980直前の未使用11B。
-RUN_ERROR_HANDLER_LINE  EQU 0D975h ; 2B、0なら捕捉無効
-RUN_ERROR_ACTIVE        EQU 0D977h ; 1B、ハンドラ実行中
-RUN_LAST_ERR            EQU 0D978h ; 1B、ERRが返す番号
+RUN_ERROR_HANDLER_LINE  EQU MM_RUN_ERROR_HANDLER_LINE ; 2B、0なら捕捉無効
+RUN_ERROR_ACTIVE        EQU MM_RUN_ERROR_ACTIVE ; 1B、ハンドラ実行中
+RUN_LAST_ERR            EQU MM_RUN_LAST_ERR ; 1B、ERRが返す番号
 
 ; ---- 配列テーブル(第4.10節・6.5節) ----
 ; レコード(298B): [NAME 8B][USED 1B][COUNT 1B][DATA(32要素*9B=288B)]
@@ -175,7 +175,7 @@ RUN_LAST_ERR            EQU 0D978h ; 1B、ERRが返す番号
 ;   宣言なし配列は既定COUNT=11(添字0-10、D9-D11の観測から10が上限と
 ;   推定、仕様書に無い判断・第8節11)。最大4配列・1配列最大32要素
 ;   (いずれも仕様書に無い上限)。
-RUN_ARRAY_TAB       EQU 0D980h
+RUN_ARRAY_TAB       EQU MM_RUN_ARRAY_TAB
 ARRAY_REC_SIZE      EQU 298
 ARRAY_CAP           EQU 4
 ARRAYREC_USED       EQU 8
@@ -187,25 +187,25 @@ ARRAY_MAX_ELEMS     EQU 32
 ; ---- M7段階5c-2a: INPUT・文字列関数の作業領域 ----
 ; 配列テーブル終端(0xDE28)〜画面/L3L4共通域(VAR_ROW、0xE800)の間は空き
 ; (約2000B)。仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
-RUN_STR_ARG1_LEN    EQU 0DE28h ; 1B MID$/LEFT$/RIGHT$の元文字列を、数値
-RUN_STR_ARG1_BUF    EQU 0C800h ; 255B 引数の評価(入れ子のLEN/VAL/ASC等が
+RUN_STR_ARG1_LEN    EQU MM_RUN_STR_ARG1_LEN ; 1B MID$/LEFT$/RIGHT$の元文字列を、数値
+RUN_STR_ARG1_BUF    EQU MM_RUN_STR_ARG1_BUF ; 255B 引数の評価(入れ子のLEN/VAL/ASC等が
                                 ;     RUN_STR_TMP_LEN/BUFを上書きしうる)
                                 ;     より前に退避しておく場所
-RUN_STR_ACC_LEN     EQU 0DE48h ; 1B STRING_EXPRの'+'連結、左辺の蓄積
-RUN_STR_ACC_BUF     EQU 0C900h ; 255B
-RUN_ARG1            EQU 0DE68h ; 2B MID$の第2引数(開始位置)の退避
-PNFM_SAVE_PTR        EQU 0DE6Ah ; 2B PARSE_NUM_FROM_MEMのCUR_PTR退避
-PNFM_SAVE_END        EQU 0DE6Ch ; 2B 同LINE_END退避
-PNFM_NEG             EQU 0DE6Eh ; 1B 同'-'符号
-RUN_INPUT_COUNT      EQU 0DE6Fh ; 1B INPUTの変数個数(0-4、仕様書に無い上限)
-RUN_INPUT_VARS       EQU 0DE70h ; 4*(kind1B+name8B)=36B
-RUN_INPUT_RAW_LEN    EQU 0DE94h ; 1B INPUT_READLINEが読み取った生の行の長さ
-RUN_INPUT_RAW_BUF    EQU 0DE95h ; 40B(仕様書に無い上限、keyboard.asmの
+RUN_STR_ACC_LEN     EQU MM_RUN_STR_ACC_LEN ; 1B STRING_EXPRの'+'連結、左辺の蓄積
+RUN_STR_ACC_BUF     EQU MM_RUN_STR_ACC_BUF ; 255B
+RUN_ARG1            EQU MM_RUN_ARG1 ; 2B MID$の第2引数(開始位置)の退避
+PNFM_SAVE_PTR        EQU MM_PNFM_SAVE_PTR ; 2B PARSE_NUM_FROM_MEMのCUR_PTR退避
+PNFM_SAVE_END        EQU MM_PNFM_SAVE_END ; 2B 同LINE_END退避
+PNFM_NEG             EQU MM_PNFM_NEG ; 1B 同'-'符号
+RUN_INPUT_COUNT      EQU MM_RUN_INPUT_COUNT ; 1B INPUTの変数個数(0-4、仕様書に無い上限)
+RUN_INPUT_VARS       EQU MM_RUN_INPUT_VARS ; 4*(kind1B+name8B)=36B
+RUN_INPUT_RAW_LEN    EQU MM_RUN_INPUT_RAW_LEN ; 1B INPUT_READLINEが読み取った生の行の長さ
+RUN_INPUT_RAW_BUF    EQU MM_RUN_INPUT_RAW_BUF ; 40B(仕様書に無い上限、keyboard.asmの
                                 ; LINE_BUF80Bより短くした簡略化)
 ; 終端 = DE95+40 = DEBDh(まだ0xE800より十分手前)
 
 ; ---- M7段階5c-2b: 配列代入(ARRAY_ASSIGN_STMT)の左辺アドレス退避 ----
-RUN_ARRAY_ASSIGN_ADDR EQU 0DEBDh ; 2B 左辺の配列要素アドレス(右辺式の
+RUN_ARRAY_ASSIGN_ADDR EQU MM_RUN_ARRAY_ASSIGN_ADDR ; 2B 左辺の配列要素アドレス(右辺式の
                                  ; 評価より前に確定させ、ここへ退避する。
                                  ; 右辺式が同じ配列を読む場合(a(1)=a(2)等)
                                  ; ARRAY_READがRUN_ARRAY_IDX/RUN_ARRAY_NAME
@@ -215,7 +215,7 @@ RUN_ARRAY_ASSIGN_ADDR EQU 0DEBDh ; 2B 左辺の配列要素アドレス(右辺�
 ; 終端 = DEBD+2 = DEBFh(まだ0xE800より十分手前)
 
 ; ---- M7段階5c-2b: LOCATE文の第1引数(桁)の一時退避 ----
-RUN_LOCATE_COL        EQU 0DEBFh ; 1B LOCATE文の第1引数(桁)を、第2引数
+RUN_LOCATE_COL        EQU MM_RUN_LOCATE_COL ; 1B LOCATE文の第1引数(桁)を、第2引数
                                  ; (行)を評価する間退避しておく(第5.2節)。
                                  ; 終端 = DEBF+1 = DEC0h
 
@@ -2860,7 +2860,7 @@ _run_stmt_loop:
     CALL AT_END
     JP Z,_run_line_end
     LD HL,(CUR_PTR)
-    LD (0CA10h),HL          ; RESUME NEXT用の文頭（引用符を含めて再走査）
+    LD (MM_STMT_START),HL          ; RESUME NEXT用の文頭（引用符を含めて再走査）
     CALL RUN_EXEC_ONE_STMT
 _run_after_stmt:
     LD A,(ERROR_FLAG)
@@ -2937,8 +2937,8 @@ RUN_CLEAR_STATE:
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
     LD (RUN_ERROR_ACTIVE),A
-    LD (0C600h),A
-    LD (0C601h),A
+    LD (MM_STRING_FLAGS),A
+    LD (MM_STRING_FLAGS+1),A
     LD (RUN_LAST_ERR),A
     LD HL,0
     LD (RUN_ERROR_HANDLER_LINE),HL
@@ -5170,13 +5170,13 @@ CONT_STMT:
 RND_RESET:
     ; 起動時のL1 I/O列を変えない。単精度初期値52 C7 4F 80をRAMへ設定する。
     LD HL,0C752h
-    LD (0C410h),HL
+    LD (MM_RND_X),HL
     LD HL,0804Fh
-    LD (0C412h),HL
+    LD (MM_RND_X+2),HL
     LD A,1
-    LD (0C414h),A
+    LD (MM_RND_INDEX),A
     XOR A
-    LD (0C415h),A
+    LD (MM_RND_COUNT),A
     RET
 RANDOMIZE_STMT:
     CALL PARSE_INT_ARG
@@ -5184,7 +5184,7 @@ RANDOMIZE_STMT:
     OR A
     RET NZ
     LD (RUN_CTRL),A
-    LD (0C416h),DE            ; 中継はDEを作業用に使うためRAMで渡す
+    LD (MM_RND_SEED),DE            ; 中継はDEを作業用に使うためRAMで渡す
     LD HL,06280h
     JP EXT_BANK_CALL           ; A=0
 
@@ -5230,14 +5230,14 @@ S9B_DO_CLEAR:
 S9C_POLL:
     IN A,(040h)
     AND 020h
-    LD HL,0E8D1h
+    LD HL,MM_IK_VRTC
     CP (HL)
     LD (HL),A
     JR Z,_s9c_matrix
     OR A
     JR NZ,_s9c_scan
 _s9c_matrix:
-    LD HL,0E8D5h             ; IK_OLD（RUN開始時・バンク走査時に更新）
+    LD HL,MM_IK_OLD             ; IK_OLD（RUN開始時・バンク走査時に更新）
     LD C,0
 _s9c_port:
     IN A,(C)
@@ -5252,7 +5252,7 @@ _s9c_port:
 _s9c_changed:
     XOR A
 _s9c_scan:
-    LD (0E8E8h),A            ; 中継がAF/BC/DEを使うのでRAMで渡す
+    LD (MM_IK_TICK),A            ; 中継がAF/BC/DEを使うのでRAMで渡す
     LD HL,06F20h
     JP S9_BANK_CALL
 S9C_INIT:

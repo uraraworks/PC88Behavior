@@ -28,30 +28,30 @@ FACTOR_RADIX_ENTRY:
     OR A
     JR NZ,_b3_radix_error
     LD HL,(LN_VALUE)
-    LD (0E8A3h),HL             ; CUR_DATA: 符号付き16bit整数
+    LD (MM_CUR_DATA),HL             ; CUR_DATA: 符号付き16bit整数
     XOR A
-    LD (0E8A2h),A              ; CUR_TYPE=整数
+    LD (MM_CUR_TYPE),A              ; CUR_TYPE=整数
     RET
 _b3_radix_error:
     LD (ERROR_KIND),A
     LD A,1
     LD (ERROR_FLAG),A
-    LD (0E8A1h),A              ; ERROR_IS_RUNTIME
+    LD (MM_ERROR_IS_RUNTIME),A              ; ERROR_IS_RUNTIME
     RET
 
 ; 入力拒否もON ERRORへ通知する。捕捉なしでは従来の入力時表示を保つ。
 ; mainへの中継はBUSYを退避するので、ハンドラからバンク3を再び使える。
 HEXCONST_INPUT_ERROR:
-    LD A,(0D977h)              ; RUN_ERROR_ACTIVE
+    LD A,(MM_RUN_ERROR_ACTIVE)              ; RUN_ERROR_ACTIVE
     OR A
     JP NZ,LN_MESSAGE
-    LD HL,(0D975h)             ; RUN_ERROR_HANDLER_LINE
+    LD HL,(MM_RUN_ERROR_HANDLER_LINE)             ; RUN_ERROR_HANDLER_LINE
     LD A,H
     OR L
     JP Z,LN_MESSAGE
     LD HL,LN_LINE_BUF
     LD (CUR_PTR),HL
-    LD (0CA10h),HL             ; RESUME用の入力文頭
+    LD (MM_STMT_START),HL             ; RESUME用の入力文頭
     LD A,(LN_LINE_LEN)
     LD E,A
     LD D,0
@@ -60,8 +60,8 @@ HEXCONST_INPUT_ERROR:
     LD HL,HEXCONST_DIRECT_RECORD_ADDR
     LD (RUN_CUR_RECORD),HL
     XOR A
-    LD (0D003h),A              ; RUN_CUR_LINENO=直接モード
-    LD (0D004h),A
+    LD (MM_RUN_CUR_LINENO),A              ; RUN_CUR_LINENO=直接モード
+    LD (MM_RUN_CUR_LINENO+1),A
     LD (RUN_CTRL),A
     LD A,1
     LD (ERROR_FLAG),A

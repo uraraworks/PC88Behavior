@@ -44,32 +44,32 @@
 ;     （docs/spec/l4-basic.md 第14節）で公式が大文字にすると測れたので行う。
 ;
 ; ---- RAM（メモリ配置、E969-E97Fは空き。E980から29バイトを使う） -----
-STMT_KIND          EQU 0E980h  ; 1バイト。MATCH_STMT_KEYWORDが設定する
+STMT_KIND          EQU MM_STMT_KIND  ; 1バイト。MATCH_STMT_KEYWORDが設定する
                                 ; 文の種類(0=PRINT 1=LIST 2=NEW)
-PROG_TMP16         EQU 0E981h  ; 2バイト（PARSE_LINENUMの作業領域）
-PROG_DIGIT         EQU 0E983h  ; 2バイト（PARSE_LINENUMの作業領域）
-PROG_CUR_LINENO    EQU 0E985h  ; 2バイト（保存/検索対象の行番号）
-PROG_CUR_LNLEN     EQU 0E987h  ; 1バイト（LINE_BUF内の本文開始位置）
-PROG_CUR_TEXTLEN   EQU 0E988h  ; 1バイト（行番号より後ろの本文の長さ）
-PROG_DEL_SRC       EQU 0E989h  ; 2バイト（PROGRAM_DELETE_ATの作業領域）
-PROG_DEL_DST       EQU 0E98Bh  ; 2バイト
-PROG_INS_AT        EQU 0E98Dh  ; 2バイト（PROGRAM_INSERT_ATの作業領域）
-PROG_INS_SIZE      EQU 0E98Fh  ; 2バイト
-PROG_TMP_SRC_LAST  EQU 0E991h  ; 2バイト
-PROG_TMP_DST_LAST  EQU 0E993h  ; 2バイト
-PROG_TMP_DST2      EQU 0E995h  ; 2バイト
-PROG_REND_PTR      EQU 0E997h  ; 2バイト（LIST_RENDER_TEXTの走査位置）
-PROG_REND_LEN      EQU 0E999h  ; 1バイト（LIST_RENDER_TEXTの残りバイト数）
-PROG_REND_MODE     EQU 0E99Ah  ; 1バイト（LIST_RENDER_TEXTの状態。bit0=引用符の中
+PROG_TMP16         EQU MM_PROG_TMP16  ; 2バイト（PARSE_LINENUMの作業領域）
+PROG_DIGIT         EQU MM_PROG_DIGIT  ; 2バイト（PARSE_LINENUMの作業領域）
+PROG_CUR_LINENO    EQU MM_PROG_CUR_LINENO  ; 2バイト（保存/検索対象の行番号）
+PROG_CUR_LNLEN     EQU MM_PROG_CUR_LNLEN  ; 1バイト（LINE_BUF内の本文開始位置）
+PROG_CUR_TEXTLEN   EQU MM_PROG_CUR_TEXTLEN  ; 1バイト（行番号より後ろの本文の長さ）
+PROG_DEL_SRC       EQU MM_PROG_DEL_SRC  ; 2バイト（PROGRAM_DELETE_ATの作業領域）
+PROG_DEL_DST       EQU MM_PROG_DEL_DST  ; 2バイト
+PROG_INS_AT        EQU MM_PROG_INS_AT  ; 2バイト（PROGRAM_INSERT_ATの作業領域）
+PROG_INS_SIZE      EQU MM_PROG_INS_SIZE  ; 2バイト
+PROG_TMP_SRC_LAST  EQU MM_PROG_TMP_SRC_LAST  ; 2バイト
+PROG_TMP_DST_LAST  EQU MM_PROG_TMP_DST_LAST  ; 2バイト
+PROG_TMP_DST2      EQU MM_PROG_TMP_DST2  ; 2バイト
+PROG_REND_PTR      EQU MM_PROG_REND_PTR  ; 2バイト（LIST_RENDER_TEXTの走査位置）
+PROG_REND_LEN      EQU MM_PROG_REND_LEN  ; 1バイト（LIST_RENDER_TEXTの残りバイト数）
+PROG_REND_MODE     EQU MM_PROG_REND_MODE  ; 1バイト（LIST_RENDER_TEXTの状態。bit0=引用符の中
                                 ; bit1=行末まで打鍵どおり bit2=DATAの中）
-PROG_REND_INNAME   EQU 0E99Bh  ; 1バイト（名前の連なりの途中なら1）
-PROG_REND_PREV     EQU 0E99Ch  ; 1バイト（直前に出した文字）
+PROG_REND_INNAME   EQU MM_PROG_REND_INNAME  ; 1バイト（名前の連なりの途中なら1）
+PROG_REND_PREV     EQU MM_PROG_REND_PREV  ; 1バイト（直前に出した文字）
 
 ; プログラム本体（可変長レコード列、行番号昇順）。1レコード=
 ; [行番号2B LE][本文長1B][本文(本文長バイト)]。行番号=0xFFFFのレコードは
 ; 「以降レコード無し」を示す番兵（本文フィールドは持たない、2バイトのみ）。
-PROGRAM_AREA       EQU 0EA00h
-PROGRAM_AREA_SIZE  EQU 0400h   ; 1024バイト。E969-E97Fの空き・E980台の
+PROGRAM_AREA       EQU MM_PROGRAM_AREA
+PROGRAM_AREA_SIZE  EQU MM_PROGRAM_SIZE   ; 1024バイト。E969-E97Fの空き・E980台の
                                 ; 作業領域より十分離し、スタック(SP=F000、
                                 ; make_ipl_rom.py)との間に512バイトの
                                 ; 余裕を残す（仕様書に無い判断、報告参照）。
@@ -116,7 +116,7 @@ BASIC_HANDLE_LINE:
     JR C,_bhl_direct          ; 行番号として解釈できない -> 直接モードへ
     ; 最後に採った数字までの文字数（途中の空白を含む）をRAMで渡す。
     LD A,B
-    LD (0C5B4h),A
+    LD (MM_LN_PREFIX),A
     PUSH HL
     PUSH BC
     LD HL,06500h
@@ -131,7 +131,7 @@ _bhl_stored:
     RET
 _bhl_direct:
     XOR A
-    LD (0C5B4h),A
+    LD (MM_LN_PREFIX),A
     LD HL,064C0h
     LD A,3
     CALL EXT_BANK_CALL

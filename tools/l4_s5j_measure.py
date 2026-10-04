@@ -648,8 +648,8 @@ def selftest(work):
 
             bank_src = root / 'bank3.asm'
             sys.path.insert(0, str(kw.REPO / 'src/ext_bank'))
-            from make_ext_rom_banks import BANK3_EXTRA_SOURCES
-            bank_src.write_text('\n'.join([(kw.REPO / 'src/ext_bank/bank3.asm').read_text(encoding='utf-8')]
+            from make_ext_rom_banks import BANK3_EXTRA_SOURCES, memmap
+            bank_src.write_text(memmap.asm_prelude() + '\n'.join([(kw.REPO / 'src/ext_bank/bank3.asm').read_text(encoding='utf-8')]
                                            + [(kw.REPO / rel).read_text(encoding='utf-8') for rel in BANK3_EXTRA_SOURCES]),
                                 encoding='utf-8')
             bank_asm = z80text.Assembler()

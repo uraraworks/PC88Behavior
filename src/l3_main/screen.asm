@@ -35,7 +35,7 @@
 ; (22,1)のOUTを keyboard.asm の L3_VSYNC_HOOK 呼び出しに置き換える
 ; （make_ipl_rom.py 自体は無変更）。
 
-TEXT_BASE   EQU 0F3C8h   ; l3-main.md 第2節
+TEXT_BASE   EQU MM_TEXT_BASE   ; l3-main.md 第2節
 STRIDE      EQU 120      ; l3-main.md 第1節（80桁+40属性）
 COLS        EQU 80
 ATTR_BYTES  EQU 40
@@ -48,9 +48,9 @@ USABLE_ROWS EQU ROWS-1
 ; ---- RAM変数（0000-7FFFはROM＝L1のROM/RAMモード設定のため書けない。
 ;      8000-FFFF側の、VRAM(F3C8-)ともスタック(F000から下方)とも
 ;      重ならない番地を選ぶ）----
-VAR_ROW     EQU 0E800h   ; 現在の行 (0-19)
-VAR_COL     EQU 0E801h   ; 現在の桁 (0-79)
-VAR_ROWBASE EQU 0E802h   ; 現在行のVRAM先頭番地（2バイト）
+VAR_ROW     EQU MM_VAR_ROW   ; 現在の行 (0-19)
+VAR_COL     EQU MM_VAR_COL   ; 現在の桁 (0-79)
+VAR_ROWBASE EQU MM_VAR_ROWBASE   ; 現在行のVRAM先頭番地（2バイト）
 
 ; ---------------------------------------------------------------------
 ; SCREEN_MAIN — 画面初期化 → 自作バナー → (試験用の埋め草) → Ok

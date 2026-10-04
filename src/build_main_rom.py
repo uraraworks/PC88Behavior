@@ -8,9 +8,8 @@ build_main_rom.py — M7段階2a: ディスク無しで自作バナー→Ok→�
 - **N88.ROM の起動処理(L1)部分**: `src/l1_ipl/make_ipl_rom.py` の
   `build_n88()` が発行する命令列（docs/spec/l1-ipl.md 付録Aと組み立て時に
   一致検査済み）を、`tools/asm/asm_emit.py` の `render_asm()` で
-  Z80アセンブリのテキストへ書き出したもの。M7段階0の「既存生成器は
-  正解役（オラクル）」の方針どおり、既存生成器（make_ipl_rom.py）自体は
-  変更しない。
+  Z80アセンブリのテキストへ書き出したもの。段Aではmake_ipl_rom.pyの
+  RAM定数をsrc/memmap.py参照に変更したが、生成する命令列は同じである。
 - **画面出力(main側L3)部分**: `src/l3_main/screen.asm`（docs/spec/l3-main.md
   だけを見て書いた新規コード）。
 - 両者を `tools/asm/z80text.py`（自作Z80テキストアセンブラ）で1本に
@@ -45,6 +44,7 @@ sys.path.insert(0, str(REPO / "src" / "l1_ipl"))
 import asm_emit  # noqa: E402
 import make_ipl_rom  # noqa: E402
 import z80text  # noqa: E402
+import memmap  # noqa: E402
 
 N88_SIZE = make_ipl_rom.N88_SIZE
 FILL = make_ipl_rom.FILL
@@ -495,10 +495,10 @@ MAIN_SUB_READ_BOOT_ONCE:
     RET
 """
 
-M6IB_COMMON_EQU = """M6IB_FRAME_COUNT          EQU 0E009h
-M6IB_STAGE                EQU 0E00Ah
-M6IB_MARK_B               EQU 0E00Bh
-M6IB_MARK_C               EQU 0E00Ch
+M6IB_COMMON_EQU = """M6IB_FRAME_COUNT          EQU MM_M6IB_FRAME_COUNT
+M6IB_STAGE                EQU MM_M6IB_STAGE
+M6IB_MARK_B               EQU MM_M6IB_MARK_B
+M6IB_MARK_C               EQU MM_M6IB_MARK_C
 """
 
 # 予備走（実I/Oログ）で、STEADY_WAIT進入直後を含む呼出し55回が
@@ -664,7 +664,7 @@ _m6ib_b5_issue:
 
 # m6i-h（固定フレーム待ちを持たない2腕）。0xE00Dはm6i-bの共通領域で
 # 未使用の1バイトであり、H-Bが2回目のREADを呼んだ事実だけに割り当てる。
-M6IH_COMMON_EQU = M6IB_COMMON_EQU + "M6IH_MARK_RETRY          EQU 0E00Dh\n"
+M6IH_COMMON_EQU = M6IB_COMMON_EQU + "M6IH_MARK_RETRY          EQU MM_M6IH_MARK_RETRY\n"
 
 M6IH_BOOT_A = M6IH_COMMON_EQU + """MAIN_SUB_READ_INIT:
     XOR A
@@ -714,8 +714,8 @@ MAIN_SUB_READ_BOOT_ONCE:
 # m6i-i: 任意座標READの11行掃引。各READの直前に行番号を0xE038へ書く。
 # 0xE038は既存の測定用RAM（M6IA_REPEAT_LEFT=0xE036、2バイト）の直後で、
 # tools/check_m6ii_preregistration.py が全EQUとの非衝突を機械検査する。
-M6II_ROW_MARKER_ADDRESS = 0xE038
-M6II_BOOT_SWEEP = f"""M6II_ROW_MARKER          EQU 0{M6II_ROW_MARKER_ADDRESS:04X}h
+M6II_ROW_MARKER_ADDRESS = memmap.addresses()["MM_M6II_ROW_MARKER"]
+M6II_BOOT_SWEEP = """M6II_ROW_MARKER          EQU MM_M6II_ROW_MARKER
 MAIN_SUB_READ_INIT:
     XOR A
     LD (MAIN_SUB_BOOT_DONE),A
@@ -788,9 +788,9 @@ def m6ik_boot(arm: str) -> str:
     table = "\n".join(
         f"    DB 0{i:02X}h,0{drive:02X}h,0{track:02X}h,0{sector:02X}h"
         for i, (drive, track, sector) in enumerate(M6IK_ROWS, 1))
-    return f"""M6IK_ROW_MARKER EQU 0E039h
-M6IK_PRE_MARKER EQU 0E03Ah
-M6IK_NEXT_ROW EQU 0E03Bh
+    return f"""M6IK_ROW_MARKER EQU MM_M6IK_ROW_MARKER
+M6IK_PRE_MARKER EQU MM_M6IK_PRE_MARKER
+M6IK_NEXT_ROW EQU MM_M6IK_NEXT_ROW
 MAIN_SUB_READ_INIT:
     XOR A
     LD (MAIN_SUB_BOOT_DONE),A
@@ -1267,7 +1267,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
         else:
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
-    return combined
+    return memmap.asm_prelude() + combined
 
 
 

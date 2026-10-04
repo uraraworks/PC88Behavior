@@ -5,6 +5,8 @@ import argparse
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+import memmap
 sys.path.insert(0, str(ROOT / 'tools/asm'))
 import z80text
 
@@ -277,7 +279,7 @@ T_BEFORE:
     source = harness + data(image) + '    ORG 04000h\nT_EXPECTED:\n' + data(expected) + bank
     out.mkdir()
     asm = out/'killname_test.asm'
-    asm.write_text(source,encoding='utf-8')
+    asm.write_text(memmap.asm_prelude() + source,encoding='utf-8')
     code = z80text.Assembler().assemble(asm)
     if len(code)>0x8000:
         raise ValueError('試験ROM超過')

@@ -38,6 +38,8 @@ import subprocess
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "src"))
+import memmap
 sys.path.insert(0, str(REPO / "tools"))
 
 import l4_bank_dup_equ as bank_dup_equ  # noqa: E402
@@ -234,7 +236,7 @@ def load_bank0_src(fault: str | None, mbf_src: str) -> str:
 
 
 def assemble(text: str, out_bin: pathlib.Path, asm_path: pathlib.Path):
-    asm_path.write_text(text)
+    asm_path.write_text(memmap.asm_prelude() + text)
     r = subprocess.run(
         [sys.executable, str(REPO / "tools" / "asm" / "z80text.py"), str(asm_path), "-o", str(out_bin)],
         capture_output=True, text=True,
@@ -261,7 +263,7 @@ def resolve_addrs(driver_prefix: str, mbf_src: str, bank0_src_placeholder: str,
     probe_text = driver_prefix + "\n\n" + mbf_src + "\n\n" + bank0_src_placeholder + "\n" + tail
     asm_path = workdir / "probe.asm"
     out_bin = workdir / "probe.bin"
-    asm_path.write_text(probe_text)
+    asm_path.write_text(memmap.asm_prelude() + probe_text)
     # z80text.py CLIはラベル表を吐かないので、tools/asm/z80text.pyを直接importして使う。
     sys.path.insert(0, str(REPO / "tools" / "asm"))
     import z80text  # noqa: E402

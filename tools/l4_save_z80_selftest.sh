@@ -18,6 +18,8 @@ from pathlib import Path
 import sys
 repo,out,fault=Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3]
 sys.path.insert(0,str(repo/'tools'/'asm'))
+sys.path.insert(0, str(repo / "src"))
+import memmap
 import z80text
 bank=(repo/'src/ext_bank/bank2.asm').read_text(encoding='utf-8')
 for name in ('read','write','list'):
@@ -331,7 +333,7 @@ if fault=='prompt':
     direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
 harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_FAIL7\n    LD A,1\n    LD (T_PASS),A')
 source=harness+'\nSAVE_DONE_FLAG EQU 0E24Bh\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    LD A,1\n    LD (SAVE_DONE_FLAG),A\n    RET\n'+direct+'\n'+bank
-p=out/'save_test.asm'; p.write_text(source,encoding='utf-8')
+p=out/'save_test.asm'; p.write_text(memmap.asm_prelude() + source,encoding='utf-8')
 a=z80text.Assembler(); code=a.assemble(p)
 if len(code)>0x8000: raise SystemExit('試験ROM超過')
 rom=bytearray(0x8000); rom[:len(code)]=code

@@ -67,7 +67,7 @@
 ; mbf_single.asmが使う0xC000-0xC169(WK_DROUND_MODEはC04F)と衝突しない
 ; 位置を選んだ。
 ; ---------------------------------------------------------------------
-MBF_DOUBLE_RAM_BASE EQU 0xC200
+MBF_DOUBLE_RAM_BASE EQU MM_MBF_DOUBLE_RAM_BASE
 
 MBF_DOPA EQU MBF_DOUBLE_RAM_BASE   ; 被演算子A（またはNEG/CMP/DTOSの唯一の入力）8バイト
 MBF_DOPB EQU MBF_DOUBLE_RAM_BASE+0x08   ; 被演算子B 8バイト

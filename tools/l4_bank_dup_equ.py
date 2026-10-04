@@ -35,7 +35,8 @@ from __future__ import annotations
 
 import re
 
-_EQU_RE = re.compile(r"^(\w+)\s+EQU\s+(0x[0-9A-Fa-f]+)\b")
+# RAM正典のMM_*参照も入力となる。数値/式が一致する行だけを除去する。
+_EQU_RE = re.compile(r"^(\w+)\s+EQU\s+([^;]+)")
 
 
 def _parse_equ(text: str) -> dict[str, str]:
@@ -48,7 +49,7 @@ def _parse_equ(text: str) -> dict[str, str]:
     for line in text.splitlines():
         m = _EQU_RE.match(line.strip())
         if m:
-            out.setdefault(m.group(1), m.group(2))
+            out.setdefault(m.group(1), m.group(2).strip())
     return out
 
 
@@ -66,7 +67,7 @@ def dup_equ_lines(mbf_src: str, bank0_text: str) -> list[str]:
         m = _EQU_RE.match(line.strip())
         if not m:
             continue
-        name, value = m.group(1), m.group(2)
+        name, value = m.group(1), m.group(2).strip()
         if name not in mbf_equ:
             continue
         if mbf_equ[name] != value:

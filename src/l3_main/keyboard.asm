@@ -84,12 +84,12 @@ DOWN_BIT     EQU 1        ; CAPS_PORT bit1: ↓ (row_move)
 LEFT_BIT     EQU 2        ; CAPS_PORT bit2: ← (no_change/wrap_prev_line_end)
 
 ; ---- RAM変数（screen.asmのVAR_ROW等と重ならない番地）----
-KEY_OLD      EQU 0E810h    ; 直前スキャン12バイト（bit=1が「離されている」）
-KEY_NEW      EQU 0E81Dh    ; 今回スキャン12バイト（一時領域）
-VAR_LINELEN  EQU 0E82Ah    ; 行バッファに入っている文字数(0-80)
-LINE_BUF     EQU 0E82Bh    ; 行バッファ本体（80バイト、null終端はしない）
+KEY_OLD      EQU MM_KEY_OLD    ; 直前スキャン12バイト（bit=1が「離されている」）
+KEY_NEW      EQU MM_KEY_NEW    ; 今回スキャン12バイト（一時領域）
+VAR_LINELEN  EQU MM_VAR_LINELEN    ; 行バッファに入っている文字数(0-80)
+LINE_BUF     EQU MM_LINE_BUF    ; 行バッファ本体（80バイト、null終端はしない）
 LINE_BUF_CAP EQU 80
-VAR_INSMODE  EQU 0E87Bh    ; 1バイト。第16節ins_mode_only: 1=挿入モード中。
+VAR_INSMODE  EQU MM_VAR_INSMODE    ; 1バイト。第16節ins_mode_only: 1=挿入モード中。
                             ; 抜ける条件は未測定(第18節項8)。この実装は
                             ; RETURNで行を確定した時点で解除する(選択)。
 
@@ -115,12 +115,12 @@ KEY_REPEAT_INTERVAL EQU 4
 ; LINE_END=E881・CUR_PTR=E883など)。E8B4-E8B9(l4_basic側の使用領域の
 ; 最後、RHS_DATA=E8AC+8バイト=E8B4の直後で、次の使用開始E980までの
 ; 空き)へ置く(混線の教訓、報告参照)。
-REPEAT_KIND     EQU 0E8B4h  ; 1バイト。0=無し/1=文字キー/2=→
-REPEAT_PORT     EQU 0E8B5h  ; 1バイト。対象キーのポート番号
-REPEAT_MASK     EQU 0E8B6h  ; 1バイト。対象キーのビットマスク(1<<bit)
-REPEAT_PHASE    EQU 0E8B7h  ; 1バイト。0=遅延待ち/1=間隔周期
-REPEAT_COUNTER  EQU 0E8B8h  ; 1バイト。現在のphase内の経過フレーム数
-REPEAT_CHAR     EQU 0E8B9h  ; 1バイト。文字キーのとき再送する文字コード
+REPEAT_KIND     EQU MM_REPEAT_KIND  ; 1バイト。0=無し/1=文字キー/2=→
+REPEAT_PORT     EQU MM_REPEAT_PORT  ; 1バイト。対象キーのポート番号
+REPEAT_MASK     EQU MM_REPEAT_MASK  ; 1バイト。対象キーのビットマスク(1<<bit)
+REPEAT_PHASE    EQU MM_REPEAT_PHASE  ; 1バイト。0=遅延待ち/1=間隔周期
+REPEAT_COUNTER  EQU MM_REPEAT_COUNTER  ; 1バイト。現在のphase内の経過フレーム数
+REPEAT_CHAR     EQU MM_REPEAT_CHAR  ; 1バイト。文字キーのとき再送する文字コード
 
 ; ---------------------------------------------------------------------
 ; KEY_INIT — KEY_OLDを「全部離されている」(0xFF)で初期化する。
@@ -138,11 +138,11 @@ _ki_loop:
     LD (VAR_INSMODE),A
     LD (REPEAT_KIND),A
     ; 第19節: 起動時はキューだけ空にする。バンク切替のI/Oは増やさない。
-    LD (0E8D1h),A
-    LD (0E8D2h),A
-    LD (0E8D3h),A
-    LD (0E8D4h),A
-    LD (0E8E3h),A
+    LD (MM_IK_VRTC),A
+    LD (MM_IK_HEAD),A
+    LD (MM_IK_TAIL),A
+    LD (MM_IK_COUNT),A
+    LD (MM_IK_CHAR),A
     RET
 
 ; ---------------------------------------------------------------------
