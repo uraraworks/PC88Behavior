@@ -265,6 +265,8 @@ SCRIPTS_EXPECTED=(
   # l4-s9b。先行POKE・値漏出防止の合成検査と自作ROM定数対照。
   "tools/l4_peekpoke_selftest.sh:0"
   "tools/l4_memlimit_selftest.sh:0"
+  # l4-s9e。文字列比較の合成採取と自作ROMの数値定数対照。
+  "tools/l4_strcmp_selftest.sh:0"
   # M7段階5終盤（2026-09-16）。l4-c5(代表プログラム集の適合場面)用の
   # 打鍵計画・記録器 tools/l4_program_typeplan.py・
   # tools/l4_program_conform_record.py。合成VRAM写しだけで完結するので
