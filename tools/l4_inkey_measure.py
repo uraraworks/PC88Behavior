@@ -186,13 +186,25 @@ def run_arm(rom,official,arm,work):
         p=subprocess.run(args,capture_output=True,env=dict(os.environ,M6FH_LONG_TYPING='1'))
         if p.returncode or b'untypable' in p.stderr.lower() or '打てない'.encode() in p.stderr:
             raise RuntimeError('打鍵・採取失敗')
+        # 写しを複数指定するとフロントエンドは名前に .f<6桁フレーム> を付け足す
+        # (1つだけなら元の名前のまま)。器具が元の名前で読み、先行入力の腕が
+        # 全部「採取失敗」になっていた(l4-s9c 1回目)。
+        frames=buffer_probe_frames(arm,official)
+        if probes:
+            probes=[dumped(path,frame) for path,frame in zip(probes,frames)]
+            screen=dumped(screen,capture)
         if any(not buffer_waiting(extract(path.read_bytes())[0]) for path in probes):
             raise RuntimeError('先行入力がFOR待ち中である関門の失敗')
         return extract(screen.read_bytes())
     finally:
-        screen.unlink(missing_ok=True)
-        for path in probes:
+        for path in [screen,*probes]:
             path.unlink(missing_ok=True)
+        for path in work.glob('*.f[0-9]*.bin*'):
+            path.unlink(missing_ok=True)
+
+
+def dumped(path,frame):
+    return path.with_name(f'{path.stem}.f{frame:06d}{path.suffix}')
 
 
 def measure(rom,official,selected,work):
@@ -341,6 +353,17 @@ def selftest(work):
         p=subprocess.run([os.sys.executable,str(kw.REPO/'src/build_main_rom.py'),str(rom),
                           '--work-dir',str(root/'asm')],capture_output=True)
         assert p.returncode==0,'自作ROM一時ビルド失敗'
+        # 実フロントエンド: 写しを2枚指定したときの名前の付け方を dumped() が
+        # 当てること(合成の再生では run_arm を差し替えるので通らない経路)。
+        pair=[root/'pair-a.bin',root/'pair-b.bin']
+        q=subprocess.run([str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),
+                          '--vram-dump',str(pair[0]),'--vram-dump-at','200',
+                          '--vram-dump',str(pair[1]),'--vram-dump-at','300','--frames','350'],
+                         capture_output=True)
+        assert q.returncode==0,'2枚の写しの採取失敗'
+        assert all(dumped(x,f).exists() for x,f in zip(pair,(200,300))),'写しの名前の付け方が dumped() と違う'
+        for x in root.glob('pair-*'):
+            x.unlink()
         # 実フロントエンド: 起動直後(入力待ち前)とINPUT待ち後で同じ文字列を打つ。
         timing=dict(id='timing-input',kind='timing',text='a\n',offset=600)
         late,_=run_arm(rom,False,timing,root)
