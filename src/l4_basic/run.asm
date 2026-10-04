@@ -2934,6 +2934,7 @@ RUN_RESET_STATE:
 ; CLEARは乱数状態を保持する（第16節の自作判断を維持）。
 RUN_CLEAR_STATE:
     XOR A
+    LD (MM_VAL_SP),A
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
     LD (RUN_ERROR_ACTIVE),A
@@ -4026,6 +4027,7 @@ _pow_loop:
     RET NZ
     CALL ADV_PTR
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL FACTOR
     LD A,(ERROR_FLAG)
     OR A
@@ -4120,6 +4122,7 @@ _loe_loop:
     OR A
     RET Z
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL LOGIC_AND_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -4162,6 +4165,7 @@ _lae_loop:
     OR A
     RET Z
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL NOT_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -4286,6 +4290,7 @@ _ce_ge:
     LD (RUN_CMP_OP),A
 _ce_rhs:
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A

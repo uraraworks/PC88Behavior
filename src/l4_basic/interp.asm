@@ -118,8 +118,8 @@ RHS_DATA   EQU MM_RHS_DATA        ; 8バイト(同上)
 ; 仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
 INTERP_EXT_RAM_BASE EQU MM_INTERP_EXT_RAM_BASE
 VAL_STACK       EQU INTERP_EXT_RAM_BASE          ; 32slot*9byte(型1+データ8) = 288バイト
-VAL_STACK_DEPTH EQU 32
-VAL_SP          EQU MM_VAL_SP ; 1バイト(次に積む位置、0..32) = C3E0
+VAL_STACK_DEPTH EQU MM_VALUE_STACK_SIZE/9
+VAL_SP          EQU MM_VAL_SP ; 1バイト(次に積む位置、0..32) = MM_VAL_SP
 
 ; ---- 数値リテラルの生バイト列(MBF_FIN/MBF_DFINへ渡す前の字句、LEX_NUMBER) ----
 LIT_BUF       EQU MM_LIT_BUF ; 24バイト(FIN_BUFと同じ上限) = C3E1
@@ -155,6 +155,7 @@ ZONE_WIDTH EQU 14
 ; ---------------------------------------------------------------------
 BASIC_RUN_DIRECT:
     XOR A
+    LD (VAL_SP),A               ; 起動時のRAM値・前回の誤り残りに依存しない
     LD (ERROR_FLAG),A
     LD (ERROR_IS_RUNTIME),A
     LD A,2
@@ -845,6 +846,7 @@ EXPR:
     RET NZ
 _l4expr_loop:
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '+'
@@ -896,6 +898,7 @@ TERM:
     RET NZ
 _l4term_loop:
     CALL VAL_PUSH
+    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '*'
@@ -2256,25 +2259,30 @@ VAL_STACK_ADDR:
 
 ; VAL_PUSH — CUR_TYPE/CUR_DATA(9バイト、段階4b-3で5→9に拡張)をVAL_STACK
 ;   へ退避しVAL_SPを進める(Z80のPUSH HLと同じくCUR_TYPE/CUR_DATA自体は
-;   書き換えない)。破壊: AF,HL,DE,B。
+;   書き換えない)。成功CF=0、溢れCF=1/誤り7（書込なし）。破壊: AF,HL,DE,B。
 VAL_PUSH:
     LD A,(VAL_SP)
+    CP VAL_STACK_DEPTH
+    JR NC,_vpush_oom
     CALL VAL_STACK_ADDR
     EX DE,HL
-    LD A,(CUR_TYPE)
-    LD (DE),A
-    INC DE
-    LD HL,CUR_DATA
-    LD B,8
-_vpush_loop:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _vpush_loop
+    LD HL,CUR_TYPE
+    PUSH BC                     ; LDIR用のCも呼出し元の値を保つ
+    LD BC,9
+    LDIR
+    POP BC
     LD A,(VAL_SP)
     INC A
     LD (VAL_SP),A
+    OR A                        ; 成功: CF=0
+    RET
+_vpush_oom:
+    ; 仕様に無い判断: 式評価域の不足は既存のOut of memory(7)。
+    LD A,7
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_FLAG),A
+    SCF                         ; 失敗: VAL_SP・値・隣接域を変更しない
     RET
 
 ; VAL_POP — VAL_SPを1つ戻し、その位置の9バイトをCUR_TYPE/CUR_DATAへ
@@ -2284,17 +2292,11 @@ VAL_POP:
     DEC A
     LD (VAL_SP),A
     CALL VAL_STACK_ADDR
-    LD A,(HL)
-    LD (CUR_TYPE),A
-    INC HL
-    LD DE,CUR_DATA
-    LD B,8
-_vpop_loop:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _vpop_loop
+    LD DE,CUR_TYPE
+    PUSH BC
+    LD BC,9
+    LDIR
+    POP BC
     RET
 
 ; VAL_POP_DISCARD — VAL_SPを1つ戻すだけ(中身は読まない)。誤り処理での
@@ -2309,17 +2311,12 @@ VAL_POP_DISCARD:
 ; VAL_MOVE_CUR_TO_RHS — CUR_TYPE/CUR_DATA(9バイト)をRHS_TYPE/RHS_DATAへ
 ;   複写する。破壊: AF,HL,DE,B。
 VAL_MOVE_CUR_TO_RHS:
-    LD A,(CUR_TYPE)
-    LD (RHS_TYPE),A
-    LD HL,CUR_DATA
-    LD DE,RHS_DATA
-    LD B,8
-_vmctr_loop:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _vmctr_loop
+    LD HL,CUR_TYPE
+    LD DE,RHS_TYPE
+    PUSH BC
+    LD BC,9
+    LDIR
+    POP BC
     RET
 
 ; VAL_LOAD_CUR_TO_OPA — CUR_TYPE/CUR_DATAの値をMBF_OPAへ用意する

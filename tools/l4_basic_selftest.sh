@@ -35,6 +35,9 @@
 #
 # 使い方: tools/l4_basic_selftest.sh
 set -uo pipefail
+PARENT_CONFORM=0
+if [ "${1:-}" = "--parent-runs-conform" ]; then PARENT_CONFORM=1; shift; fi
+if [ "$#" -ne 0 ]; then echo "未知の引数" >&2; exit 2; fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -43,6 +46,16 @@ VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 BUILD="$REPO/src/build_main_rom.py"
 ERRORS_TSV="$REPO/src/l4_basic/errors.tsv"
+
+MEMMAP_RANGE="$(python3 - "$REPO/src" <<'PYMAP'
+import sys
+sys.path.insert(0, sys.argv[1])
+import memmap
+regions = {r.name:r for r in memmap.REGIONS}
+a, b = regions['LEXER'], regions['LEXER']
+print(f"{a.base:04X}-{b.base+b.size-1:04X}")
+PYMAP
+)"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 fail() { echo "NG: $1" >&2; FAILED=1; }
@@ -95,19 +108,22 @@ read_lex_selftest() {
   # $1=rom-dir $2=out memlog path -> 標準出力に "TOTAL PASS FAILIX"（10進）
   local romdir="$1" memlog="$2"
   "$FRONTEND" --core "$CORE" --rom-dir "$romdir" --frames 90 \
-      --mem-write-log "$memlog" --mem-write-range E880-E8A0 \
+      --mem-write-log "$memlog" --mem-write-range "$MEMMAP_RANGE" \
       >"$WORK/lex.stdout.txt" 2>"$WORK/lex.stderr.txt"
   if [ $? -ne 0 ]; then fail "q88measure(lex selftest)が失敗"; cat "$WORK/lex.stderr.txt" >&2; echo "0 0 256"; return; fi
-  python3 - "$memlog" << 'PYEOF'
+  python3 - "$memlog" "$REPO/src" << 'PYEOF'
 import re, sys
+sys.path.insert(0, sys.argv[2])
+import memmap
+addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
-total = int(last.get("E893", "00"), 16)
-passed = int(last.get("E891", "00"), 16)
-failix = int(last.get("E892", "FF"), 16)
+total = int(last.get(addr["MM_SELFTEST_TOTAL"], "00"), 16)
+passed = int(last.get(addr["MM_SELFTEST_PASS"], "00"), 16)
+failix = int(last.get(addr["MM_SELFTEST_FAILIX"], "FF"), 16)
 print(total, passed, failix)
 PYEOF
 }
@@ -465,7 +481,9 @@ else
 fi
 
 say "5b. tools/conform_l4.sh（自作ROM側の照合）"
-if bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
+if [ "$PARENT_CONFORM" -eq 1 ]; then
+  echo "conform_l4: 親が実行するため、この呼出しでは対象外"
+elif bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
   echo "OK: tools/conform_l4.sh はrc=0"
 else
   fail "tools/conform_l4.sh がNG"

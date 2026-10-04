@@ -1,6 +1,6 @@
 # 自作ROMの RAM 配置の組み替え — 計画
 
-状態: **段A実装、段B以降は計画**（2026-10-04）。段ごとに測定・実装の結果をこの文書の末尾へ追記する。
+状態: **段A実装、段B実装・関門確認中、段C以降は計画**（2026-10-04）。段ごとに測定・実装の結果をこの文書の末尾へ追記する。
 
 ## なぜ組み替えるか
 
@@ -32,6 +32,13 @@
 | 0xF3C8–0xFD27 | テキスト VRAM（変更しない） |
 | 0xFD28–0xFFFF（728B） | 自作の固定作業領域（主に保持するもの） |
 
+**訂正（2026-10-04〜05、段Bやり直し）:** 上の表は初期計画の誤りを残した記録であり、実装には使わない。
+テキストVRAMは25行×120Bで **0xF3C8–0xFF7F（3,000B）**。
+0xFD28–0xFF7Fは21〜25行目なので、20行設定で空いて見えても作業領域にできない。
+固定域とCPUスタックに使えるのは **0xE600–0xF3C7（3,528B）と0xFF80–0xFFFF（128B）** の合計3,656B。
+CPUスタックは0xF3C8から下向きに最低384Bを確保し、固定域の上端と重ねない。
+以下の旧計算もこの訂正により無効であり、実際の配置は段Bの実装結果を参照する。
+
 固定作業領域の置き場は 2,560＋728＝3,288B で、必要な約3,030B に足りる。余裕が小さいので、
 1回の処理の中だけ使う領域どうしの共用（FILES と SAVE/KILL の FAT など、棚卸し第2節の候補）を併せて行う。
 
@@ -61,6 +68,8 @@ FOR/GOSUB スタックは、マニュアルの CLEAR の第3引数（FOR・GOSUB
 ### 段B — 固定作業領域とスタックを上へ移す
 
 - 段Aの定義表の値だけを変えて、固定作業領域を 0xE600– と 0xFD28– へ、CPU スタックを 0xF3C8 から下へ移す。
+- **訂正:** 直前の「0xFD28–へ」は無効。0xE600–0xF3C7と0xFF80–0xFFFFだけに収め、
+  CPUスタックに最低384Bを残す。初期案の誤りは上の訂正注記を参照する。
 - 式評価スタックに溢れ検査を付け、超越関数の作業域との重なりを解く。
 - 関門: 全適合検査（conform_l4・l3_editor・files/load/save/killname・strfunc/strcmp/inkey/hexconst/rnd 等の照合）。
 
@@ -127,3 +136,92 @@ FOR/GOSUB スタックは、マニュアルの CLEAR の第3引数（FOR・GOSUB
   `--work-dir /private/tmp/pc88-memmap-a/<専用作業先>` を指定して再実行した。
   INKEY頑健性は240/240。s5jは同じソース順で正典を添えてアセンブルし直す故障注入も通過。
   MBFは単精度・倍精度の正常系と既存の故障注入対照をすべて実行した。
+
+## 段Bの実装結果（2026-10-04〜05、25行VRAMを避けてやり直し）
+
+前回は初期計画に従いFD28–FFEAへ固定域・試験域を置いた。RAMの書込みと読み戻しが
+成功しても画面と独立した領域である証拠にはならず、FD28–FF7Fは25行テキストVRAMの
+21〜25行目だった。親のconform_l4で167件NG（従来の陽性対照8件から増加）となり、
+画面の写しに本文文字が10個多く、属性行も増えた。20行限定で測定側を変更した対応も撤回し、
+25行の画面をそのまま観測する条件へ戻した。以下は訂正後の配置・検証だけを記す。
+
+- 通常固定域3,111B＋試験・測定専用78B＝3,189B。E600–F209の3,082Bと
+  FF80–FFEAの107Bへ収めた。CPUスタックはF20A–F3C7の**446B**、SP=F3C8から下向き。
+  最低384Bに対する余裕は62B。FFEB–FFFFの21Bは未使用。
+  正典REGIONS/FIELDSから各独立アセンブル単位へEQUを配る方式を維持する。
+
+  | 範囲 | 用途 |
+  |---|---|
+  | E600–E9A4 | 単精度・倍精度・式評価32×9B・字句リテラル・超越関数 |
+  | E9A5–ECB1 | 文字列結果・第1引数・連結・文字列操作作業 |
+  | ECB2–EDB1 | 文字列比較、先頭208BはLIST/数値行変換と共用 |
+  | EDB2–EEB1 | FILES/LOAD/SAVEの共用セクタバッファ |
+  | EEB2–EFB1 | FILES/LOADとSAVE/KILLの共用FAT |
+  | EFB2–F209 | RND・長文字列使用ビット・実行/INPUT作業・ディスク・画面/キー/字句/値/中継/INKEY |
+  | F20A–F3C7 | CPUスタック446B、SP=F3C8 |
+  | F3C8–FF7F | テキストVRAM25行、固定域・試験域・スタックの配置禁止 |
+  | FF80–FF9C | 本文編集・LISTポインタ作業29B |
+  | FF9D–FFEA | 拡張バンク・VSYNC・m6i・INKEY頑健性の試験/測定専用78B |
+  | FFEB–FFFF | 未使用21B |
+
+- 前回のFD28–FF7Fの600BをEFB2–F209へ連続移設した。共用の追加は不要だった。
+  段Bで既に追加した共用はFAT256BとLIST/文字列比較で、理由は正典OVERLAPSに記載する。
+  各ディスク文入口はFATを読み直し、互いを呼ばない。SAVEの入れ子はLIST捕捉だけ。
+  LIST/行登録は文字列比較を呼ばず、文字列式評価はLIST/行登録を呼ばない。
+  割込みが使う画面・キー・INKEYとは共用しない。
+- 本文はC400–C7FFに仮置き。段Bで移設しない構造は長文字列8000–8FFF、
+  SAVE捕捉9000–BFFF、変数D100–D78F、FOR D800–D8BF、GOSUB D900–D92F、
+  配列D980–DE27、ON ERROR D975–D978、DATA D938–D93E、CONT D944–D949、
+  RESUME D979–D97E、RESUME NEXT文頭CA10–CA11。RUN_EXTRAを保存位置と固定作業に分割した。
+  固定作業域を利用者領域へ戻していない。
+- VALUE_STACK=E7CB–E8EA、VAL_SP=E8EB。超越関数/POLYと分離し、32スロットを維持。
+  VAL_PUSHは32以上を拒否し、VAL_SP・CUR値・スタック・隣接域を保持してCF=1を返す。
+  仕様に無い判断として、式評価域の不足は既存の誤り7（Out of memory）とする。
+  全6呼出し元に失敗時の戻りを付け、起動/RUN/CLEAR/直接実行でVAL_SPを初期化する。
+  9Bの退避・復元・RHS複写をLDIRへまとめてBCを保存し、ROM容量内に収めた。
+  INKEYキューはIK_BUF＋16bit添字を用い、ページ境界を前提にしない。
+  BANK3_EXTRA_SOURCESの順・79D7の予約条件は維持する。
+- memmap_selftestはTEXT自身（予約領域の宣言）を除く全領域についてF3C8–FF7Fへの侵入を禁止する。
+  スタック上端F3C8・宣言長384B以上と、固定域上端から実際に残る連続長384B以上も独立に検査する。
+  旧FD28への配置・383Bの宣言・固定域によるスタックの圧迫を陰性対照として追加した。
+  既存の利用者域残留/未宣言重なり/直書き/分割番地の対照と、実Z80の32回成功・33回目拒否・
+  SP=255拒否・32スロットの復元/RHS複写・溢れ検査削除の陰性対照を維持する。
+- 次の3ファイルを段B前のHEADとバイト一致する状態へ戻した:
+  `tools/harness/frontend/main.c`（--screen-signature-rowsと20行採取の追加を撤回）、
+  `tools/l3_screen_editor_selftest.sh`（7か所の20行フィルターを撤回）、
+  `tools/l4_killname_integration_selftest.py`（20行署名指定とそのための正典参照を撤回）。
+  その他の検査差分も確認し、番地追従・合成ROMの結果格納先移設だけを維持する。
+  期待値・照合計算・合格条件は段B前と同じ。asm_selftestのLD SP陽性対照は正典を参照する。
+  SP上端は親がSHAを更新したF3C8のままなので、EXPECT_N88_SHAの再更新は不要。
+- ext_bank/vsync_regcheck/l4_basic/l4_save_z80は既定でconformを呼ぶ。
+  本担当は既存の--parent-runs-conformを付け、conform部分を親担当として明示的に除外する。
+  既定の実行条件とconformの合格条件は維持する。private/・公式ROMの参照/実行、git add、コミットは行わない。
+
+### 訂正後の検証
+
+- 通常ビルドはrc=0。main 32KB・拡張4バンク各8KBに収まり、79D7の予約条件も通過。
+  採取器具をHEADへ戻してフロントエンドも再ビルドした（rc=0）。
+- 指定の自己検査22本はすべてrc=0:
+  memmap、asm/asm、ext_bank、l3_screen_editor、vsync_regcheck、l4_basic、l4_strfunc、
+  l4_peekpoke、l4_inkey、l4_inkey_robust、l4_strcmp、l4_hexconst、l4_rnd、l4_program、
+  l4_s5j、l4_listnum、l4_listkw、l4_mbf_z80、l4_files_z80、l4_load_z80、l4_save_z80、
+  l4_killname_z80。すべてbash経由・stdin=/dev/null。
+  ext_bank/vsync_regcheck/l4_basic/l4_save_z80は--parent-runs-conformを付け、
+  内部のconform呼出しを除外した結果であり、conform全体の合格とは報告しない。
+  strfunc/peekpoke/strcmp/hexconst/rnd/s5jの作業先は/private/tmp内を明示指定した。
+  INKEY頑健性は240/240。MBFは単精度・倍精度の正常系と既存故障注入を完了。
+  KILL/NAMEは合成19腕・陰性対照4件、自作main/subの全10腕＋RUNが通過した。
+- strfunc: measure 91腕×2走、check rc=0、91/91。
+- strcmp: measure 213腕×2走、check rc=0、213/213。
+- hexconst: measure 68腕×2走（rc=0）。既存登録で除外済みのprogram-hexspaceだけを
+  測定TSVの作業用コピーから除き、凍結期待値67腕とのcheck rc=0、67/67。
+- PEEK/POKE: measure 30腕×2走、check rc=0、30/30。
+- INKEY: 基本23腕×2走と追補1の6腕×2走が各measure rc=0。
+  既存登録どおりbuffer-abcdeを除き、追補の定数3腕の重複を除いた作業用統合TSVを
+  凍結期待値25腕に渡した。check rc=1、24/25（基本21/22＋追補3/3）。
+  不一致は前回と同じhold-aだけ。個別の既存checkでもこの1腕だけの不一致を確認した。
+  元の測定TSV・期待値・checkの合格条件を変更していない。
+- conform_*は本担当では実行していない。親の適合関門を残す。
+  git diff --checkも通過。git add・コミットは行っていない。
+- ROM・測定TSV・実行コマンドのドライバ・自己検査/照合ログは
+  `/private/tmp/pc88-memmap-b-redo/` に保存する。

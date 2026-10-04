@@ -14,6 +14,9 @@ import l4_sqr_bank_conform as harness
 sys.path.insert(0, str(harness.REPO / 'tools/asm'))
 import z80text
 
+# 合成ROMではSAVEを呼ばないため、捕捉域を結果の格納に使う。
+OUT_BASE = harness.memmap.addresses()["MM_S2_CAPTURE_BASE"]
+
 
 def mbf_bytes(number):
     return rnd.mbf.mbf4_bytes(*number.as_single_or_double_pair())
@@ -42,9 +45,9 @@ def check_batch(kind, cases, work):
                       'LD A,(RND_COUNT)\n    LD (DE),A\n    INC DE')
     prefix = harness.memmap.asm_prelude() + f'''ORG 0
     DI
-    LD SP,0xFFF0
+    LD SP,MM_STACK_TOP
     LD HL,VECTORS
-    LD DE,0xE000
+    LD DE,MM_S2_CAPTURE_BASE
     LD BC,{len(cases)}
 check_loop:
     PUSH BC
@@ -85,9 +88,9 @@ check_done:
     rom.mkdir(exist_ok=True)
     (rom / 'N88.ROM').write_bytes(code + bytes(0x8000 - len(code)))
     (rom / 'DISK.ROM').write_bytes(bytes([0x18, 0xFE]) + bytes(0x7FE))
-    mem = harness.run_and_collect(rom, result_size * len(cases), work, 500)
+    mem = harness.run_and_collect(rom, result_size * len(cases), work, 500, out_base=OUT_BASE)
     for i, (_, want) in enumerate(cases):
-        got = bytes(mem.get(0xE000 + result_size * i + j, 0) for j in range(result_size))
+        got = bytes(mem.get(OUT_BASE + result_size * i + j, 0) for j in range(result_size))
         if got != want:
             raise AssertionError(f'{kind} #{i}: {got.hex()} != {want.hex()}')
 

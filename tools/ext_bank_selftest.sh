@@ -34,6 +34,12 @@
 # 使い方: tools/ext_bank_selftest.sh
 
 set -uo pipefail
+PARENT_CONFORM=0
+if [ "${1:-}" = "--parent-runs-conform" ]; then
+  PARENT_CONFORM=1
+  shift
+fi
+if [ "$#" -ne 0 ]; then echo "未知の引数" >&2; exit 2; fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -41,6 +47,16 @@ cd "$REPO"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 BUILD="$REPO/src/build_main_rom.py"
+
+MEMMAP_RANGE="$(python3 - "$REPO/src" <<'PYMAP'
+import sys
+sys.path.insert(0, sys.argv[1])
+import memmap
+regions = {r.name:r for r in memmap.REGIONS}
+a, b = regions['EXT_TEST_LOW'], regions['EXT_TEST_HIGH']
+print(f"{a.base:04X}-{b.base+b.size-1:04X}")
+PYMAP
+)"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 fail() { echo "NG: $1" >&2; FAILED=1; }
@@ -115,20 +131,23 @@ if ! python3 "$BUILD" "$SELFTEST_ROM" --enable-ext-bank-selftest >"$WORK/build_s
 fi
 
 "$FRONTEND" --core "$CORE" --rom-dir "$SELFTEST_ROM" --frames 200 \
-    --mem-write-log "$WORK/ext_bank.memlog.txt" --mem-write-range E8C0-E8D0 \
+    --mem-write-log "$WORK/ext_bank.memlog.txt" --mem-write-range "$MEMMAP_RANGE" \
     >"$WORK/ext_bank.stdout.txt" 2>"$WORK/ext_bank.stderr.txt"
 if [ $? -ne 0 ]; then
   fail "q88measure(拡張ROMバンク自己検査)が失敗"; cat "$WORK/ext_bank.stderr.txt" >&2
 fi
 
-read -r V0 V1 V2 V3 PASS WINCALL LOOP_DONE LOOP_OK ABS_OK ABS_VAL MBF_OK <<< "$(python3 - "$WORK/ext_bank.memlog.txt" << 'PYEOF'
+read -r V0 V1 V2 V3 PASS WINCALL LOOP_DONE LOOP_OK ABS_OK ABS_VAL MBF_OK <<< "$(python3 - "$WORK/ext_bank.memlog.txt" "$REPO/src" << 'PYEOF'
 import re, sys
+sys.path.insert(0, sys.argv[2])
+import memmap
+addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
-addrs = ["E8C0", "E8C1", "E8C2", "E8C3", "E8C4", "E8C5", "E8C6", "E8C7", "E8CE", "E8CF", "E8D0"]
+addrs = [addr["MM_EXT_BANK_ST_VAL0"], addr["MM_EXT_BANK_ST_VAL1"], addr["MM_EXT_BANK_ST_VAL2"], addr["MM_EXT_BANK_ST_VAL3"], addr["MM_EXT_BANK_ST_PASS"], addr["MM_EXT_BANK_ST_WINCALL"], addr["MM_EXT_BANK_ST_LOOP_DONE"], addr["MM_EXT_BANK_ST_LOOP_OK"], addr["MM_EXT_BANK_ST_ABS_OK"], addr["MM_EXT_BANK_ST_ABS_VAL"], addr["MM_EXT_BANK_ST_MBF_OK"]]
 print(" ".join(last.get(a, "FF") for a in addrs))
 PYEOF
 )"
@@ -173,19 +192,22 @@ if ! python3 "$BUILD" "$NOORG_ROM" --enable-ext-bank-selftest --inject-ext-bank-
   cat "$WORK/build_noorg.txt" >&2
 else
   "$FRONTEND" --core "$CORE" --rom-dir "$NOORG_ROM" --frames 200 \
-      --mem-write-log "$WORK/ext_bank_noorg.memlog.txt" --mem-write-range E8C0-E8D0 \
+      --mem-write-log "$WORK/ext_bank_noorg.memlog.txt" --mem-write-range "$MEMMAP_RANGE" \
       >"$WORK/ext_bank_noorg.stdout.txt" 2>"$WORK/ext_bank_noorg.stderr.txt"
   if [ $? -ne 0 ]; then
     fail "q88measure(ORG故障注入)が失敗"; cat "$WORK/ext_bank_noorg.stderr.txt" >&2
   fi
-  read -r NOORG_ABS_OK NOORG_ABS_VAL <<< "$(python3 - "$WORK/ext_bank_noorg.memlog.txt" << 'PYEOF'
+  read -r NOORG_ABS_OK NOORG_ABS_VAL <<< "$(python3 - "$WORK/ext_bank_noorg.memlog.txt" "$REPO/src" << 'PYEOF'
 import re, sys
+sys.path.insert(0, sys.argv[2])
+import memmap
+addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
-print(last.get("E8CE", "FF"), last.get("E8CF", "FF"))
+print(last.get(addr["MM_EXT_BANK_ST_ABS_OK"], "FF"), last.get(addr["MM_EXT_BANK_ST_ABS_VAL"], "FF"))
 PYEOF
 )"
   echo "ABS_OK=$NOORG_ABS_OK ABS_VAL=$NOORG_ABS_VAL"
@@ -221,19 +243,22 @@ if ! python3 "$BUILD" "$MBFFAULT_ROM" --enable-ext-bank-selftest --inject-ext-ba
   cat "$WORK/build_mbffault.txt" >&2
 else
   "$FRONTEND" --core "$CORE" --rom-dir "$MBFFAULT_ROM" --frames 200 \
-      --mem-write-log "$WORK/ext_bank_mbffault.memlog.txt" --mem-write-range E8C0-E8D0 \
+      --mem-write-log "$WORK/ext_bank_mbffault.memlog.txt" --mem-write-range "$MEMMAP_RANGE" \
       >"$WORK/ext_bank_mbffault.stdout.txt" 2>"$WORK/ext_bank_mbffault.stderr.txt"
   if [ $? -ne 0 ]; then
     fail "q88measure(MBF番地取り違え故障注入)が失敗"; cat "$WORK/ext_bank_mbffault.stderr.txt" >&2
   fi
-  MBFFAULT_MBF_OK="$(python3 - "$WORK/ext_bank_mbffault.memlog.txt" << 'PYEOF'
+  MBFFAULT_MBF_OK="$(python3 - "$WORK/ext_bank_mbffault.memlog.txt" "$REPO/src" << 'PYEOF'
 import re, sys
+sys.path.insert(0, sys.argv[2])
+import memmap
+addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
-print(last.get("E8D0", "FF"))
+print(last.get(addr["MM_EXT_BANK_ST_MBF_OK"], "FF"))
 PYEOF
 )"
   echo "MBF_OK=$MBFFAULT_MBF_OK"
@@ -253,7 +278,9 @@ else
   tail -40 "$WORK/l3_main_selftest.txt" >&2
 fi
 
-if bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
+if [ "$PARENT_CONFORM" -eq 1 ]; then
+  echo "conform_l4: 親が実行するため、この呼出しでは対象外"
+elif bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
   echo "OK: tools/conform_l4.sh はrc=0"
 else
   fail "tools/conform_l4.sh がNG"

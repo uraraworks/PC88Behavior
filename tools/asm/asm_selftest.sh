@@ -36,7 +36,10 @@ Z80TEXT="tools/asm/z80text.py"
 # ext-rom-bank.md開発時に発覚)に更新した。この検査自体が確かめたい
 # 不変条件(「.asm経由の再組み立てがバイト一致」)はこの下の別の検査
 # （sha256とは独立）が引き続き見ており、そちらは修正の前後とも通る。
-EXPECT_N88_SHA="1f4305a2c443fce00bc91cabb92c8a01f9c6157c3cd9e05bff8f72e943c075b1"
+# 2026-10-04 RAM 配置の段B（docs/notes/memory-map-redesign-plan.md）で、CPU スタックを
+# 0xF000 から 0xF3C8 へ移したため再度更新した。旧値との差は N88.ROM の 3〜4 バイト目
+# （LD SP の即値 00 F0 → C8 F3）の2バイトだけであることを cmp -l で確かめた。
+EXPECT_N88_SHA="13d42c1d7b0b8e169b664cdc21e9f1b49e349c1be5cdf3525fdfe52609134435"
 EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9f6c5b"
 EXPECT_SUBROM_DISK_SHA="d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070"
 
@@ -186,10 +189,20 @@ fi
 # 3. 陽性対照（故障注入）: .asmを1か所だけ機械的に壊すと検出できるか
 # --------------------------------------------------------------------------
 
-# 3a. ある LD のオペランドを変える（N88.asm の "LD SP,0xF000" を書き換える）。
+# 3a. ある LD のオペランドを変える（N88.asm の LD SP 即値を正典の上端+1へ変える）。
 BROKEN1="$WORK/n88_broken_ld.asm"
-sed 's/LD SP,0xF000/LD SP,0xF001/' "$IPL_ASM/N88.asm" > "$BROKEN1"
-if grep -q "LD SP,0xF001" "$BROKEN1"; then
+python3 - "$REPO/src" "$IPL_ASM/N88.asm" "$BROKEN1" <<'PYMAP'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import memmap
+stack = memmap.addresses()['MM_STACK_TOP']
+source = Path(sys.argv[2]).read_text()
+old = f'LD SP,0x{stack:04X}'
+assert source.count(old) == 1
+Path(sys.argv[3]).write_text(source.replace(old, f'LD SP,0x{stack+1:04X}'))
+PYMAP
+if ! cmp -s "$IPL_ASM/N88.asm" "$BROKEN1"; then
     if python3 "$Z80TEXT" "$BROKEN1" -o "$WORK/broken1.bin" \
             > "$WORK/broken1.log" 2>&1; then
         broken_len=$(wc -c < "$WORK/broken1.bin")

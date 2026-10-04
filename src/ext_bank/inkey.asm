@@ -1,8 +1,8 @@
 ; docs/spec/l4-basic.md 第19節、l3-main.md 第8〜10節。
 ; 行入力と独立した行列・リピート。32文字FIFO、満杯時は新着を捨てる
 ; （容量上限・満杯時の動作は未測定のため自作判断）。
-; E8D1-E8E8: VRTC/読出し/書込み/件数/行列12B/リピート6B/新着有無/時計。
-; E900-E91F: キュー。既存RAM一覧の空きだけを使用する。
+; 状態・32Bキューはsrc/memmap.pyのINKEY/INKEY_QUEUE。
+; キュー番地はページ境界を仮定せず、IK_BUF+添字で作る。
 IK_VRTC EQU MM_IK_VRTC
 IK_HEAD EQU MM_IK_HEAD
 IK_TAIL EQU MM_IK_TAIL
@@ -44,11 +44,13 @@ ik_match:
     DEC A
     LD (IK_COUNT),A
     LD A,(IK_HEAD)
-    LD L,A
-    LD H,0E9h
+    LD E,A
+    LD D,0
+    LD HL,IK_BUF
+    ADD HL,DE
     LD A,(HL)
     LD (S9_TMP),A
-    LD A,L
+    LD A,(IK_HEAD)
     INC A
     AND 31
     LD (IK_HEAD),A
@@ -181,8 +183,10 @@ IK_PUSH:
     INC A
     LD (IK_COUNT),A
     LD A,(IK_TAIL)
-    LD L,A
-    LD H,0E9h
+    LD E,A
+    LD D,0
+    LD HL,IK_BUF
+    ADD HL,DE
     INC A
     AND 31
     LD (IK_TAIL),A

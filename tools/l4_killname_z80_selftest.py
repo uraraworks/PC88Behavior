@@ -111,7 +111,7 @@ T_FAIL EQU 0E303h
 T_WRITES EQU 0E301h
 T_PROTECT_READS EQU 0E302h
 T_START:
-    LD SP,0F000h
+    LD SP,MM_STACK_TOP
     XOR A
     LD (T_PASS),A
     LD (T_FAIL),A
@@ -124,7 +124,7 @@ T_START:
     LD HL,T_COMMAND_END
     LD (K2_LINE_END),HL
     LD HL,T_BEFORE
-    LD DE,09000h
+    LD DE,MM_S2_CAPTURE_BASE
     LD BC,4096
     LDIR
     CALL EXT_BANK2_DISK_MATCH
@@ -146,7 +146,7 @@ T_START:
     LD A,(T_PROTECT_READS)
     CP {protected_reads}
     JP NZ,T_BAD6
-    LD HL,09000h
+    LD HL,MM_S2_CAPTURE_BASE
     LD DE,T_EXPECTED
     LD BC,4096
 T_COMPARE:
@@ -167,7 +167,7 @@ T_READ:
     LD A,(S2_DRIVE)
     CALL T_ADDRESS
     RET C
-    LD HL,09000h
+    LD HL,MM_S2_CAPTURE_BASE
     ADD HL,BC
     LD DE,S2_BUF
     LD BC,256
@@ -179,7 +179,7 @@ T_WRITE:
     CALL T_ADDRESS
     POP HL
     RET C
-    LD DE,09000h
+    LD DE,MM_S2_CAPTURE_BASE
     EX DE,HL
     ADD HL,BC
     EX DE,HL
@@ -275,7 +275,7 @@ T_BEFORE:
     if fault == 'prompt':
         direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
     harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_BAD4\n    LD A,1\n    LD (T_PASS),A')
-    harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU 0E24Bh\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
+    harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU MM_S2_DONE\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
     source = harness + data(image) + '    ORG 04000h\nT_EXPECTED:\n' + data(expected) + bank
     out.mkdir()
     asm = out/'killname_test.asm'

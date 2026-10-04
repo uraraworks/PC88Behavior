@@ -958,6 +958,9 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         main_sub_init_call = "    CALL MAIN_SUB_READ_INIT\n"
     else:
         main_sub_init_call = ""
+    # 段B: 専用域に移したDONEはINKEYの初期化と共用しない。
+    vsync_regcheck_init = ("    XOR A\n    LD (MM_VSYNC_REGCHECK_DONE),A\n"
+                          if enable_vsync_regcheck else "")
     # 拡張ROMバンク: EXT_BANK_BUSY(再入検出フラグ)の初期化は
     # selftestフラグの有無と無関係に必ず行う(src/ext_bank/relay.asmの
     # EXT_BANK_INITコメント参照。RAMがゼロ初期化される保証が無いため、
@@ -966,7 +969,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     ipl_text = ipl_text.replace(
         INSERT_MARK,
         "    CALL SCREEN_MAIN\n    CALL EXT_BANK_INIT\n"
-        + l4_selftest_call + ext_bank_selftest_call + main_sub_init_call + INSERT_MARK)
+        + l4_selftest_call + ext_bank_selftest_call + main_sub_init_call
+        + vsync_regcheck_init + INSERT_MARK)
 
     # STEADY_WAIT(IM2/I/EI設定済みの定常状態)へ入った直後に呼ぶ自己検査
     # 呼び出し列。複数のフラグが同時に立っても1回のtext置換で済むよう、

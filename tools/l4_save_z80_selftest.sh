@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # SAVE ,A の媒体管理を実Z80で検査する。公式媒体は使わない。
 set -euo pipefail
+PARENT_CONFORM=0
+if [ "${1:-}" = "--parent-runs-conform" ]; then PARENT_CONFORM=1; shift; fi
+if [ "$#" -ne 0 ]; then echo "未知の引数" >&2; exit 2; fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 source "$REPO/tools/lib_l3_measure.sh"
@@ -48,7 +51,7 @@ T_BODIES EQU 0E302h
 T_FAILCODE EQU 0E303h
 T_PASS EQU 0E304h
 T_START:
-    LD SP,0F000h
+    LD SP,MM_STACK_TOP
     XOR A
     LD (T_PASS),A
     LD (T_FAILCODE),A
@@ -204,13 +207,13 @@ T_LIST_SHORT:
     LD HL,1
     LD (S2_CAPTURE_LEN),HL
 T_LIST_FILL:
-    LD HL,09000h
+    LD HL,MM_S2_CAPTURE_BASE
     LD (HL),'A'
-    LD DE,09001h
+    LD DE,MM_S2_CAPTURE_BASE+1
     LD BC,2304
     LDIR
     LD A,01Ah
-    LD (09900h),A
+    LD (MM_S2_CAPTURE_BASE+2304),A
     RET
 T_CAPTURE_END:
     RET
@@ -332,7 +335,7 @@ direct=program[program.index('_bhl_direct:\n'):].split('\n; --------------------
 if fault=='prompt':
     direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
 harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_FAIL7\n    LD A,1\n    LD (T_PASS),A')
-source=harness+'\nSAVE_DONE_FLAG EQU 0E24Bh\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    LD A,1\n    LD (SAVE_DONE_FLAG),A\n    RET\n'+direct+'\n'+bank
+source=harness+'\nSAVE_DONE_FLAG EQU MM_S2_DONE\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    LD A,1\n    LD (SAVE_DONE_FLAG),A\n    RET\n'+direct+'\n'+bank
 p=out/'save_test.asm'; p.write_text(memmap.asm_prelude() + source,encoding='utf-8')
 a=z80text.Assembler(); code=a.assemble(p)
 if len(code)>0x8000: raise SystemExit('試験ROM超過')
@@ -368,6 +371,10 @@ read -r pass fail writes bodies <<<"$(run_one order)"
 read -r pass fail writes bodies <<<"$(run_one prompt)"
 [ "$pass" != 01 ] && [ "$fail" != 00 ] || { echo 'NG: Ok抑止の陰性対照' >&2; exit 1; }
 # LISTそのもののCR LF・0x1Aは公式なしのJ-1/J-2本体照合で確認する。
+if [ "$PARENT_CONFORM" -eq 1 ]; then
+  echo "conform_save: 親が実行するため、この呼出しでは対象外"
+else
 bash "$REPO/tools/conform_save.sh" >"$WORK/conform.out"
 [ "$(grep -c $'\tOK$' "$WORK/conform.out")" = 6 ] || { echo 'NG: SAVE適合' >&2; exit 1; }
+fi
 echo 'l4_save_z80_selftest: OK（10セクタ・2単位・旧鎖解放・FAT末尾保持・ERR61/68・陰性対照）'

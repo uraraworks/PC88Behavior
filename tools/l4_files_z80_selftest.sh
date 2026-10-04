@@ -49,17 +49,17 @@ harness = r'''
     JP TEST_START
     ORG 0100h
 TEST_START:
-    LD SP,0F000h
+    LD SP,MM_STACK_TOP
     XOR A
     LD (0E300h),A
     LD (0E301h),A
     ; FATを0xFF、試験エントリを空白で初期化する。
-    LD HL,0E100h
+    LD HL,MM_FILES_FAT_BUF
     LD (HL),0FFh
-    LD DE,0E101h
+    LD DE,MM_FILES_FAT_BUF+1
     LD BC,255
     LDIR
-    LD HL,0DF00h
+    LD HL,MM_MAIN_SUB_SECTOR_BUF
     LD B,16
     LD A,' '
 T_CLEAR_ENTRY:
@@ -67,7 +67,7 @@ T_CLEAR_ENTRY:
     INC HL
     DJNZ T_CLEAR_ENTRY
     ; 名前6/拡張子3/種別/先頭単位はすべて合成値。
-    LD HL,0DF00h
+    LD HL,MM_MAIN_SUB_SECTOR_BUF
     LD (HL),'A'
     INC HL
     LD (HL),'B'
@@ -86,51 +86,51 @@ T_CLEAR_ENTRY:
     INC HL
     LD (HL),'Z'
     LD A,080h
-    LD (0DF09h),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+9),A
 
     ; 1単位、終端0xC1。
     LD A,0C1h
-    LD (0E105h),A
+    LD (MM_FILES_FAT_BUF+5),A
     LD A,5
-    LD (0DF0Ah),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+10),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL1
-    LD A,(0E219h)
+    LD A,(MM_FILES_SIZE_VALUE)
     CP 1
     JP NZ,T_FAIL1
     ; セルは欄ごとに検査し、画面本文として外へ出さない。
-    LD A,(0E200h)
+    LD A,(MM_FILES_CELL_BUF)
     CP 'A'
     JP NZ,T_FAIL2
-    LD A,(0E205h)
+    LD A,(MM_FILES_CELL_BUF+5)
     CP 'F'
     JP NZ,T_FAIL2
-    LD A,(0E206h)
+    LD A,(MM_FILES_CELL_BUF+6)
     CP '.'
     JP NZ,T_FAIL2
-    LD A,(0E207h)
+    LD A,(MM_FILES_CELL_BUF+7)
     CP 'X'
     JP NZ,T_FAIL2
-    LD A,(0E209h)
+    LD A,(MM_FILES_CELL_BUF+9)
     CP 'Z'
     JP NZ,T_FAIL2
-    LD A,(0E20Ah)
+    LD A,(MM_FILES_CELL_BUF+10)
     CP ' '
     JP NZ,T_FAIL2
-    LD A,(0E20Bh)
+    LD A,(MM_FILES_CELL_BUF+11)
     CP '1'
     JP NZ,T_FAIL2
-    LD A,(0E20Ch)
+    LD A,(MM_FILES_CELL_BUF+12)
     CP ' '
     JP NZ,T_FAIL2
-    LD A,(0E20Fh)
+    LD A,(MM_FILES_CELL_BUF+15)
     CP ' '
     JP NZ,T_FAIL2
 
     ; 10単位: 20→...→29、最後は0xC1。
-    LD HL,0E114h
+    LD HL,MM_FILES_FAT_BUF+20
     LD A,21
     LD B,9
 T_CHAIN10:
@@ -140,83 +140,83 @@ T_CHAIN10:
     DJNZ T_CHAIN10
     LD (HL),0C1h
     LD A,20
-    LD (0DF0Ah),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+10),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL3
-    LD A,(0E219h)
+    LD A,(MM_FILES_SIZE_VALUE)
     CP 10
     JP NZ,T_FAIL3
-    LD A,(0E20Bh)
+    LD A,(MM_FILES_CELL_BUF+11)
     CP '1'
     JP NZ,T_FAIL3
-    LD A,(0E20Ch)
+    LD A,(MM_FILES_CELL_BUF+12)
     CP '0'
     JP NZ,T_FAIL3
-    LD A,(0E20Dh)
+    LD A,(MM_FILES_CELL_BUF+13)
     CP ' '
     JP NZ,T_FAIL3
 
     ; 終端の使用セクタ数は単位数へ足さない。0xC8でも1単位。
     LD A,0C8h
-    LD (0E128h),A
+    LD (MM_FILES_FAT_BUF+40),A
     LD A,40
-    LD (0DF0Ah),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+10),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL4
-    LD A,(0E219h)
+    LD A,(MM_FILES_SIZE_VALUE)
     CP 1
     JP NZ,T_FAIL4
 
     ; 0xA0(SAVE ,P)はピリオド。第11.1節規則3(m6f-g)。
     LD A,0A0h
-    LD (0DF09h),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+9),A
     LD A,0C1h
-    LD (0E105h),A
+    LD (MM_FILES_FAT_BUF+5),A
     LD A,5
-    LD (0DF0Ah),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+10),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL5
-    LD A,(0E206h)
+    LD A,(MM_FILES_CELL_BUF+6)
     CP '.'
     JP NZ,T_FAIL5
 
     ; 0x01(BSAVE)はアスタリスク。
     LD A,001h
-    LD (0DF09h),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+9),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL6
-    LD A,(0E206h)
+    LD A,(MM_FILES_CELL_BUF+6)
     CP '*'
     JP NZ,T_FAIL6
 
     ; 0x80に戻し、大きさ100単位→'100'（3桁、m6f-g）。
     LD A,080h
-    LD (0DF09h),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+9),A
     CALL BUILD_CHAIN_100
     XOR A
-    LD (0DF0Ah),A
+    LD (MM_MAIN_SUB_SECTOR_BUF+10),A
     CALL T_RESET_SCAN
     CALL 06110h
     CP 2
     JP NZ,T_FAIL7
-    LD A,(0E219h)
+    LD A,(MM_FILES_SIZE_VALUE)
     CP 100
     JP NZ,T_FAIL7
-    LD A,(0E20Bh)
+    LD A,(MM_FILES_CELL_BUF+11)
     CP '1'
     JP NZ,T_FAIL7
-    LD A,(0E20Ch)
+    LD A,(MM_FILES_CELL_BUF+12)
     CP '0'
     JP NZ,T_FAIL7
-    LD A,(0E20Dh)
+    LD A,(MM_FILES_CELL_BUF+13)
     CP '0'
     JP NZ,T_FAIL7
 
@@ -226,16 +226,16 @@ T_CHAIN10:
     CALL 06110h
     CP 2
     JP NZ,T_FAIL8
-    LD A,(0E219h)
+    LD A,(MM_FILES_SIZE_VALUE)
     CP 158
     JP NZ,T_FAIL8
-    LD A,(0E20Bh)
+    LD A,(MM_FILES_CELL_BUF+11)
     CP '1'
     JP NZ,T_FAIL8
-    LD A,(0E20Ch)
+    LD A,(MM_FILES_CELL_BUF+12)
     CP '5'
     JP NZ,T_FAIL8
-    LD A,(0E20Dh)
+    LD A,(MM_FILES_CELL_BUF+13)
     CP '8'
     JP NZ,T_FAIL8
 
@@ -246,7 +246,7 @@ T_HALT:
 
 ; unit 0開始、FAT[0..N-2]=1..N-1、FAT[N-1]=終端0xC1で長さNの鎖を作る。
 BUILD_CHAIN_100:
-    LD HL,0E100h
+    LD HL,MM_FILES_FAT_BUF
     LD B,99
     LD A,1
 BC100_LOOP:
@@ -258,7 +258,7 @@ BC100_LOOP:
     RET
 
 BUILD_CHAIN_158:
-    LD HL,0E100h
+    LD HL,MM_FILES_FAT_BUF
     LD B,157
     LD A,1
 BC158_LOOP:
@@ -271,12 +271,12 @@ BC158_LOOP:
 
 T_RESET_SCAN:
     LD A,2
-    LD (0E210h),A
+    LD (MM_FILES_PHASE),A
     LD A,1
-    LD (0E214h),A
+    LD (MM_FILES_READ_OK),A
     XOR A
-    LD (0E216h),A
-    LD (0E217h),A
+    LD (MM_FILES_ENTRY_INDEX),A
+    LD (MM_FILES_ENTRY_COUNT),A
     RET
 
 T_FAIL1:

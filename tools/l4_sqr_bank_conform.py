@@ -335,11 +335,11 @@ def build_rom(vecs, fault: str | None, workdir: pathlib.Path) -> pathlib.Path:
     return romdir
 
 
-def run_and_collect(romdir: pathlib.Path, out_len_total: int, workdir: pathlib.Path, frames: int) -> dict:
+def run_and_collect(romdir: pathlib.Path, out_len_total: int, workdir: pathlib.Path, frames: int, out_base: int = OUT_BASE) -> dict:
     core = find_core()
     mwl = workdir / "mwl.txt"
-    lo = OUT_BASE
-    hi = OUT_BASE + out_len_total - 1
+    lo = out_base
+    hi = out_base + out_len_total - 1
     cmd = [
         str(FRONTEND), "--core", str(core), "--rom-dir", str(romdir),
         "--frames", str(frames),

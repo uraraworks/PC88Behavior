@@ -14,6 +14,8 @@ import l4_inkey_measure as ik
 
 sys.path.insert(0, str(ik.kw.REPO / 'tools/asm'))
 import z80text
+sys.path.insert(0, str(ik.kw.REPO / 'src'))
+import memmap
 
 
 def fast_rom(rom, asm_dir, work):
@@ -26,19 +28,19 @@ def fast_rom(rom, asm_dir, work):
     assembler.assemble(asm_dir / 'n88_main_gen.asm')
     labels = assembler.labels
     start = labels['LEX_SELFTEST']
-    source = f'''
+    source = memmap.asm_prelude() + f'''
     ORG {start}
     DI
     LD HL,fast_name
-    LD DE,0D006h
+    LD DE,MM_IDENT_BUF
     LD BC,7
     LDIR
     CALL {labels['S9C_INIT']}
     XOR A
-    LD (0CAE0h),A
+    LD (MM_IK_TEST_SEEN),A
 fast_wait:
     CALL fast_read
-    LD A,(0D031h)
+    LD A,(MM_RUN_STR_TMP_LEN)
     OR A
     JR Z,fast_wait
     LD BC,1024
@@ -51,38 +53,38 @@ fast_drain:
     OR C
     JR NZ,fast_drain
     LD HL,fast_bad
-    LD A,(0CAE0h)
+    LD A,(MM_IK_TEST_SEEN)
     CP 1
     JR NZ,fast_show
-    LD A,(0CAE1h)
+    LD A,(MM_IK_TEST_CHAR)
     CP 97
     JR NZ,fast_show
     LD HL,fast_good
 fast_show:
-    LD DE,0F3C8h
+    LD DE,MM_TEXT_BASE
     LD BC,80
     LDIR
     LD HL,fast_done
-    LD DE,0F3C8h+120
+    LD DE,MM_TEXT_BASE+120
     LD BC,80
     LDIR
 fast_stop:
     JP fast_stop
 fast_read:
-    LD (0CAE2h),A            ; 周期の検査専用。返却値には使わない。
+    LD (MM_IK_TEST_POLL),A            ; 周期の検査専用。返却値には使わない。
     CALL {labels['S9C_POLL']}
     CALL {labels['S9C_TRY_INKEY']}
-    LD A,(0D031h)
+    LD A,(MM_RUN_STR_TMP_LEN)
     OR A
     RET Z
-    LD HL,0CAE0h
+    LD HL,MM_IK_TEST_SEEN
     INC (HL)
     ; 飽和させ、256回の重複が1回へ巻き戻って合格しないようにする。
     JR NZ,fast_counted
     DEC (HL)
 fast_counted:
-    LD A,(0C700h)
-    LD (0CAE1h),A
+    LD A,(MM_RUN_STR_TMP_BUF)
+    LD (MM_IK_TEST_CHAR),A
     RET
 fast_name:
     DB "INKEY",0,0
@@ -114,9 +116,10 @@ fast_done:
 def run_fast(rom, hold, offset, work):
     screen = work / 'fast.bin'
     clock = work / 'fast-clock.txt'
+    poll_addr = f"{memmap.addresses()['MM_IK_TEST_POLL']:04X}"
     args = [str(ik.kw.FRONT), '--core', str(ik.kw.find_core()), '--rom-dir', str(rom),
             '--key-hold', str(hold), '--key-gap', '8', '--type-at', str(offset), '--type', 'a',
-            '--mem-write-log', str(clock), '--mem-write-range', 'CAE2-CAE2',
+            '--mem-write-log', str(clock), '--mem-write-range', f'{poll_addr}-{poll_addr}',
             '--mem-write-from-frame', '590',
             '--vram-dump', str(screen), '--vram-dump-at', str(offset+200),
             '--frames', str(offset+210)]
@@ -125,7 +128,7 @@ def run_fast(rom, hold, offset, work):
         if proc.returncode:
             return False, 'capture', None
         samples = [int(m[1]) for line in clock.read_text().splitlines()
-                   if (m := re.fullmatch(r'\s*\d+\s+(\d+)\s+[0-9A-F]+\s+CAE2\s+[0-9A-F]+', line))]
+                   if (m := re.fullmatch(rf'\s*\d+\s+(\d+)\s+[0-9A-F]+\s+{poll_addr}\s+[0-9A-F]+', line))]
         count = sum(590 <= frame < 600 for frame in samples)
         # 打鍵前10フレームを実測。高期間（約0.1フレーム）より速いことも関門。
         if count <= 100:

@@ -27,6 +27,12 @@
 # 使い方: tools/vsync_regcheck_selftest.sh
 
 set -uo pipefail
+PARENT_CONFORM=0
+if [ "${1:-}" = "--parent-runs-conform" ]; then
+  PARENT_CONFORM=1
+  shift
+fi
+if [ "$#" -ne 0 ]; then echo "未知の引数" >&2; exit 2; fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -34,6 +40,16 @@ cd "$REPO"
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
 BUILD="$REPO/src/build_main_rom.py"
+
+MEMMAP_RANGE="$(python3 - "$REPO/src" <<'PYMAP'
+import sys
+sys.path.insert(0, sys.argv[1])
+import memmap
+regions = {r.name:r for r in memmap.REGIONS}
+a, b = regions['VSYNC_TEST'], regions['VSYNC_TEST']
+print(f"{a.base:04X}-{b.base+b.size-1:04X}")
+PYMAP
+)"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 fail() { echo "NG: $1" >&2; FAILED=1; }
@@ -52,19 +68,22 @@ read_regcheck() {
   # $1=rom-dir -> 標準出力に "DONE RESULT"（16進2桁ずつ）
   local romdir="$1" memlog="$WORK/regcheck.memlog.txt"
   "$FRONTEND" --core "$CORE" --rom-dir "$romdir" --frames 200 \
-      --mem-write-log "$memlog" --mem-write-range E8D0-E8DD \
+      --mem-write-log "$memlog" --mem-write-range "$MEMMAP_RANGE" \
       >"$WORK/regcheck.stdout.txt" 2>"$WORK/regcheck.stderr.txt"
   if [ $? -ne 0 ]; then
     fail "q88measure(vsync regcheck)が失敗"; cat "$WORK/regcheck.stderr.txt" >&2; echo "FF FF"; return
   fi
-  python3 - "$memlog" << 'PYEOF'
+  python3 - "$memlog" "$REPO/src" << 'PYEOF'
 import re, sys
+sys.path.insert(0, sys.argv[2])
+import memmap
+addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
-print(last.get("E8D0", "FF"), last.get("E8D1", "FF"))
+print(last.get(addr["MM_VSYNC_REGCHECK_DONE"], "FF"), last.get(addr["MM_VSYNC_REGCHECK_RESULT"], "FF"))
 PYEOF
 }
 
@@ -98,7 +117,9 @@ fi
 
 # -----------------------------------------------------------------------
 say "3. 通常ビルド(修正後)で既存の長いBASIC処理系の検査が引き続きOKであること"
-if bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
+if [ "$PARENT_CONFORM" -eq 1 ]; then
+  echo "conform_l4: 親が実行するため、この呼出しでは対象外"
+elif bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
   echo "OK: tools/conform_l4.sh はrc=0"
 else
   fail "tools/conform_l4.sh がNG"; tail -40 "$WORK/conform_l4.txt" >&2

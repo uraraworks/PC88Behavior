@@ -72,8 +72,8 @@ VEC_TABLE_ADDR = 0x5000     # ROM内、入力ベクタ表の先頭番地
                              # (M7段階4b-1: mbf_double.asm連結でコード本体が
                              # 0x2000を超えたため0x5000へ引き上げた)
 OUT_BASE = 0x9000           # RAM、出力領域の先頭番地
-STACK_TOP = 0xFFF0          # 出力領域(OUT_BASE以降)はこれより手前で収める
-WORKSPACE_START = 0xC000    # mbf_single.asm のワークエリア先頭
+STACK_TOP = memmap.addresses()["MM_STACK_TOP"]          # 出力領域(OUT_BASE以降)はこれより手前で収める
+WORKSPACE_START = memmap.addresses()["MM_MBF_OPA"]    # mbf_single.asm のワークエリア先頭
                              # (出力領域はここへ食い込んではいけない。
                              # 2026-09-15 実測: n=4000超のaddで衝突を検出
                              # =出力の末尾がC000以降へ溢れ、ワークエリアの

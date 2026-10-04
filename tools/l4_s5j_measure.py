@@ -656,7 +656,7 @@ def selftest(work):
             bank_asm.assemble(bank_src)
             bank_rom = bytearray((rom / 'N88_3.ROM').read_bytes())
             entry = bank_asm.labels['LN_GOSUB'] - 0x6000
-            assert bank_rom[entry:entry + 3] == bytes.fromhex('3acfc5')
+            assert bank_rom[entry:entry + 3] == bytes([0x3A]) + memmap.addresses()['MM_LN_CHECKONLY'].to_bytes(2, 'little')
             bank_rom[entry:entry + 3] = bytes.fromhex('f601c9')  # OR 1; RET (NZ)
             (rom / 'N88_3.ROM').write_bytes(bank_rom)
             negative_subset = [arms[0], arms[28]]

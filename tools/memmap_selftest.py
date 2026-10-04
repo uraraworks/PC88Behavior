@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import tempfile
+import subprocess
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -23,9 +24,21 @@ ALLOW = {
     ("l4_basic/run.asm", "LD HL,0FFFFh"): "真値-1",
     ("l4_basic/run.asm", "LD HL,0C752h"): "乱数の初期値（下位ワード）",
     ("l4_basic/run.asm", "LD HL,0804Fh"): "乱数の初期値（上位ワード）",
+    ("ext_bank/bank0.asm", "LD H,0xFF"): "LOGの負指数を16bitへ符号拡張",
 }
 HEX = re.compile(r"\b0x[0-9a-f]+\b|\$[0-9a-f]+\b|\b[0-9][0-9a-f]*h\b", re.I)
 SYMBOL = re.compile(r"\bMM_\w+\b")
+
+# 段Bでは許可: 段D/Eで動かす構造と、本文の保存位置。
+# 固定作業域をここへ紛れ込ませないよう、名前だけでなく配置も固定する。
+STAGE_B_DYNAMIC = {
+    "STRING_PAGES": (0x8000, 4096), "CAPTURE": (0x9000, 12288),
+    "PROGRAM": (0xC400, 1024), "VARTAB": (0xD100, 1680),
+    "FOR_STACK": (0xD800, 192), "GOSUB_STACK": (0xD900, 48),
+    "DATA_POSITION": (0xD938, 7), "CONT_POSITION": (0xD944, 6),
+    "ON_ERROR": (0xD975, 4), "RESUME": (0xD979, 6),
+    "STMT_START": (0xCA10, 2), "ARRAY": (0xD980, 1192),
+}
 
 
 def check_sources(src):
@@ -51,6 +64,10 @@ def check_sources(src):
                     token[1:] if token.startswith("$") else token[:-1], 16)
                 if 0x8000 <= value <= 0xFFFF:
                     literals.append(token)
+                elif (0x80 <= value <= 0xFF and
+                      re.match(r"\s*LD\s+[HD]\s*,", code, re.I)):
+                    # INKEY旧キューのLD H,0E9hのような分割番地も禁止する。
+                    literals.append(token)
             if not literals:
                 continue
             key = (rel, " ".join(code.split()))
@@ -73,8 +90,33 @@ def check_map(regions=memmap.REGIONS):
         if not (0x8000 <= r.base < r.base + r.size <= 0x10000):
             errors.append(f"範囲が不正: {r.name}")
         if not r.retention or not r.use or r.profile not in {
-                "normal", "ext-test", "vsync-test", "measure"}:
+                "normal", "ext-test", "vsync-test", "measure", "inkey-test"}:
             errors.append(f"注記が不正: {r.name}")
+        if r.name in STAGE_B_DYNAMIC:
+            if (r.base, r.size) != STAGE_B_DYNAMIC[r.name]:
+                errors.append(f"段Bの動的構造の配置が変更された: {r.name}")
+        elif r.name == "CPU_STACK":
+            if not (0xE600 <= r.base and r.base + r.size == 0xF3C8):
+                errors.append("CPUスタックがE600–F3C7外、または上端がF3C8でない")
+            if r.size < 384:
+                errors.append("CPUスタックの残りが384B未満")
+        elif r.name == "TEXT":
+            if (r.base, r.size) != (0xF3C8, 3000):
+                errors.append("テキストVRAMの配置が変更された")
+        elif not ((0xE600 <= r.base and r.base + r.size <= 0xF3C8) or
+                  (0xFF80 <= r.base and r.base + r.size <= 0x10000)):
+            errors.append(f"固定域が指定範囲外（利用者領域への残留を禁止）: {r.name}")
+    # TEXT自身はハードウェアの予約領域。固定/動的/試験/スタックの全域を禁止する。
+    for r in regions:
+        if r.name != "TEXT" and max(r.base, 0xF3C8) < min(r.base + r.size, 0xFF80):
+            errors.append(f"25行テキストVRAMへ領域が侵入: {r.name}")
+    stack = by_name["CPU_STACK"]
+    # 宣言したサイズだけでなく、固定域の上端から実際に残る連続長も検査する。
+    fixed_end = max(r.base + r.size for r in regions
+                    if r.name not in STAGE_B_DYNAMIC and r.name not in {"CPU_STACK", "TEXT"}
+                    and r.base < 0xF3C8)
+    if 0xF3C8 - max(fixed_end, stack.base) < 384:
+        errors.append("固定域からCPUスタック上端までの残りが384B未満")
     actual = set()
     for a, b in combinations(regions, 2):
         if max(a.base, b.base) < min(a.base + a.size, b.base + b.size):
@@ -99,6 +141,121 @@ def check_map(regions=memmap.REGIONS):
     return errors
 
 
+def check_value_stack():
+    """本体の32回成功・33回目拒否・破損SP拒否・復元を実Z80で確かめる。"""
+    source = (REPO / "src/l4_basic/interp.asm").read_text()
+    routines = source[source.index("VAL_STACK_ADDR:\n"):
+                      source.index("; VAL_LOAD_CUR_TO_OPA —")]
+    core = next((REPO.parent / "vendor/quasi88-libretro").glob("quasi88_libretro.*"))
+    harness = """
+    ORG 0
+    DI
+    LD SP,MM_STACK_TOP
+    XOR A
+    LD (MM_VAL_SP),A
+    LD (MM_ERROR_FLAG),A
+    LD HL,MM_CUR_TYPE
+    LD B,9
+fill:
+    LD (HL),0x5A
+    INC HL
+    DJNZ fill
+    LD A,0xA5
+    LD (MM_LIT_BUF),A
+    LD B,32
+push_loop:
+    CALL VAL_PUSH
+    JP C,fail
+    DJNZ push_loop
+    CALL VAL_PUSH
+    JP NC,fail
+    LD A,(MM_VAL_SP)
+    CP 32
+    JP NZ,fail
+    LD A,(MM_ERROR_FLAG)
+    CP 1
+    JP NZ,fail
+    LD A,(MM_ERROR_KIND)
+    CP 7
+    JP NZ,fail
+    LD A,(MM_LIT_BUF)
+    CP 0xA5
+    JP NZ,fail
+    LD HL,MM_INTERP_EXT_RAM_BASE
+    LD BC,MM_VALUE_STACK_SIZE
+verify:
+    LD A,(HL)
+    CP 0x5A
+    JP NZ,fail
+    INC HL
+    DEC BC
+    LD A,B
+    OR C
+    JR NZ,verify
+    LD A,255
+    LD (MM_VAL_SP),A
+    CALL VAL_PUSH
+    JP NC,fail
+    LD A,(MM_VAL_SP)
+    CP 255
+    JP NZ,fail
+    LD A,32
+    LD (MM_VAL_SP),A
+    LD B,32
+pop_loop:
+    CALL VAL_POP
+    DJNZ pop_loop
+    LD A,(MM_VAL_SP)
+    OR A
+    JP NZ,fail
+    CALL VAL_MOVE_CUR_TO_RHS
+    LD HL,MM_RHS_TYPE
+    LD B,9
+rhs_loop:
+    LD A,(HL)
+    CP 0x5A
+    JP NZ,fail
+    INC HL
+    DJNZ rhs_loop
+    LD A,1
+    JR done
+fail:
+    XOR A
+done:
+    LD (MM_TEXT_BASE),A
+stop:
+    JR stop
+VAL_SP EQU MM_VAL_SP
+VAL_STACK EQU MM_INTERP_EXT_RAM_BASE
+VAL_STACK_DEPTH EQU MM_VALUE_STACK_SIZE/9
+CUR_TYPE EQU MM_CUR_TYPE
+CUR_DATA EQU MM_CUR_DATA
+RHS_TYPE EQU MM_RHS_TYPE
+ERROR_FLAG EQU MM_ERROR_FLAG
+ERROR_KIND EQU MM_ERROR_KIND
+"""
+    with tempfile.TemporaryDirectory(prefix="pc88-valstack-") as temp:
+        root = Path(temp)
+        for fault in (False, True):
+            code = routines.replace("    CP VAL_STACK_DEPTH\n    JR NC,_vpush_oom\n", "") if fault else routines
+            asm = root / "probe.asm"
+            asm.write_text(memmap.asm_prelude() + harness + code)
+            rom = z80text.Assembler().assemble(asm)
+            (root / "N88.ROM").write_bytes(rom + bytes(0x8000 - len(rom)))
+            (root / "DISK.ROM").write_bytes(bytes((0x18, 0xFE)) + bytes(0x7FE))
+            log = root / "memlog.txt"
+            addr = memmap.addresses()["MM_TEXT_BASE"]
+            subprocess.run([str(REPO / "tools/harness/frontend/q88measure"),
+                            "--core", str(core), "--rom-dir", str(root), "--frames", "8",
+                            "--mem-write-log", str(log), "--mem-write-range", f"{addr:04X}-{addr:04X}"],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL)
+            rows = [line.split() for line in log.read_text().splitlines()]
+            values = [row[-1] for row in rows if len(row) == 5 and row[-2] == f"{addr:04X}"]
+            if values != ["00" if fault else "01"]:
+                raise AssertionError(f"VAL_STACKの{'陰性対照' if fault else '正常系'}が不一致: {values}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--src", type=Path, default=REPO / "src")
@@ -121,6 +278,12 @@ def main():
         if len(negative) != 1 or "RAM番地の直書き" not in negative[0]:
             print("陰性対照: 直書きを検出できない", file=sys.stderr)
             return 1
+        with path.open("w", encoding="utf-8") as out:
+            out.write("    LD H,0E9h ; 分割番地の陰性対照\n")
+        negative = check_sources(src)
+        if len(negative) != 1 or "RAM番地の直書き" not in negative[0]:
+            print("陰性対照: 分割番地を検出できない", file=sys.stderr)
+            return 1
     from dataclasses import replace
     moved = tuple(replace(r, base=next(region.base for region in memmap.REGIONS
                                      if region.name == "SINGLE"))
@@ -128,7 +291,28 @@ def main():
     if not any("未宣言の重なり" in error for error in check_map(moved)):
         print("陰性対照: 重なりを検出できない", file=sys.stderr)
         return 1
-    print("memmap_selftest: OK（直書き・EQU別名・範囲・生成EQU・陰性対照2種）")
+    moved = tuple(replace(r, base=0xC000) if r.name == "SINGLE" else r
+                  for r in memmap.REGIONS)
+    if not any("固定域が指定範囲外" in error for error in check_map(moved)):
+        print("陰性対照: 利用者領域の固定域を検出できない", file=sys.stderr)
+        return 1
+    moved = tuple(replace(r, base=0xFD28) if r.name == "RND" else r
+                  for r in memmap.REGIONS)
+    if not any("25行テキストVRAMへ領域が侵入" in error for error in check_map(moved)):
+        print("陰性対照: VRAMへの侵入を検出できない", file=sys.stderr)
+        return 1
+    moved = tuple(replace(r, base=0xF3C8-383, size=383) if r.name == "CPU_STACK" else r
+                  for r in memmap.REGIONS)
+    if not any("CPUスタックの残りが384B未満" in error for error in check_map(moved)):
+        print("陰性対照: 383Bのスタックを検出できない", file=sys.stderr)
+        return 1
+    moved = tuple(replace(r, base=0xF3C8-383) if r.name == "RND" else r
+                  for r in memmap.REGIONS)
+    if not any("固定域からCPUスタック上端までの残りが384B未満" in error for error in check_map(moved)):
+        print("陰性対照: 固定域がスタックの残りを減らす配置を検出できない", file=sys.stderr)
+        return 1
+    check_value_stack()
+    print("memmap_selftest: OK（段B動的例外・25行VRAM禁止・スタック446B/最低384B・分割番地・EQU・重なり・陰性対照7種）")
     return 0
 
 
