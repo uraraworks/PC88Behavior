@@ -109,6 +109,96 @@ _restore_ok:
     RET
 
 
+    ORG 0x6230
+; ページはスタック域の直下から下向き。256B境界への丸めはしない。
+B3_PAGE_ALLOC:
+    LD DE,(MM_RUN_FOR_STACK)
+    DEC D
+    LD HL,MM_STRING_FLAGS
+    LD C,1
+    LD B,MM_STRING_PAGE_COUNT
+b3_page_loop:
+    LD A,(HL)
+    AND C
+    JR Z,b3_page_candidate
+b3_page_next:
+    DEC D
+    RLC C
+    JR NC,b3_page_same_byte
+    INC HL
+b3_page_same_byte:
+    DJNZ b3_page_loop
+b3_page_full:
+    XOR A
+    RET
+b3_page_candidate:
+    PUSH HL
+    LD HL,(MM_HEAP_END)
+    OR A
+    SBC HL,DE
+    POP HL
+    JR Z,b3_page_room
+    JR NC,b3_page_full
+b3_page_room:
+    LD A,(HL)
+    OR C
+    LD (HL),A
+    PUSH HL
+    LD HL,(MM_FREE_TOP)
+    OR A
+    SBC HL,DE
+    POP HL
+    JR C,b3_page_alloc_done
+    LD (MM_FREE_TOP),DE
+b3_page_alloc_done:
+    LD A,1
+    RET
+; DE=解放するページ。ページは動かさず、最下端だけ再走査する。
+B3_PAGE_FREE:
+    LD HL,(MM_RUN_FOR_STACK)
+    OR A
+    SBC HL,DE
+    LD A,H
+    DEC A
+    LD HL,MM_STRING_FLAGS
+b3_page_free_byte:
+    CP 8
+    JR C,b3_page_free_mask
+    SUB 8
+    INC HL
+    JR b3_page_free_byte
+b3_page_free_mask:
+    LD C,1
+    OR A
+    JR Z,b3_page_free_apply
+    LD B,A
+b3_page_free_rotate:
+    RLC C
+    DJNZ b3_page_free_rotate
+b3_page_free_apply:
+    LD A,C
+    CPL
+    AND (HL)
+    LD (HL),A
+    LD DE,(MM_RUN_FOR_STACK)
+    LD (MM_FREE_TOP),DE
+    LD HL,MM_STRING_FLAGS
+    LD C,1
+    LD B,MM_STRING_PAGE_COUNT
+b3_page_lowest:
+    DEC D
+    LD A,(HL)
+    AND C
+    JR Z,b3_page_lowest_next
+    LD (MM_FREE_TOP),DE
+b3_page_lowest_next:
+    RLC C
+    JR NC,b3_page_lowest_same
+    INC HL
+b3_page_lowest_same:
+    DJNZ b3_page_lowest
+    RET
+
     ORG 0x6300
 ; =======================================================================
 ; CONT(第4.11節) — 直接モードのコマンド(interp.asm DIRECT_LINEから
@@ -179,7 +269,6 @@ B3_AT_END:
 B3_CAPTURE_IN EQU MM_B3_CAPTURE_IN
 B3_CAPTURE_PTR EQU MM_S2_CAPTURE_PTR
 B3_CAPTURE_LEN EQU MM_S2_CAPTURE_LEN
-B3_CAPTURE_OVER EQU MM_S2_CAPTURE_OVER
     ORG 0x6400
 B3_CAPTURE_CHAR_ENTRY:
     LD A,(B3_CAPTURE_IN)
@@ -194,11 +283,17 @@ B3_CAPTURE_CHAR:
     PUSH HL
     PUSH AF
     LD HL,(B3_CAPTURE_PTR)
-    LD A,H
-    CP MM_CAPTURE_END>>8
-    JR NZ,_b3_capture_store
+    PUSH DE
+    LD DE,(MM_CAPTURE_END)
+    OR A
+    SBC HL,DE
+    ADD HL,DE
+    POP DE
+    JR C,_b3_capture_store
     LD A,1
-    LD (B3_CAPTURE_OVER),A
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
     JR _b3_capture_done
 _b3_capture_store:
     POP AF
@@ -214,3 +309,7 @@ _b3_capture_done:
     POP AF
     POP HL
     RET
+
+    ORG 0x64A0
+B3_EDITOR_ERROR_ENTRY:
+    JP LN_REPORT

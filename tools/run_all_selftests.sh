@@ -285,6 +285,7 @@ SCRIPTS_EXPECTED=(
   # SKIPは無く常にrc=0を期待する。
   "tools/ext_bank_selftest.sh:0"
   "tools/memmap_selftest.sh:0"
+  "tools/l4_memdyn_selftest.sh:0"
   "tools/l4_editinv_selftest.sh:0"
   # 2026-09-20追記: 拡張ROMバンク0のSQR本体(EXT_BANK0_SQR_ENTRY、
   # docs/spec/l4-program.md 第4.16b節実装メモ)を実際にZ80として実行し、

@@ -45,13 +45,17 @@ harness=r'''
     ORG 0
     JP T_START
     ORG 0100h
-T_MODE EQU 0E300h
-T_WRITES EQU 0E301h
-T_BODIES EQU 0E302h
-T_FAILCODE EQU 0E303h
-T_PASS EQU 0E304h
+T_MODE EQU MM_EXT_BANK_ST_VAL0+0
+T_WRITES EQU MM_EXT_BANK_ST_VAL0+1
+T_BODIES EQU MM_EXT_BANK_ST_VAL0+2
+T_FAILCODE EQU MM_EXT_BANK_ST_VAL0+3
+T_PASS EQU MM_EXT_BANK_ST_VAL0+4
 T_START:
     LD SP,MM_STACK_TOP
+    LD HL,MM_SYNTH_DATA
+    LD (MM_HEAP_END),HL
+    LD HL,MM_USER_LIMIT_DEFAULT-MM_USER_STACK_SIZE+1
+    LD (MM_FREE_TOP),HL
     XOR A
     LD (T_PASS),A
     LD (T_FAILCODE),A
@@ -194,7 +198,7 @@ T_READ_DONE:
     RET
 T_CAPTURE_BEGIN:
     XOR A
-    LD (S2_CAPTURE_OVER),A
+    LD (S2_ERROR_FLAG),A
     RET
 T_LIST:
     LD A,(T_MODE)
@@ -207,13 +211,13 @@ T_LIST_SHORT:
     LD HL,1
     LD (S2_CAPTURE_LEN),HL
 T_LIST_FILL:
-    LD HL,MM_S2_CAPTURE_BASE
+    LD HL,MM_SYNTH_DATA
     LD (HL),'A'
-    LD DE,MM_S2_CAPTURE_BASE+1
+    LD DE,MM_SYNTH_DATA+1
     LD BC,2304
     LDIR
     LD A,01Ah
-    LD (MM_S2_CAPTURE_BASE+2304),A
+    LD (MM_SYNTH_DATA+2304),A
     RET
 T_CAPTURE_END:
     RET
@@ -295,7 +299,7 @@ T_BODY_EXPECT_A:
     JR NZ,T_WRITE_BAD
 T_BODY_PTR:
     LD A,H
-    SUB 090h
+    SUB MM_SYNTH_DATA>>8
     INC A
     CP B
     JR NZ,T_WRITE_BAD
@@ -347,20 +351,32 @@ PY
 }
 
 last_values() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "$REPO/src" <<'PY'
 import re,sys
+sys.path.insert(0,sys.argv[2])
+import memmap
+base=memmap.addresses()['MM_EXT_BANK_ST_VAL0']
 last={}
 for line in open(sys.argv[1],encoding='utf-8',errors='replace'):
     m=re.match(r'\s*\d+\s+\d+\s+[0-9A-Fa-f]{4}\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})',line)
     if m: last[m.group(1).upper()]=m.group(2).upper()
-print(last.get('E304','00'),last.get('E303','00'),last.get('E301','00'),last.get('E302','00'))
+print(*(last.get(f'{base+i:04X}','00') for i in (4,3,1,2)))
 PY
 }
 run_one() {
   local kind="$1" out="$WORK/$1" log="$WORK/$1.memlog"
   make_rom "$out" "$kind"
+  local mem_range
+  mem_range="$(python3 - "$REPO/src" <<'PY'
+import sys
+sys.path.insert(0,sys.argv[1])
+import memmap
+base=memmap.addresses()['MM_EXT_BANK_ST_VAL0']
+print(f'{base:04X}-{base+4:04X}')
+PY
+)"
   "$FRONTEND" --core "$CORE" --rom-dir "$out" --frames 30 \
-    --mem-write-log "$log" --mem-write-range E300-E304 \
+    --mem-write-log "$log" --mem-write-range "$mem_range" \
     >"$WORK/$1.stdout" 2>"$WORK/$1.stderr"
   last_values "$log"
 }

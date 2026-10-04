@@ -92,19 +92,15 @@ RUN_TMP_RBIT       EQU MM_RUN_TMP_RBIT
 ; 次の空き: 0xD05A
 
 ; ---- 変数テーブル ----
-; レコード(42B): [NAME 8B][USED 1B][KIND 1B(0=数値 1=文字列)][VALUE 32B]
+; レコード(42B): [NAME 8B][種別=1 1B][KIND 1B(0=数値 1=文字列)][VALUE 32B]
 ;   数値: VALUE[0]=type(0=整数16bit/1=単精度) VALUE[1..4]=data
 ;   短文字列: VALUE[0]=len(0-31) VALUE[1..31]=chars
 ;   長文字列: KIND=2、VALUE[0]=len、VALUE[1..2]=専用ページへのポインタ。
-;   8000-8FFFに16ページ（32〜255文字）、不足時はOut of memory(7)。
-RUN_VARTAB          EQU MM_RUN_VARTAB
+;   長文字列はスタック域の下から256Bずつ割当て。不足時はOut of memory(7)。
 RUN_VARTAB_REC_SIZE EQU 42
-RUN_VARTAB_CAP      EQU 40
 VARREC_USED         EQU 8
 VARREC_KIND         EQU 9
 VARREC_VALUE        EQU 10
-RUN_VAR_FREE_PTR    EQU MM_RUN_VAR_FREE_PTR  ; 2B (VAR_FINDが記録する最初の空きスロット)
-; RUN_VARTAB終端 = D100+42*40 = D760
 
 ; ---- FORスタック ----
 ; フレーム(24B): [NAME 8B][LIMIT type1+data4][STEP type1+data4]
@@ -112,14 +108,14 @@ RUN_VAR_FREE_PTR    EQU MM_RUN_VAR_FREE_PTR  ; 2B (VAR_FINDが記録する最初
 RUN_FOR_STACK       EQU MM_RUN_FOR_STACK
 RUN_FOR_FRAME_SIZE  EQU 24
 RUN_FOR_STACK_CAP   EQU 8
-; 終端 = D800+192 = D8C0
+; RUN_FOR_STACKはLIMIT-511を保持する2Bポインタ。深さ8は段Fまで維持。
 
 ; ---- GOSUBスタック ----
 ; フレーム(6B): [record2][curptr2][lineend2]
 RUN_GOSUB_STACK      EQU MM_RUN_GOSUB_STACK
 RUN_GOSUB_FRAME_SIZE EQU 6
 RUN_GOSUB_STACK_CAP  EQU 8
-; 終端 = D900+48 = D930
+; RUN_GOSUB_STACKはFOR先頭+192を保持する2Bポインタ。
 
 RUN_BREAK_TXT: DB "Break",0
 RUN_INTXT: DB " in ",0
@@ -159,34 +155,29 @@ RUN_POW_COUNT           EQU MM_RUN_POW_COUNT ; 2B 指数の絶対値(乗算回�
 RUN_POW_BASE            EQU MM_RUN_POW_BASE ; 9B ^の底(型1+データ8)を退避
 RUN_VAL_SAVE9           EQU MM_RUN_VAL_SAVE9 ; 9B 配列代入の右辺退避(型1+データ8)
 RUN_ARRAY_IDX           EQU MM_RUN_ARRAY_IDX ; 2B 配列の添字(int16)
-RUN_ARRAY_FREE_PTR      EQU MM_RUN_ARRAY_FREE_PTR ; 2B ARRAY_FINDが記録する空きスロット
 RUN_ARRAY_NAME          EQU MM_RUN_ARRAY_NAME ; 8B 配列名(IDENT_BUFの退避)
 RUN_DIM_COUNT           EQU MM_RUN_DIM_COUNT ; 1B DIMの要素数(添字上限+1)
 RUN_IF_TRUE             EQU MM_RUN_IF_TRUE ; 1B IF条件の真偽
 ; FILESのERR 70/13をm6f-eの捕捉用プログラムから読めるようにする最小の
-; ON ERROR GOTO/ERR/RESUME状態。D975-D97Fは配列表D980直前の未使用11B。
+; ON ERROR GOTO/ERR/RESUME状態。保持ポインタは固定域に置き、編集で無効化する。
 RUN_ERROR_HANDLER_LINE  EQU MM_RUN_ERROR_HANDLER_LINE ; 2B、0なら捕捉無効
 RUN_ERROR_ACTIVE        EQU MM_RUN_ERROR_ACTIVE ; 1B、ハンドラ実行中
 RUN_LAST_ERR            EQU MM_RUN_LAST_ERR ; 1B、ERRが返す番号
 
 ; ---- 配列テーブル(第4.10節・6.5節) ----
-; レコード(298B): [NAME 8B][USED 1B][COUNT 1B][DATA(32要素*9B=288B)]
+; レコード(298B): [NAME 8B][種別=2 1B][COUNT 1B][DATA(32要素*9B=288B)]
 ;   要素は変数と同じ「型1+データ8」(VARREC_VALUEと同形式)。
 ;   宣言なし配列は既定COUNT=11(添字0-10、D9-D11の観測から10が上限と
-;   推定、仕様書に無い判断・第8節11)。最大4配列・1配列最大32要素
-;   (いずれも仕様書に無い上限)。
-RUN_ARRAY_TAB       EQU MM_RUN_ARRAY_TAB
+;   推定、仕様書に無い判断・第8節11)。1配列最大32要素は維持。
+;   個数上限はなく、本文直後の混在ヒープへ追記する。
 ARRAY_REC_SIZE      EQU 298
-ARRAY_CAP           EQU 4
 ARRAYREC_USED       EQU 8
 ARRAYREC_COUNT      EQU 9
 ARRAYREC_DATA       EQU 10
 ARRAY_MAX_ELEMS     EQU 32
-; 終端 = D980+4*298(4A8h) = DE28h(既存領域と重ならない)
 
 ; ---- M7段階5c-2a: INPUT・文字列関数の作業領域 ----
-; 配列テーブル終端(0xDE28)〜画面/L3L4共通域(VAR_ROW、0xE800)の間は空き
-; (約2000B)。仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
+; 固定作業域の番地はmemmap.pyの正典で配る。
 RUN_STR_ARG1_LEN    EQU MM_RUN_STR_ARG1_LEN ; 1B MID$/LEFT$/RIGHT$の元文字列を、数値
 RUN_STR_ARG1_BUF    EQU MM_RUN_STR_ARG1_BUF ; 255B 引数の評価(入れ子のLEN/VAL/ASC等が
                                 ;     RUN_STR_TMP_LEN/BUFを上書きしうる)
@@ -370,64 +361,30 @@ LEX_IDENT_CONSUME:
 ; 変数テーブル
 ; =======================================================================
 
-; VAR_FIND — IDENT_BUF(8B)と一致するUSEDレコードを探す。
-;   出力: A=1見つかった(HL=レコード先頭)/0見つからない
-;         (RUN_VAR_FREE_PTRに最初の空きスロット、無ければ0)。
+; VAR_FIND — 混在ヒープの種別1でIDENT_BUF(8B)と一致するレコードを探す。
+;   出力: A=1見つかった(HL=レコード先頭)/0見つからない。
 ;   破壊: AF,BC,DE,HL。
 VAR_FIND:
-    XOR A
-    LD H,A
-    LD L,A
-    LD (RUN_VAR_FREE_PTR),HL
-    LD HL,RUN_VARTAB
-    LD B,RUN_VARTAB_CAP
-_vf_loop:
-    PUSH HL
-    LD DE,VARREC_USED
-    ADD HL,DE
-    LD A,(HL)
-    POP HL
-    OR A
-    JR NZ,_vf_check_match
-    LD DE,(RUN_VAR_FREE_PTR)
-    LD A,D
-    OR E
-    JR NZ,_vf_next
-    LD (RUN_VAR_FREE_PTR),HL
-    JR _vf_next
-_vf_check_match:
-    PUSH HL
-    PUSH BC
-    LD DE,IDENT_BUF
-    LD B,8
-_vf_cmp:
-    LD A,(DE)
-    CP (HL)
-    JR NZ,_vf_cmp_fail
-    INC HL
-    INC DE
-    DJNZ _vf_cmp
-    POP BC
-    POP HL
     LD A,1
-    RET
-_vf_cmp_fail:
-    POP BC
-    POP HL
-_vf_next:
-    LD DE,RUN_VARTAB_REC_SIZE
-    ADD HL,DE
-    DJNZ _vf_loop
-    XOR A
-    RET
+    JR HEAP_FIND_MAIN
+HEAP_FIND_MAIN:
+    LD (MM_HEAP_KIND),A
+    LD HL,06C00h
+    LD A,1
+    JP EXT_BANK_CALL
+HEAP_ALLOC_MAIN:
+    LD (MM_HEAP_KIND),A
+    LD HL,06C08h
+    LD A,1
+    JP EXT_BANK_CALL
 
-; VAR_ALLOC — RUN_VAR_FREE_PTRのスロットにIDENT_BUFを初期登録する
+; VAR_ALLOC — 混在ヒープへ42B追記し、IDENT_BUFを初期登録する
 ;   (USED=1,KIND=0,VALUE全0)。出力: A=1成功(HL=スロット)/0満杯。
 VAR_ALLOC:
-    LD HL,(RUN_VAR_FREE_PTR)
-    LD A,H
-    OR L
-    JR Z,_va_full
+    LD A,1
+    CALL HEAP_ALLOC_MAIN
+    OR A
+    RET Z
     PUSH HL
     LD DE,IDENT_BUF
     LD B,8
@@ -1483,7 +1440,7 @@ FOR_SLOT_ADDR:
     ADD HL,HL
     POP DE
     ADD HL,DE
-    LD DE,RUN_FOR_STACK
+    LD DE,(RUN_FOR_STACK)
     ADD HL,DE
     RET
 
@@ -1872,7 +1829,7 @@ RUN_GOSUB_PUSH:
     LD E,L
     ADD HL,HL
     ADD HL,DE
-    LD DE,RUN_GOSUB_STACK
+    LD DE,(RUN_GOSUB_STACK)
     ADD HL,DE
     LD DE,(RUN_CUR_RECORD)
     LD (HL),E
@@ -1974,7 +1931,7 @@ RETURN_STMT:
     LD E,L
     ADD HL,HL
     ADD HL,DE
-    LD DE,RUN_GOSUB_STACK
+    LD DE,(RUN_GOSUB_STACK)
     ADD HL,DE
     LD E,(HL)
     INC HL
@@ -2938,41 +2895,33 @@ RUN_CLEAR_STATE:
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
     LD (RUN_ERROR_ACTIVE),A
-    LD (MM_STRING_FLAGS),A
-    LD (MM_STRING_FLAGS+1),A
     LD (RUN_LAST_ERR),A
-    LD HL,0
-    LD (RUN_ERROR_HANDLER_LINE),HL
-    LD HL,RUN_VARTAB
-    LD B,RUN_VARTAB_CAP
-_rrs_loop:
-    PUSH HL
-    LD DE,VARREC_USED
-    ADD HL,DE
-    LD (HL),0
-    POP HL
-    LD DE,RUN_VARTAB_REC_SIZE
-    ADD HL,DE
-    DJNZ _rrs_loop
-    ; M7段階5c: 配列テーブル・DATA読み取り位置・CONT再開位置も
-    ; RUNのたびに初期化する(RUN_VARTABと同じ「呼ぶたびに初期化する」
-    ; 方針、ヘッダコメント参照)。
-    LD HL,RUN_ARRAY_TAB
-    LD B,ARRAY_CAP
-_rrs_arr_loop:
-    PUSH HL
-    LD DE,ARRAYREC_USED
-    ADD HL,DE
-    LD (HL),0
-    POP HL
-    LD DE,ARRAY_REC_SIZE
-    ADD HL,DE
-    DJNZ _rrs_arr_loop
-    XOR A
     LD (RUN_DATA_STATE),A
     LD HL,0
+    LD (RUN_ERROR_HANDLER_LINE),HL
     LD (RUN_DATA_REC),HL
+    LD (RUN_DATA_PTR),HL
+    LD (RUN_DATA_END),HL
     LD (RUN_CONT_REC),HL
+    LD (RUN_CONT_PTR),HL
+    LD (RUN_CONT_END),HL
+    LD (MM_S9_RESUME_REC),HL
+    LD (MM_S9_RESUME_PTR),HL
+    LD (MM_S9_RESUME_END),HL
+    LD (MM_STMT_START),HL
+    LD HL,MM_STRING_FLAGS
+    LD B,MM_STRING_USED_SIZE
+_rrs_pages:
+    LD (HL),A
+    INC HL
+    DJNZ _rrs_pages
+    LD HL,(MM_RUN_FOR_STACK)
+    LD (MM_FREE_TOP),HL
+    CALL PROGRAM_FIND_END
+    INC HL
+    INC HL
+    LD (MM_HEAP_START),HL
+    LD (MM_HEAP_END),HL
     RET
 
 ; RUN_STMT — 直接モードの"RUN"文(interp.asm MATCH_STMT_KEYWORDから
@@ -3011,6 +2960,8 @@ _run_stmt_no_arg:
     LD (ERROR_FLAG),A
     RET
 _run_stmt_start:
+    XOR A
+    LD (RUN_CTRL),A             ; LOAD/STOPの停止状態を次のRUNへ持ち越さない
     CALL RUN_ENTER_RECORD
     CALL S9C_INIT
     JP RUN_EXEC
@@ -4496,61 +4447,18 @@ REM_STMT:
 ; 配列(第4.10節・6.5節)
 ; =======================================================================
 ARRAY_FIND:
-    XOR A
-    LD H,A
-    LD L,A
-    LD (RUN_ARRAY_FREE_PTR),HL
-    LD HL,RUN_ARRAY_TAB
-    LD B,ARRAY_CAP
-_af_loop:
-    PUSH HL
-    LD DE,ARRAYREC_USED
-    ADD HL,DE
-    LD A,(HL)
-    POP HL
-    OR A
-    JR NZ,_af_check_match
-    LD DE,(RUN_ARRAY_FREE_PTR)
-    LD A,D
-    OR E
-    JR NZ,_af_next
-    LD (RUN_ARRAY_FREE_PTR),HL
-    JR _af_next
-_af_check_match:
-    PUSH HL
-    PUSH BC
-    LD DE,IDENT_BUF
-    LD B,8
-_af_cmp:
-    LD A,(DE)
-    CP (HL)
-    JR NZ,_af_cmp_fail
-    INC HL
-    INC DE
-    DJNZ _af_cmp
-    POP BC
-    POP HL
-    LD A,1
-    RET
-_af_cmp_fail:
-    POP BC
-    POP HL
-_af_next:
-    LD DE,ARRAY_REC_SIZE
-    ADD HL,DE
-    DJNZ _af_loop
-    XOR A
-    RET
+    LD A,2
+    JP HEAP_FIND_MAIN
 
-; ARRAY_ALLOC — A=要素数(COUNT)。IDENT_BUFの名前で空きスロットへ
+; ARRAY_ALLOC — A=要素数(COUNT)。IDENT_BUFの名前でヒープへ298B追記し
 ;   初期登録する(USED=1,COUNT=A,DATA全0)。出力: A=1成功(HL=スロット)/
 ;   0満杯。
 ARRAY_ALLOC:
     LD (RUN_DIM_COUNT),A
-    LD HL,(RUN_ARRAY_FREE_PTR)
-    LD A,H
-    OR L
-    JR Z,_aa_full
+    LD A,2
+    CALL HEAP_ALLOC_MAIN
+    OR A
+    RET Z
     PUSH HL
     LD DE,IDENT_BUF
     LD B,8
@@ -4560,7 +4468,7 @@ _aa_copyname:
     INC HL
     INC DE
     DJNZ _aa_copyname
-    LD (HL),1
+    LD (HL),2
     INC HL
     LD A,(RUN_DIM_COUNT)
     LD (HL),A

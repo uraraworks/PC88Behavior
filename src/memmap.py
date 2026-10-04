@@ -1,12 +1,14 @@
-"""RAM配置の正典。段Bの固定域移設後。ROM窓の呼び先は対象外。
+"""RAM配置の正典。段D/Eの動的配置後。ROM窓の呼び先は対象外。
 
 REGIONSのbase/sizeからFIELDSの番地とアセンブル用EQUを生成する。
 別名は同じMM_名を参照し、移設時は対象構造のbaseだけを変更する。
 profileが*-test/measureの範囲は通常ビルドでは使わない。
 自己検査・測定域も専用に確保し、通常状態とは重ねない。
 
-run.asmの変数表終端コメントD760は算術誤記（棚卸しの包含末尾D78Fは正しい）。
-実コードは42*40=1680B、終端（非包含）D790。STRCMPのCB00も追補した。
+REGIONSは固定域とCPUスタック・VRAMだけを記述する。
+利用者領域の可変構造はDYNAMIC_STRUCTURES、初期値はCONSTANTS、
+実行時の位置はMEMDYNのポインタで表す。MM_SYNTH_DATAは合成ROM専用の
+結果置場の起点であり、通常ROMの固定割当てではない。
 """
 from dataclasses import dataclass
 
@@ -22,8 +24,6 @@ class Region:
 
 
 REGIONS = (
-    Region('STRING_PAGES', 0x8000, 4096, '保持', '長文字列16ページ（各256B）', 'normal'),
-    Region('CAPTURE', 0x9000, 12288, '一時', 'SAVEのLIST文字捕捉', 'normal'),
     Region('SINGLE', 0xE600, 98, '一時', '単精度演算・PEEK/POKE値受渡し', 'normal'),
     Region('FIN', 0xE662, 46, '一時', '単精度文字列入力', 'normal'),
     Region('FOUT', 0xE690, 44, '一時', '単精度文字列出力', 'normal'),
@@ -40,26 +40,22 @@ REGIONS = (
     Region('POLY', 0xE99C, 9, '一時', '超越関数多項式', 'normal'),
     Region('RND', 0xEFB2, 8, '保持', '乱数状態（CLEARでは保持）', 'normal'),
     Region('LIST', 0xECB2, 208, '一時', 'LIST・行変換', 'normal'),
-    Region('STRING_USED', 0xEFBA, 2, '保持', '長文字列ページ使用ビット', 'normal'),
+    Region('STRING_USED', 0xF220, 12, '保持', '長文字列最大96ページの使用ビット', 'normal'),
     Region('STRING_TMP', 0xE9A5, 255, '一時', '文字列結果', 'normal'),
     Region('STRING_ARG', 0xEAA4, 255, '一時', '文字列第1引数退避', 'normal'),
     Region('STRING_ACC', 0xEBA3, 255, '一時', '文字列連結蓄積', 'normal'),
     Region('STRING_WORK', 0xECA2, 16, '一時', '文字列操作・RESUME一時カウンタ', 'normal'),
-    Region('STMT_START', 0xCA10, 2, '保持（毎文更新）', 'RESUME NEXT文頭', 'normal'),
+    Region('STMT_START', 0xFFEB, 2, '保持（毎文更新）', 'RESUME NEXT文頭', 'normal'),
     Region('STRCMP', 0xECB2, 256, '一時', '文字列比較左辺退避（棚卸し追補）', 'normal'),
     Region('RUN', 0xEFBC, 90, '保持/一時', '実行状態（offset 1–5・82–83は保持、他一時）', 'normal'),
     Region('VAR_FREE', 0xF016, 2, '一時', '空き変数レコードポインタ', 'normal'),
-    Region('VARTAB', 0xD100, 1680, '保持', '変数表42B×40（非包含終端D790）', 'normal'),
-    Region('FOR_STACK', 0xD800, 192, '保持', 'FORフレーム24B×8', 'normal'),
-    Region('GOSUB_STACK', 0xD900, 48, '保持', 'GOSUBフレーム6B×8', 'normal'),
     Region('RUN_EXTRA_HEAD', 0xF018, 8, '一時', 'キーワード・比較・DATA希望型', 'normal'),
-    Region('DATA_POSITION', 0xD938, 7, '保持', 'DATA保存位置（段Bでは維持）', 'normal'),
+    Region('DATA_POSITION', 0xFFED, 7, '保持', 'DATA保存位置（編集/CLEAR/NEW/LOAD/RUNで無効化）', 'normal'),
     Region('DATA_WORK', 0xF020, 5, '一時', 'DATA走査の本線退避・符号', 'normal'),
-    Region('CONT_POSITION', 0xD944, 6, '保持', 'CONT保存位置（段Bでは維持）', 'normal'),
+    Region('CONT_POSITION', 0xFFF4, 6, '保持', 'CONT保存位置（編集/CLEAR/NEW/LOAD/RUNで無効化）', 'normal'),
     Region('RUN_EXTRA_TAIL', 0xF025, 43, '保持/一時', '整数演算・配列・IF作業', 'normal'),
-    Region('ON_ERROR', 0xD975, 4, '保持', 'ON ERROR行番号・ACTIVE・ERR', 'normal'),
-    Region('RESUME', 0xD979, 6, '保持', 'RESUME保存位置3ポインタ', 'normal'),
-    Region('ARRAY', 0xD980, 1192, '保持', '配列表298B×4', 'normal'),
+    Region('ON_ERROR', 0xFFFA, 4, '保持', 'ON ERROR行番号・ACTIVE・ERR', 'normal'),
+    Region('RESUME', 0xF21A, 6, '保持', 'RESUME保存位置3ポインタ', 'normal'),
     Region('STR_ARG_LEN', 0xF050, 1, '一時', '文字列第1引数長', 'normal'),
     Region('STR_ACC_LEN', 0xF051, 1, '一時', '文字列連結長', 'normal'),
     Region('RUN_INPUT', 0xF052, 88, '一時', 'INPUT・配列代入・数値字句', 'normal'),
@@ -71,7 +67,7 @@ REGIONS = (
     Region('LOAD', 0xF0D1, 23, '一時', 'LOAD走査・名前', 'normal'),
     Region('SAVE', 0xF0E8, 56, '一時', 'SAVE捕捉・書込・KILL/NAME状態', 'normal'),
     Region('SAVE_FAT', 0xEEB2, 256, '一時', 'SAVE/KILL FAT', 'normal'),
-    Region('SAVE_ALLOC', 0xF120, 6, '一時', 'SAVE割当', 'normal'),
+    Region('SAVE_ALLOC', 0xF22C, 12, '一時', 'SAVE割当（最大12個の2KB単位）', 'normal'),
     Region('SCREEN', 0xF126, 4, '保持', '画面行・桁・行頭', 'normal'),
     Region('KEY_OLD', 0xF12A, 12, '保持', '前回キー行列', 'normal'),
     Region('KEY_NEW', 0xF136, 12, '一時', '今回キー行列', 'normal'),
@@ -83,10 +79,10 @@ REGIONS = (
     Region('INKEY', 0xF1D2, 24, '保持', 'INKEY状態', 'normal'),
     Region('INKEY_QUEUE', 0xF1EA, 32, '保持', 'INKEYキュー', 'normal'),
     Region('PROGRAM_WORK', 0xFF80, 29, '一時', '本文編集・LISTポインタ', 'normal'),
-    Region('PROGRAM', 0xC400, 1024, '保持', 'プログラム本文・番兵（段DまでC400–C7FFに仮置き）', 'normal'),
-    Region('CPU_STACK', 0xF20A, 446, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
+    Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別', 'normal'),
+    Region('CPU_STACK', 0xF238, 400, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
-    Region('EXT_TEST_LOW', 0xFF9D, 8, '一時', 'EXT_BANK_ST_*（通常ビルドでは使わない）', 'ext-test'),
+    Region('EXT_TEST_LOW', 0xFF9D, 8, '一時', 'EXT_BANK_ST_*・排他的なSAVE合成試験（通常ビルドでは使わない）', 'ext-test'),
     Region('EXT_TEST_HIGH', 0xFFA5, 5, '一時', 'EXT_BANK_ST_*（通常ビルドでは使わない）', 'ext-test'),
     Region('VSYNC_TEST', 0xFFAA, 13, '一時', 'vsync_regcheck（通常ビルドでは使わない）', 'vsync-test'),
     Region('MEASURE_LOW', 0xFFB7, 5, '一時', 'M6IB/M6IH測定（通常ビルドでは使わない）', 'measure'),
@@ -103,6 +99,16 @@ OVERLAPS = {
 
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
 FIELDS = {
+    'MM_USER_LIMIT': ('MEMDYN', 0),
+    'MM_HEAP_START': ('MEMDYN', 2),
+    'MM_HEAP_END': ('MEMDYN', 4),
+    'MM_FREE_TOP': ('MEMDYN', 6),
+    'MM_RUN_FOR_STACK': ('MEMDYN', 8),
+    'MM_RUN_GOSUB_STACK': ('MEMDYN', 10),
+    'MM_CAPTURE_END': ('MEMDYN', 12),
+    'MM_HEAP_KIND': ('MEMDYN', 14),
+    'MM_S2_CAPTURE_BASE': ('MEMDYN', 4),
+
     "MM_IK_TEST_SEEN": ("INKEY_TEST", 0),
     "MM_IK_TEST_CHAR": ("INKEY_TEST", 1),
     "MM_IK_TEST_POLL": ("INKEY_TEST", 2),
@@ -364,10 +370,7 @@ FIELDS = {
     'MM_RUN_TMP_M1': ('RUN', 87),
     'MM_RUN_TMP_M0': ('RUN', 88),
     'MM_RUN_TMP_RBIT': ('RUN', 89),
-    'MM_RUN_VARTAB': ('VARTAB', 0),
     'MM_RUN_VAR_FREE_PTR': ('VAR_FREE', 0),
-    'MM_RUN_FOR_STACK': ('FOR_STACK', 0),
-    'MM_RUN_GOSUB_STACK': ('GOSUB_STACK', 0),
     'MM_RUN_KW_TEXT': ('RUN_EXTRA_HEAD', 0),
     'MM_RUN_KW_LEN': ('RUN_EXTRA_HEAD', 2),
     'MM_LOGIC_TMP_RIGHT': ('RUN_EXTRA_HEAD', 3),
@@ -401,7 +404,6 @@ FIELDS = {
     'MM_RUN_ERROR_HANDLER_LINE': ('ON_ERROR', 0),
     'MM_RUN_ERROR_ACTIVE': ('ON_ERROR', 2),
     'MM_RUN_LAST_ERR': ('ON_ERROR', 3),
-    'MM_RUN_ARRAY_TAB': ('ARRAY', 0),
     'MM_RUN_STR_ARG1_LEN': ('STR_ARG_LEN', 0),
     'MM_RUN_STR_ARG1_BUF': ('STRING_ARG', 0),
     'MM_RUN_STR_ACC_LEN': ('STR_ACC_LEN', 0),
@@ -449,7 +451,6 @@ FIELDS = {
     'MM_PROG_REND_MODE': ('PROGRAM_WORK', 26),
     'MM_PROG_REND_INNAME': ('PROGRAM_WORK', 27),
     'MM_PROG_REND_PREV': ('PROGRAM_WORK', 28),
-    'MM_PROGRAM_AREA': ('PROGRAM', 0),
     'MM_ERROR_FLAG': ('LEXER', 0),
     'MM_LINE_END': ('LEXER', 1),
     'MM_CUR_PTR': ('LEXER', 3),
@@ -567,10 +568,8 @@ FIELDS = {
     'MM_S2_FAT': ('SAVE_FAT', 0),
     'MM_S2_ALLOC': ('SAVE_ALLOC', 0),
     'MM_S2_CAPTURE_LEN': ('SAVE', 3),
-    'MM_S2_CAPTURE_OVER': ('SAVE', 5),
     'MM_S2_CAPTURE_ACTIVE': ('SAVE', 0),
     'MM_S2_CAPTURE_PTR': ('SAVE', 1),
-    'MM_S2_CAPTURE_BASE': ('CAPTURE', 0),
     'MM_S2_DONE': ('SAVE', 11),
     'MM_S2_WRITE_COUNT': ('SAVE', 12),
     'MM_S2_WRITE_DRIVE': ('SAVE', 6),
@@ -665,12 +664,10 @@ FIELDS = {
     'MM_S9_RESUME_END': ('RESUME', 4),
     'MM_S9E_L_LEN': ('STRCMP', 0),
     'MM_S9E_L_BUF': ('STRCMP', 1),
-    'MM_STACK_TOP': ('CPU_STACK', 446),
+    'MM_STACK_TOP': ('CPU_STACK', 400),
     'MM_STRING_FLAGS': ('STRING_USED', 0),
-    'MM_STRING_PAGE_BASE': ('STRING_PAGES', 0),
     'MM_S9_RESUME_SKIP': ('STRING_WORK', 15),
     'MM_STMT_START': ('STMT_START', 0),
-    'MM_CAPTURE_END': ('CAPTURE', 12288),
     'MM_M6IB_FRAME_COUNT': ('MEASURE_LOW', 0),
     'MM_M6IB_STAGE': ('MEASURE_LOW', 1),
     'MM_M6IB_MARK_B': ('MEASURE_LOW', 2),
@@ -695,7 +692,6 @@ ALIASES = {
     'B1_RUN_ERROR_HANDLER_LINE': 'MM_RUN_ERROR_HANDLER_LINE',
     'B1_VAR_LINELEN': 'MM_VAR_LINELEN',
     'B3_CAPTURE_LEN': 'MM_S2_CAPTURE_LEN',
-    'B3_CAPTURE_OVER': 'MM_S2_CAPTURE_OVER',
     'B3_CAPTURE_PTR': 'MM_S2_CAPTURE_PTR',
     'K2_CUR_PTR': 'MM_CUR_PTR',
     'K2_LINE_END': 'MM_LINE_END',
@@ -712,8 +708,7 @@ ALIASES = {
     'LN_STATUS': 'MM_MBF_STATUS',
     'LOAD_LINE_BUF': 'MM_LINE_BUF',
     'MBF_DOPA_RAM': 'MM_MBF_DOUBLE_RAM_BASE',
-    'PROGRAM_AREA_SIZE': 'MM_PROGRAM_SIZE',
-    'RND_ACC0': 'MM_FIN_ACC0',
+        'RND_ACC0': 'MM_FIN_ACC0',
     'RND_ACC1': 'MM_FIN_ACC1',
     'RND_ACC2': 'MM_FIN_ACC2',
     'RND_ACC3': 'MM_FIN_ACC3',
@@ -731,9 +726,26 @@ ALIASES = {
     'SAVE_DONE_FLAG': 'MM_S2_DONE',
 }
 
+CONSTANTS = {
+    "MM_USER_START": 0x8400,
+    "MM_USER_LIMIT_DEFAULT": 0xE5FF,
+    "MM_USER_STACK_SIZE": 512,
+    "MM_STRING_PAGE_COUNT": 96,
+    "MM_PROGRAM_AREA": 0x8400,
+    "MM_SYNTH_DATA": 0x8400,
+}
+DYNAMIC_STRUCTURES = {
+    "PROGRAM": "USER_STARTから番兵まで",
+    "HEAP": "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=298Bを追記",
+    "STRING_PAGES": "LIMIT-511の下から256Bずつ下向き、使用ビット表で管理",
+    "FOR_STACK": "LIMIT-511から24B×8",
+    "GOSUB_STACK": "FOR先頭+192から6B×8（512B内）",
+    "CAPTURE": "HEAP_ENDからFREE_TOPまでの空き（SAVE中のみ）",
+}
+
 def addresses():
     regions = {r.name: r for r in REGIONS}
-    return {name: regions[region].base + offset
+    return CONSTANTS | {name: regions[region].base + offset
             for name, (region, offset) in FIELDS.items()}
 
 

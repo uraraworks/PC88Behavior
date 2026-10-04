@@ -863,3 +863,83 @@ _b1_call_skip_spaces:
     JP BANK1_MAIN_CALL_ADDR
 BANK1_MAIN_CALL_ADDR EQU 0x1787
 BANK1_OK_TXT_ADDR EQU 0x1787
+
+; 段D/Eの記号ヒープ。ディスク文との同時実行はない。
+    ORG 0x6C00
+B1_HEAP_FIND_ENTRY:
+    JP B1_HEAP_FIND
+    ORG 0x6C08
+B1_HEAP_ALLOC_ENTRY:
+    JP B1_HEAP_ALLOC
+; 種別は既存レコードのUSED欄(offset 8)。単純変数1、配列2。
+; 追記だけなので、評価途中のレコード/要素ポインタは変わらない。
+B1_HEAP_FIND:
+    LD HL,(MM_HEAP_START)
+b1_heap_loop:
+    LD DE,(MM_HEAP_END)
+    OR A
+    SBC HL,DE
+    ADD HL,DE
+    JR Z,b1_heap_missing
+    PUSH HL
+    LD DE,8
+    ADD HL,DE
+    LD A,(MM_HEAP_KIND)
+    CP (HL)
+    POP HL
+    JR NZ,b1_heap_next
+    PUSH HL
+    LD DE,MM_IDENT_BUF
+    LD B,8
+b1_heap_name:
+    LD A,(DE)
+    CP (HL)
+    JR NZ,b1_heap_name_fail
+    INC HL
+    INC DE
+    DJNZ b1_heap_name
+    POP HL
+    LD A,1
+    RET
+b1_heap_name_fail:
+    POP HL
+b1_heap_next:
+    PUSH HL
+    LD DE,8
+    ADD HL,DE
+    LD A,(HL)
+    POP HL
+    CALL B1_HEAP_SIZE
+    ADD HL,DE
+    JR b1_heap_loop
+b1_heap_missing:
+    XOR A
+    RET
+B1_HEAP_SIZE:
+    LD DE,42
+    CP 1
+    RET Z
+    LD DE,298
+    RET
+B1_HEAP_ALLOC:
+    LD A,(MM_HEAP_KIND)
+    CALL B1_HEAP_SIZE
+    LD HL,(MM_HEAP_END)
+    PUSH HL
+    ADD HL,DE
+    JR C,b1_heap_full
+    LD DE,(MM_FREE_TOP)
+    OR A
+    SBC HL,DE
+    JR C,b1_heap_room
+    JR NZ,b1_heap_full
+b1_heap_room:
+    ADD HL,DE
+    LD (MM_HEAP_END),HL
+    POP HL
+    LD A,1
+    RET
+b1_heap_full:
+    POP HL
+    XOR A
+    RET

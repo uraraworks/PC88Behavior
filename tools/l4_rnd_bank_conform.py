@@ -15,7 +15,7 @@ sys.path.insert(0, str(harness.REPO / 'tools/asm'))
 import z80text
 
 # 合成ROMではSAVEを呼ばないため、捕捉域を結果の格納に使う。
-OUT_BASE = harness.memmap.addresses()["MM_S2_CAPTURE_BASE"]
+OUT_BASE = harness.memmap.addresses()["MM_SYNTH_DATA"]
 
 
 def mbf_bytes(number):
@@ -47,7 +47,7 @@ def check_batch(kind, cases, work):
     DI
     LD SP,MM_STACK_TOP
     LD HL,VECTORS
-    LD DE,MM_S2_CAPTURE_BASE
+    LD DE,MM_SYNTH_DATA
     LD BC,{len(cases)}
 check_loop:
     PUSH BC

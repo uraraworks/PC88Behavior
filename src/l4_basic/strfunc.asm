@@ -438,9 +438,17 @@ S9_WRITE_STRING:
     PUSH HL
     INC HL
     INC HL
+    LD E,(HL)
     INC HL
-    LD A,(HL)               ; 長文字列ページ上位
-    SUB 080h
+    LD D,(HL)
+    LD A,(S9_TMP_LEN)
+    CP 32
+    JR C,s9_write_release
+    POP HL
+    INC HL
+    LD (HL),A
+    JR s9_write_copy
+s9_write_release:
     CALL S9_SLOT_FREE
     POP HL
 s9_write_choose:
@@ -478,48 +486,9 @@ S9_OOM:
     LD A,7
     JP S9_ERROR
 S9_SLOT_ALLOC:
-    LD DE,MM_STRING_PAGE_BASE
-    LD HL,MM_STRING_FLAGS
-    LD C,1
-    LD B,16
-s9_slot_loop:
-    LD A,(HL)
-    AND C
-    JR Z,s9_slot_found
-    INC D
-    RLC C
-    JR NC,s9_slot_next
-    INC HL
-s9_slot_next:
-    DJNZ s9_slot_loop
-    XOR A
-    RET
-s9_slot_found:
-    LD A,(HL)
-    OR C
-    LD (HL),A
-    LD A,1
-    RET
+    JP B3_PAGE_ALLOC
 S9_SLOT_FREE:
-    LD HL,MM_STRING_FLAGS
-    CP 8
-    JR C,s9_slot_low
-    SUB 8
-    INC HL
-s9_slot_low:
-    LD C,1
-    OR A
-    JR Z,s9_slot_mask
-    LD B,A
-s9_slot_rotate:
-    RLC C
-    DJNZ s9_slot_rotate
-s9_slot_mask:
-    LD A,C
-    CPL
-    AND (HL)
-    LD (HL),A
-    RET
+    JP B3_PAGE_FREE
 
 ; 捕捉直前の実行位置。RESUME NEXTは引用符内のコロンを飛び越して次文へ。
 S9_SAVE_ERROR:

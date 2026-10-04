@@ -29,17 +29,11 @@
 ;     Syntax errorになる（第5節4「行番号の前の空白」は未確定）。
 ;   - 行番号の途中の空白と上限超過の切り分けは第14.7節L_Cに従う。
 ;     次の数字を採ると65529を超える場合、最後に採った数字の直後から本文。
-;   - 行番号だけの行（本文長0）は、既存の行があれば削除、無ければ何も
-;     しない（第5節3「存在しない行番号だけを打った場合の反応」は未確定。
-;     出力も一切起きない——行番号つきの行は常に無出力、という第1節の
-;     規則をそのまま適用した）。
+;   - 存在しない行の削除はERR 8、成功した編集は第4.17節の状態を初期化する。
 ;   - `LIST` に範囲指定などの引数が続く場合はSyntax errorとする
 ;     （第5節5「LISTの範囲指定」は未確定。この版では引数無しのLISTだけを
 ;     実装する）。
-;   - プログラム領域が溢れて新しい行が収まらない場合、その行は保存せず
-;     何も表示しない（黙って無視する）。行番号つきの行は常に無出力という
-;     第1節の規則を保つための選択であり、`Out of memory`
-;     （errors.tsv 7番）を実際に出す挙動は測定されていない。
+;   - 利用者領域に本文が収まらなければOut of memory(7)。失敗時は元の本文を保持。
 ;   - 変数名等の大文字化は、最初の版では未確定として行わなかったが、l4-s5h
 ;     （docs/spec/l4-basic.md 第14節）で公式が大文字にすると測れたので行う。
 ;
@@ -69,19 +63,22 @@ PROG_REND_PREV     EQU MM_PROG_REND_PREV  ; 1バイト（直前に出した文�
 ; [行番号2B LE][本文長1B][本文(本文長バイト)]。行番号=0xFFFFのレコードは
 ; 「以降レコード無し」を示す番兵（本文フィールドは持たない、2バイトのみ）。
 PROGRAM_AREA       EQU MM_PROGRAM_AREA
-PROGRAM_AREA_SIZE  EQU MM_PROGRAM_SIZE   ; 1024バイト。E969-E97Fの空き・E980台の
-                                ; 作業領域より十分離し、スタック(SP=F000、
-                                ; make_ipl_rom.py)との間に512バイトの
-                                ; 余裕を残す（仕様書に無い判断、報告参照）。
-
 ; ---------------------------------------------------------------------
 ; PROGRAM_INIT — 起動時に1回呼ぶ（screen.asm SCREEN_MAINから）。
 ;   プログラム領域を空（番兵のみ）にする。未初期化のまま読まない
 ;   （6dbd1dbの教訓どおり）。
 ; ---------------------------------------------------------------------
 PROGRAM_INIT:
-    CALL PROGRAM_CLEAR
-    RET
+    LD HL,MM_USER_LIMIT_DEFAULT
+    LD (MM_USER_LIMIT),HL
+    LD DE,MM_USER_STACK_SIZE-1
+    OR A
+    SBC HL,DE
+    LD (MM_RUN_FOR_STACK),HL
+    LD DE,192
+    ADD HL,DE
+    LD (MM_RUN_GOSUB_STACK),HL
+    JP PROGRAM_CLEAR
 
 ; PROGRAM_CLEAR — プログラム領域を空にする（`NEW`本体）。
 PROGRAM_CLEAR:
@@ -89,7 +86,7 @@ PROGRAM_CLEAR:
     LD (HL),0FFh
     INC HL
     LD (HL),0FFh
-    RET
+    JP RUN_CLEAR_STATE
 
 ; ---------------------------------------------------------------------
 ; BASIC_HANDLE_LINE — keyboard.asm LINE_FINISH から、改行直後（桁0）に
@@ -328,8 +325,8 @@ _pda_done:
 ; ---------------------------------------------------------------------
 ; PROGRAM_INSERT_AT — HL=挿入位置。PROG_CUR_LINENO・PROG_CUR_TEXTLEN・
 ;   (LINE_BUF+PROG_CUR_LNLEN)から新しいレコードを作り、既存データを
-;   後ろにずらしてから書き込む。空き容量が足りなければ何もしない
-;   （ヘッダコメント「仕様書に無い判断」参照）。破壊: AF,BC,DE,HL。
+;   後ろにずらしてから書き込む。容量はSTORE_LINEが変更前に確認済み。
+;   破壊: AF,BC,DE,HL。
 ; ---------------------------------------------------------------------
 PROGRAM_INSERT_AT:
     LD (PROG_INS_AT),HL
@@ -340,18 +337,6 @@ PROGRAM_INSERT_AT:
     INC BC
     INC BC                          ; BC=新レコードのサイズ(本文長+3)
     LD (PROG_INS_SIZE),BC
-    ; 空き容量確認: 使用量(番兵含まず) + 新レコード + 番兵2B <= 領域サイズ
-    CALL PROGRAM_FIND_END
-    LD DE,PROGRAM_AREA
-    OR A
-    SBC HL,DE                       ; HL=現在の使用バイト数(番兵含まず)
-    LD DE,(PROG_INS_SIZE)
-    ADD HL,DE
-    LD DE,2
-    ADD HL,DE
-    LD DE,PROGRAM_AREA_SIZE
-    CALL CP_HL_DE                   ; CF=1: 必要量 < 領域サイズ(収まる)
-    JR NC,_pia_full
     ; 後ろにずらす: [挿入位置 .. 現データ終端(番兵含む)) を
     ; 新レコードサイズぶん後方へコピー(LDDR、末尾から)。
     ; 注意: PROGRAM_FIND_ENDはBCを破壊するため、長さ計算(BC)を保持した
@@ -416,7 +401,8 @@ _pia_full:
 ;   PARSE_LINENUMが成功した直後に呼ばれる。HL=行番号、B=採用済み文字数）。
 ;   本文先頭の空白を1個だけ除く。空白だけの本文も削除扱い（第14.7節）。
 ;   本文長>0 -> 既存があれば削除してから挿入(=置換)、無ければ挿入。
-;   いずれも画面には一切出力しない（第1節）。破壊: AF,BC,DE,HL,IX。
+;   成功時は無出力で第4.17節の状態を初期化。容量不足はERR7、
+;   存在しない行の削除はERR8で本文と状態を保持。破壊: AF,BC,DE,HL,IX。
 ; ---------------------------------------------------------------------
 PROGRAM_STORE_LINE:
     LD (PROG_CUR_LINENO),HL
@@ -451,20 +437,68 @@ _psl_blank:
     DEC C
     JR _psl_blank
 _psl_delete:
-    ; 本文長0、または空白だけ -> 削除のみ
     CALL PROGRAM_LOCATE
     OR A
-    RET Z                          ; 見つからなければ何もしない
-    JP PROGRAM_DELETE_AT
+    JR NZ,_psl_delete_found
+    LD A,8
+    JR PROGRAM_INPUT_ERROR
+_psl_delete_found:
+    CALL RUN_CLEAR_STATE
+    CALL PROGRAM_LOCATE
+    CALL PROGRAM_DELETE_AT
+    JP RUN_CLEAR_STATE
 _psl_have_text:
+    ; 置換でも、先に最終容量を調べる。失敗時は本文も状態も保持する。
+    CALL PROGRAM_LOCATE
+    PUSH AF
+    PUSH HL
+    CALL PROGRAM_FIND_END
+    INC HL
+    INC HL
+    LD A,(PROG_CUR_TEXTLEN)
+    LD E,A
+    LD D,0
+    INC DE
+    INC DE
+    INC DE
+    ADD HL,DE
+    POP DE
+    POP AF
+    OR A
+    JR Z,_psl_capacity
+    PUSH HL
+    EX DE,HL
+    INC HL
+    INC HL
+    LD C,(HL)
+    LD B,0
+    INC BC
+    INC BC
+    INC BC
+    POP HL
+    OR A
+    SBC HL,BC
+_psl_capacity:
+    LD DE,(MM_RUN_FOR_STACK)
+    CALL CP_HL_DE
+    JR C,_psl_room
+    JR Z,_psl_room
+    LD A,7
+    JR PROGRAM_INPUT_ERROR
+_psl_room:
+    CALL RUN_CLEAR_STATE
     CALL PROGRAM_LOCATE
     OR A
     JR Z,_psl_insert
     CALL PROGRAM_DELETE_AT
 _psl_insert:
-    CALL PROGRAM_LOCATE            ; 削除後(または初めから無い場合)の
-                                    ; 挿入位置を求め直す
-    JP PROGRAM_INSERT_AT
+    CALL PROGRAM_LOCATE
+    CALL PROGRAM_INSERT_AT
+    JP RUN_CLEAR_STATE
+PROGRAM_INPUT_ERROR:
+    LD (MM_LN_ERR),A
+    LD HL,064A0h
+    JP S9_BANK_CALL
 
 ; ---------------------------------------------------------------------
 ; NEW_STMT / LIST_STMT — 直接モードの文（DIRECT_LINEから、

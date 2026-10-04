@@ -47,7 +47,6 @@ S2_SLOTIDX      EQU MM_S2_SLOTIDX
 S2_FAT          EQU MM_S2_FAT
 S2_ALLOC        EQU MM_S2_ALLOC
 S2_CAPTURE_LEN  EQU MM_S2_CAPTURE_LEN
-S2_CAPTURE_OVER EQU MM_S2_CAPTURE_OVER
 S2_CAPTURE_ACTIVE EQU MM_S2_CAPTURE_ACTIVE
 S2_CAPTURE_PTR EQU MM_S2_CAPTURE_PTR
 S2_CAPTURE_BASE EQU MM_S2_CAPTURE_BASE
@@ -264,17 +263,31 @@ s2_save_dir_done:
     OR A
     JP Z,s2_full
     ; LISTの既存ルーチンを文字出力だけ捕捉して使用する。
-    LD HL,MM_S2_CAPTURE_BASE
+    LD HL,(MM_FREE_TOP)
+    LD (MM_CAPTURE_END),HL
+    LD DE,(S2_CAPTURE_BASE)
+    OR A
+    SBC HL,DE
+    JP Z,s2_capture_oom
+    LD B,H
+    LD C,L
+    EX DE,HL
     LD (HL),0
-    LD DE,MM_S2_CAPTURE_BASE+1
-    LD BC,MM_CAPTURE_SIZE-1
+    DEC BC
+    LD A,B
+    OR C
+    JR Z,s2_capture_cleared
+    LD D,H
+    LD E,L
+    INC DE
     LDIR
+s2_capture_cleared:
     CALL s2_capture_begin
     CALL s2_list
     CALL s2_capture_end
-    LD A,(S2_CAPTURE_OVER)
+    LD A,(S2_ERROR_FLAG)
     OR A
-    JP NZ,s2_full
+    RET NZ
     LD HL,(S2_CAPTURE_LEN)
     LD A,L
     OR A
@@ -416,9 +429,50 @@ s2_body_loop:
     INC A
     LD E,A
     LD A,(S2_INDEX)
-    ADD A,090h
     LD H,A
     LD L,0
+    LD BC,(S2_CAPTURE_BASE)
+    ADD HL,BC
+    LD A,(S2_INDEX)
+    INC A
+    LD B,A
+    LD A,(S2_SECTORS)
+    CP B
+    JR NZ,s2_body_write
+    ; 末尾の256Bが捕捉用の空きに収まるなら、事前にゼロにした範囲を直接使う。
+    PUSH HL
+    PUSH DE
+    LD DE,256
+    ADD HL,DE
+    LD DE,(MM_CAPTURE_END)
+    OR A
+    SBC HL,DE
+    POP DE
+    POP HL
+    JR C,s2_body_write
+    JR Z,s2_body_write
+    PUSH DE
+    LD DE,S2_BUF
+    LD A,(S2_CAPTURE_LEN)
+    OR A
+    JR Z,s2_body_last_ready
+    LD C,A
+    LD B,0
+    LDIR
+    LD B,0
+    LD A,(S2_CAPTURE_LEN)
+    CPL
+    INC A
+    LD B,A
+    XOR A
+s2_body_pad:
+    LD (DE),A
+    INC DE
+    DJNZ s2_body_pad
+    LD HL,S2_BUF
+s2_body_last_ready:
+    POP DE
+s2_body_write:
     LD A,(S2_DRIVE)
     CALL s2_write
     JP C,s2_disk_error
@@ -428,7 +482,7 @@ s2_body_loop:
     LD B,A
     LD A,(S2_SECTORS)
     CP B
-    JR NZ,s2_body_loop
+    JP NZ,s2_body_loop
     CALL s2_flush_fat
     RET C
     LD D,37
@@ -488,6 +542,9 @@ s2_unsupported:
 s2_protected:
     LD A,61
     JR s2_error
+s2_capture_oom:
+    LD A,7
+    JR s2_error
 s2_full:
     LD A,68
     JR s2_error
@@ -518,12 +575,12 @@ s2_end:
     LD IX,BANK2_AT_END_ADDR
     JP BANK2_MAIN_CALL_ADDR
 s2_capture_begin:
-    LD HL,S2_CAPTURE_BASE
+    LD HL,(S2_CAPTURE_BASE)
     LD (S2_CAPTURE_PTR),HL
     LD HL,0
     LD (S2_CAPTURE_LEN),HL
     XOR A
-    LD (S2_CAPTURE_OVER),A
+    LD (S2_ERROR_FLAG),A
     INC A
     LD (S2_CAPTURE_ACTIVE),A
     RET

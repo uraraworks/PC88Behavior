@@ -29,16 +29,9 @@ ALLOW = {
 HEX = re.compile(r"\b0x[0-9a-f]+\b|\$[0-9a-f]+\b|\b[0-9][0-9a-f]*h\b", re.I)
 SYMBOL = re.compile(r"\bMM_\w+\b")
 
-# 段Bでは許可: 段D/Eで動かす構造と、本文の保存位置。
-# 固定作業域をここへ紛れ込ませないよう、名前だけでなく配置も固定する。
-STAGE_B_DYNAMIC = {
-    "STRING_PAGES": (0x8000, 4096), "CAPTURE": (0x9000, 12288),
-    "PROGRAM": (0xC400, 1024), "VARTAB": (0xD100, 1680),
-    "FOR_STACK": (0xD800, 192), "GOSUB_STACK": (0xD900, 48),
-    "DATA_POSITION": (0xD938, 7), "CONT_POSITION": (0xD944, 6),
-    "ON_ERROR": (0xD975, 4), "RESUME": (0xD979, 6),
-    "STMT_START": (0xCA10, 2), "ARRAY": (0xD980, 1192),
-}
+# 段Bで許可した仮置き領域は段D/Eで全廃。保存位置も固定域へ移設済み。
+OLD_DYNAMIC = {"STRING_PAGES", "CAPTURE", "PROGRAM", "VARTAB", "ARRAY",
+               "FOR_STACK", "GOSUB_STACK"}
 
 
 def check_sources(src):
@@ -92,10 +85,9 @@ def check_map(regions=memmap.REGIONS):
         if not r.retention or not r.use or r.profile not in {
                 "normal", "ext-test", "vsync-test", "measure", "inkey-test"}:
             errors.append(f"注記が不正: {r.name}")
-        if r.name in STAGE_B_DYNAMIC:
-            if (r.base, r.size) != STAGE_B_DYNAMIC[r.name]:
-                errors.append(f"段Bの動的構造の配置が変更された: {r.name}")
-        elif r.name == "CPU_STACK":
+        if r.name in OLD_DYNAMIC:
+            errors.append(f"動的構造の仮置きが残留: {r.name}")
+        if r.name == "CPU_STACK":
             if not (0xE600 <= r.base and r.base + r.size == 0xF3C8):
                 errors.append("CPUスタックがE600–F3C7外、または上端がF3C8でない")
             if r.size < 384:
@@ -113,7 +105,7 @@ def check_map(regions=memmap.REGIONS):
     stack = by_name["CPU_STACK"]
     # 宣言したサイズだけでなく、固定域の上端から実際に残る連続長も検査する。
     fixed_end = max(r.base + r.size for r in regions
-                    if r.name not in STAGE_B_DYNAMIC and r.name not in {"CPU_STACK", "TEXT"}
+                    if r.name not in {"CPU_STACK", "TEXT"}
                     and r.base < 0xF3C8)
     if 0xF3C8 - max(fixed_end, stack.base) < 384:
         errors.append("固定域からCPUスタック上端までの残りが384B未満")
@@ -127,10 +119,10 @@ def check_map(regions=memmap.REGIONS):
     if actual != set(memmap.OVERLAPS):
         errors.append("重なり宣言に過不足がある")
     for name, (region, offset) in memmap.FIELDS.items():
-        # スタック上端・捕捉終端は非包含端点。
+        # スタック上端だけは非包含端点。捕捉上端は実行時ポインタ。
         size = by_name[region].size
         if not (0 <= offset < size or
-                (name in {"MM_STACK_TOP", "MM_CAPTURE_END"} and offset == size)):
+                (name in {"MM_STACK_TOP"} and offset == size)):
             errors.append(f"構造外の名前: {name}")
     # EQU生成とPython側の番地を別の式評価器で突き合わせる。
     for line in memmap.asm_prelude().splitlines()[1:]:
@@ -311,8 +303,15 @@ def main():
     if not any("固定域からCPUスタック上端までの残りが384B未満" in error for error in check_map(moved)):
         print("陰性対照: 固定域がスタックの残りを減らす配置を検出できない", file=sys.stderr)
         return 1
+    for name in sorted(OLD_DYNAMIC):
+        restored = memmap.REGIONS + (memmap.Region(name, 0xC400, 16, '保持', '旧仮置き陰性対照'),)
+        if not any("動的構造の仮置きが残留" in e for e in check_map(restored)):
+            raise AssertionError(f"仮置き再導入を検出できない: {name}")
+    assert memmap.CONSTANTS["MM_USER_START"] == 0x8400
+    assert memmap.CONSTANTS["MM_USER_LIMIT_DEFAULT"] == 0xE5FF
+    assert set(memmap.DYNAMIC_STRUCTURES) == {"PROGRAM", "HEAP", "STRING_PAGES", "FOR_STACK", "GOSUB_STACK", "CAPTURE"}
     check_value_stack()
-    print("memmap_selftest: OK（段B動的例外・25行VRAM禁止・スタック446B/最低384B・分割番地・EQU・重なり・陰性対照7種）")
+    print("memmap_selftest: OK（段D/E仮置き全廃・利用者領域に固定域なし・25行VRAM禁止・スタック400B/最低384B・分割番地・EQU・重なり・陰性対照7種＋旧仮置き7構造）")
     return 0
 
 
