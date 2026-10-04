@@ -36,7 +36,7 @@
 ;     第6節1「未確定」への暫定選択)。有効文字数は7文字+接尾辞1文字の
 ;     計8文字までとし、それ以降は無視する(仕様書に無い上限、C3の
 ;     「少なくとも3文字目まで区別」は満たす)。
-;   - 変数テーブルは最大40個、文字列変数の中身は最大31文字まで。
+;   - 変数テーブルは最大40個、文字列変数の中身は最大255文字まで（32文字以上は別領域）。
 ;     超えたらOut of memory(7)/String too long(15)。
 ;   - FORの入れ子は最大8重、GOSUBの入れ子も最大8重まで。超えたら
 ;     Out of memory(7)。
@@ -79,7 +79,7 @@ RUN_FOR_CMP_RESULT EQU 0D02Dh  ; 1B
 RUN_FOR_SEARCH_IDX EQU 0D02Eh  ; 1B
 RUN_TMP16          EQU 0D02Fh  ; 2B
 RUN_STR_TMP_LEN    EQU 0D031h  ; 1B
-RUN_STR_TMP_BUF    EQU 0D032h  ; 31B (文字列一時領域、STRMAXLEN=31)
+RUN_STR_TMP_BUF    EQU 0C700h  ; 255B、第17節
 RUN_SCAN_DEPTH     EQU 0D051h  ; 1B (FOR/NEXTスキャンの入れ子深さ)
 RUN_GOSUB_SP       EQU 0D052h  ; 1B
 RUN_FOR_SP         EQU 0D053h  ; 1B
@@ -94,7 +94,9 @@ RUN_TMP_RBIT       EQU 0D059h
 ; ---- 変数テーブル ----
 ; レコード(42B): [NAME 8B][USED 1B][KIND 1B(0=数値 1=文字列)][VALUE 32B]
 ;   数値: VALUE[0]=type(0=整数16bit/1=単精度) VALUE[1..4]=data
-;   文字列: VALUE[0]=len(0-31) VALUE[1..31]=chars
+;   短文字列: VALUE[0]=len(0-31) VALUE[1..31]=chars
+;   長文字列: KIND=2、VALUE[0]=len、VALUE[1..2]=専用ページへのポインタ。
+;   8000-8FFFに16ページ（32〜255文字）、不足時はOut of memory(7)。
 RUN_VARTAB          EQU 0D100h
 RUN_VARTAB_REC_SIZE EQU 42
 RUN_VARTAB_CAP      EQU 40
@@ -186,11 +188,11 @@ ARRAY_MAX_ELEMS     EQU 32
 ; 配列テーブル終端(0xDE28)〜画面/L3L4共通域(VAR_ROW、0xE800)の間は空き
 ; (約2000B)。仕様書に無い判断(RAM配置のみ、値の規則そのものではない)。
 RUN_STR_ARG1_LEN    EQU 0DE28h ; 1B MID$/LEFT$/RIGHT$の元文字列を、数値
-RUN_STR_ARG1_BUF    EQU 0DE29h ; 31B 引数の評価(入れ子のLEN/VAL/ASC等が
+RUN_STR_ARG1_BUF    EQU 0C800h ; 255B 引数の評価(入れ子のLEN/VAL/ASC等が
                                 ;     RUN_STR_TMP_LEN/BUFを上書きしうる)
                                 ;     より前に退避しておく場所
 RUN_STR_ACC_LEN     EQU 0DE48h ; 1B STRING_EXPRの'+'連結、左辺の蓄積
-RUN_STR_ACC_BUF     EQU 0DE49h ; 31B
+RUN_STR_ACC_BUF     EQU 0C900h ; 255B
 RUN_ARG1            EQU 0DE68h ; 2B MID$の第2引数(開始位置)の退避
 PNFM_SAVE_PTR        EQU 0DE6Ah ; 2B PARSE_NUM_FROM_MEMのCUR_PTR退避
 PNFM_SAVE_END        EQU 0DE6Ch ; 2B 同LINE_END退避
@@ -555,85 +557,11 @@ _vwn_oom:
 
 ; VAR_READ_STRING — IDENT_BUFの変数の文字列をRUN_STR_TMP_LEN/BUFへ読む。
 VAR_READ_STRING:
-    CALL VAR_GET_OR_CREATE
-    OR A
-    JR Z,_vrs_oom
-    PUSH HL
-    LD DE,VARREC_VALUE
-    ADD HL,DE
-    LD A,(HL)
-    LD (RUN_STR_TMP_LEN),A
-    LD B,A
-    INC HL
-    LD DE,RUN_STR_TMP_BUF
-_vrs_copy:
-    LD A,B
-    OR A
-    JR Z,_vrs_done
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DEC B
-    JR _vrs_copy
-_vrs_done:
-    POP HL
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_vrs_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
-
-; VAR_WRITE_STRING — IDENT_BUFの変数へRUN_STR_TMP_LEN/BUFを書く
-;   (31文字超はString too long)。
+    LD HL,07460h
+    JP S9_BANK_CALL
 VAR_WRITE_STRING:
-    LD A,(RUN_STR_TMP_LEN)
-    CP 32
-    JR NC,_vws_toolong
-    CALL VAR_GET_OR_CREATE
-    OR A
-    JR Z,_vws_oom
-    PUSH HL
-    LD DE,VARREC_KIND
-    ADD HL,DE
-    LD (HL),1
-    INC HL
-    LD A,(RUN_STR_TMP_LEN)
-    LD (HL),A
-    LD B,A
-    INC HL
-    LD DE,RUN_STR_TMP_BUF
-_vws_copy:
-    LD A,B
-    OR A
-    JR Z,_vws_done
-    LD A,(DE)
-    LD (HL),A
-    INC HL
-    INC DE
-    DEC B
-    JR _vws_copy
-_vws_done:
-    POP HL
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_vws_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
-_vws_toolong:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,15
-    LD (ERROR_KIND),A
-    RET
+    LD HL,07470h
+    JP S9_BANK_CALL
 
 ; PRINT_STRING_VAL — RUN_STR_TMP_LEN/BUFの内容をそのまま出力する。
 PRINT_STRING_VAL:
@@ -655,7 +583,7 @@ _psv_loop:
     JR _psv_loop
 
 ; PARSE_STRING_RHS — 文字列を要求する文脈(PRINT/代入)でCUR_PTR位置を
-;   解釈する。'"'なら文字列リテラル(閉じ`"`か行末まで、31文字超は
+;   解釈する。'"'なら文字列リテラル(閉じ`"`か行末まで、255文字超は
 ;   切り詰め・仕様書に無い判断)。識別子で$型ならその変数の値。
 ;   それ以外はSyntax error(識別子でない)かType mismatch($以外の識別子)。
 ;   出力: RUN_STR_TMP_LEN/BUF、ERROR_FLAG。
@@ -695,7 +623,7 @@ _psr_lit_loop:
     JR Z,_psr_lit_close
     LD B,A
     LD A,(RUN_STR_TMP_LEN)
-    CP 31
+    CP 255
     JR NC,_psr_lit_skip_store
     LD HL,RUN_STR_TMP_BUF
     LD D,0
@@ -760,13 +688,16 @@ _se_done:
 ; STR_COPY_BN — HL=コピー元、DE=コピー先、B=個数(0-255)。BCへ拡張して
 ;   LDIRするだけの小さな共有ラッパ(ROM節約)。
 STR_COPY_BN:
+    LD A,B
+    OR A
+    RET Z
     LD C,B
     LD B,0
     LDIR
     RET
 
 ; STR_CONCAT — RUN_STR_ACC(左)++RUN_STR_TMP(右、現在値)をRUN_STR_TMPへ
-;   書き直す。合計32文字以上はString too long(15、第4.4d節・errors.asm)。
+;   書き直す。合計256文字以上はString too long(15、第4.4d節・errors.asm)。
 ; 注意: STR_COPY_BN(LDIR経由)はBCを0まで使い切るため、右辺長をCに
 ;   持たせたままでは1回目の複写で潰れる。RUN_TMP16の下位=左辺長・
 ;   上位=右辺長として退避し、Cレジスタに頼らないようにする。
@@ -778,8 +709,7 @@ STR_CONCAT:
     LD (RUN_TMP16+1),A
     LD C,A
     ADD A,B
-    CP 32
-    JR NC,_sc_toolong
+    JR C,_sc_toolong
     ; 右辺(RUN_STR_TMP_BUF、Cバイト)を ACC_BUF+acc_len(RUN_TMP16) へ複写
     LD A,(RUN_TMP16)
     LD D,0
@@ -950,6 +880,16 @@ PSR_FUNC_TABLE:
     DB 3
     DB "STR"
     DW PSR_DO_STR
+    DB 3,"CHR"
+    DW S9_DO_CHR
+    DB 5,"SPACE"
+    DW S9_DO_SPACE
+    DB 6,"STRING"
+    DW S9_DO_STRING
+    DB 3,"HEX"
+    DW S9_DO_HEX
+    DB 3,"OCT"
+    DW S9_DO_OCT
     DB 0
 
 ; PSR_DO_MID — MID$(str,start,len)。'('消費済みから始まる。
@@ -2686,8 +2626,16 @@ _rmsk_try_on:
 _rmsk_try_resume:
     CALL TRY_MATCH_RESUME
     OR A
-    JR Z,_rmsk_try_files
+    JR Z,_rmsk_try_error
     LD A,20
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_try_error:
+    CALL TRY_MATCH_ERROR
+    OR A
+    JR Z,_rmsk_try_files
+    LD A,28
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2795,6 +2743,8 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_save
     CP 24
     JR Z,_reos_kill
+    CP 28
+    JP Z,S9_DO_ERROR
     CP 27
     JP Z,RANDOMIZE_STMT
     CP 25
@@ -2891,39 +2841,9 @@ _onerr_syntax:
 
 ; RESUME <行番号> — 捕捉中だけ指定行へ移る。本依頼の検証腕が使う形。
 RESUME_STMT:
-    LD A,(RUN_ERROR_ACTIVE)
-    OR A
-    JR Z,_resume_without_error
-    CALL SKIP_SPACES
-    CALL PARSE_LINENUM_CUR
-    JR C,_resume_no_target
-    CALL RUN_FIND_LINE
-    JR C,_resume_undef
-    CALL RUN_ENTER_RECORD
-    XOR A
-    LD (RUN_ERROR_ACTIVE),A
-    LD (ERROR_FLAG),A
-    LD A,1
-    LD (RUN_CTRL),A
-    RET
-_resume_no_target:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,19
-    LD (ERROR_KIND),A
-    RET
-_resume_without_error:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,20
-    LD (ERROR_KIND),A
-    RET
-_resume_undef:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,8
-    LD (ERROR_KIND),A
-    RET
+    LD HL,07480h
+    JP S9_BANK_CALL
+
 
 RUN_EXEC:
 _run_loop:
@@ -2931,6 +2851,8 @@ _run_stmt_loop:
     CALL SKIP_SPACES
     CALL AT_END
     JP Z,_run_line_end
+    LD HL,(CUR_PTR)
+    LD (0CA10h),HL          ; RESUME NEXT用の文頭（引用符を含めて再走査）
     CALL RUN_EXEC_ONE_STMT
 _run_after_stmt:
     LD A,(ERROR_FLAG)
@@ -2971,6 +2893,10 @@ _run_error:
     LD A,H
     OR L
     JR Z,_run_error_emit
+    PUSH HL
+    LD HL,07490h
+    CALL S9_BANK_CALL
+    POP HL
     LD A,(ERROR_KIND)
     LD (RUN_LAST_ERR),A
     LD A,1
@@ -3001,6 +2927,8 @@ RUN_RESET_STATE:
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
     LD (RUN_ERROR_ACTIVE),A
+    LD (0C600h),A
+    LD (0C601h),A
     LD (RUN_LAST_ERR),A
     LD HL,0
     LD (RUN_ERROR_HANDLER_LINE),HL
@@ -5076,7 +5004,7 @@ _dpnl_done:
     RET
 
 ; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
-;   BUFへ読む(31文字超は切り詰め、引用符の特別扱いはしない・第8節29)。
+;   BUFへ読む(255文字超は切り詰め、引用符の特別扱いはしない・第8節29)。
 DATA_PARSE_RAW_TOKEN:
     XOR A
     LD (RUN_STR_TMP_LEN),A
@@ -5090,7 +5018,7 @@ _dprt_loop:
     JR Z,_dprt_done
     LD B,A
     LD A,(RUN_STR_TMP_LEN)
-    CP 31
+    CP 255
     JR NC,_dprt_skip
     LD HL,RUN_STR_TMP_BUF
     LD D,0
@@ -5253,3 +5181,29 @@ RANDOMIZE_STMT:
     LD (0C416h),DE            ; 中継はDEを作業用に使うためRAMで渡す
     LD HL,06280h
     JP EXT_BANK_CALL           ; A=0
+
+; 第17節。本体はバンク3、mainは表と中継のみ。
+S9_DO_CHR:
+    LD HL,07400h
+    JP S9_BANK_CALL
+S9_DO_SPACE:
+    LD HL,07410h
+    JP S9_BANK_CALL
+S9_DO_STRING:
+    LD HL,07420h
+    JP S9_BANK_CALL
+S9_DO_HEX:
+    LD HL,07430h
+    JP S9_BANK_CALL
+S9_DO_OCT:
+    LD HL,07440h
+    JP S9_BANK_CALL
+S9_DO_INSTR:
+    LD HL,07450h
+    JP S9_BANK_CALL
+S9_DO_ERROR:
+    LD HL,074A0h
+    JP S9_BANK_CALL
+S9_BANK_CALL:
+    LD A,3
+    JP EXT_BANK_CALL

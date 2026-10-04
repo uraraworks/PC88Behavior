@@ -108,26 +108,48 @@ EXT_BANK_INIT:
 
 ; バンク側から main ROM の任意のルーチンを呼ぶ共通の窓外中継。
 ; IX=呼び先、AF/BC/DE/HL は呼び先へそのまま渡す。復帰値とフラグも返す。
-; 呼び先はバンク切替・EXT_BANK_CALLを行わない。再入はしない。
+; mainが窓を復元している間だけ入れ子関数のEXT_BANK_CALLを許す。
+; 各階層の窓状態はCPUスタックで独立して保存し、復帰時にBUSYも戻す。
 EXT_BANK_MAIN_CALL:
+    ; 元のレジスタを退避し、各階層のポートとBUSYをスタックへ置く。
     PUSH AF
     PUSH BC
+    PUSH DE
+    PUSH HL
     IN A,(0x71)
-    LD (EXT_BANK_MAIN_PORT71),A
+    LD D,A
     IN A,(0x32)
-    LD (EXT_BANK_MAIN_PORT32),A
-    OR A
-    LD A,(EXT_BANK_MAIN_PORT71)
+    LD E,A
+    LD A,(EXT_BANK_BUSY)
+    LD B,A
+    XOR A
+    LD (EXT_BANK_BUSY),A
+    LD A,D
     OR 1
     OUT (0x71),A
+    EXX
+    POP HL
+    POP DE
     POP BC
     POP AF
+    EXX
+    PUSH DE
+    PUSH BC
+    EXX
     CALL _ext_bank_main_jump
     PUSH AF
-    LD A,(EXT_BANK_MAIN_PORT32)
+    EXX
+    POP AF
+    POP BC
+    POP DE
+    PUSH AF
+    LD A,B
+    LD (EXT_BANK_BUSY),A
+    LD A,E
     OUT (0x32),A
-    LD A,(EXT_BANK_MAIN_PORT71)
+    LD A,D
     OUT (0x71),A
+    EXX
     POP AF
     RET
 _ext_bank_main_jump:
@@ -246,7 +268,8 @@ _ebc_not_busy:
 ; SAVEの画面捕捉だけに使う限定的な入れ子呼び出し。
 ; バンク2→EXT_BANK_MAIN_CALL→PRINT_CHAR→バンク3の順で通る。
 ; バンク3の捕捉本体はRAMしか触らずmainへ戻らないため、外側の
-; EXT_BANK_MAIN_PORT71/32を上書きしない。外側のBUSY=1を復帰後に戻す。
+; 外側の窓状態はEXT_BANK_MAIN_CALLのスタックで保持される。
+; 外側のBUSY=1を復帰後に戻す。
 EXT_BANK_CALL_CAPTURE:
     LD B,A
     CALL _ebc_not_busy

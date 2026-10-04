@@ -1275,6 +1275,8 @@ FTNF_TABLE:
     DB 3
     DB "LOG"
     DW FTNF_DO_LOG
+    DB 5,"INSTR"
+    DW S9_DO_INSTR
     DB 0
 
 ; FTNF_STR_ARG — '('消費済みの位置から文字列式を1個読み、')'を確認する
@@ -1879,12 +1881,12 @@ _sfc_s_loop:
     JR _sfc_s_loop
 
 ; STR_APPEND_CHAR — A=文字。RUN_STR_TMP_BUF[RUN_STR_TMP_LEN]へ追記し
-;   1増やす(31文字超は捨てる、既存のString too long上限と同じ考え方)。
+;   1増やす(255文字超は捨てる、既存のString too long上限と同じ考え方)。
 STR_APPEND_CHAR:
     PUSH BC
     LD B,A
     LD A,(RUN_STR_TMP_LEN)
-    CP 31
+    CP 255
     JR NC,_sac_full
     PUSH HL
     PUSH DE
