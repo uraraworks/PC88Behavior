@@ -123,6 +123,8 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     text = asm_path.read_text(encoding="utf-8")
     if asm_path.name == "bank3.asm":
         text += "\n" + (REPO / "src/l4_basic/listnum.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/ext_bank/inkey.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/l3_main/key_table_gen.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/strfunc.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/peekpoke.asm").read_text(encoding="utf-8")
     # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、

@@ -606,6 +606,9 @@ PARSE_STRING_RHS:
     LD (ERROR_KIND),A
     RET
 _psr_fromvar:
+    CALL S9C_TRY_INKEY
+    OR A
+    RET NZ
     CALL PSR_TRY_FUNCS
     OR A
     RET NZ
@@ -2852,6 +2855,7 @@ RESUME_STMT:
 RUN_EXEC:
 _run_loop:
 _run_stmt_loop:
+    CALL S9C_POLL
     CALL SKIP_SPACES
     CALL AT_END
     JP Z,_run_line_end
@@ -3007,6 +3011,7 @@ _run_stmt_no_arg:
     RET
 _run_stmt_start:
     CALL RUN_ENTER_RECORD
+    CALL S9C_INIT
     JP RUN_EXEC
 _run_stmt_syntax:
     LD A,1
@@ -5224,4 +5229,23 @@ S9B_DO_POKE:
     JP S9_BANK_CALL
 S9B_DO_CLEAR:
     LD HL,07D20h
+    JP S9_BANK_CALL
+
+; 第19節。通常の文境界はVRTCの変化確認のみ、立ち上がりでバンク3を呼ぶ。
+S9C_POLL:
+    IN A,(040h)
+    AND 020h
+    LD HL,0E8D1h
+    CP (HL)
+    RET Z
+    LD (HL),A
+    OR A
+    RET Z
+    LD HL,06F20h
+    JP S9_BANK_CALL
+S9C_INIT:
+    LD HL,06F10h
+    JP S9_BANK_CALL
+S9C_TRY_INKEY:
+    LD HL,06F00h
     JP S9_BANK_CALL

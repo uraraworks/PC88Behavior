@@ -137,6 +137,12 @@ _ki_loop:
     LD (VAR_LINELEN),A
     LD (VAR_INSMODE),A
     LD (REPEAT_KIND),A
+    ; 第19節: 起動時はキューだけ空にする。バンク切替のI/Oは増やさない。
+    LD (0E8D1h),A
+    LD (0E8D2h),A
+    LD (0E8D3h),A
+    LD (0E8D4h),A
+    LD (0E8E3h),A
     RET
 
 ; ---------------------------------------------------------------------
