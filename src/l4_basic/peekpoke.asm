@@ -1,12 +1,22 @@
 ; docs/spec/l4-basic.md 第18節(l4-s9b)。本体は拡張バンク3。
 ; 利用者番地へのアクセスをそのまま行う。作業域の保護・移設はしない。
-; CLEARの第2引数は受理のみ。メモリ上限への反映は別段で決める。
+; CLEARの上限・共有スタックは第20節と段Fの自作配置判断に従う。
     ORG 0x7D00
     JP S9B_PEEK
     ORG 0x7D10
     JP S9B_POKE
     ORG 0x7D20
     JP S9B_CLEAR
+    ORG 0x7D30
+    JP S9D_FRE
+    ORG 0x7D40
+    JP S9D_GOSUB_PUSH
+    ORG 0x7D50
+    JP S9D_FOR_SLOT
+    ORG 0x7D60
+    JP S9D_GOSUB_SLOT
+    ORG 0x7D70
+    JP S9D_FOR_ROOM
 
 S9B_PEEK:
     CALL S9_IS_STRING
@@ -73,54 +83,14 @@ s9b_address_round:
     JP Z,S9_OVERFLOW
     JP S9_OK
 
-; CLEAR、CLEAR n、CLEAR ,n、CLEAR n,n の数値引数を受理する。
-; 引数値は保存しない。既存の変数・配列・実行状態の初期化を共有し、
-; プログラムと乱数状態は保持する。未測定のCLEAR誤り条件は決めない。
-S9B_CLEAR:
-    CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    OR A
-    JR Z,s9b_clear_apply
-    CP ':'
-    JR Z,s9b_clear_apply
-    CP ','
-    JR Z,s9b_clear_second
-    CALL S9_IS_STRING
-    OR A
-    JP NZ,S9_TYPE
-    CALL S9B_EXPR
-    CALL S9_BAD
-    RET NZ
-    CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    CP ','
-    JR NZ,s9b_clear_apply
-s9b_clear_second:
-    CALL B3_ADV_PTR
-    CALL S9_IS_STRING
-    OR A
-    JP NZ,S9_TYPE
-    CALL S9B_EXPR
-    CALL S9_BAD
-    RET NZ
-s9b_clear_apply:
-    CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    OR A
-    JR Z,s9b_clear_ok
-    CP ':'
-    JR Z,s9b_clear_ok
-    LD A,2
-    JP S9_ERROR
-s9b_clear_ok:
-    CALL S9B_CLEAR_STATE
-    JP S9_OK
 
-S9B_EXPR_ADDR EQU 0x1787
-S9B_EXPR:
-    LD IX,S9B_EXPR_ADDR
-    JP B3_MAIN_CALL_ADDR
-S9B_CLEAR_ADDR EQU 0x1787
-S9B_CLEAR_STATE:
-    LD IX,S9B_CLEAR_ADDR
-    JP B3_MAIN_CALL_ADDR
+; CLEARの上限は正の利用者番地のみ。PEEK/POKEの負番地表現とは区別する。
+S9D_LIMIT_CUR:
+    CALL S9_LOAD_OPA
+    LD A,(MM_MBF_OPA+2)
+    BIT 7,A
+    JP NZ,S9_ILLEGAL
+    LD A,(MM_MBF_OPA+3)
+    CP 145
+    JP NC,S9_ILLEGAL
+    JP S9B_ADDRESS_CUR

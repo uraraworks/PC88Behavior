@@ -186,6 +186,41 @@ class Suite:
         assert re.search(r'editok\s*0\s+0\s+0',text) and "can't continue" in text,text
         self.ok('編集で変数/配列/文字列消去、CONT ERR17')
 
+    def limits(self):
+        _,text=self.run('limit-slope',[
+            ('CLEAR ,49152:PRINT "FREEA";FRE(0)',160),
+            ('CLEAR ,50176:PRINT "FREEB";FRE(0)',160),
+            ('PRINT "FREESTR";FRE("")',160)])
+        values=[int(re.search(label+r"\s*(\d+)",text)[1])
+                for label in ('freea','freeb','freestr')]
+        assert values[1]-values[0]==1024 and values[2]==values[1],text
+        self.ok('CLEAR ,aの差1024とFREの差一致、文字列引数も同値')
+        for n in (99,128,256,512,1024,2048):
+            commands=[('10 CLEAR ,49152',160),('20 CLEAR ,,'+str(n),160),
+                      ('30 D=0:GOSUB 100',160),('40 END',160),
+                      ('100 D=D+1:GOSUB 100',160),('RUN',1500),
+                      ('CLS:PRINT "DEPTH";D',160)]
+            path,text=self.run('depth-'+str(n),commands,trace_at=300,
+                               trace_range='BF00-C000')
+            assert re.search(r'depth\s*'+str((n-92)//7)+r'\b',text),text
+            assert 'error' not in text,text
+        self.ok('CLEAR ,,nのGOSUB深さfloor((n-92)/7)、99/128/256/512/1024/2048（279段）')
+        commands=[('10 PRINT "KEPT";PEEK(49152):END',160),
+                  ('CLEAR ,49151',160),('POKE 49152,73',160),('RUN',500),('RUN',500)]
+        path,text=self.run('above-limit',commands,trace_at=300,trace_range='C000-C000')
+        assert len(re.findall(r'kept\s*73\b',text))==2,text
+        writes=[line.split() for line in (path/'writes.tsv').read_text().splitlines()
+                if len(line.split())==5 and line.split()[3]=='C000']
+        assert [row[4] for row in writes]==['49'],writes
+        self.ok('上限49151より上のPOKE値73をRUN二回が保持、追加書込みなし')
+        # FOR 24Bを使ったまま再帰するとGOSUBに使える共用域が減る。
+        lines=['10 CLEAR ,49152,128','20 FOR I=0 TO 0:D=0:GOSUB 100',
+               '30 NEXT:END','100 D=D+1:GOSUB 100']
+        _,text=self.run('shared-stack',[(line,160) for line in lines]+[
+                       ('RUN',500),('PRINT "SHARED";D',160)])
+        assert 'out of memory' in text and re.search(r'shared\s*1\b',text),text
+        self.ok('FOR/GOSUB共用域の衝突でERR7（24B＋7B×1）')
+
     def exhaustion(self):
         # ページ不足とヒープ不足を各々起こし、既存値とBASIC復帰を確認。
         lines=[f'{(i+1)*10} S{i}$="'+('X'*40)+'"' for i in range(90)]
@@ -219,8 +254,8 @@ def main():
         work=args.work_dir or Path(temp)
         work.mkdir(parents=True,exist_ok=True)
         suite=Suite(work)
-        suite.large();suite.wide_capture();suite.capture_edge();suite.symbols();suite.strings();suite.edits();suite.exhaustion()
-        print('l4_memdyn_selftest: OK（全7群、自作ROM/自作媒体のみ）')
+        suite.large();suite.wide_capture();suite.capture_edge();suite.symbols();suite.strings();suite.edits();suite.limits();suite.exhaustion()
+        print('l4_memdyn_selftest: OK（全11群、自作ROM/自作媒体のみ）')
 
 if __name__=='__main__':
     main()

@@ -1,6 +1,6 @@
 # 自作ROMの RAM 配置の組み替え — 計画
 
-状態: **段A/B実装、段Cの仕様4.17節を反映し段D/Eを同時実装・検証中、段Fは計画**（2026-10-05）。段ごとに測定・実装の結果をこの文書の末尾へ追記する。
+状態: **段A〜F実装・検証済（段Fは指定設計による境界差2腕を記録）**（2026-10-05）。段ごとに測定・実装の結果をこの文書の末尾へ追記する。
 
 ## なぜ組み替えるか
 
@@ -284,3 +284,34 @@ FOR/GOSUB スタックは、マニュアルの CLEAR の第3引数（FOR・GOSUB
 最終の自己検査と照合を実行中。完了時にここへ実行結果を追記する。
 ログ・ROM・測定TSV・実行ドライバは `/private/tmp/pc88-memdyn/` に保存する。
 公式ROM/private/の参照/実行、conform_*の実行、git add、コミットは行っていない。
+
+## 段F 実装結果（2026-10-05）
+
+親が指定した自作配置を実装した。公式ROM・private/は読まず、実行していない。
+
+- LIMITの既定はE5FD、指定範囲は8400〜E5FF（包含）。範囲外はERR5、本文＋番兵とスタック域が衝突する指定はERR7。CLEARの第1引数は評価して無視する。省略した上限・スタック量は現在値を保持し、起動時のスタック量は512。
+- 共用スタック域は `[LIMIT−n+1, LIMIT]`。下端92Bは予約し、FORは下端+92から24Bずつ上向き、GOSUBはLIMIT+1から7Bずつ下向きに伸びる。両者の境界で衝突を検査してERR7にする。GOSUBの6Bの再開位置に1Bの未使用詰めを加えた。固定の各8段制限は廃止し、深さとFOR検索インデックスを16bitにした。
+- n<99はCLEARのERR7。FORの24Bとこの境目は公式未測定の自作判断であり、公式の構造や境目を推定したものではない。
+- FREは引数を評価後、`FREE_TOP−HEAP_END` を返す。数値・文字列引数とも同じ定義で、ページを動かす処理はしない。FREE_TOPは最下位の使用ページの下端、ページがなければスタック域の下端。公式の定数35098には合わせていない。
+- CLEARは既存の状態初期化後に位置を再計算する。RUN・NEW・編集時も現在のLIMIT/nを保ち、現在のスタック下端からページ配置を導く。既定のスタック下端E3FE、FOR先頭E45A、ページ候補の先頭E2FEはいずれも計算結果であり、固定域の宣言ではない。
+- 固定域F238〜F245の14Bにスタック量・下端・16bit深さ・CLEAR候補を置いた。CPUスタックはF246〜F3C7の386B（従来の最低384B以上）。旧深さの2Bをスロット計算の一時領域へ転用した。src/memmap.pyとmemmap_selftestを更新した。
+- ROM容量と既存の埋め草検査を保つため、計算・GOSUB push・CLEAR/FRE本体はバンク3の既存の空きへ置き、mainは中継を使う。起動時の既定位置はmainで設定し、起動の余計なバンク切替を避けた。予約番地79D7は従来どおり埋め草のまま。
+- 測定器がCLEARの誤りと実行中の溢れを区別するために使うERLが未実装だったため、ON ERRORで保存する再開レコードの行番号を返す処理を追加した。
+
+追加したl4_memdyn_selftestは、CLEARの上限差1024とFREの差、文字列FRE引数、n=99/128/256/512/1024/2048のGOSUB深さ（最大279段）、FOR 24BとGOSUBの共用域衝突、上限49151の上へPOKEした73がRUN二回をまたいで残り追加書込みもないことを検査する。
+
+### 段F 検証記録
+
+ビルドと指定の自己検査25件は通過した（memmap、asm/asm、ext_bank、l4_basic、l4_program、l4_listnum、l4_listkw、l4_s5j、l4_strfunc、l4_peekpoke、l4_inkey、l4_inkey_robust、l4_strcmp、l4_hexconst、l4_editinv、l4_memdyn、l4_memlimit、l4_rnd、l4_mbf_z80、l4_files_z80、l4_load_z80、l4_save_z80、l4_killname_z80、vsync_regcheck、l3_screen_editor）。各bash経由・stdin=/dev/null。memdynは追加を含む全11群、INKEY頑健性は240/240。ext_bank・basic・save・vsyncは既存の `--parent-runs-conform` を使用した。初回はこのオプションを見落としてラッパーがconform_l4を起動したが、正式な自己検査は親担当を除く形で再実行した。
+
+- 1回目: 器具の73腕×2走は採取関門を通過。期待値対象72腕は全て2走一致し、受理/ERRの種類と番号は70/72一致。差は8400（期待ERR5、自作ERR7）と8800（期待ERR7、自作受理、FRE=298）。8400は指定範囲内だが本文/スタックが収まらず、8800は自作本文が短いため収まる。特例や追加の予約量で値を合わせず、指定された配置判断を維持した。受理された上限24点の全23区間でFREの差と上限の差が一致。公式と絶対値まで一致するのは10/72（定数対照と拒否点）。
+- 追補1: CLIの31腕×2走は既知FRE関門の値差で停止する。その失敗記録を保存したうえで、変更していない `run_arm` で期待値対象25腕を各2走採取し、別の小さなPythonで受理/ERR・深さ・FRE差を比較した。受理/ERRは25/25一致。GOSUBは128→5、256→23、512→60、1024→133、指定なし→60が溢れERR7も含めて完全一致、n=64のCLEAR ERR7も一致。上限10点のFRE傾き1も一致。絶対値まで一致するのは12/25。既知FRE2腕の `valid=False` は器具の値照合結果として生記録に保持し、全体関門通過へ書き換えていない。
+- 既存の自作全腕測定: peekpoke 30腕・strfunc 91腕・hexconst 67腕は元の照合器で一致。hexconstは元TSVの68腕を保持し、既定の期待値対象外 `program-hexspace` の2行だけを除く作業用コピーを照合した（既存の結果文書と同じ方法）。INKEYは最新ビルドで基本23腕×2走・追補6腕×2走の採取関門を通過。既存の結果文書どおり `buffer-abcde` と追補の重複定数を除く作業用コピーで25対象腕を照合した。2走一致・採取関門は25/25、値は24/25一致。既知差のhold-aは期待の非空34回／保存8文字に対し、自作は7回／7文字（全て97）。元の照合器は終了値1を返しており、合格扱いにはしていない。strcmp 213腕も元の照合器で全一致した。
+
+採取・比較の作業先は `/private/tmp/pc88-stagef-*`。主要な記録は以下。
+
+- 最終測定用ROM: `/private/tmp/pc88-stagef-final2-rom`。1回目は `/private/tmp/pc88-stagef-final2-r1.tsv`、追補CLIの失敗記録は `/private/tmp/pc88-stagef-final2-a1.tsv`、追補の25腕の生採取は `/private/tmp/pc88-stagef-final2-addendum-raw/observations.tsv`。比較は `/private/tmp/pc88-stagef-compare.py` と `/private/tmp/pc88-stagef-comparison.log`。
+- 既存照合の生記録とcheckログは `/private/tmp/pc88-stagef-measures/`。この一式の測定用ROM `/private/tmp/pc88-stagef-rom` はERL追加前の段Fビルド。ここで使うCLEAR正番地・FOR/GOSUB・文字列の動作は最終版と同じで、最終版の自己検査も別途通過した。hexconstの作業用コピーは `hexconst-expected-arms.tsv`、その元照合器の成功記録は `hexconst-67-check.log`。
+- 最新ビルドのINKEY生記録は `/private/tmp/pc88-stagef-final2-inkey.tsv` と `/private/tmp/pc88-stagef-final2-inkey-a1.tsv`。統合コピー、比較用Python、hold-aの不一致記録は同じ接頭辞のファイル。元の測定TSVは保持した。
+- 自己検査のログは `/private/tmp/pc88-stagef-checks-verified/`、program/listnumは `/private/tmp/pc88-stagef-checks-final/`。中断した初回の結果も残るため、完了した合格走を記録した。basicの独立した最終合格走は `/private/tmp/pc88-stagef-basic-verified.log`、memmap/asmの最終再確認は `/private/tmp/pc88-stagef-memmap-final.log`・`/private/tmp/pc88-stagef-asm-final.log`。
+期待値・照合器・既存の合格条件は変更していない。コミット・git addはしていない。

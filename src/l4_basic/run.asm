@@ -76,13 +76,13 @@ RUN_FOR_STEP_TYPE  EQU MM_RUN_FOR_STEP_TYPE  ; 1B
 RUN_FOR_STEP_DATA  EQU MM_RUN_FOR_STEP_DATA  ; 4B
 RUN_FOR_FRAME_PTR  EQU MM_RUN_FOR_FRAME_PTR  ; 2B
 RUN_FOR_CMP_RESULT EQU MM_RUN_FOR_CMP_RESULT  ; 1B
-RUN_FOR_SEARCH_IDX EQU MM_RUN_FOR_SEARCH_IDX  ; 1B
+RUN_FOR_SEARCH_IDX EQU MM_RUN_FOR_SEARCH_IDX  ; 2B
 RUN_TMP16          EQU MM_RUN_TMP16  ; 2B
 RUN_STR_TMP_LEN    EQU MM_RUN_STR_TMP_LEN  ; 1B
 RUN_STR_TMP_BUF    EQU MM_RUN_STR_TMP_BUF  ; 255B、第17節
 RUN_SCAN_DEPTH     EQU MM_RUN_SCAN_DEPTH  ; 1B (FOR/NEXTスキャンの入れ子深さ)
-RUN_GOSUB_SP       EQU MM_RUN_GOSUB_SP  ; 1B
-RUN_FOR_SP         EQU MM_RUN_FOR_SP  ; 1B
+RUN_GOSUB_SP       EQU MM_RUN_GOSUB_SP  ; 2B
+RUN_FOR_SP         EQU MM_RUN_FOR_SP  ; 2B
 RUN_TMP_E          EQU MM_RUN_TMP_E  ; 1B (MBF_ROUND_TO_INT16作業領域)
 RUN_TMP_SHIFT      EQU MM_RUN_TMP_SHIFT
 RUN_TMP_M2         EQU MM_RUN_TMP_M2
@@ -107,15 +107,13 @@ VARREC_VALUE        EQU 10
 ;                [RESUME record2+curptr2+lineend2]
 RUN_FOR_STACK       EQU MM_RUN_FOR_STACK
 RUN_FOR_FRAME_SIZE  EQU 24
-RUN_FOR_STACK_CAP   EQU 8
-; RUN_FOR_STACKはLIMIT-511を保持する2Bポインタ。深さ8は段Fまで維持。
+; FORは下端+92から上向き、GOSUBとの間の空きだけ使用する。
 
 ; ---- GOSUBスタック ----
-; フレーム(6B): [record2][curptr2][lineend2]
+; フレーム(7B): [record2][curptr2][lineend2][詰め1]
 RUN_GOSUB_STACK      EQU MM_RUN_GOSUB_STACK
-RUN_GOSUB_FRAME_SIZE EQU 6
-RUN_GOSUB_STACK_CAP  EQU 8
-; RUN_GOSUB_STACKはFOR先頭+192を保持する2Bポインタ。
+RUN_GOSUB_FRAME_SIZE EQU 7
+; GOSUBはLIMIT+1から下向き。両深さは16bit。
 
 RUN_BREAK_TXT: DB "Break",0
 RUN_INTXT: DB " in ",0
@@ -439,6 +437,8 @@ VAR_READ_NUMERIC:
     JR NZ,_vrn_normal
     INC HL
     LD A,(HL)
+    CP 'L'
+    JR Z,_vrn_erl
     CP 'R'
     JR NZ,_vrn_normal
     INC HL
@@ -448,6 +448,21 @@ VAR_READ_NUMERIC:
     LD A,(RUN_LAST_ERR)
     LD L,A
     LD H,0
+    JP VAL_SET_INT
+; ERLは採取器のCLEAR誤り/GOSUB溢れの区別にも使う。
+_vrn_erl:
+    INC HL
+    LD A,(HL)
+    OR A
+    JR NZ,_vrn_normal
+    LD HL,(MM_S9_RESUME_REC)
+    LD A,H
+    OR L
+    JP Z,VAL_SET_INT
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    EX DE,HL
     JP VAL_SET_INT
 _vrn_normal:
     CALL VAR_GET_OR_CREATE
@@ -1426,32 +1441,18 @@ _plc_ovfl:
 ; FORスタック
 ; =======================================================================
 
-; FOR_SLOT_ADDR — A=インデックス(0-7)。HL=RUN_FOR_STACK+インデックス*24。
-;   破壊: HL,DE。
+; FOR_SLOT_ADDR — HL=インデックス。HL=FOR先頭+インデックス*24。
 FOR_SLOT_ADDR:
-    LD H,0
-    LD L,A
-    LD D,H
-    LD E,L
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL
-    PUSH HL
-    ADD HL,HL
-    POP DE
-    ADD HL,DE
-    LD DE,(RUN_FOR_STACK)
-    ADD HL,DE
-    RET
+    LD (MM_STACK_INDEX),HL
+    LD HL,07D50h
+    JP S9_BANK_CALL
 
 ; RUN_FOR_PUSH — RUN_FOR_VARNAME/LIMIT/STEPと現在位置(RUN_CUR_RECORD/
 ;   CUR_PTR/LINE_END)をFORスタックへ積む。破壊: AF,BC,DE,HL。
 RUN_FOR_PUSH:
-    LD A,(RUN_FOR_SP)
-    CP RUN_FOR_STACK_CAP
-    JR NC,_rfp_oom
-    CALL FOR_SLOT_ADDR
-    PUSH HL
+    LD HL,07D70h
+    CALL S9_BANK_CALL
+    JP C,_rfp_oom
     LD DE,RUN_FOR_VARNAME
     LD B,8
 _rfp_copyname:
@@ -1504,10 +1505,9 @@ _rfp_copyname:
     LD (HL),E
     INC HL
     LD (HL),D
-    POP HL
-    LD A,(RUN_FOR_SP)
-    INC A
-    LD (RUN_FOR_SP),A
+    LD HL,(RUN_FOR_SP)
+    INC HL
+    LD (RUN_FOR_SP),HL
     XOR A
     LD (ERROR_FLAG),A
     RET
@@ -1520,9 +1520,9 @@ _rfp_oom:
 
 ; RUN_FOR_POP_DISCARD — FORスタックを1つ減らす(中身は使わない)。
 RUN_FOR_POP_DISCARD:
-    LD A,(RUN_FOR_SP)
-    DEC A
-    LD (RUN_FOR_SP),A
+    LD HL,(RUN_FOR_SP)
+    DEC HL
+    LD (RUN_FOR_SP),HL
     RET
 
 ; RUN_FOR_FIND_BY_NAME — IDENT_BUFと同名のフレームをスタックの上から
@@ -1530,14 +1530,15 @@ RUN_FOR_POP_DISCARD:
 ;   (内側の閉じていないループは暗黙に閉じる)。
 ;   出力: A=1見つかった/0見つからない(RUN_FOR_SP不変)。
 RUN_FOR_FIND_BY_NAME:
-    LD A,(RUN_FOR_SP)
-    LD (RUN_FOR_SEARCH_IDX),A
+    LD HL,(RUN_FOR_SP)
+    LD (RUN_FOR_SEARCH_IDX),HL
 _rffbn_loop:
-    LD A,(RUN_FOR_SEARCH_IDX)
-    OR A
+    LD HL,(RUN_FOR_SEARCH_IDX)
+    LD A,H
+    OR L
     JR Z,_rffbn_notfound
-    DEC A
-    LD (RUN_FOR_SEARCH_IDX),A
+    DEC HL
+    LD (RUN_FOR_SEARCH_IDX),HL
     CALL FOR_SLOT_ADDR
     PUSH HL
     LD DE,IDENT_BUF
@@ -1550,9 +1551,9 @@ _rffbn_cmp:
     INC DE
     DJNZ _rffbn_cmp
     POP HL
-    LD A,(RUN_FOR_SEARCH_IDX)
-    INC A
-    LD (RUN_FOR_SP),A
+    LD HL,(RUN_FOR_SEARCH_IDX)
+    INC HL
+    LD (RUN_FOR_SP),HL
     LD A,1
     RET
 _rffbn_mismatch:
@@ -1676,8 +1677,8 @@ _rftb_out:
 ;   最初から範囲外(本体スキップ)かどうかを判定する。
 ;   出力: A=1スキップすべき/0本体へ入る。
 RUN_FOR_CHECK_SKIP:
-    LD A,(RUN_FOR_SP)
-    DEC A
+    LD HL,(RUN_FOR_SP)
+    DEC HL
     CALL FOR_SLOT_ADDR
     LD (RUN_FOR_FRAME_PTR),HL
     CALL RUN_FOR_TEST_BOUNDS
@@ -1687,8 +1688,8 @@ RUN_FOR_CHECK_SKIP:
 ;   範囲を判定する。出力: A=1継続(ループ本体へ戻る)/0終了(スタックは
 ;   ポップしない、呼び出し元がPOPする)。破壊多数。
 RUN_FOR_STEP_AND_TEST:
-    LD A,(RUN_FOR_SP)
-    DEC A
+    LD HL,(RUN_FOR_SP)
+    DEC HL
     CALL FOR_SLOT_ADDR
     LD (RUN_FOR_FRAME_PTR),HL
     LD DE,IDENT_BUF
@@ -1818,45 +1819,15 @@ _rstmn_notfound:
 ; GOSUBスタック
 ; =======================================================================
 
+; HL=深さ。HL=LIMIT+1-7*深さ（未使用側の境界）。
+GOSUB_SLOT_ADDR:
+    LD (MM_STACK_INDEX),HL
+    LD HL,07D60h
+    JP S9_BANK_CALL
+
 RUN_GOSUB_PUSH:
-    LD A,(RUN_GOSUB_SP)
-    CP RUN_GOSUB_STACK_CAP
-    JR NC,_rgp_oom
-    LD H,0
-    LD L,A
-    ADD HL,HL
-    LD D,H
-    LD E,L
-    ADD HL,HL
-    ADD HL,DE
-    LD DE,(RUN_GOSUB_STACK)
-    ADD HL,DE
-    LD DE,(RUN_CUR_RECORD)
-    LD (HL),E
-    INC HL
-    LD (HL),D
-    INC HL
-    LD DE,(CUR_PTR)
-    LD (HL),E
-    INC HL
-    LD (HL),D
-    INC HL
-    LD DE,(LINE_END)
-    LD (HL),E
-    INC HL
-    LD (HL),D
-    LD A,(RUN_GOSUB_SP)
-    INC A
-    LD (RUN_GOSUB_SP),A
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_rgp_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
+    LD HL,07D40h
+    JP S9_BANK_CALL
 
 ; =======================================================================
 ; 文ハンドラ(RUN_EXECから呼ばれる)
@@ -1919,20 +1890,17 @@ _gosub_undef:
     RET
 
 RETURN_STMT:
-    LD A,(RUN_GOSUB_SP)
-    OR A
+    LD HL,(RUN_GOSUB_SP)
+    LD A,H
+    OR L
     JR Z,_ret_nogosub
-    DEC A
-    LD (RUN_GOSUB_SP),A
-    LD H,0
-    LD L,A
-    ADD HL,HL
-    LD D,H
-    LD E,L
-    ADD HL,HL
-    ADD HL,DE
-    LD DE,(RUN_GOSUB_STACK)
-    ADD HL,DE
+    PUSH HL
+    CALL GOSUB_SLOT_ADDR
+    EX DE,HL
+    POP HL
+    DEC HL
+    LD (RUN_GOSUB_SP),HL
+    EX DE,HL
     LD E,(HL)
     INC HL
     LD D,(HL)
@@ -2090,8 +2058,9 @@ NEXT_STMT:
     JR Z,_next_nofor
     JR _next_have_frame
 _next_no_name:
-    LD A,(RUN_FOR_SP)
-    OR A
+    LD HL,(RUN_FOR_SP)
+    LD A,H
+    OR L
     JR Z,_next_nofor
 _next_have_frame:
     CALL RUN_FOR_STEP_AND_TEST
@@ -2892,12 +2861,12 @@ RUN_RESET_STATE:
 RUN_CLEAR_STATE:
     XOR A
     LD (MM_VAL_SP),A
-    LD (RUN_FOR_SP),A
-    LD (RUN_GOSUB_SP),A
     LD (RUN_ERROR_ACTIVE),A
     LD (RUN_LAST_ERR),A
     LD (RUN_DATA_STATE),A
     LD HL,0
+    LD (RUN_FOR_SP),HL
+    LD (RUN_GOSUB_SP),HL
     LD (RUN_ERROR_HANDLER_LINE),HL
     LD (RUN_DATA_REC),HL
     LD (RUN_DATA_PTR),HL
@@ -2915,7 +2884,7 @@ _rrs_pages:
     LD (HL),A
     INC HL
     DJNZ _rrs_pages
-    LD HL,(MM_RUN_FOR_STACK)
+    LD HL,(MM_STACK_BOTTOM)
     LD (MM_FREE_TOP),HL
     CALL PROGRAM_FIND_END
     INC HL
@@ -4687,6 +4656,11 @@ _aas_err:
 ;   RUN_DATA_REC(DATAの走査位置)を持つ。
 ; =======================================================================
 ; SAVE入口と画面捕捉の常駐追加分を含めても0x79D7を埋め草のまま保つ。
+; FREの本体はバンク3。
+S9D_DO_FRE:
+    LD HL,07D30h
+    JP S9_BANK_CALL
+
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 ; DIM_STMT は常駐窓(0x6000未満)に置く必要が無いので、0x79D7前の空きを

@@ -1,4 +1,4 @@
-"""RAM配置の正典。段D/Eの動的配置後。ROM窓の呼び先は対象外。
+"""RAM配置の正典。段Fの可変上限・共有スタック配置後。ROM窓の呼び先は対象外。
 
 REGIONSのbase/sizeからFIELDSの番地とアセンブル用EQUを生成する。
 別名は同じMM_名を参照し、移設時は対象構造のbaseだけを変更する。
@@ -47,7 +47,7 @@ REGIONS = (
     Region('STRING_WORK', 0xECA2, 16, '一時', '文字列操作・RESUME一時カウンタ', 'normal'),
     Region('STMT_START', 0xFFEB, 2, '保持（毎文更新）', 'RESUME NEXT文頭', 'normal'),
     Region('STRCMP', 0xECB2, 256, '一時', '文字列比較左辺退避（棚卸し追補）', 'normal'),
-    Region('RUN', 0xEFBC, 90, '保持/一時', '実行状態（offset 1–5・82–83は保持、他一時）', 'normal'),
+    Region('RUN', 0xEFBC, 90, '保持/一時', '実行状態（offset 1–5は保持、82–83はスタック計算一時、他一時）', 'normal'),
     Region('VAR_FREE', 0xF016, 2, '一時', '空き変数レコードポインタ', 'normal'),
     Region('RUN_EXTRA_HEAD', 0xF018, 8, '一時', 'キーワード・比較・DATA希望型', 'normal'),
     Region('DATA_POSITION', 0xFFED, 7, '保持', 'DATA保存位置（編集/CLEAR/NEW/LOAD/RUNで無効化）', 'normal'),
@@ -80,7 +80,8 @@ REGIONS = (
     Region('INKEY_QUEUE', 0xF1EA, 32, '保持', 'INKEYキュー', 'normal'),
     Region('PROGRAM_WORK', 0xFF80, 29, '一時', '本文編集・LISTポインタ', 'normal'),
     Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別', 'normal'),
-    Region('CPU_STACK', 0xF238, 400, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
+    Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
+    Region('CPU_STACK', 0xF246, 386, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
     Region('EXT_TEST_LOW', 0xFF9D, 8, '一時', 'EXT_BANK_ST_*・排他的なSAVE合成試験（通常ビルドでは使わない）', 'ext-test'),
     Region('EXT_TEST_HIGH', 0xFFA5, 5, '一時', 'EXT_BANK_ST_*（通常ビルドでは使わない）', 'ext-test'),
@@ -99,6 +100,11 @@ OVERLAPS = {
 
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
 FIELDS = {
+    'MM_STACK_INDEX': ('RUN', 82),
+    'MM_STACK_SIZE': ('STACK_CONFIG', 0),
+    'MM_STACK_BOTTOM': ('STACK_CONFIG', 2),
+    'MM_CLEAR_LIMIT': ('STACK_CONFIG', 10),
+    'MM_CLEAR_STACK': ('STACK_CONFIG', 12),
     'MM_USER_LIMIT': ('MEMDYN', 0),
     'MM_HEAP_START': ('MEMDYN', 2),
     'MM_HEAP_END': ('MEMDYN', 4),
@@ -357,13 +363,13 @@ FIELDS = {
     'MM_RUN_FOR_STEP_DATA': ('RUN', 39),
     'MM_RUN_FOR_FRAME_PTR': ('RUN', 43),
     'MM_RUN_FOR_CMP_RESULT': ('RUN', 45),
-    'MM_RUN_FOR_SEARCH_IDX': ('RUN', 46),
+    'MM_RUN_FOR_SEARCH_IDX': ('STACK_CONFIG', 8),
     'MM_RUN_TMP16': ('RUN', 47),
     'MM_RUN_STR_TMP_LEN': ('RUN', 49),
     'MM_RUN_STR_TMP_BUF': ('STRING_TMP', 0),
     'MM_RUN_SCAN_DEPTH': ('RUN', 81),
-    'MM_RUN_GOSUB_SP': ('RUN', 82),
-    'MM_RUN_FOR_SP': ('RUN', 83),
+    'MM_RUN_GOSUB_SP': ('STACK_CONFIG', 6),
+    'MM_RUN_FOR_SP': ('STACK_CONFIG', 4),
     'MM_RUN_TMP_E': ('RUN', 84),
     'MM_RUN_TMP_SHIFT': ('RUN', 85),
     'MM_RUN_TMP_M2': ('RUN', 86),
@@ -664,7 +670,7 @@ FIELDS = {
     'MM_S9_RESUME_END': ('RESUME', 4),
     'MM_S9E_L_LEN': ('STRCMP', 0),
     'MM_S9E_L_BUF': ('STRCMP', 1),
-    'MM_STACK_TOP': ('CPU_STACK', 400),
+    'MM_STACK_TOP': ('CPU_STACK', 386),
     'MM_STRING_FLAGS': ('STRING_USED', 0),
     'MM_S9_RESUME_SKIP': ('STRING_WORK', 15),
     'MM_STMT_START': ('STMT_START', 0),
@@ -728,7 +734,9 @@ ALIASES = {
 
 CONSTANTS = {
     "MM_USER_START": 0x8400,
-    "MM_USER_LIMIT_DEFAULT": 0xE5FF,
+    "MM_USER_LIMIT_DEFAULT": 0xE5FD,
+    "MM_USER_LIMIT_MAX": 0xE5FF,
+    "MM_STACK_RESERVED": 92,
     "MM_USER_STACK_SIZE": 512,
     "MM_STRING_PAGE_COUNT": 96,
     "MM_PROGRAM_AREA": 0x8400,
@@ -737,9 +745,9 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=298Bを追記",
-    "STRING_PAGES": "LIMIT-511の下から256Bずつ下向き、使用ビット表で管理",
-    "FOR_STACK": "LIMIT-511から24B×8",
-    "GOSUB_STACK": "FOR先頭+192から6B×8（512B内）",
+    "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
+    "FOR_STACK": "STACK_BOTTOM+92から24Bずつ上向き（GOSUBと共用）",
+    "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",
     "CAPTURE": "HEAP_ENDからFREE_TOPまでの空き（SAVE中のみ）",
 }
 

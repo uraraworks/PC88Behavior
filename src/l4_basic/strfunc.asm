@@ -20,6 +20,117 @@ S9_RESUME_PTR EQU MM_S9_RESUME_PTR
 S9_RESUME_END EQU MM_S9_RESUME_END
 RUN_ERROR_ACTIVE EQU MM_RUN_ERROR_ACTIVE
 
+    ORG 0x7300
+; 第1引数は評価して無視。省略した上限/スタック量は現在値を保持する。
+; 候補を別に持ち、構文/範囲/本文との衝突を確認してから初期化する。
+S9B_CLEAR:
+    LD HL,(MM_USER_LIMIT)
+    LD (MM_CLEAR_LIMIT),HL
+    LD HL,(MM_STACK_SIZE)
+    LD (MM_CLEAR_STACK),HL
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    OR A
+    JP Z,s9b_clear_apply
+    CP ':'
+    JP Z,s9b_clear_apply
+    CP ','
+    JR Z,s9b_clear_second
+    CALL S9B_CLEAR_EXPR
+    CALL S9_BAD
+    RET NZ
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    CP ','
+    JP NZ,s9b_clear_apply
+s9b_clear_second:
+    CALL B3_ADV_PTR
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    CP ','
+    JR Z,s9b_clear_third
+    CALL S9B_CLEAR_EXPR
+    CALL S9_BAD
+    RET NZ
+    CALL S9D_LIMIT_CUR
+    CALL S9_BAD
+    RET NZ
+    LD HL,MM_USER_START
+    OR A
+    SBC HL,DE
+    JR Z,s9b_clear_min_ok
+    JP NC,S9_ILLEGAL
+s9b_clear_min_ok:
+    LD HL,MM_USER_LIMIT_MAX
+    OR A
+    SBC HL,DE
+    JP C,S9_ILLEGAL
+    LD (MM_CLEAR_LIMIT),DE
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    CP ','
+    JR NZ,s9b_clear_apply
+s9b_clear_third:
+    CALL B3_ADV_PTR
+    CALL S9B_CLEAR_EXPR
+    CALL S9_BAD
+    RET NZ
+    CALL S9B_ADDRESS_CUR
+    CALL S9_BAD
+    RET NZ
+    LD (MM_CLEAR_STACK),DE
+s9b_clear_apply:
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    OR A
+    JR Z,s9b_clear_validate
+    CP ':'
+    JR Z,s9b_clear_validate
+    LD A,2
+    JP S9_ERROR
+s9b_clear_validate:
+    LD HL,(MM_CLEAR_STACK)
+    LD DE,MM_STACK_RESERVED+7
+    OR A
+    SBC HL,DE
+    JR C,s9b_clear_oom
+    LD HL,(MM_CLEAR_LIMIT)
+    INC HL
+    LD DE,(MM_CLEAR_STACK)
+    OR A
+    SBC HL,DE
+    JR C,s9b_clear_oom
+    LD DE,(MM_HEAP_START)       ; 本文＋番兵。既存記号はCLEARで消す。
+    OR A
+    SBC HL,DE
+    JR C,s9b_clear_oom
+    LD HL,(MM_CLEAR_LIMIT)
+    LD (MM_USER_LIMIT),HL
+    LD HL,(MM_CLEAR_STACK)
+    LD (MM_STACK_SIZE),HL
+    CALL S9B_CLEAR_STATE
+    CALL S9D_LAYOUT
+    JP S9_OK
+s9b_clear_oom:
+    LD A,7
+    JP S9_ERROR
+S9B_CLEAR_EXPR:
+    CALL S9_IS_STRING
+    OR A
+    JP NZ,S9_TYPE
+    JP S9B_EXPR
+
+S9B_EXPR_ADDR EQU 0x1787
+S9B_EXPR:
+    LD IX,S9B_EXPR_ADDR
+    JP B3_MAIN_CALL_ADDR
+S9B_CLEAR_ADDR EQU 0x1787
+S9B_CLEAR_STATE:
+    LD IX,S9B_CLEAR_ADDR
+    JP B3_MAIN_CALL_ADDR
+
+
+
     ORG 0x7400
     JP S9_CHR
     ORG 0x7410

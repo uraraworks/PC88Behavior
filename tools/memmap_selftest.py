@@ -308,10 +308,19 @@ def main():
         if not any("動的構造の仮置きが残留" in e for e in check_map(restored)):
             raise AssertionError(f"仮置き再導入を検出できない: {name}")
     assert memmap.CONSTANTS["MM_USER_START"] == 0x8400
-    assert memmap.CONSTANTS["MM_USER_LIMIT_DEFAULT"] == 0xE5FF
+    assert memmap.CONSTANTS["MM_USER_LIMIT_DEFAULT"] == 0xE5FD
     assert set(memmap.DYNAMIC_STRUCTURES) == {"PROGRAM", "HEAP", "STRING_PAGES", "FOR_STACK", "GOSUB_STACK", "CAPTURE"}
+    assert memmap.CONSTANTS["MM_USER_LIMIT_MAX"] == 0xE5FF
+    assert memmap.CONSTANTS["MM_USER_STACK_SIZE"] == 512
+    assert memmap.CONSTANTS["MM_STACK_RESERVED"] == 92
+    addresses = memmap.addresses()
+    for name in ("MM_STACK_SIZE", "MM_STACK_BOTTOM", "MM_RUN_FOR_SP", "MM_RUN_GOSUB_SP",
+                 "MM_RUN_FOR_SEARCH_IDX", "MM_CLEAR_LIMIT", "MM_CLEAR_STACK"):
+        assert 0xF238 <= addresses[name] < 0xF246
+    assert addresses["MM_STACK_INDEX"] == addresses["MM_RUN_CUR_RECORD"] + 81
+    assert addresses["MM_STACK_TOP"] == 0xF3C8
     check_value_stack()
-    print("memmap_selftest: OK（段D/E仮置き全廃・利用者領域に固定域なし・25行VRAM禁止・スタック400B/最低384B・分割番地・EQU・重なり・陰性対照7種＋旧仮置き7構造）")
+    print("memmap_selftest: OK（段D/E仮置き全廃・利用者領域に固定域なし・25行VRAM禁止・スタック386B/最低384B・分割番地・EQU・重なり・陰性対照7種＋旧仮置き7構造）")
     return 0
 
 

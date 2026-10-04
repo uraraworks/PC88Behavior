@@ -84,6 +84,51 @@ _read_syntax:
     RET
 
 
+    ORG 0x6180
+S9D_GOSUB_PUSH:
+    LD HL,(MM_RUN_GOSUB_SP)
+    INC HL
+    LD (MM_STACK_INDEX),HL
+    CALL S9D_GOSUB_SLOT
+    PUSH HL
+    LD HL,(MM_RUN_FOR_SP)
+    LD (MM_STACK_INDEX),HL
+    CALL S9D_FOR_SLOT
+    EX DE,HL
+    POP HL
+    PUSH HL
+    OR A
+    SBC HL,DE
+    POP HL
+    JR C,_rgp_oom
+    LD DE,(MM_RUN_CUR_RECORD)
+    LD (HL),E
+    INC HL
+    LD (HL),D
+    INC HL
+    LD DE,(MM_CUR_PTR)
+    LD (HL),E
+    INC HL
+    LD (HL),D
+    INC HL
+    LD DE,(MM_LINE_END)
+    LD (HL),E
+    INC HL
+    LD (HL),D
+    LD HL,(MM_RUN_GOSUB_SP)
+    INC HL
+    LD (MM_RUN_GOSUB_SP),HL
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_rgp_oom:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,7
+    LD (ERROR_KIND),A
+    RET
+
+
     ORG 0x6200
 ; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
 ;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
@@ -112,7 +157,7 @@ _restore_ok:
     ORG 0x6230
 ; ページはスタック域の直下から下向き。256B境界への丸めはしない。
 B3_PAGE_ALLOC:
-    LD DE,(MM_RUN_FOR_STACK)
+    LD DE,(MM_STACK_BOTTOM)
     DEC D
     LD HL,MM_STRING_FLAGS
     LD C,1
@@ -155,7 +200,7 @@ b3_page_alloc_done:
     RET
 ; DE=解放するページ。ページは動かさず、最下端だけ再走査する。
 B3_PAGE_FREE:
-    LD HL,(MM_RUN_FOR_STACK)
+    LD HL,(MM_STACK_BOTTOM)
     OR A
     SBC HL,DE
     LD A,H
@@ -180,7 +225,7 @@ b3_page_free_apply:
     CPL
     AND (HL)
     LD (HL),A
-    LD DE,(MM_RUN_FOR_STACK)
+    LD DE,(MM_STACK_BOTTOM)
     LD (MM_FREE_TOP),DE
     LD HL,MM_STRING_FLAGS
     LD C,1
@@ -264,6 +309,92 @@ B3_ADV_PTR:
 B3_AT_END:
     LD IX,B3_AT_END_ADDR
     JP B3_MAIN_CALL_ADDR
+
+; FREは数値/文字列の引数を評価し、同じ自作空きバイト数を返す。
+S9D_FRE:
+    CALL S9_IS_STRING
+    OR A
+    JR Z,s9d_fre_numeric
+    CALL S9_STRING_EXPR
+    JR s9d_fre_close
+s9d_fre_numeric:
+    CALL S9B_EXPR
+s9d_fre_close:
+    CALL S9_BAD
+    RET NZ
+    CALL S9_CLOSE
+    CALL S9_BAD
+    RET NZ
+    LD HL,(MM_FREE_TOP)
+    LD DE,(MM_HEAP_END)
+    OR A
+    SBC HL,DE
+    JP S9_SET_INT
+
+; 初期化後に位置を再計算。CPUスタック/固定域には触れない。
+S9D_LAYOUT:
+    LD HL,(MM_USER_LIMIT)
+    INC HL
+    LD (MM_RUN_GOSUB_STACK),HL
+    LD DE,(MM_STACK_SIZE)
+    OR A
+    SBC HL,DE
+    LD (MM_STACK_BOTTOM),HL
+    LD (MM_FREE_TOP),HL
+    LD DE,MM_STACK_RESERVED
+    ADD HL,DE
+    LD (MM_RUN_FOR_STACK),HL
+    RET
+
+S9D_FOR_SLOT:
+    LD HL,(MM_STACK_INDEX)
+    LD D,H
+    LD E,L
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    PUSH HL
+    ADD HL,HL
+    POP DE
+    ADD HL,DE
+    LD DE,(MM_RUN_FOR_STACK)
+    ADD HL,DE
+    RET
+
+
+S9D_GOSUB_SLOT:
+    LD HL,(MM_STACK_INDEX)
+    LD D,H
+    LD E,L
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    OR A
+    SBC HL,DE
+    EX DE,HL
+    LD HL,(MM_RUN_GOSUB_STACK)
+    OR A
+    SBC HL,DE
+    RET
+
+
+; DE=FOR深さ。HL=次のフレーム、CF=1は共用域不足。
+S9D_FOR_ROOM:
+    LD HL,(MM_RUN_FOR_SP)
+    LD (MM_STACK_INDEX),HL
+    CALL S9D_FOR_SLOT
+    PUSH HL
+    LD DE,24
+    ADD HL,DE
+    PUSH HL
+    LD HL,(MM_RUN_GOSUB_SP)
+    LD (MM_STACK_INDEX),HL
+    CALL S9D_GOSUB_SLOT
+    POP DE
+    OR A
+    SBC HL,DE
+    POP HL
+    RET
 
 ; SAVE捕捉本体。EXT_BANK_CALL_CAPTURE経由でのみ入り、main呼び出しはしない。
 B3_CAPTURE_IN EQU MM_B3_CAPTURE_IN

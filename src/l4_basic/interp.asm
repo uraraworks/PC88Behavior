@@ -1295,6 +1295,8 @@ FTNF_TABLE:
     DW FTNF_DO_LOG
     DB 4,"PEEK"
     DW S9B_DO_PEEK
+    DB 3,"FRE"
+    DW S9D_DO_FRE
     DB 5,"INSTR"
     DW S9_DO_INSTR
     DB 0
