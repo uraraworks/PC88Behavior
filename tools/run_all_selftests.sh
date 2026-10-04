@@ -269,6 +269,7 @@ SCRIPTS_EXPECTED=(
   "tools/l4_strcmp_selftest.sh:0"
   # INKEY$の文境界負荷・位相・短押下の頑健性。自作ROMだけで検査する。
   "tools/l4_inkey_robust_selftest.sh:0"
+  "tools/l4_hexconst_selftest.sh:0"
   # M7段階5終盤（2026-09-16）。l4-c5(代表プログラム集の適合場面)用の
   # 打鍵計画・記録器 tools/l4_program_typeplan.py・
   # tools/l4_program_conform_record.py。合成VRAM写しだけで完結するので
