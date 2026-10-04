@@ -59,7 +59,23 @@ def addendum1_arms():
     return out
 
 
+def addendum2_known_arms():
+    """追補2の関門。1回目の既知値（0xE400→23270、0xE800→ERR 5）を、打鍵行も1回目と一致させて再現。"""
+    return [dict(k, id=k['id'].replace('a1-', 'a2-')) for k in known_arms()[:2]]
+
+
+def addendum2_arms():
+    """追補2: CLEAR上限の表記（16進・負の10進・非整数・範囲外）。予測は立てない（観測）。"""
+    out = []
+    for name, lit in (('hd000', '&hd000'), ('neg12288', '-12288'), ('hcfff', '&hcfff'),
+                      ('neg1', '-1'), ('he5ff', '&he5ff'), ('neg6657', '-6657'),
+                      ('frac', '53248.5'), ('over', '65536'), ('neg32769', '-32769')):
+        out.append(dict(id='a2-'+name, kind='limit', limit=0, lit=lit))
+    return out
+
+
 def selection(addendum):
+    if addendum == 2: return controls()+addendum2_known_arms()+addendum2_arms()
     return controls()+(known_arms()+addendum1_arms() if addendum == 1 else arms())
 
 
@@ -112,7 +128,7 @@ def program(a, trap=True):
     if k in ('limit', 'default', 'known'):
         # 既定腕も同じCLEAR行を保持し、分岐先だけを変える。
         lines += ['10 goto '+('30' if k == 'default' else '20'),
-                  f'20 clear ,{a["limit"]}'+(f',{a["stack"]}' if 'stack' in a else '')]
+                  f'20 clear ,{a.get("lit", a["limit"])}'+(f',{a["stack"]}' if 'stack' in a else '')]
         if trap: lines.append('30 on error goto 950')
         lines += ['40 print "s9da";1;1', '50 print "s9dv";2;'+a.get('expr', 'fre(0)')]
     else:
@@ -324,6 +340,50 @@ def addendum_selftest(work):
     print('OK 追補1: 腕26＋関門5の合成陽性・陰性、深さ腕の添字・順序・上限到達、既知値ずれで停止')
 
 
+def addendum2_selftest(work):
+    sel = selection(2); obs = addendum2_arms()
+    assert len(obs) == 9 and len(addendum2_known_arms()) == 2 and len(sel) == 13
+    assert len({a['id'] for a in sel}) == len(sel)
+    used = {a['id'] for a in selection(1)} | {a['id'] for a in arms()}
+    assert not any(a['id'] in used for a in obs+addendum2_known_arms())
+    first = {a['id']: a for a in arms()}
+    for kid, rid in (('a2-known-e400', 'limit-e400'), ('a2-known-e800', 'limit-e800')):
+        k = [a for a in addendum2_known_arms() if a['id'] == kid][0]
+        assert program(k) == program(first[rid]) and '10 goto 20' in program(k), kid
+    lits = {a['id']: a['lit'] for a in obs}
+    for a in obs:
+        pg = program(a)
+        assert '20 clear ,'+a['lit'] in pg and '5 on error goto 950' in pg and '30 on error goto 950' in pg
+    assert lits['a2-hd000'] == '&hd000' and lits['a2-neg12288'] == '-12288'
+    ok = [['s9da', 1, 1], ['s9dv', 2, 18150], DONE.copy()]
+    ng = [['s9de', 1, 5], DONE.copy()]
+    for a in obs:  # 陽性: 受理・拒否どちらも妥当。陰性: DONE欠落・添字違い
+        for rows in (ok, ng):
+            assert extract(common.screen_of(rows))[0] == rows and valid(rows, a), a['id']
+            assert not valid(rows[:-1], a)
+        assert not valid([['s9da', 1, 1], ['s9dv', 1, 18150], DONE.copy()], a)
+        assert not valid([['s9de', 2, 5], DONE.copy()], a)
+    def sample(a):
+        if prediction(a) is not None: return prediction(a)
+        return ok
+    calls = []
+    def drift(rom, official, a, work, trap=True):
+        calls.append(a['id'])
+        if a['id'] == 'a2-known-e400': return [['s9da', 1, 1], ['s9dv', 2, 23271], DONE.copy()], 0
+        return sample(a), 0
+    with tempfile.TemporaryDirectory(prefix='addendum2-', dir=work) as t:
+        root = Path(t)
+        with patch(__name__+'.run_arm', lambda rom, official, a, work, trap=True: (sample(a), 0)):
+            records = measure('', False, sel, root)
+        assert emit(root/'good.tsv', records)
+        with patch(__name__+'.run_arm', drift): records = measure('', False, sel, root)
+        assert not emit(root/'drift.tsv', records)
+        assert 'a2-hd000' not in calls and len(calls) == 6
+        rows = list(csv.DictReader((root/'drift.tsv').open(), delimiter='\t'))
+        assert all(r['gate'] == 'gate_failed' for r in rows) and len(rows) == 2*len(sel)
+    print('OK 追補2: 腕9＋関門4の合成陽性・陰性、known腕の打鍵行が1回目と一致、既知値ずれで停止')
+
+
 def selftest(work):
     work.mkdir(parents=True, exist_ok=True)
     selected = controls()+arms()
@@ -356,6 +416,7 @@ def selftest(work):
         assert len(snapshots(root/'screen.bin')) == 2
     print('OK 合成取り出しの陽性・陰性、CLEAR/FRE誤りの区別、関門停止')
     addendum_selftest(work)
+    addendum2_selftest(work)
     with tempfile.TemporaryDirectory(prefix='own-rom-', dir=work) as t:
         root = Path(t); rom = root/'rom'
         p = subprocess.run([os.sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom),
@@ -382,8 +443,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__); sub = p.add_subparsers(dest='command', required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path, default=WORK)
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
-    q = sub.add_parser('predict'); q.add_argument('--out', type=Path, required=True); q.add_argument('--addendum', type=int, choices=[1])
-    m = sub.add_parser('measure'); m.add_argument('--rom-dir', required=True); m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK); m.add_argument('--out', type=Path, required=True); m.add_argument('--addendum', type=int, choices=[1])
+    q = sub.add_parser('predict'); q.add_argument('--out', type=Path, required=True); q.add_argument('--addendum', type=int, choices=[1, 2])
+    m = sub.add_parser('measure'); m.add_argument('--rom-dir', required=True); m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK); m.add_argument('--out', type=Path, required=True); m.add_argument('--addendum', type=int, choices=[1, 2])
     args = p.parse_args()
     if args.command == 'selftest': return selftest(args.work_dir)
     if args.command == 'check':
