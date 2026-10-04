@@ -82,15 +82,3 @@ s9b_address_round:
     OR A
     JP Z,S9_OVERFLOW
     JP S9_OK
-
-
-; CLEARの上限は正の利用者番地のみ。PEEK/POKEの負番地表現とは区別する。
-S9D_LIMIT_CUR:
-    CALL S9_LOAD_OPA
-    LD A,(MM_MBF_OPA+2)
-    BIT 7,A
-    JP NZ,S9_ILLEGAL
-    LD A,(MM_MBF_OPA+3)
-    CP 145
-    JP NC,S9_ILLEGAL
-    JP S9B_ADDRESS_CUR

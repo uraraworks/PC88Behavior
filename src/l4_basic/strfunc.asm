@@ -52,7 +52,7 @@ s9b_clear_second:
     CALL S9B_CLEAR_EXPR
     CALL S9_BAD
     RET NZ
-    CALL S9D_LIMIT_CUR
+    CALL S9B_ADDRESS_CUR       ; 上限aもPEEK/POKEと同じ番地変換
     CALL S9_BAD
     RET NZ
     LD HL,MM_USER_START
