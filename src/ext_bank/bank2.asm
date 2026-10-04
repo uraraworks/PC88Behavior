@@ -690,6 +690,7 @@ s2_flush_error:
 
 ; 文字列で保存する処理系なので tokens.tsv の KILL=D8/NAME=F4 に対応する
 ; 文キーワードをここで大小を区別せず照合する。名前欄は折り畳まない。
+; RANDOMIZE・POKE・CLEARも同じ表で照合し、実行本体へはmainから中継する。
     ORG 0x7000
 EXT_BANK2_DISK_MATCH:
 K2_CUR_PTR EQU 0E883h
@@ -968,4 +969,4 @@ k2_drive_error:
     JP s2_error
 
 k2_words:
-    DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",9,14,"RANDOMIZE",0
+    DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",9,14,"RANDOMIZE",4,16,"POKE",5,17,"CLEAR",0

@@ -289,6 +289,10 @@ _l4dl_loop:
     JP RUN_EXEC
 _l4dl_have_stmt:
     LD A,(STMT_KIND)
+    CP 16
+    JR Z,_l4dl_call_poke
+    CP 17
+    JR Z,_l4dl_call_clear
     CP 14
     JR Z,_l4dl_call_randomize
     CP 1
@@ -318,6 +322,12 @@ _l4dl_have_stmt:
     CP 13
     JR Z,_l4dl_call_rem
     CALL PRINT_STMT
+    JR _l4dl_after_stmt
+_l4dl_call_poke:
+    CALL S9B_DO_POKE
+    JR _l4dl_after_stmt
+_l4dl_call_clear:
+    CALL S9B_DO_CLEAR
     JR _l4dl_after_stmt
 _l4dl_call_randomize:
     CALL RANDOMIZE_STMT
@@ -1275,6 +1285,8 @@ FTNF_TABLE:
     DB 3
     DB "LOG"
     DW FTNF_DO_LOG
+    DB 4,"PEEK"
+    DW S9B_DO_PEEK
     DB 5,"INSTR"
     DW S9_DO_INSTR
     DB 0

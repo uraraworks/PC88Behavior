@@ -2698,7 +2698,7 @@ RUN_EXEC_ONE_STMT:
     CP 0
     JR Z,_reos_print
     CP 1
-    JR Z,_reos_goto
+    JP Z,_reos_goto
     CP 2
     JR Z,_reos_gosub
     CP 3
@@ -2743,6 +2743,10 @@ RUN_EXEC_ONE_STMT:
     JR Z,_reos_save
     CP 24
     JR Z,_reos_kill
+    CP 29
+    JP Z,S9B_DO_POKE
+    CP 30
+    JP Z,S9B_DO_CLEAR
     CP 28
     JP Z,S9_DO_ERROR
     CP 27
@@ -2923,6 +2927,8 @@ _run_error_emit:
 ;   (ヘッダコメント「RUNは呼ぶたびに初期化する」参照)。
 RUN_RESET_STATE:
     CALL RND_RESET
+; CLEARは乱数状態を保持する（第16節の自作判断を維持）。
+RUN_CLEAR_STATE:
     XOR A
     LD (RUN_FOR_SP),A
     LD (RUN_GOSUB_SP),A
@@ -3752,7 +3758,8 @@ TRY_MATCH_COLOR:
 STMT_COLOR_TEXT: DB "COLOR"
 STMT_COLOR_LEN EQU 5
 
-; ディスク文はバンク2でまとめて照合する（8〜12、未一致0）。
+; ディスク文と追加文はバンク2で照合する（8〜12、14=RANDOMIZE、
+; 16=POKE、17=CLEAR、未一致0）。
 TRY_MATCH_DISK_STMT:
     LD A,2
     LD HL,07000h
@@ -5207,3 +5214,14 @@ S9_DO_ERROR:
 S9_BANK_CALL:
     LD A,3
     JP EXT_BANK_CALL
+
+; 第18節。本体はバンク3。
+S9B_DO_PEEK:
+    LD HL,07D00h
+    JP S9_BANK_CALL
+S9B_DO_POKE:
+    LD HL,07D10h
+    JP S9_BANK_CALL
+S9B_DO_CLEAR:
+    LD HL,07D20h
+    JP S9_BANK_CALL
