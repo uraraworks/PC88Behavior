@@ -111,7 +111,7 @@ def program(a, trap=True):
     if trap: lines.append('5 on error goto 950')
     if k in ('limit', 'default', 'known'):
         # 既定腕も同じCLEAR行を保持し、分岐先だけを変える。
-        lines += ['10 goto '+('20' if k == 'limit' else '30'),
+        lines += ['10 goto '+('30' if k == 'default' else '20'),
                   f'20 clear ,{a["limit"]}'+(f',{a["stack"]}' if 'stack' in a else '')]
         if trap: lines.append('30 on error goto 950')
         lines += ['40 print "s9da";1;1', '50 print "s9dv";2;'+a.get('expr', 'fre(0)')]
@@ -293,6 +293,18 @@ def addendum_selftest(work):
     assert sum(l.count('for ') for l in g['a1-for-1024']) == for_levels(1024)
     assert sum(l.count('for ') for l in g['a1-for-default']) == 72
     assert not any(re.fullmatch(r'\d.*', l) is None and l not in ('new', 'cls', 'run') for l in g['a1-for-256'])
+    # 既知腕の打鍵行は、1回目の対応する腕と完全一致（CLEARを実行する形）。
+    first = {a['id']: a for a in arms()}
+    for kid, rid in (('a1-known-e400', 'limit-e400'), ('a1-known-e800', 'limit-e800'),
+                     ('a1-known-stack-256', 'stack-256')):
+        k = [a for a in known_arms() if a['id'] == kid][0]
+        assert program(k) == program(first[rid]) and '10 goto 20' in program(k), kid
+    ref = WORK/'official_round1.tsv'
+    if ref.exists():  # 期待値は1回目の公式観測そのもの（あれば照合）
+        got = {(r['arm']): json.loads(r['print_values']) for r in csv.DictReader(ref.open(), delimiter='\t')}
+        for kid, rid in (('a1-known-e400', 'limit-e400'), ('a1-known-e800', 'limit-e800'),
+                         ('a1-known-stack-256', 'stack-256')):
+            assert prediction([a for a in known_arms() if a['id'] == kid][0]) == got[rid], kid
     # 関門: 既知腕（0xE400）の値違いで全体gate_failed、後続は停止
     calls = []
     def drift(rom, official, a, work, trap=True):
