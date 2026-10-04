@@ -996,14 +996,14 @@ _l4factor_paren_err:
     LD (ERROR_FLAG),A
     RET
 _l4factor_try_num:
-    ; 数値定数の先頭判定: 数字、または'.'の直後が数字(F2/S1等、第5.3節)。
-    CALL PEEK_CHAR
+    ; Aは直前のPEEK_CHARのまま。基数定数はバンク3で整数値にする。
+    CP '&'
+    JP Z,FACTOR_RADIX
     CP '0'
     JR C,_l4factor_check_dot
     CP '9'+1
     JR C,_l4factor_is_number
 _l4factor_check_dot:
-    CALL PEEK_CHAR
     CP '.'
     JR NZ,_l4factor_try_ident
     CALL PEEK_CHAR2
@@ -1492,7 +1492,7 @@ _vciz_zero:
 ; ---------------------------------------------------------------------
 ; FTNF_DO_ABS — 第4.16節E15。負ならVAL_NEGで符号を反転するだけ
 ;   (MBF単精度/倍精度はsign-magnitude形式なので符号ビットの反転=絶対値化、
-;   整数は2の補数、いずれもVAL_NEGが型ごとに正しく行う)。
+;   整数は2の補数。ただし-32768は第22.3節に従い単精度へ昇格する)。
 ; ---------------------------------------------------------------------
 FTNF_DO_ABS:
     CALL FTNF_NUM_ARG
@@ -1502,7 +1502,9 @@ FTNF_DO_ABS:
     CALL VAL_CUR_SIGN
     OR A
     RET Z
-    JP VAL_NEG
+    LD HL,07EA0h
+    LD A,3
+    JP EXT_BANK_CALL
 
 ; ---------------------------------------------------------------------
 ; FTNF_DO_SGN — 第4.16節E15。0ならCUR=0(整数)、負なら-1、それ以外は1。
@@ -3159,3 +3161,9 @@ FTNF_RND_CALL:
 
 DIRECT_RECORD:
     DB 0,0,0,0xFF,0xFF
+
+; 第22節。窓の切替と復帰は既存中継に任せる。
+FACTOR_RADIX:
+    LD HL,07E10h
+    LD A,3
+    JP EXT_BANK_CALL

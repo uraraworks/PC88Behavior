@@ -647,8 +647,10 @@ def selftest(work):
             (rom / 'N88.ROM').write_bytes(main_rom)
 
             bank_src = root / 'bank3.asm'
-            bank_src.write_text((kw.REPO / 'src/ext_bank/bank3.asm').read_text(encoding='utf-8')
-                                + '\n' + (kw.REPO / 'src/l4_basic/listnum.asm').read_text(encoding='utf-8'),
+            sys.path.insert(0, str(kw.REPO / 'src/ext_bank'))
+            from make_ext_rom_banks import BANK3_EXTRA_SOURCES
+            bank_src.write_text('\n'.join([(kw.REPO / 'src/ext_bank/bank3.asm').read_text(encoding='utf-8')]
+                                           + [(kw.REPO / rel).read_text(encoding='utf-8') for rel in BANK3_EXTRA_SOURCES]),
                                 encoding='utf-8')
             bank_asm = z80text.Assembler()
             bank_asm.assemble(bank_src)

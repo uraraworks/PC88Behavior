@@ -673,6 +673,7 @@ LN_OVERFLOW:
 LN_REPORT:
     LD A,(LN_ERR)
     LD (ERROR_KIND),A
+    JP HEXCONST_INPUT_ERROR
 LN_MESSAGE:
     LD A,1
     LD (ERROR_FLAG),A
@@ -704,7 +705,20 @@ _ln_accum_next:
 _ln_accum_done:
     LD (LN_VALUE),HL
     RET
+; 入力書き直しと式評価は同じ読み取り規則を使う。
 LN_RADIX:
+    CALL LN_RADIX_VALUE
+    LD A,(LN_ERR)
+    OR A
+    RET NZ
+    JP LN_RADIX_OUTPUT
+LN_RADIX_VALUE:
+    XOR A
+    LD (LN_ERR),A
+    LD (LN_BIG),A
+    LD (LN_NDIG),A
+    LD (LN_VALUE),A
+    LD (LN_VALUE+1),A
     CALL LN_ACCEPT
     LD A,8
     LD (LN_BASE),A
@@ -758,6 +772,17 @@ _ln_radix_decimal:
     LD (LN_ERR),A
     RET
 _ln_radix_accept:
+    LD C,A
+    LD A,(LN_BASE)
+    CP 16
+    JR NZ,_ln_radix_accumulate
+    LD A,(LN_NDIG)
+    INC A
+    LD (LN_NDIG),A
+    CP 5
+    JP NC,_ln_integer_overflow
+_ln_radix_accumulate:
+    LD A,C
     PUSH HL
     LD C,A
     LD A,(LN_BASE)
@@ -771,6 +796,8 @@ _ln_radix_done:
     LD A,(LN_BIG)
     OR A
     JP NZ,_ln_integer_overflow
+    RET
+LN_RADIX_OUTPUT:
     LD A,'&'
     CALL LN_PUT
     LD A,(LN_BASE)

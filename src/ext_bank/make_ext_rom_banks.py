@@ -116,17 +116,26 @@ def _generic_addr_subs(text: str, addr_overrides: dict) -> str:
     return text
 
 
+# bank3.asm の後ろへこの順に連結する。器具（tools/l4_s5j_measure.py の故障注入）も
+# この並びでバンク3を組み立て直すので、足すときはここだけを直す。
+BANK3_EXTRA_SOURCES = (
+    "src/l4_basic/listnum.asm",
+    "src/ext_bank/inkey.asm",
+    "src/l3_main/key_table_gen.asm",
+    "src/l4_basic/strfunc.asm",
+    "src/l4_basic/peekpoke.asm",
+    "src/l4_basic/hexconst.asm",
+)
+
+
 def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                    inject_no_org_fault: bool = False,
                    mbf_add_addr: int = None,
                    addr_overrides: dict = None) -> bytes:
     text = asm_path.read_text(encoding="utf-8")
     if asm_path.name == "bank3.asm":
-        text += "\n" + (REPO / "src/l4_basic/listnum.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/inkey.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l3_main/key_table_gen.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/strfunc.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/peekpoke.asm").read_text(encoding="utf-8")
+        for rel in BANK3_EXTRA_SOURCES:
+            text += "\n" + (REPO / rel).read_text(encoding="utf-8")
     # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、
     # 詰め物(baseバイト)を切り落とす対象にする。ORGを使わない
     # bank1-3.asmはPC 0始まり=そのままファイル先頭が窓の先頭を意味する
