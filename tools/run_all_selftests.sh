@@ -261,6 +261,7 @@ SCRIPTS_EXPECTED=(
   "tools/l4_rnd_selftest.sh:0"
   # l4-s9a。合成整数PRINT採取と自作ROMの定数対照だけ。
   "tools/l4_strfunc_selftest.sh:0"
+  "tools/l4_inkey_selftest.sh:0"
   # l4-s9b。先行POKE・値漏出防止の合成検査と自作ROM定数対照。
   "tools/l4_peekpoke_selftest.sh:0"
   # M7段階5終盤（2026-09-16）。l4-c5(代表プログラム集の適合場面)用の
