@@ -5225,16 +5225,34 @@ S9B_DO_CLEAR:
     LD HL,07D20h
     JP S9_BANK_CALL
 
-; 第19節。通常の文境界はVRTCの変化確認のみ、立ち上がりでバンク3を呼ぶ。
+; 第19節。毎文で12行を確認し、変化時はVRTCの位相によらず走査する。
+; VRTC立ち上がりでも呼ぶ。IK_TICK=20hは時計、0は行列更新だけ。
 S9C_POLL:
     IN A,(040h)
     AND 020h
     LD HL,0E8D1h
     CP (HL)
-    RET Z
     LD (HL),A
+    JR Z,_s9c_matrix
     OR A
-    RET Z
+    JR NZ,_s9c_scan
+_s9c_matrix:
+    LD HL,0E8D5h             ; IK_OLD（RUN開始時・バンク走査時に更新）
+    LD C,0
+_s9c_port:
+    IN A,(C)
+    CP (HL)
+    JR NZ,_s9c_changed
+    INC HL
+    INC C
+    LD A,C
+    CP 12
+    JR NZ,_s9c_port
+    RET
+_s9c_changed:
+    XOR A
+_s9c_scan:
+    LD (0E8E8h),A            ; 中継がAF/BC/DEを使うのでRAMで渡す
     LD HL,06F20h
     JP S9_BANK_CALL
 S9C_INIT:

@@ -1,7 +1,7 @@
 ; docs/spec/l4-basic.md 第19節、l3-main.md 第8〜10節。
 ; 行入力と独立した行列・リピート。32文字FIFO、満杯時は新着を捨てる
 ; （容量上限・満杯時の動作は未測定のため自作判断）。
-; E8D1-E8E7: VRTC/読出し/書込み/件数/行列12B/リピート6B/新着有無。
+; E8D1-E8E8: VRTC/読出し/書込み/件数/行列12B/リピート6B/新着有無/時計。
 ; E900-E91F: キュー。既存RAM一覧の空きだけを使用する。
 IK_VRTC EQU 0E8D1h
 IK_HEAD EQU 0E8D2h
@@ -15,6 +15,7 @@ IK_TIMER EQU 0E8E4h
 IK_MOD EQU 0E8E5h
 IK_CAPS EQU 0E8E6h
 IK_EVENT EQU 0E8E7h
+IK_TICK EQU 0E8E8h
 IK_BUF EQU 0E900h
 
     ORG 0x6F00
@@ -85,7 +86,9 @@ ik_init_port:
     JR NZ,ik_init_port
     RET
 
-; VRTC立ち上がりを観測した文境界からのみ呼ぶ。全エッジをポート/ビット順。
+; 行列変化またはVRTC立ち上がりで呼ぶ。IK_TICK=0なら時計は進めない。
+; 時計の立ち上がりの取りこぼしは従来どおり（間隔は第19.4節で未確定）。
+; 押下の取りこぼしを時計から分離し、全エッジをポート/ビット順にキューする。
 IK_SCAN:
     IN A,(08h)
     LD (IK_MOD),A
@@ -160,6 +163,9 @@ ik_next_bit:
     LD (IK_CHAR),A
     RET
 ik_held:
+    LD A,(IK_TICK)
+    OR A
+    RET Z
     LD HL,IK_TIMER
     DEC (HL)
     RET NZ
