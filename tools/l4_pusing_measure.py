@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """l4-s9h: PRINT USING の予測と印間の画面セルのコード列採取。本文は出力しない。"""
 import argparse
+import copy
 import csv
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 import json
@@ -398,6 +399,12 @@ def check(expected, measured):
 
 
 WRAP_CONTROLS = ('control-wrap', 'control-long')
+# 折り返し対照2腕の公式観測（l4-s9h 1回目、2走一致。自分のプログラムの出力の文字コード列）。
+# 自作ROMは l4-s9i の W_GW で公式と同じ規則になったため、自己検査の期待値はこれを使う。
+WRAP_OFFICIAL_OBS = {
+    'control-wrap': dict(codes=[97]*70+[32]*5+[97, 97, 32, 32, 98, 32, 32, 32], end=[1, 8], err=0),
+    'control-long': dict(codes=[98]*70+[32]*5+[98]*25+[32, 32], end=[1, 27], err=0),
+}
 
 
 def wrap_dependent(arm, obs):
@@ -752,14 +759,34 @@ def selftest(work):
                                '--work-dir', str(root/'asm')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         assert proc.returncode == 0, '自作ROMの一時ビルド失敗'
         records = measure(rom, False, controls(), root, trap=False)
-        assert all(r['gate'] and r['obs'][0] == prediction(r['arm']) for r in records), \
+        def expect(a):
+            return WRAP_OFFICIAL_OBS[a['id']] if a['id'] in WRAP_CONTROLS else prediction(a)
+        assert all(r['gate'] and r['obs'][0] == expect(r['arm']) for r in records), \
             '自作定数関門失敗: '+json.dumps([(r['arm']['id'], r['obs'], r['failed']) for r in records])
         measured, expected = root/'measured.tsv', root/'expected.tsv'
-        assert emit(measured, records, trap=False)
+        # emit は全対照を prediction（80桁折り返しの仮定）と照合する従来の流れのまま。
+        # 折り返し対照2腕は上で公式観測と照合済みなので、emit/check の流れには
+        # 予測値に置き換えて通す（追補1の再判定では同2腕を関門外にしているのと整合）。
+        flow = copy.deepcopy(records)
+        for r in flow:
+            if r['arm']['id'] in WRAP_CONTROLS:
+                r['obs'] = [prediction(r['arm'])]*2
+        assert emit(measured, flow, trap=False)
         write(expected, ['arm', 'prediction'], [(a['id'], json.dumps(prediction(a))) for a in controls()])
         assert check(expected, measured)
-        records[1]['obs'] = [changed, changed]
-        assert not emit(measured, records, trap=False) and not check(expected, measured)
+        flow[1]['obs'] = [changed, changed]
+        assert not emit(measured, flow, trap=False) and not check(expected, measured)
+        # 陰性: 旧来の80桁で機械的に折り返す値（公式と違う）は折り返し対照の照合で落ちる。
+        def official_ok(recs):
+            return all(r['obs'][0] == expect(r['arm']) for r in recs)
+        assert official_ok(records)
+        for aid in WRAP_CONTROLS:
+            fresh = copy.deepcopy(records)
+            idx = next(i for i, r in enumerate(fresh) if r['arm']['id'] == aid)
+            old_style = dict(WRAP_OFFICIAL_OBS[aid], codes=prediction(fresh[idx]['arm'])['codes'])
+            assert old_style != WRAP_OFFICIAL_OBS[aid], '旧来値と公式観測が同じで陰性にならない'
+            fresh[idx]['obs'] = [old_style, old_style]
+            assert not official_ok(fresh), aid+'の旧来値を拒まない'
     print('OK 自作ROM一時ビルド、普通PRINTの定数7腕×2走、既知値改変の陰性')
     return 0
 

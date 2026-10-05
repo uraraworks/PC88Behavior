@@ -444,16 +444,27 @@ def selftest(work):
             raise RuntimeError('自作ROMの一時ビルド失敗')
         chosen = controls()
         records = measure(rom, False, chosen, root)
-        if not all(stable(r) and r['obs'][0] == prediction(r['arm'], 'W_FULL') for r in records):
-            failed_ids = [r['arm']['id'] for r in records if not stable(r) or r['obs'][0] != prediction(r['arm'])]
-            raise RuntimeError('自作W_FULL定数対照不一致: '+','.join(failed_ids))
+        if not all(stable(r) and r['obs'][0] == prediction(r['arm'], 'W_GW') for r in records):
+            failed_ids = [r['arm']['id'] for r in records if not stable(r) or r['obs'][0] != prediction(r['arm'], 'W_GW')]
+            raise RuntimeError('自作W_GW定数対照不一致: '+','.join(failed_ids))
         expected, measured = root/'constant-expected.tsv', root/'constant-measured.tsv'
-        write(expected, HEADER, prediction_rows(chosen, ('W_FULL',)))
+        write(expected, HEADER, prediction_rows(chosen, ('W_GW',)))
         assert emit(measured, records, chosen) and check(expected, measured)
-        records[-1]['obs'] = [prediction(chosen[-1], 'W_ITEM')]*2
-        emit(measured, records, chosen)
-        assert not check(expected, measured), 'W_FULL限定対照が別候補を許した'
-    print('OK 自作ROMの定数9腕×2走、W_FULL既知値一致、別候補の陰性')
+        # 陰性対照: W_GW 以外の候補（旧来の80桁折り返し W_FULL 等）の値は拒む。
+        # 自作の実装変更（W_FULL→W_GW）に伴い、定数対照の期待値を W_GW に揃えた。
+        rejected = 0
+        for other in ('W_FULL', 'W_ITEM', 'W_75'):
+            for index, arm_ in enumerate(chosen):
+                if prediction(arm_, other) == prediction(arm_, 'W_GW'):
+                    continue
+                broken = copy.deepcopy(records)
+                broken[index]['obs'] = [prediction(arm_, other)]*2
+                emit(measured, broken, chosen)
+                assert not check(expected, measured), 'W_GW限定対照が別候補'+other+'を許した'
+                rejected += 1
+        assert rejected, 'W_GW以外の候補で拒否を確かめた腕が無い'
+        assert any(prediction(a_, 'W_FULL') != prediction(a_, 'W_GW') for a_ in chosen), 'W_FULLとW_GWを区別できる対照が無い'
+    print('OK 自作ROMの定数9腕×2走、W_GW既知値一致、W_FULL等別候補の陰性')
     return 0
 
 

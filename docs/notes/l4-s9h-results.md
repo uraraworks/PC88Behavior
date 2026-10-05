@@ -92,3 +92,7 @@ control-wrap（72文字）・control-long（95文字）は、80桁まで書か�
 - 器具の `check` は `gate` 列と `prediction` を要求する。再判定TSVは `status` 列のため、`status` を `gate` へ
   写した作業用TSV（リポジトリ外）に対して `python3 tools/l4_pusing_measure.py check --expected ... --measured ...`
   を実行し、**2ファイルとも rc=0（照合一致）**。期待値の1件を改変した陰性対照は rc=1。
+
+## 自己検査の自作対照を W_GW に揃えた（自作の実装変更に伴う）
+
+自作ROMの折り返しが公式と同じ規則（l4-s9i の W_GW）になったため、`selftest` の定数対照のうち折り返し2対照（control-wrap・control-long、WRAP_CONTROLS）は、80桁折り返しの予測ではなく公式の観測値（`official_round1.tsv` の2走一致の文字コード列、`WRAP_OFFICIAL_OBS`）と照合する。残り5対照は従来どおり予測と照合。emit/check の流れ（全対照を予測で要求）は変えず、折り返し2腕は公式観測との照合を別に行う。追補1の再判定規則（折り返し2対照を関門外）とは矛盾しない。陰性として、旧来の80桁折り返し値が公式観測と照合して落ちることを確かめる。
