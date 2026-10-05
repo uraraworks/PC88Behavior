@@ -4618,6 +4618,10 @@ OW_FOR_ROOM:
     LD HL,07D70h
     JP S9_BANK_CALL
 
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
+; LET/WHILE/WEND照合はmainの語形表を読むのでmainに残す。
+; DIM本体のバンク移転で空いた予約番地後方へ置き、前方にも余裕を作る。
 ; 実行文の照合は既存TRY_MATCH_KEYWORD_GENERIC（大小不問）へ渡す。
 OW_MATCH_STMT:
     LD HL,OW_LET_TEXT
@@ -4646,101 +4650,9 @@ OW_LET_TEXT: DB "LET"
 OW_WHILE_TEXT: DB "WHILE"
 OW_WEND_TEXT: DB "WEND"
 
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
-; DIM_STMT は常駐窓(0x6000未満)に置く必要が無いので、0x79D7前の空きを
-; LIST_RENDER_TEXT（program.asm、バンクから呼ばれるため0x6000未満）へ譲るため、
-; 埋め草の後ろへ移した（l4-s5h）。
-; DIM_STMT — 第4.10節。カンマ区切りで複数配列を宣言できる
-;   (仕様書に無い判断、追加的な拡張)。同名の再DIMはDuplicate
-;   Definition(10、仕様書に無い判断)。
 DIM_STMT:
-_dim_one:
-    CALL SKIP_SPACES
-    CALL LEX_IDENT_CONSUME
-    OR A
-    JR Z,_dim_syntax
-    CP 3
-    JR Z,_dim_typeerr
-    LD HL,IDENT_BUF
-    LD DE,RUN_ARRAY_NAME
-    LD BC,8
-    LDIR
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP '('
-    JR NZ,_dim_syntax
-    CALL ADV_PTR
-    CALL LOGIC_OR_EXPR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL VAL_TO_INT16_CUR
-    JR C,_dim_ovfl
-    LD A,D
-    OR A
-    JR NZ,_dim_ovfl
-    LD A,E
-    CP ARRAY_MAX_ELEMS
-    JR NC,_dim_ovfl
-    INC A
-    LD (RUN_DIM_COUNT),A
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ')'
-    JR NZ,_dim_syntax
-    CALL ADV_PTR
-    LD HL,RUN_ARRAY_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL ARRAY_FIND
-    OR A
-    JR NZ,_dim_dup
-    LD A,(RUN_DIM_COUNT)
-    CALL ARRAY_ALLOC
-    OR A
-    JR Z,_dim_oom
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR NZ,_dim_done
-    CALL ADV_PTR
-    JR _dim_one
-_dim_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_dim_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-_dim_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,13
-    LD (ERROR_KIND),A
-    RET
-_dim_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
-_dim_dup:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,10
-    LD (ERROR_KIND),A
-    RET
-_dim_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
+    LD HL,07750h
+    JP OW_BANK_CALL
 
 DATA_ENTER_RECORD:
     LD (RUN_DATA_REC),HL
