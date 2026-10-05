@@ -391,6 +391,65 @@ def check(expected, measured):
     return True
 
 
+WRAP_CONTROLS = ('control-wrap', 'control-long')
+
+
+def wrap_dependent(arm, obs):
+    """行端の折り返し規則に依存する腕。観測か予測が80セルを超える、または改行抑止なのに2行目へ出た。"""
+    cells = [len(BEGIN)+len(obs['codes'])] + [len(BEGIN)+len(prediction(arm, c)['codes']) for c in ('U_GW', 'U_N88')]
+    return max(cells) > 80 or (obs['end'][0] >= 1 and arm['tail'] != '')
+
+
+def rejudge(measured, out):
+    """l4-s9h 追補1: 保存済み観測から再判定。折り返し対照2腕は関門から外し観測のみ残す。"""
+    with measured.open(encoding='utf-8') as stream:
+        rows = list(csv.DictReader(stream, delimiter='\t'))
+    by_arm = {a['id']: a for a in controls()+arms()}
+    grouped = {}
+    for r in rows:
+        grouped.setdefault(r['arm'], []).append(r)
+    if set(grouped) != set(by_arm):
+        return False
+    def load(r):
+        try:
+            return json.loads(r['observation'])
+        except ValueError:
+            return None
+    def stable(aid):
+        runs = grouped[aid]
+        if len(runs) != 2 or {r['repeat'] for r in runs} != {'1', '2'}:
+            return False
+        obs = [load(r) for r in runs]
+        return (obs[0] == obs[1] and valid(obs[0]) and
+                all(r['typing_or_capture_failed'] == '0' for r in runs))
+    gated = [a for a in controls() if a['id'] not in WRAP_CONTROLS]
+    calibration = len(gated) == 5 and all(
+        stable(a['id']) and load(grouped[a['id']][0]) == prediction(a) for a in gated)
+    out_rows, passed = [], calibration
+    for aid, arm in by_arm.items():
+        ok = stable(aid)
+        for r in sorted(grouped[aid], key=lambda r: r['repeat']):
+            obs = load(r)
+            if aid in WRAP_CONTROLS:
+                status, wrap = 'observed_only', ''
+                agree = ('', '')
+            elif not (calibration and ok):
+                status, wrap, agree = 'gate_failed', '', ('gate_failed',)*2
+                passed = False
+            else:
+                wrap = wrap_dependent(arm, obs)
+                preds = [prediction(arm, c) for c in ('U_GW', 'U_N88')]
+                known = obs in preds and not wrap
+                status = 'pass' if known else 'unpredicted' if wrap else 'differ'
+                agree = tuple('agree' if obs == p and not wrap else 'differ' for p in preds)
+                passed = passed and known
+            out_rows.append((aid, r['repeat'], r['observation'], r['other_line_counts'], status,
+                             int(wrap) if wrap != '' else '', *agree, r['typing_or_capture_failed']))
+    write(out, ['arm', 'repeat', 'observation', 'other_line_counts', 'status', 'wrap_dependent',
+                'U_GW', 'U_N88', 'typing_or_capture_failed'], out_rows)
+    return passed
+
+
 def screen_of(obs):
     flat = bytearray(b' '*2000)
     payload = BEGIN+bytes(obs['codes'])+END
@@ -500,6 +559,52 @@ def selftest(work):
         assert not emit(root/'failed.tsv', broken)
         assert not emit(root/'missing.tsv', records[1:])
     print('OK 合成採取の陽性・陰性、固定予測、2走・対照欠落・失敗伝播')
+    # 追補1の再判定: 折り返し対照は関門外、残り5対照と2走一致・形式は関門のまま。
+    with tempfile.TemporaryDirectory(prefix='rejudge-', dir=work) as temp:
+        root = Path(temp)
+        def synth(mutate=None):
+            out = []
+            for a in controls()+arms():
+                o = prediction(a)
+                if a['id'] in WRAP_CONTROLS:
+                    o = dict(codes=[97]*70+[32]*5+[98], end=[1, 8], err=0)  # 80桁で折り返さない合成観測
+                for i in (1, 2):
+                    obs = o
+                    if mutate:
+                        obs = mutate(a['id'], i, o)
+                    out.append((a['id'], i, json.dumps(obs), 0, 'x', 'x', 'x', 0 if obs is not None else 1))
+            return out
+        header = ['arm', 'repeat', 'observation', 'other_line_counts', 'gate', 'U_GW', 'U_N88', 'typing_or_capture_failed']
+        # 陽性: 折り返し対照が予測外でも、他が全部一致なら通る。
+        write(root/'m.tsv', header, synth())
+        assert rejudge(root/'m.tsv', root/'r.tsv')
+        with (root/'r.tsv').open(encoding='utf-8') as stream:
+            got = {r['arm']: r for r in csv.DictReader(stream, delimiter='\t')}
+        assert got['control-wrap']['status'] == 'observed_only' and got['hash-01']['status'] == 'pass'
+        # 陰性1: 残り5対照の1つが違う値なら失敗。
+        write(root/'m.tsv', header, synth(lambda a, i, o: changed if a == 'control-spaces' else o))
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+        # 陰性2: 2走不一致、陰性3: 打鍵失敗(null)
+        write(root/'m.tsv', header, synth(lambda a, i, o: changed if (a, i) == ('hash-01', 2) else o))
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+        write(root/'m.tsv', header, synth(lambda a, i, o: None if a == 'format-empty' else o))
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+        # 陰性4: 予測外の値は differ、折り返し依存の腕は予測一致でも unpredicted。
+        write(root/'m.tsv', header, synth(lambda a, i, o: dict(o, err=7) if a == 'hash-01' else o))
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+        def wrapped(a, i, o):
+            if a != 'hash-01':
+                return o
+            return dict(codes=[97]*80, end=[1, 5], err=0)
+        write(root/'m.tsv', header, synth(wrapped))
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+        with (root/'r.tsv').open(encoding='utf-8') as stream:
+            got = {r['arm']: r for r in csv.DictReader(stream, delimiter='\t')}
+        assert got['hash-01']['status'] == 'unpredicted' and got['hash-01']['wrap_dependent'] == '1'
+        # 陰性5: 腕の欠落
+        write(root/'m.tsv', header, synth()[2:])
+        assert not rejudge(root/'m.tsv', root/'r.tsv')
+    print('OK 再判定の陽性・陰性（折り返し対照の除外、5対照・2走・形式・欠落・折り返し依存）')
     with tempfile.TemporaryDirectory(prefix='selftest-', dir=work) as temp:
         root = Path(temp); rom = root/'rom'
         proc = subprocess.run([os.sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom),
@@ -525,10 +630,17 @@ def main():
     m = sub.add_parser('measure'); m.add_argument('--rom-dir'); m.add_argument('--out', type=Path, required=True)
     m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK)
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
+    j = sub.add_parser('rejudge'); j.add_argument('--measured', type=Path, required=True); j.add_argument('--out', type=Path, required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path, default=WORK)
     args = parser.parse_args()
     if args.command == 'selftest':
         return selftest(args.work_dir)
+    if args.command == 'rejudge':
+        try:
+            passed = rejudge(args.measured, args.out)
+        except (OSError, ValueError, KeyError, TypeError):
+            passed = False
+        print('再判定: 全腕一致' if passed else '再判定: 不一致または関門失敗'); return 0 if passed else 1
     if args.command == 'check':
         try:
             passed = check(args.expected, args.measured)
