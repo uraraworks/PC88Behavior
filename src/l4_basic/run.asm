@@ -59,8 +59,8 @@
 
 RUN_STMT_KIND      EQU MM_RUN_STMT_KIND  ; 1B (0=PRINT 1=GOTO 2=GOSUB 3=RETURN
                                  ; 4=FOR 5=NEXT 6=END 7=STOP 8=ASSIGN、
-                                 ; 19=ON ERROR 20=RESUME 21=FILES 22=LOAD 23=SAVE
-                                 ; 24=KILL 25=NAME)
+                                 ; 19=ON 20=RESUME 21=FILES 22=LOAD 23=SAVE
+                                 ; 24=KILL 25=NAME 31=WHILE 32=WEND)
 RUN_CUR_RECORD     EQU MM_RUN_CUR_RECORD  ; 2B 現在実行中のPROGRAM_AREAレコード先頭
 RUN_CUR_LINENO     EQU MM_RUN_CUR_LINENO  ; 2B 現在の行番号(エラー表示用にキャッシュ)
 RUN_CTRL           EQU MM_RUN_CTRL  ; 1B 0=通常続行 1=ジャンプ済み 2=停止
@@ -82,7 +82,7 @@ RUN_STR_TMP_LEN    EQU MM_RUN_STR_TMP_LEN  ; 1B
 RUN_STR_TMP_BUF    EQU MM_RUN_STR_TMP_BUF  ; 255B、第17節
 RUN_SCAN_DEPTH     EQU MM_RUN_SCAN_DEPTH  ; 1B (FOR/NEXTスキャンの入れ子深さ)
 RUN_GOSUB_SP       EQU MM_RUN_GOSUB_SP  ; 2B
-RUN_FOR_SP         EQU MM_RUN_FOR_SP  ; 2B
+RUN_FOR_SP         EQU MM_RUN_FOR_SP  ; 2B FOR/WHILE共用の19B枠数
 RUN_TMP_E          EQU MM_RUN_TMP_E  ; 1B (MBF_ROUND_TO_INT16作業領域)
 RUN_TMP_SHIFT      EQU MM_RUN_TMP_SHIFT
 RUN_TMP_M2         EQU MM_RUN_TMP_M2
@@ -102,13 +102,13 @@ VARREC_USED         EQU 8
 VARREC_KIND         EQU 9
 VARREC_VALUE        EQU 10
 
-; ---- FORスタック ----
+; ---- FOR/WHILE共用スタック ----
 ; フレーム(19B): [変数レコードptr2B][LIMIT type1+data4][STEP type1+data4]
 ;                [RESUME record2+curptr2+lineend2][詰め1]
 ; 変数はヒープへの追記だけで移動しない。本文編集/CLEARではフレームも消す。
 RUN_FOR_STACK       EQU MM_RUN_FOR_STACK
 RUN_FOR_FRAME_SIZE  EQU 19
-; FORは下端+80から上向き。GOSUBを積む時だけさらに12Bの余白が必要。
+; FOR/WHILEは下端+80から上向き。GOSUBを積む時だけさらに12Bの余白が必要。
 
 ; ---- GOSUBスタック ----
 ; フレーム(7B): [record2][curptr2][lineend2][詰め1]
@@ -1440,7 +1440,7 @@ _plc_ovfl:
     RET
 
 ; =======================================================================
-; FORスタック
+; FOR/WHILE共用スタック（WHILE本体はonwhile.asm）
 ; =======================================================================
 
 ; FOR_SLOT_ADDR — HL=インデックス。HL=FOR先頭+インデックス*19。
@@ -1536,42 +1536,11 @@ RUN_FOR_POP_DISCARD:
 ;   (内側の閉じていないループは暗黙に閉じる)。
 ;   出力: A=1見つかった/0見つからない(RUN_FOR_SP不変)。
 RUN_FOR_FIND_BY_NAME:
-    LD HL,(RUN_FOR_SP)
-    LD (RUN_FOR_SEARCH_IDX),HL
-_rffbn_loop:
-    LD HL,(RUN_FOR_SEARCH_IDX)
-    LD A,H
-    OR L
-    JR Z,_rffbn_notfound
-    DEC HL
-    LD (RUN_FOR_SEARCH_IDX),HL
-    CALL FOR_SLOT_ADDR
-    PUSH HL
-    LD E,(HL)
-    INC HL
-    LD D,(HL)
-    EX DE,HL
-    LD DE,IDENT_BUF
-    LD B,8
-_rffbn_cmp:
-    LD A,(DE)
-    CP (HL)
-    JR NZ,_rffbn_mismatch
-    INC HL
-    INC DE
-    DJNZ _rffbn_cmp
-    POP HL
-    LD HL,(RUN_FOR_SEARCH_IDX)
-    INC HL
-    LD (RUN_FOR_SP),HL
     LD A,1
-    RET
-_rffbn_mismatch:
-    POP HL
-    JR _rffbn_loop
-_rffbn_notfound:
-    XOR A
-    RET
+OW_FOR_FIND:
+    LD (MM_OW_FIND_MODE),A
+    LD HL,07340h
+    JP OW_BANK_CALL
 
 ; RUN_FOR_RESTORE_RESUME — RUN_FOR_FRAME_PTRのフレームの再開位置
 ;   (offset12:record2B/14:curptr2B/16:lineend2B)をRUN_CUR_RECORD/
@@ -1580,35 +1549,8 @@ _rffbn_notfound:
 ;   実行位置がNEXT自身の直後のまま進み、ループが1周もしなかった)。
 ;   破壊: AF,DE,HL。
 RUN_FOR_RESTORE_RESUME:
-    LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,12
-    ADD HL,DE
-    LD E,(HL)
-    INC HL
-    LD D,(HL)
-    INC HL
-    PUSH DE
-    LD E,(HL)
-    INC HL
-    LD D,(HL)
-    INC HL
-    PUSH DE
-    LD E,(HL)
-    INC HL
-    LD D,(HL)
-    PUSH DE
-    POP HL
-    LD (LINE_END),HL
-    POP HL
-    LD (CUR_PTR),HL
-    POP HL
-    LD (RUN_CUR_RECORD),HL
-    LD A,(HL)
-    LD (RUN_CUR_LINENO),A
-    INC HL
-    LD A,(HL)
-    LD (RUN_CUR_LINENO+1),A
-    RET
+    LD HL,07350h
+    JP OW_BANK_CALL
 
 ; RUN_FOR_TEST_BOUNDS — RUN_FOR_FRAME_PTRのフレームについて、現在の
 ;   変数値がSTEPの符号に応じてLIMITを越えているか判定する。
@@ -2061,9 +2003,9 @@ NEXT_STMT:
     JR Z,_next_nofor
     JR _next_have_frame
 _next_no_name:
-    LD HL,(RUN_FOR_SP)
-    LD A,H
-    OR L
+    XOR A
+    CALL OW_FOR_FIND
+    OR A
     JR Z,_next_nofor
 _next_have_frame:
     CALL RUN_FOR_STEP_AND_TEST
@@ -2580,6 +2522,18 @@ _rmsk_try_files:
     LD A,1
     RET
 _rmsk_try_assign:
+    CALL OW_MATCH_STMT
+    CP 1
+    JR Z,_rmsk_let
+    OR A
+    JR Z,_rmsk_assignment
+    ADD A,29                  ; WHILE=31、WEND=32
+    LD (RUN_STMT_KIND),A
+    LD A,1
+    RET
+_rmsk_let:
+    CALL SKIP_SPACES           ; LETも省略形と同じ左辺・型・配列の経路
+_rmsk_assignment:
     CALL LEX_IDENT_PEEK
     OR A
     RET Z
@@ -2628,31 +2582,31 @@ RUN_EXEC_ONE_STMT:
     JP Z,_reos_unmatched
     LD A,(RUN_STMT_KIND)
     CP 0
-    JR Z,_reos_print
+    JP Z,_reos_print
     CP 1
     JP Z,_reos_goto
     CP 2
-    JR Z,_reos_gosub
+    JP Z,_reos_gosub
     CP 3
-    JR Z,_reos_return
+    JP Z,_reos_return
     CP 4
-    JR Z,_reos_for
+    JP Z,_reos_for
     CP 5
-    JR Z,_reos_next
+    JP Z,_reos_next
     CP 6
-    JR Z,_reos_end
+    JP Z,_reos_end
     CP 7
-    JR Z,_reos_stop
+    JP Z,_reos_stop
     CP 9
-    JR Z,_reos_if
+    JP Z,_reos_if
     CP 10
-    JR Z,_reos_dim
+    JP Z,_reos_dim
     CP 11
-    JR Z,_reos_read
+    JP Z,_reos_read
     CP 12
-    JR Z,_reos_restore
+    JP Z,_reos_restore
     CP 13
-    JR Z,_reos_rem
+    JP Z,_reos_rem
     CP 14
     JR Z,_reos_arrassign
     CP 15
@@ -2679,6 +2633,10 @@ RUN_EXEC_ONE_STMT:
     JP Z,S9B_DO_POKE
     CP 30
     JP Z,S9B_DO_CLEAR
+    CP 31
+    JP Z,OW_WHILE_STMT
+    CP 32
+    JP Z,OW_WEND_STMT
     CP 28
     JP Z,S9_DO_ERROR
     CP 27
@@ -2749,31 +2707,11 @@ _reos_unmatched:
     LD (ERROR_KIND),A
     RET
 
-; ON ERROR GOTO <行番号> — FILESのERR 70/13を第11節の検証プログラムで
-; 捕捉するための実行時エラー入口。GOTO 0は捕捉解除として扱う。
+; ONの共通入口。ON ERROR GOTOの捕捉/解除とON 式 GOTO/GOSUBを
+; バンク1で振り分ける（第4.18節、onwhile.asm）。
 ON_ERROR_STMT:
-    CALL SKIP_SPACES
-    CALL TRY_MATCH_ERROR
-    OR A
-    JR Z,_onerr_syntax
-    CALL SKIP_SPACES
-    CALL TRY_MATCH_GOTO
-    OR A
-    JR Z,_onerr_syntax
-    CALL SKIP_SPACES
-    CALL PARSE_LINENUM_CUR
-    JR C,_onerr_syntax
-    LD (RUN_ERROR_HANDLER_LINE),HL
-    XOR A
-    LD (ERROR_FLAG),A
-    LD (RUN_CTRL),A
-    RET
-_onerr_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
+    LD HL,07310h
+    JP OW_BANK_CALL
 
 ; RESUME <行番号> — 捕捉中だけ指定行へ移る。本依頼の検証腕が使う形。
 RESUME_STMT:
@@ -4666,6 +4604,47 @@ _aas_err:
 S9D_DO_FRE:
     LD HL,07D30h
     JP S9_BANK_CALL
+
+; 第4.18節。本体はバンク1、窓外中継は既存のrelayを使う。
+OW_WHILE_STMT:
+    LD HL,07320h
+    JR OW_BANK_CALL
+OW_WEND_STMT:
+    LD HL,07330h
+OW_BANK_CALL:
+    LD A,1
+    JP EXT_BANK_CALL
+OW_FOR_ROOM:
+    LD HL,07D70h
+    JP S9_BANK_CALL
+
+; 実行文の照合は既存TRY_MATCH_KEYWORD_GENERIC（大小不問）へ渡す。
+OW_MATCH_STMT:
+    LD HL,OW_LET_TEXT
+    LD A,3
+    CALL OW_MATCH_WORD
+    OR A
+    RET NZ
+    LD HL,OW_WHILE_TEXT
+    LD A,5
+    CALL OW_MATCH_WORD
+    OR A
+    LD A,2
+    RET NZ
+    LD HL,OW_WEND_TEXT
+    LD A,4
+    CALL OW_MATCH_WORD
+    OR A
+    RET Z
+    LD A,3
+    RET
+OW_MATCH_WORD:
+    LD (RUN_KW_TEXT),HL
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
+OW_LET_TEXT: DB "LET"
+OW_WHILE_TEXT: DB "WHILE"
+OW_WEND_TEXT: DB "WEND"
 
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$

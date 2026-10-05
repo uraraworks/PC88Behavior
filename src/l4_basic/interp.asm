@@ -244,6 +244,10 @@ ERRKIND_TABLE:
     DW ERR_MSG_3
     DB 26
     DW ERR_MSG_26
+    DB 29
+    DW ERR_MSG_29
+    DB 30
+    DW ERR_MSG_30
     DB 7
     DW ERR_MSG_7
     DB 15

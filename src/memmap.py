@@ -60,6 +60,7 @@ REGIONS = (
     Region('STR_ACC_LEN', 0xF051, 1, '一時', '文字列連結長', 'normal'),
     Region('RUN_INPUT', 0xF052, 88, '一時', 'INPUT・配列代入・数値字句', 'normal'),
     Region('SECTOR', 0xEDB2, 256, '一時', 'FILES/LOAD/SAVE共用セクタバッファ', 'normal'),
+    Region('ONWHILE_WORK', 0xEDB2, 32, '一時', 'ON選択・WHILE対応探索（式評価から独立）', 'normal'),
     Region('PU_WORK', 0xEDB2, 256, '一時', 'PRINT USINGの欄解析・十進丸め・出力組立', 'normal'),
     Region('PU_FORMAT', 0xEEB2, 256, '一時', 'PRINT USINGの書式退避（255文字＋終端）', 'normal'),
     Region('DISK_STATE', 0xF0AA, 9, '一時', 'main/sub READ状態', 'normal'),
@@ -96,6 +97,8 @@ REGIONS = (
 
 # 排他的なコマンド経路に限って共用する。割込みは画面・キー・INKEYのみ。
 OVERLAPS = {
+    frozenset(("ONWHILE_WORK", "SECTOR")): "ON/WHILE/WEND/NEXT探索とディスク文は排他的。条件の式評価はディスク文を呼ばない。",
+    frozenset(("ONWHILE_WORK", "PU_WORK")): "ON/WHILE/WEND/NEXT探索とPRINT USINGは別の文。条件の式評価はPRINT文を呼ばない。",
     frozenset(("PU_WORK", "SECTOR")): "PRINT USINGとディスク文は排他的。式評価はディスク文を呼ばず、セクタ内容は各ディスク文が読み直す。",
     frozenset(("PU_FORMAT", "FILES_FAT")): "PRINT USINGは書式を文内だけ保持し、FILES/LOADの文入口とは排他的。式評価はFILES/LOADを呼ばない。",
     frozenset(("PU_FORMAT", "SAVE_FAT")): "PRINT USINGとSAVE/KILLの文入口は排他的。SAVEのLIST捕捉はPRINT USINGも式評価も呼ばない。",
@@ -105,6 +108,21 @@ OVERLAPS = {
 
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
 FIELDS = {
+    'MM_OW_BEGIN_REC': ('ONWHILE_WORK', 0),
+    'MM_OW_BEGIN_PTR': ('ONWHILE_WORK', 2),
+    'MM_OW_BEGIN_END': ('ONWHILE_WORK', 4),
+    'MM_OW_SCAN_REC': ('ONWHILE_WORK', 6),
+    'MM_OW_NEST': ('ONWHILE_WORK', 8),
+    'MM_OW_END_REC': ('ONWHILE_WORK', 10),
+    'MM_OW_END_PTR': ('ONWHILE_WORK', 12),
+    'MM_OW_END_END': ('ONWHILE_WORK', 14),
+    'MM_OW_INDEX': ('ONWHILE_WORK', 16),
+    'MM_OW_FIND_MODE': ('ONWHILE_WORK', 18),
+    'MM_OW_ON_SELECT': ('ONWHILE_WORK', 19),
+    'MM_OW_ON_GOSUB': ('ONWHILE_WORK', 20),
+    'MM_OW_ON_CHOSEN': ('ONWHILE_WORK', 21),
+    'MM_OW_ON_TARGET': ('ONWHILE_WORK', 22),
+
     'MM_PU_FORMAT': ('PU_FORMAT', 0),
     'MM_PU_PTR': ('PU_WORK', 0),
     'MM_PU_SEEN': ('PU_WORK', 2),
@@ -782,7 +800,7 @@ DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=298Bを追記",
     "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
-    "FOR_STACK": "STACK_BOTTOM+80から19Bずつ上向き（GOSUB追加時は余白92B）",
+    "FOR_STACK": "STACK_BOTTOM+80からFOR/WHILE共用19Bずつ上向き（GOSUB追加時は余白92B）",
     "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",
     "CAPTURE": "HEAP_ENDからFREE_TOPまでの空き（SAVE中のみ）",
 }
