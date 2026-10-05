@@ -235,7 +235,7 @@ def arms():
     logic('csng-tie-up', 'csng(16777217#)-16777216', 2)
     logic('csng-tie-up-2', 'csng(16777221#)-16777220', 2)
     logic('csng-integer', 'csng(123456)', 123456)
-    logic('csng-digits', 'csng(1234567.89#)', 1234568)
+    logic('csng-digits-6', 'csng(123456.789#)', 123457)
     logic('csng-noop', 'csng(1/3)=1/3', -1)
     bad('csng-string', ['p=1:a=csng("1")'], 13)
     add('csng-underflow', ['print "s9lv";1;csng(1d-50)'], None)
@@ -500,6 +500,25 @@ def rejudge(measured, out):
     return emit(out, records)
 
 
+def merge(base, patch, retire, out):
+    """追補1: 基の記録から退けた腕の行を除き、基に無い腕の行を補う。対照は基を採る。"""
+    if len({base.resolve(), patch.resolve(), out.resolve()}) != 3:
+        raise ValueError('入力2つと出力は別ファイルにする')
+    def rows(path):
+        with path.open(encoding='utf-8', newline='') as stream:
+            reader = csv.DictReader(stream, delimiter='\t')
+            return list(reader.fieldnames), list(reader)
+    head, base_rows = rows(base)
+    head2, patch_rows = rows(patch)
+    if head != head2:
+        raise ValueError('列が一致しない')
+    kept = [r for r in base_rows if r['arm'] not in retire]
+    have = {r['arm'] for r in kept}
+    added = [r for r in patch_rows if r['arm'] not in have and r['arm'] not in retire]
+    write(out, head, [[r[h] for h in head] for r in kept+added])
+    return len(kept), len(added)
+
+
 def check(expected, measured, predicted_only=False):
     try:
         with expected.open(encoding='utf-8') as s:
@@ -591,7 +610,7 @@ def selftest(work=None):
            'tab-comma':[value(16),value(0)],'tab-in-expression':[['s9le',1,2,1]],
            'spc-k0-n80':[value(1),value(0)],'spc-k70-n20':[value(11),value(1)],
            'spc-k0-n256':[value(17),value(0)],
-           'csng-third':[value(-1)],'csng-tie-up':[value(2)],'csng-digits':[value(1234568)]}
+           'csng-third':[value(-1)],'csng-tie-up':[value(2)],'csng-digits-6':[value(123457)]}
     for aid,rows in fixed.items():
         assert prediction(by_id[aid])['result']['rows']==[['s9lb',1,1]]+rows+[['s9lz',1,1]]
     for aid in ('tab-k80-n5','tab-k80-n80','tab-k80-n1','spc-k70-n10','csng-underflow'):
@@ -731,6 +750,22 @@ def selftest(work=None):
                 raise AssertionError('保存TSVの破損を受理')
             except ValueError:
                 pass
+        # 追補1: merge は退けた腕の行を捨て、基に無い腕だけ補い、同一ファイル指定を拒否する。
+        assert emit(measured,records)
+        with measured.open() as stream:
+            rows0=list(csv.DictReader(stream,delimiter='\t'))
+        extra=[dict(r,arm='retired-arm') for r in rows0[:2]]
+        new=[dict(r,arm='new-arm') for r in rows0[:2]]
+        write(root/'base.tsv',list(rows0[0]),[list(r.values()) for r in rows0+extra])
+        write(root/'patch.tsv',list(rows0[0]),[list(r.values()) for r in new+rows0[2:4]])
+        assert merge(root/'base.tsv',root/'patch.tsv',{'retired-arm'},root/'merged.tsv')==(len(rows0),2)
+        merged_arms={r['arm'] for r in csv.DictReader((root/'merged.tsv').open(),delimiter='\t')}
+        assert 'retired-arm' not in merged_arms and 'new-arm' in merged_arms
+        try:
+            merge(root/'base.tsv',root/'base.tsv',set(),root/'merged.tsv')
+            raise AssertionError('同一入力を受理')
+        except ValueError:
+            pass
         unknown=by_id['tab-k80-n5']
         obs=prediction(by_id['xor-5-3'])
         unknown_record=dict(arm=unknown,obs=[obs,copy.deepcopy(obs)],others=[counts,counts],failed=[False,False],gate=True)
@@ -786,11 +821,15 @@ def main():
     m = sub.add_parser('measure'); m.add_argument('--rom-dir')
     m.add_argument('--official', action='store_true'); m.add_argument('--out', type=Path, required=True)
     m.add_argument('--work-dir', type=Path, default=WORK)
+    m.add_argument('--only', help='追補1: 指定した本体腕（コンマ区切り）と対照だけを測る')
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True)
     c.add_argument('--measured', type=Path, required=True)
     c.add_argument('--predicted-only', action='store_true')
     r = sub.add_parser('rejudge'); r.add_argument('--measured', type=Path, required=True)
     r.add_argument('--out', type=Path, required=True)
+    g = sub.add_parser('merge'); g.add_argument('--base', type=Path, required=True)
+    g.add_argument('--patch', type=Path, required=True); g.add_argument('--out', type=Path, required=True)
+    g.add_argument('--retire', action='append', default=[])
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
     args = parser.parse_args()
     if args.command == 'selftest':
@@ -798,11 +837,19 @@ def main():
     if args.command == 'check':
         ok = check(args.expected, args.measured, args.predicted_only)
         print('照合一致' if ok else '照合不一致'); return 0 if ok else 1
+    if args.command == 'merge':
+        kept, added = merge(args.base, args.patch, set(args.retire), args.out)
+        print(f'統合: 基{kept}行＋補{added}行'); return 0
     if args.command == 'rejudge':
         ok = rejudge(args.measured, args.out)
         print('再判定完了: 関門'+('通過' if ok else '失敗'))
         return 0 if ok else 1
     selected = controls()+arms()
+    if args.command == 'measure' and args.only:
+        wanted = set(args.only.split(','))
+        if not wanted <= {a['id'] for a in arms()}:
+            parser.error('--only は本体腕の名前だけ')
+        selected = controls()+[a for a in arms() if a['id'] in wanted]
     if args.command == 'predict':
         write(args.out, ['arm', 'candidate', 'prediction', 'typed_lines'],
               [(a['id'], 'G_GW', json.dumps(prediction(a)), json.dumps(program(a), ensure_ascii=False))
