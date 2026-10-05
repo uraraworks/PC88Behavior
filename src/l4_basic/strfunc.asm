@@ -274,18 +274,9 @@ s9_string_fail:
 
 ; 文字列/数値の選択。型の混在した式の検査順序は未測定。
 S9_IS_STRING:
-    CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    CP '"'
-    JR Z,s9_is_string_yes
-    CALL S9_IDENT_PEEK
-    CP 3
-    JR Z,s9_is_string_yes
-    XOR A
-    RET
-s9_is_string_yes:
-    LD A,1
-    RET
+    LD IX,S9_FN_IS_STRING_ADDR
+    JP B3_MAIN_CALL_ADDR
+S9_FN_IS_STRING_ADDR EQU 0x1787
 
 S9_HEX:
     LD A,16

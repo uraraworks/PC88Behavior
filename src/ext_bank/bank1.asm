@@ -871,7 +871,7 @@ B1_HEAP_FIND_ENTRY:
     ORG 0x6C08
 B1_HEAP_ALLOC_ENTRY:
     JP B1_HEAP_ALLOC
-; 種別は既存レコードのUSED欄(offset 8)。単純変数1、配列2。
+; USED欄(offset 8)は単純変数1、配列2、DEF 3、FN呼出枠4。bit7は空き印。
 ; 追記だけなので、評価途中のレコード/要素ポインタは変わらない。
 B1_HEAP_FIND:
     LD HL,(MM_HEAP_START)
@@ -916,12 +916,41 @@ b1_heap_missing:
     XOR A
     RET
 B1_HEAP_SIZE:
+    AND 07Fh
     LD DE,42
     CP 1
     RET Z
     LD DE,298
     RET
 B1_HEAP_ALLOC:
+    ; 未測定・自作判断: 空き印付きの同サイズ枠を先に再利用。移動はしない。
+    LD HL,(MM_HEAP_START)
+b1_heap_reuse:
+    LD DE,(MM_HEAP_END)
+    OR A
+    SBC HL,DE
+    ADD HL,DE
+    JR Z,b1_heap_append
+    PUSH HL
+    LD DE,8
+    ADD HL,DE
+    LD A,(MM_HEAP_KIND)
+    OR 080h
+    CP (HL)
+    POP HL
+    JR Z,b1_heap_reused
+    PUSH HL
+    LD DE,8
+    ADD HL,DE
+    LD A,(HL)
+    POP HL
+    CALL B1_HEAP_SIZE
+    ADD HL,DE
+    JR b1_heap_reuse
+b1_heap_reused:
+    LD A,1
+    RET
+b1_heap_append:
     LD A,(MM_HEAP_KIND)
     CALL B1_HEAP_SIZE
     LD HL,(MM_HEAP_END)

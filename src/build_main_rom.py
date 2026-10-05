@@ -365,6 +365,7 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    "S9_FN_IS_STRING_ADDR": "FN_IS_STRING",
     "S9B_EXPR_ADDR": "LOGIC_OR_EXPR",
     "S9B_CLEAR_ADDR": "RUN_CLEAR_STATE",
     "S9_EXPECT_ADDR": "EXPECT_CHAR",
@@ -426,6 +427,38 @@ EXT_BANK0_SINCOS_ADDR_LABELS = {
 
 # EXT_BANK0_ATN_ENTRY/EXP_ENTRY/LOG_ENTRY(bank0.asm、第4.16b節)が参照する
 # 常駐ラベル→bank0.asm側EQU名の対応。EXT_BANK0_SINCOS_ADDR_LABELSと同じ手法。
+# 第4.19節のDEF FN/SWAP/ERASE本体が窓外中継で呼ぶmain番地。
+EXT_BANK0_DEFFN_ADDR_LABELS = {
+    "FN_STR_READ_ADDR": "VAR_READ_STRING",
+    "FN_ARRAY_READ_ADDR": "ARRAY_READ",
+    "FN_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "FN_SKIP_ADDR": "SKIP_SPACES",
+    "FN_PEEK_ADDR": "PEEK_CHAR",
+    "FN_ADV_ADDR": "ADV_PTR",
+    "FN_IDENT_ADDR": "LEX_IDENT_CONSUME",
+    "FN_IDENT_PEEK_ADDR": "LEX_IDENT_PEEK",
+    "FN_FOLD_ADDR": "FOLD_UPPER",
+    "FN_MATCH_ADDR": "TRY_MATCH_KEYWORD_GENERIC",
+    "FN_EXPR_ADDR": "LOGIC_OR_EXPR",
+    "FN_STRING_ADDR": "STRING_EXPR",
+    "FN_INT_ADDR": "CUR_TO_INT16",
+    "FN_SET_INT_ADDR": "VAL_SET_INT",
+    "FN_PROMOTE_ADDR": "VAL_PROMOTE_CUR_TO_DOUBLE",
+    "FN_VAR_FIND_ADDR": "VAR_FIND",
+    "FN_VAR_ALLOC_ADDR": "VAR_ALLOC",
+    "FN_VAR_GET_ADDR": "VAR_GET_OR_CREATE",
+    "FN_VAR_WRITE_ADDR": "VAR_WRITE_NUMERIC",
+    "FN_STR_WRITE_ADDR": "VAR_WRITE_STRING",
+    "FN_ARRAY_FIND_ADDR": "ARRAY_FIND",
+    "FN_ARRAY_GET_ADDR": "ARRAY_GET_OR_CREATE_DEFAULT",
+    "FN_ARRAY_ELEM_ADDR": "ARRAY_ELEM_ADDR",
+    "FN_HEAP_FIND_ADDR": "HEAP_FIND_MAIN",
+    "FN_HEAP_ALLOC_ADDR": "HEAP_ALLOC_MAIN",
+    "FN_BANK3_ADDR": "S9_BANK_CALL",
+    "FN_TO_INT_ADDR": "VAL_TO_INT16_CUR",
+
+}
+
 EXT_BANK0_ATNEXPLOG_ADDR_LABELS = {
     "AEL_ADD_ADDR": "MBF_ADD",
     "AEL_SUB_ADDR": "MBF_SUB",
@@ -1721,7 +1754,8 @@ def main():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr
-        for eqname, label in EXT_BANK0_ATNEXPLOG_ADDR_LABELS.items():
+        for eqname, label in (EXT_BANK0_ATNEXPLOG_ADDR_LABELS |
+                              EXT_BANK0_DEFFN_ADDR_LABELS).items():
             addr = asm.labels.get(label)
             if addr is not None:
                 addr_overrides[eqname] = addr

@@ -71,6 +71,7 @@ REGIONS = (
     Region('SAVE', 0xF0E8, 56, '一時', 'SAVE捕捉・書込・KILL/NAME状態', 'normal'),
     Region('SAVE_FAT', 0xEEB2, 256, '一時', 'SAVE/KILL FAT', 'normal'),
     Region('SAVE_ALLOC', 0xF22C, 12, '一時', 'SAVE割当（最大12個の2KB単位）', 'normal'),
+    Region('DEFFN', 0xF120, 6, '保持/一時', 'FNフレームポインタ・SWAP/ERASE一時ポインタ', 'normal'),
     Region('SCREEN', 0xF126, 4, '保持', '画面行・桁・行頭', 'normal'),
     Region('KEY_OLD', 0xF12A, 12, '保持', '前回キー行列', 'normal'),
     Region('KEY_NEW', 0xF136, 12, '一時', '今回キー行列', 'normal'),
@@ -108,6 +109,10 @@ OVERLAPS = {
 
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
 FIELDS = {
+    'MM_FN_CPU_BOTTOM': ('CPU_STACK', 0),
+    'MM_FN_FRAME': ('DEFFN', 0),
+    'MM_FN_WORK': ('DEFFN', 2),
+    'MM_FN_AUX': ('DEFFN', 4),
     'MM_OW_BEGIN_REC': ('ONWHILE_WORK', 0),
     'MM_OW_BEGIN_PTR': ('ONWHILE_WORK', 2),
     'MM_OW_BEGIN_END': ('ONWHILE_WORK', 4),
@@ -798,7 +803,16 @@ CONSTANTS = {
 }
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
-    "HEAP": "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=298Bを追記",
+    "HEAP": (
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=配列298B/3=DEF298B/4=FN枠298B。"
+        "bit7は空き印、同種の空きを再利用。"
+        "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
+        "編集/NEW/CLEAR/RUNでヒープと共に消す（未測定・自作判断）。"
+        "FN枠: +9=親,+11=DEF,+13/+15=呼出位置,+17=束縛数,+18=引数索引,"
+        "+19=実引数枠2B×6,+31=変数2B×6,+43=旧値33B×6,+241=配列一時10B。"
+        "実引数は通常形式42Bの非字句名で保存し全評価後に束縛。"
+        "CPUスタック下限+96BでERR 7（未測定・自作判断）"
+    ),
     "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
     "FOR_STACK": "STACK_BOTTOM+80からFOR/WHILE共用19Bずつ上向き（GOSUB追加時は余白92B）",
     "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",

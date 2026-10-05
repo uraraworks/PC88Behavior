@@ -286,6 +286,8 @@ _lip_alnum_done:
     JR Z,_lip_suffix_string
     CP '#'
     JR Z,_lip_suffix_double
+    CP '!'
+    JR Z,_lip_suffix_single
     JR _lip_have_kind_plain
 _lip_suffix_percent:
     LD A,'%'
@@ -314,6 +316,12 @@ _lip_suffix_double:
     LD (RUN_TMP16+1),A
     LD A,4
     JR _lip_finish
+; 第4.19節のSWAP単精度型。未測定・自作判断: !は無印と同じ名前/型。
+_lip_suffix_single:
+    CALL ADV_PTR
+    LD A,(RUN_TMP16+1)
+    INC A
+    LD (RUN_TMP16+1),A
 _lip_have_kind_plain:
     LD A,1
 _lip_finish:
@@ -566,6 +574,9 @@ _psv_loop:
 ;   として扱う(PSR_TRY_FUNCS、下記)。一致しなければ従来どおりその
 ;   変数の値を読む。
 PARSE_STRING_RHS:
+    CALL FN_TRY_STR
+    OR A
+    RET NZ
     CALL PEEK_CHAR
     CP '"'
     JR Z,_psr_literal
@@ -586,8 +597,7 @@ _psr_fromvar:
     CALL PSR_TRY_FUNCS
     OR A
     RET NZ
-    CALL VAR_READ_STRING
-    RET
+    JP FN_READ_STRING
 _psr_literal:
     CALL ADV_PTR
     XOR A
@@ -2608,27 +2618,27 @@ RUN_EXEC_ONE_STMT:
     CP 13
     JP Z,_reos_rem
     CP 14
-    JR Z,_reos_arrassign
+    JP Z,_reos_arrassign
     CP 15
-    JR Z,_reos_cls
+    JP Z,_reos_cls
     CP 16
-    JR Z,_reos_input
+    JP Z,_reos_input
     CP 17
-    JR Z,_reos_locate
+    JP Z,_reos_locate
     CP 18
-    JR Z,_reos_color
+    JP Z,_reos_color
     CP 19
-    JR Z,_reos_on_error
+    JP Z,_reos_on_error
     CP 20
-    JR Z,_reos_resume
+    JP Z,_reos_resume
     CP 21
-    JR Z,_reos_files
+    JP Z,_reos_files
     CP 22
-    JR Z,_reos_load
+    JP Z,_reos_load
     CP 23
-    JR Z,_reos_save
+    JP Z,_reos_save
     CP 24
-    JR Z,_reos_kill
+    JP Z,_reos_kill
     CP 29
     JP Z,S9B_DO_POKE
     CP 30
@@ -2637,12 +2647,14 @@ RUN_EXEC_ONE_STMT:
     JP Z,OW_WHILE_STMT
     CP 32
     JP Z,OW_WEND_STMT
+    CP 33
+    JP NC,FN_EXEC_STMT
     CP 28
     JP Z,S9_DO_ERROR
     CP 27
     JP Z,RANDOMIZE_STMT
     CP 25
-    JR Z,_reos_name
+    JP Z,_reos_name
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -2804,6 +2816,8 @@ RUN_RESET_STATE:
 ; CLEARは乱数状態を保持する（第16節の自作判断を維持）。
 RUN_CLEAR_STATE:
     XOR A
+    LD (MM_FN_FRAME),A
+    LD (MM_FN_FRAME+1),A
     LD (MM_VAL_SP),A
     LD (RUN_ERROR_ACTIVE),A
     LD (RUN_LAST_ERR),A
@@ -4525,9 +4539,6 @@ _ar_range:
 ;   をその退避アドレスへ直接書き込む(仕様書に無い判断: 実装上のバグ修正、
 ;   代入そのものの規則はASSIGN_STMTと同じ)。
 ARRAY_ASSIGN_STMT:
-    LD A,(RUN_ASSIGN_KIND)
-    CP 3
-    JR Z,_aas_typeerr
     LD HL,RUN_ASSIGN_NAME
     LD DE,RUN_ARRAY_NAME
     LD BC,8
@@ -4560,6 +4571,9 @@ ARRAY_ASSIGN_STMT:
     CALL ARRAY_ELEM_ADDR
     JR C,_aas_range
     LD (RUN_ARRAY_ASSIGN_ADDR),HL
+    LD A,(RUN_ASSIGN_KIND)
+    CP 3
+    JP Z,FN_ARRAY_STRING_ASSIGN
     CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -4620,35 +4634,38 @@ OW_FOR_ROOM:
 
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
-; LET/WHILE/WEND照合はmainの語形表を読むのでmainに残す。
-; DIM本体のバンク移転で空いた予約番地後方へ置き、前方にも余裕を作る。
-; 実行文の照合は既存TRY_MATCH_KEYWORD_GENERIC（大小不問）へ渡す。
+; LET/WHILE/WEND/DEF/SWAP/ERASE照合とFN本体はバンク0。
+; mainには固定入口への中継だけを置く。照合は既存の大小不問経路を使う。
 OW_MATCH_STMT:
-    LD HL,OW_LET_TEXT
-    LD A,3
-    CALL OW_MATCH_WORD
-    OR A
-    RET NZ
-    LD HL,OW_WHILE_TEXT
-    LD A,5
-    CALL OW_MATCH_WORD
-    OR A
-    LD A,2
-    RET NZ
-    LD HL,OW_WEND_TEXT
-    LD A,4
-    CALL OW_MATCH_WORD
-    OR A
-    RET Z
-    LD A,3
-    RET
-OW_MATCH_WORD:
-    LD (RUN_KW_TEXT),HL
-    LD (RUN_KW_LEN),A
-    JP TRY_MATCH_KEYWORD_GENERIC
-OW_LET_TEXT: DB "LET"
-OW_WHILE_TEXT: DB "WHILE"
-OW_WEND_TEXT: DB "WEND"
+    LD HL,06B00h
+    XOR A
+    JP EXT_BANK_CALL
+FN_EXEC_STMT:
+    LD HL,06B30h
+    XOR A
+    JP EXT_BANK_CALL
+FN_TRY_NUM:
+    LD HL,06B10h
+    XOR A
+    JP EXT_BANK_CALL
+FN_TRY_STR:
+    LD HL,06B20h
+    XOR A
+    JP EXT_BANK_CALL
+
+FN_READ_STRING:
+    LD HL,06B40h
+    XOR A
+    JP EXT_BANK_CALL
+FN_ARRAY_STRING_ASSIGN:
+    LD HL,06B50h
+    XOR A
+    JP EXT_BANK_CALL
+
+FN_IS_STRING:
+    LD HL,06B60h
+    XOR A
+    JP EXT_BANK_CALL
 
 DIM_STMT:
     LD HL,07750h

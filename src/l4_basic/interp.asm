@@ -226,6 +226,10 @@ _l4sem_default:
     RET
 
 ERRKIND_TABLE:
+    DB 12
+    DW ERR_MSG_12
+    DB 18
+    DW ERR_MSG_18
     DB 5
     DW ERR_MSG_5
     DB 6
@@ -680,9 +684,9 @@ _l4ps_loop:
     ; (以前は文字列変数を直接VAR_READ_STRING、リテラルを文字ごと
     ; PRINT_CHARする別経路だったが、連結・関数呼び出しに対応できなかった
     ; ため統合した)。
-    CALL LEX_IDENT_PEEK
-    CP 3
-    JR Z,_l4ps_str_item
+    CALL FN_IS_STRING
+    OR A
+    JR NZ,_l4ps_str_item
     CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -1085,6 +1089,9 @@ _l4factor_num_ovfl:
 ;   数値関数呼び出しとして扱う(FACTOR_TRY_NUM_FUNCS、下記)。一致しなければ
 ;   (関数名でない、または'('が続かない)従来どおり変数/配列として読む。
 _l4factor_try_ident:
+    CALL FN_TRY_NUM
+    OR A
+    RET NZ
     CALL LEX_IDENT_CONSUME
     OR A
     JR Z,_l4factor_bad

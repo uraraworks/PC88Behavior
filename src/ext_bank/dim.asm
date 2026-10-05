@@ -10,8 +10,6 @@ _dim_one:
     CALL b1_dim_call_lex_ident_consume
     OR A
     JR Z,_dim_syntax
-    CP 3
-    JR Z,_dim_typeerr
     LD HL,MM_IDENT_BUF
     LD DE,MM_RUN_ARRAY_NAME
     LD BC,8
