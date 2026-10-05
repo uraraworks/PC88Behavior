@@ -143,6 +143,22 @@ def prediction(a):
                 result=stage([['s9jb',1,1]]+a['rows']+[['s9jz',1,1]],a.get('error')))
 
 
+def optional_terminal(a):
+    """追補1: program腕の捕捉ERR 2予測だけを対象とする。"""
+    predicted = prediction(a)
+    return (not a.get('direct', False) and predicted is not None
+            and any(row[0] == 's9je' and row[2] == 2
+                    for row in predicted['result']['rows']))
+
+
+def terminal_present(value):
+    """有無は比較とは別に保存し、不正・欠損の観測は空欄とする。"""
+    if not isinstance(value, dict) or not isinstance(value.get('result'), dict):
+        return ''
+    rows = value['result'].get('rows')
+    return int(['s9jz', 1, 1] in rows) if isinstance(rows, list) else ''
+
+
 def program(a):
     out=['new']
     direct=a.get('direct',False)
@@ -220,9 +236,13 @@ def valid(value, a):
     if value['prepare']!=stage(prepare_rows(a)) or value['operation']!=stage([['s9jo',1,1]]):
         return False
     rows=value['result']['rows']
-    return (len(rows)>=2 and rows[0]==['s9jb',1,1] and rows[-1]==['s9jz',1,1]
-            and rows.count(['s9jb',1,1])==rows.count(['s9jz',1,1])==1
-            and all(r[0] in ('s9jv','s9je') for r in rows[1:-1])
+    has_terminal = bool(rows) and rows[-1] == ['s9jz',1,1]
+    body = rows[1:-1] if has_terminal else rows[1:]
+    return (bool(rows) and rows[0]==['s9jb',1,1]
+            and (has_terminal or optional_terminal(a))
+            and rows.count(['s9jb',1,1])==1
+            and rows.count(['s9jz',1,1])==int(has_terminal)
+            and all(r[0] in ('s9jv','s9je') for r in body)
             and len(rows)<=16)
 
 
@@ -278,7 +298,7 @@ def measure(rom, official, selected, work):
                 except Exception:
                     obs.append({}); others.append({}); failed.append(True)
             gate = (not any(failed) and all(valid(o, a) for o in obs)
-                    and comparable(obs[0]) == comparable(obs[1]))
+                    and comparable(obs[0], a) == comparable(obs[1], a))
             records.append(dict(arm=a, obs=obs, others=others, failed=failed, gate=gate))
     return records
 
@@ -295,11 +315,14 @@ def valid_counts(value):
             and all(type(n) is int and n >= 0 for n in value.values()))
 
 
-def comparable(value):
-    """比較と2走一致からexactを除く。保存観測は変更しない。"""
+def comparable(value, a=None):
+    """exactと対象腕の終端印を比較・2走一致から除く。観測は保持する。"""
     if value is None:
         return None
-    return {name: dict(rows=v['rows'], errors=[e[:2] for e in v['errors']])
+    omit_terminal = a is not None and optional_terminal(a)
+    return {name: dict(rows=[r for r in v['rows']
+                            if not (omit_terminal and name == 'result' and r[0] == 's9jz')],
+                       errors=[e[:2] for e in v['errors']])
             for name, v in value.items()}
 
 
@@ -312,22 +335,22 @@ def emit(path, records):
                      and len(r['obs']) == 2 and len(r['failed']) == 2
                      and all(type(f) is bool for f in r['failed']) and not any(r['failed'])
                      and all(valid(o, r['arm']) for o in r['obs'])
-                     and comparable(r['obs'][0]) == comparable(r['obs'][1])
+                     and comparable(r['obs'][0], r['arm']) == comparable(r['obs'][1], r['arm'])
                      and len(r['others']) == 2 and all(valid_counts(c) for c in r['others']))
     cs = [r for r in records if r['arm']['id'].startswith('control-')]
     calibrated = (len(cs) == len(controls())
                   and {r['arm']['id'] for r in cs} == {a['id'] for a in controls()}
-                  and all(r['gate'] and comparable(r['obs'][0]) ==
-                          comparable(prediction(r['arm'])) for r in cs))
+                  and all(r['gate'] and comparable(r['obs'][0], r['arm']) ==
+                          comparable(prediction(r['arm']), r['arm']) for r in cs))
     write(path, ['arm', 'repeat', 'typed_lines', 'observation', 'other_line_counts',
-                 'gate', 'G_GW', 'typing_or_capture_failed'],
+                 'gate', 'G_GW', 'typing_or_capture_failed', 's9jz_present'],
           [(r['arm']['id'], i+1, json.dumps(program(r['arm']), ensure_ascii=False),
             json.dumps(r['obs'][i]), json.dumps(r['others'][i]),
             'pass' if calibrated and r['gate'] else 'gate_failed',
             'gate_failed' if not calibrated or not r['gate'] else
             'unpredicted' if prediction(r['arm']) is None else
-            'agree' if comparable(r['obs'][0]) == comparable(prediction(r['arm'])) else 'differ',
-            int(r['failed'][i])) for r in records for i in range(2)])
+            'agree' if comparable(r['obs'][0], r['arm']) == comparable(prediction(r['arm']), r['arm']) else 'differ',
+            int(r['failed'][i]), terminal_present(r['obs'][i])) for r in records for i in range(2)])
     return calibrated and bool(records) and all(r['gate'] for r in records)
 
 
@@ -374,7 +397,7 @@ def check(expected, measured):
             aid = r['arm']
             if aid not in known or prediction(known[aid]) is None or not valid(value, known[aid]):
                 return False
-            if aid in targets and comparable(targets[aid]) != comparable(value):
+            if aid in targets and comparable(targets[aid], known[aid]) != comparable(value, known[aid]):
                 return False
             targets[aid] = value
         grouped = {}
@@ -385,20 +408,20 @@ def check(expected, measured):
         cs = {aid for aid in targets if aid.startswith('control-')}
         if cs != {a['id'] for a in controls()}:
             return False
-        if any(comparable(targets[aid]) != comparable(prediction(known[aid])) for aid in cs):
+        if any(comparable(targets[aid], known[aid]) != comparable(prediction(known[aid]), known[aid]) for aid in cs):
             return False
         for aid, value in targets.items():
             runs = grouped[aid]
             if len(runs) != 2 or {r['repeat'] for r in runs} != {'1', '2'}:
                 return False
-            if comparable(json.loads(runs[0]['observation'])) != comparable(json.loads(runs[1]['observation'])):
+            if comparable(json.loads(runs[0]['observation']), known[aid]) != comparable(json.loads(runs[1]['observation']), known[aid]):
                 return False
             if any(json.loads(r['typed_lines']) != json.loads(json.dumps(program(known[aid])))
                    or not valid_counts(json.loads(r['other_line_counts']))
                    or r['G_GW'] not in ('agree', 'differ')
                    or r['gate'] != 'pass' or r['typing_or_capture_failed'] != '0'
                    or not valid(json.loads(r['observation']), known[aid])
-                   or comparable(json.loads(r['observation'])) != comparable(value) for r in runs):
+                   or comparable(json.loads(r['observation']), known[aid]) != comparable(value, known[aid]) for r in runs):
                 return False
         return True
     except (ValueError, KeyError, TypeError, OSError):
@@ -531,6 +554,85 @@ def selftest(work=None):
         for r in saved: r['gate']=r['G_GW']='gate_failed'
         write(measured,list(saved[0]),[list(r.values()) for r in saved])
         assert rejudge(measured,out) and check(expected,out)
+        # 追補1: 対象は腕名でなく事前予測の捕捉ERR 2とprogramの条件で決める。
+        eligible = [a for a in known if optional_terminal(a)]
+        assert len(eligible) == 3
+        renamed = dict(eligible[0], id='synthetic-renamed')
+        assert optional_terminal(renamed)
+        assert not optional_terminal(dict(renamed, direct=True))
+        assert not optional_terminal(dict(renamed, rows=[['s9je',1,13,1]]))
+        assert not optional_terminal(dict(renamed, rows=None))
+        def without_terminal(a):
+            obs = prediction(a)
+            obs['result']['rows'].pop()
+            return obs
+        # measure経由の関門も同じ規則を使う（合成観測だけ）。
+        with patch(__name__+'.run_arm', side_effect=lambda rom,official,a,wd:
+                   (without_terminal(a) if optional_terminal(a) else prediction(a), counts)):
+            revised = measure('',False,selected,root)
+        assert emit(measured,revised) and check(expected,measured)
+        with measured.open() as stream:
+            terminal_rows = list(csv.DictReader(stream,delimiter='\t'))
+        assert all(r['gate']=='pass' and r['G_GW']=='agree' and r['s9jz_present']=='0'
+                   for r in terminal_rows if optional_terminal(by_id[r['arm']]))
+        assert all(r['s9jz_present']=='1' for r in terminal_rows
+                   if not optional_terminal(by_id[r['arm']]))
+        # 旧列形式・旧失敗判定からの合成再判定。公式TSVは開かない。
+        for r in terminal_rows:
+            r.pop('s9jz_present')
+            r['gate']=r['G_GW']='gate_failed'
+        write(measured,list(terminal_rows[0]),[list(r.values()) for r in terminal_rows])
+        assert rejudge(measured,out) and check(expected,out)
+        with out.open() as stream:
+            assert all(r['s9jz_present']=='0' for r in csv.DictReader(stream,delimiter='\t')
+                       if optional_terminal(by_id[r['arm']]))
+        # 2走間の終端印の有無も除外するが、保存観測と別列は変えない。
+        mixed = copy.deepcopy(revised)
+        for r in mixed:
+            if optional_terminal(r['arm']):
+                r['obs'][1]['result']['rows'].append(['s9jz',1,1])
+        assert emit(measured,mixed) and check(expected,measured)
+        with measured.open() as stream:
+            assert {r['s9jz_present'] for r in csv.DictReader(stream,delimiter='\t')
+                    if optional_terminal(by_id[r['arm']])} == {'0','1'}
+        # 対象外（ERR 13 program、ERR 2 direct、ERR 5、予測なし）は関門失敗。
+        for aid in ('let-program-bad-type','let-direct-bad-empty','on-goto-negative',
+                    'on-goto-f15'):
+            bad = copy.deepcopy(records)
+            if prediction(by_id[aid]) is None:
+                obs = prediction(by_id['on-goto-one'])
+                target = dict(arm=by_id[aid], obs=[obs,copy.deepcopy(obs)],
+                              others=[counts,counts],failed=[False,False],gate=True)
+                bad.append(target)
+            else:
+                target = next(r for r in bad if r['arm']['id']==aid)
+            for o in target['obs']: o['result']['rows'].pop()
+            assert not emit(measured,bad) and not check(expected,measured)
+            with measured.open() as stream:
+                assert all(r['gate']==r['G_GW']=='gate_failed'
+                           for r in csv.DictReader(stream,delimiter='\t') if r['arm']==aid)
+        # 対象腕でも捕捉ERR・pの違いは関門を通りdiffer。2走の違いは関門失敗。
+        for a in eligible:
+            for index, replacement in ((2,13),(3,2)):
+                bad = copy.deepcopy(revised)
+                target = next(r for r in bad if r['arm']['id']==a['id'])
+                for o in target['obs']: o['result']['rows'][1][index]=replacement
+                assert emit(measured,bad) and not check(expected,measured)
+                with measured.open() as stream:
+                    assert all(r['gate']=='pass' and r['G_GW']=='differ'
+                               for r in csv.DictReader(stream,delimiter='\t') if r['arm']==a['id'])
+                target['obs'][1]['result']['rows'][1][index]+=1
+                assert not emit(measured,bad)
+            # 有る終端印の型・一意性・順序と他の関門は緩めない。
+            for suffix in ([['s9jz',1,2]], [['s9jz',1,1],['s9jz',1,1]],
+                           [['s9jz',1,1],value(7)]):
+                obs = without_terminal(a)
+                obs['result']['rows'] += suffix
+                assert not valid(obs,a)
+            obs = without_terminal(a)
+            obs['prepare']['rows'][0][2]=2
+            assert not valid(obs,a)
+        print('OK 追補1・予測条件による対象選別・終端印欠落agree・対象外gate_failed・ERR/p違いdiffer',flush=True)
         # 値違いは採取形と校正を通してからdifferまで到達する。
         bad=copy.deepcopy(records)
         target=next(r for r in bad if r['arm']['id']=='on-goto-one')
