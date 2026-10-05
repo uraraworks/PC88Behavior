@@ -94,6 +94,8 @@ S9D_GOSUB_PUSH:
     LD HL,(MM_RUN_FOR_SP)
     LD (MM_STACK_INDEX),HL
     CALL S9D_FOR_SLOT
+    LD DE,MM_STACK_RESERVED-MM_FOR_STACK_RESERVED
+    ADD HL,DE
     EX DE,HL
     POP HL
     PUSH HL
@@ -153,6 +155,9 @@ _restore_ok:
     LD (ERROR_FLAG),A
     RET
 
+
+    ORG 0x622C
+    JP S9D_REQUIRE_NEXT
 
     ORG 0x6230
 ; ページはスタック域の直下から下向き。256B境界への丸めはしない。
@@ -341,7 +346,7 @@ S9D_LAYOUT:
     SBC HL,DE
     LD (MM_STACK_BOTTOM),HL
     LD (MM_FREE_TOP),HL
-    LD DE,MM_STACK_RESERVED
+    LD DE,MM_FOR_STACK_RESERVED
     ADD HL,DE
     LD (MM_RUN_FOR_STACK),HL
     RET
@@ -351,11 +356,13 @@ S9D_FOR_SLOT:
     LD D,H
     LD E,L
     ADD HL,HL
+    ADD HL,DE                ; 3*深さ
+    EX DE,HL
+    LD HL,(MM_STACK_INDEX)
     ADD HL,HL
     ADD HL,HL
-    PUSH HL
     ADD HL,HL
-    POP DE
+    ADD HL,HL
     ADD HL,DE
     LD DE,(MM_RUN_FOR_STACK)
     ADD HL,DE
@@ -378,13 +385,13 @@ S9D_GOSUB_SLOT:
     RET
 
 
-; DE=FOR深さ。HL=次のフレーム、CF=1は共用域不足。
+; HL=次の19Bフレーム、CF=1は使用量+19+80が共用域を超える。
 S9D_FOR_ROOM:
     LD HL,(MM_RUN_FOR_SP)
     LD (MM_STACK_INDEX),HL
     CALL S9D_FOR_SLOT
     PUSH HL
-    LD DE,24
+    LD DE,19
     ADD HL,DE
     PUSH HL
     LD HL,(MM_RUN_GOSUB_SP)

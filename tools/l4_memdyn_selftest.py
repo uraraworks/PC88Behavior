@@ -213,13 +213,43 @@ class Suite:
                 if len(line.split())==5 and line.split()[3]=='C000']
         assert [row[4] for row in writes]==['49'],writes
         self.ok('上限49151より上のPOKE値73をRUN二回が保持、追加書込みなし')
-        # FOR 24Bを使ったまま再帰するとGOSUBに使える共用域が減る。
-        lines=['10 CLEAR ,49152,128','20 FOR I=0 TO 0:D=0:GOSUB 100',
+        # 対応するNEXTをすべて後置し、溢れる前に完了したFOR本体の段数を読む。
+        for n in (128,256,512,1024,2048):
+            depth=(n-80)//19
+            count=depth+1
+            names=[f'F{i}' for i in range(count)]
+            lines=[f'10 CLEAR ,49152,{n}','20 D=0']
+            lines += [f'{100+i*10} FOR {name}=0 TO 0:D={i+1}'
+                      for i,name in enumerate(names)]
+            lines += [f'{100+count*10+i*10} NEXT {name}'
+                      for i,name in enumerate(reversed(names))]
+            _,text=self.run('for-depth-'+str(n),[('LOAD "1:seed"',50000),
+                           ('RUN',1500),('PRINT "FORDEPTH";D',160)],disk_with_program(lines))
+            assert 'out of memory' in text and re.search(r'fordepth\s*'+str(depth)+r'\b',text),text
+        self.ok('CLEAR ,,nのFOR深さfloor((n-80)/19)、128/256/512/1024/2048、溢れERR7')
+        # NEXTの字面が文字列/REM/DATA/識別子の中だけなら、FOR本体の前にERR26。
+        for tag,tail in [('string','PRINT "NEXT"'),('rem','REM NEXT'),
+                         ('data','DATA "x:NEXT",NEXT'),('identifier','NEXT1=0'),
+                         ('suffix','NEXT$="x"')]:
+            lines=['10 FOR I=1 TO 1:D=73','20 '+tail]
+            _,text=self.run('for-no-next-'+tag,[(line,160) for line in lines]+[
+                           ('RUN',500),('PRINT "SCANVALUE";D',160)])
+            assert 'for without next' in text and re.search(r'scanvalue\s*0\b',text),text
+        _,text=self.run('for-direct-no-next',[
+            ('FOR I=1 TO 1:PRINT "NEXT"',500)])
+        assert 'for without next' in text,text
+        _,text=self.run('for-data-next',[(line,160) for line in [
+            '10 FOR I=1 TO 1:D=73:END','20 DATA "x:NEXT",NEXT:NEXT I']]+[
+            ('RUN',500),('PRINT "SCANDONE";D',160)])
+        assert re.search(r'scandone\s*73\b',text) and 'error' not in text,text
+        self.ok('FORの事前NEXT検査、文字列/REM/DATA/識別子/接尾辞除外・直接行末・DATA後のNEXT')
+        # FOR 19Bを使ったまま再帰するとGOSUBに使える共用域が減る。
+        lines=['10 CLEAR ,49152,121','20 FOR I=0 TO 0:D=0:GOSUB 100',
                '30 NEXT:END','100 D=D+1:GOSUB 100']
         _,text=self.run('shared-stack',[(line,160) for line in lines]+[
                        ('RUN',500),('PRINT "SHARED";D',160)])
         assert 'out of memory' in text and re.search(r'shared\s*1\b',text),text
-        self.ok('FOR/GOSUB共用域の衝突でERR7（24B＋7B×1）')
+        self.ok('FOR/GOSUB共用域の衝突でERR7（n=121、19B＋7B×1、GOSUB余白92B）')
 
     def exhaustion(self):
         # ページ不足とヒープ不足を各々起こし、既存値とBASIC復帰を確認。
@@ -255,7 +285,7 @@ def main():
         work.mkdir(parents=True,exist_ok=True)
         suite=Suite(work)
         suite.large();suite.wide_capture();suite.capture_edge();suite.symbols();suite.strings();suite.edits();suite.limits();suite.exhaustion()
-        print('l4_memdyn_selftest: OK（全11群、自作ROM/自作媒体のみ）')
+        print('l4_memdyn_selftest: OK（全13群、自作ROM/自作媒体のみ）')
 
 if __name__=='__main__':
     main()

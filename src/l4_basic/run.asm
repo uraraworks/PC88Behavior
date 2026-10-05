@@ -38,8 +38,8 @@
 ;     「少なくとも3文字目まで区別」は満たす)。
 ;   - 変数テーブルは最大40個、文字列変数の中身は最大255文字まで（32文字以上は別領域）。
 ;     超えたらOut of memory(7)/String too long(15)。
-;   - FORの入れ子は最大8重、GOSUBの入れ子も最大8重まで。超えたら
-;     Out of memory(7)。
+;   - FOR/GOSUBはCLEAR第3引数の共用域で制限する。使用量は19B/7B、
+;     積む型の余白は80B/92B。混在時の合算は未観測の自作判断。
 ;   - `#`(倍精度)変数は、段階4b-3で倍精度が組み込まれるまでの暫定として、
 ;     代入・参照のいずれでもType mismatch(13)の誤りにする。
 ;   - FORのループ変数への初期値代入は、その変数が`%`接尾辞を持っていても
@@ -103,11 +103,12 @@ VARREC_KIND         EQU 9
 VARREC_VALUE        EQU 10
 
 ; ---- FORスタック ----
-; フレーム(24B): [NAME 8B][LIMIT type1+data4][STEP type1+data4]
-;                [RESUME record2+curptr2+lineend2]
+; フレーム(19B): [変数レコードptr2B][LIMIT type1+data4][STEP type1+data4]
+;                [RESUME record2+curptr2+lineend2][詰め1]
+; 変数はヒープへの追記だけで移動しない。本文編集/CLEARではフレームも消す。
 RUN_FOR_STACK       EQU MM_RUN_FOR_STACK
-RUN_FOR_FRAME_SIZE  EQU 24
-; FORは下端+92から上向き、GOSUBとの間の空きだけ使用する。
+RUN_FOR_FRAME_SIZE  EQU 19
+; FORは下端+80から上向き。GOSUBを積む時だけさらに12Bの余白が必要。
 
 ; ---- GOSUBスタック ----
 ; フレーム(7B): [record2][curptr2][lineend2][詰め1]
@@ -1441,7 +1442,7 @@ _plc_ovfl:
 ; FORスタック
 ; =======================================================================
 
-; FOR_SLOT_ADDR — HL=インデックス。HL=FOR先頭+インデックス*24。
+; FOR_SLOT_ADDR — HL=インデックス。HL=FOR先頭+インデックス*19。
 FOR_SLOT_ADDR:
     LD (MM_STACK_INDEX),HL
     LD HL,07D50h
@@ -1453,14 +1454,18 @@ RUN_FOR_PUSH:
     LD HL,07D70h
     CALL S9_BANK_CALL
     JP C,_rfp_oom
-    LD DE,RUN_FOR_VARNAME
-    LD B,8
-_rfp_copyname:
-    LD A,(DE)
-    LD (HL),A
+    PUSH HL
+    LD HL,RUN_FOR_VARNAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
+    CALL VAR_FIND
+    EX DE,HL
+    POP HL
+    LD (HL),E
     INC HL
-    INC DE
-    DJNZ _rfp_copyname
+    LD (HL),D
+    INC HL
     LD A,(RUN_FOR_LIMIT_TYPE)
     LD (HL),A
     INC HL
@@ -1541,6 +1546,10 @@ _rffbn_loop:
     LD (RUN_FOR_SEARCH_IDX),HL
     CALL FOR_SLOT_ADDR
     PUSH HL
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    EX DE,HL
     LD DE,IDENT_BUF
     LD B,8
 _rffbn_cmp:
@@ -1564,14 +1573,14 @@ _rffbn_notfound:
     RET
 
 ; RUN_FOR_RESTORE_RESUME — RUN_FOR_FRAME_PTRのフレームの再開位置
-;   (offset18:record2B/20:curptr2B/22:lineend2B)をRUN_CUR_RECORD/
+;   (offset12:record2B/14:curptr2B/16:lineend2B)をRUN_CUR_RECORD/
 ;   CUR_PTR/LINE_ENDへ書き戻す。NEXTがループ本体へ戻るときに使う
 ;   (過去に実際に踏んだ不具合: ここが無いと変数の更新だけが起きて
 ;   実行位置がNEXT自身の直後のまま進み、ループが1周もしなかった)。
 ;   破壊: AF,DE,HL。
 RUN_FOR_RESTORE_RESUME:
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,18
+    LD DE,12
     ADD HL,DE
     LD E,(HL)
     INC HL
@@ -1606,17 +1615,16 @@ RUN_FOR_RESTORE_RESUME:
 ;   破壊: AF,BC,DE,HL,CUR_*,RHS_*等。
 RUN_FOR_TEST_BOUNDS:
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,IDENT_BUF
-    LD B,8
-_rftb_copyname:
-    LD A,(HL)
-    LD (DE),A
+    LD E,(HL)
     INC HL
-    INC DE
-    DJNZ _rftb_copyname
+    LD D,(HL)
+    EX DE,HL
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
     CALL VAR_READ_NUMERIC
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,8
+    LD DE,2
     ADD HL,DE
     LD A,(HL)
     LD (RHS_TYPE),A
@@ -1635,7 +1643,7 @@ _rftb_copyname:
     CALL VAL_COMPARE_CUR_RHS
     LD (RUN_FOR_CMP_RESULT),A
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,13
+    LD DE,7
     ADD HL,DE
     LD A,(HL)
     LD (CUR_TYPE),A
@@ -1692,17 +1700,16 @@ RUN_FOR_STEP_AND_TEST:
     DEC HL
     CALL FOR_SLOT_ADDR
     LD (RUN_FOR_FRAME_PTR),HL
-    LD DE,IDENT_BUF
-    LD B,8
-_rfsat_copyname:
-    LD A,(HL)
-    LD (DE),A
+    LD E,(HL)
     INC HL
-    INC DE
-    DJNZ _rfsat_copyname
+    LD D,(HL)
+    EX DE,HL
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
     CALL VAR_READ_NUMERIC
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,13
+    LD DE,7
     ADD HL,DE
     LD A,(HL)
     LD (RHS_TYPE),A
@@ -1723,14 +1730,13 @@ _rfsat_copyname:
     OR A
     RET NZ
     LD HL,(RUN_FOR_FRAME_PTR)
-    LD DE,IDENT_BUF
-    LD B,8
-_rfsat_copyname2:
-    LD A,(HL)
-    LD (DE),A
+    LD E,(HL)
     INC HL
-    INC DE
-    DJNZ _rfsat_copyname2
+    LD D,(HL)
+    EX DE,HL
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
     CALL VAR_WRITE_NUMERIC
     LD A,(ERROR_FLAG)
     OR A
@@ -1939,6 +1945,12 @@ _ret_nogosub:
     RET
 
 FOR_STMT:
+    ; NEXTは本体へ戻すため、2周目以降はここへ来ず走査を繰り返さない。
+    LD HL,0622Ch
+    CALL S9_BANK_CALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     CALL SKIP_SPACES
     CALL LEX_IDENT_CONSUME
     OR A
@@ -1949,13 +1961,8 @@ FOR_STMT:
     JP Z,_for_typeerr
     LD HL,IDENT_BUF
     LD DE,RUN_FOR_VARNAME
-    LD B,8
-_for_copyname1:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _for_copyname1
+    LD BC,8
+    LDIR
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '='
@@ -1967,13 +1974,8 @@ _for_copyname1:
     RET NZ
     LD HL,RUN_FOR_VARNAME
     LD DE,IDENT_BUF
-    LD B,8
-_for_copyname2:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _for_copyname2
+    LD BC,8
+    LDIR
     CALL VAR_WRITE_NUMERIC
     LD A,(ERROR_FLAG)
     OR A
@@ -2849,6 +2851,9 @@ _run_error_emit:
     SBC HL,DE
     RET Z
     CALL RUN_EMIT_ERROR
+    ; 直接RUNの呼び出し元に、失敗したFORの行内残りを実行させない。
+    LD HL,(LINE_END)
+    LD (CUR_PTR),HL
     XOR A
     LD (ERROR_FLAG),A
     RET

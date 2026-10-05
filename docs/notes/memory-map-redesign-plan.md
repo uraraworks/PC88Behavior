@@ -315,3 +315,23 @@ FOR/GOSUB スタックは、マニュアルの CLEAR の第3引数（FOR・GOSUB
 - 最新ビルドのINKEY生記録は `/private/tmp/pc88-stagef-final2-inkey.tsv` と `/private/tmp/pc88-stagef-final2-inkey-a1.tsv`。統合コピー、比較用Python、hold-aの不一致記録は同じ接頭辞のファイル。元の測定TSVは保持した。
 - 自己検査のログは `/private/tmp/pc88-stagef-checks-verified/`、program/listnumは `/private/tmp/pc88-stagef-checks-final/`。中断した初回の結果も残るため、完了した合格走を記録した。basicの独立した最終合格走は `/private/tmp/pc88-stagef-basic-verified.log`、memmap/asmの最終再確認は `/private/tmp/pc88-stagef-memmap-final.log`・`/private/tmp/pc88-stagef-asm-final.log`。
 期待値・照合器・既存の合格条件は変更していない。コミット・git addはしていない。
+
+
+### 段F追補: FOR容量と後方NEXT検査（2026-10-05）
+
+依頼で提示されたl4-s9d追補1・追補3の観測を根拠に、上記のFOR 24B/共通92B予約という暫定判断を更新した。private/・公式ROMは読まず、実行していない。
+
+- 使用量は `19×FOR深さ + 7×GOSUB深さ`。GOSUB追加は `使用量+7+92 <= n`、FOR追加は `使用量+19+80 <= n`。80は観測されたc=76〜85の中央寄りで、128→2・256→9・512→22・1024→49・既定512→22をすべて満たす自作値。公式の内部予約量を特定した値ではない。
+- FORフレームは実際に19Bに縮めた。変数名8Bを混在ヒープの変数レコードへの2Bポインタに置き換え、終了値5B・増分5B・再開位置6B・未使用1Bを配置する。ヒープは追記のみでレコードを移動せず、編集/CLEARでフレームも消去する。会計だけを19Bにする方法は採用していない。
+- FORは下端+80から上へ19Bずつ、GOSUBは上端から下へ7Bずつ配置する。GOSUB追加時だけFOR末尾との間にさらに12Bを要求する。混在の公式深さは未測定であり、この合算と積む型ごとの余白は自作判断。既存の混在自己検査は期待深さ1を変えず、同じ衝突を19B形式で起こすよう入力nを128から121へ変更した。
+- FORの入口で、現在位置から本文末尾まで（直接モードは同じ行の残りだけ）を読み、NEXTキーワードが無ければERR26。文字列・REM/シングルクォート注釈・DATA内を除外し、NEXTの変数名やFOR/NEXTの対応は確認しない。NEXTは保存した本体の位置へ戻るため、同じFORの2周目以降は走査を実行しない。
+- ERR26/7の後に直接RUNの呼び出し元が失敗したFORの行内残りを実行しないよう、捕捉なしのプログラム誤り表示後にCUR_PTRをLINE_ENDへ合わせる。
+- 走査本体はバンク3末尾の7EE0以降、入口は既存の機能域622C。試験入口後の埋め草とmainの予約79D7を保つ。mainの名前コピー5箇所をLDIRへまとめて容量を確保した。
+
+
+追補検証は自作ROM/自作媒体のみで実施した。measureはrom-dir/work-dirとも絶対パス、自己検査はbash経由・stdin=/dev/null。期待値ファイル・照合器・合格条件は変更していない。
+
+- 最終ROMは `/private/tmp/pc88-forstack/final-rom`。追補1 CLIの31腕×2走はFRE既知値23270に対し自作23850で関門停止した（`/private/tmp/pc88-forstack/accepted-addendum1.tsv`）。変更していない採取/関門処理を用いてGOSUB腕を別採取し、128→5・256→23・512→60・1024→133・既定→60、各ERR7を2走で確認した（`/private/tmp/pc88-forstack/gosub/measured.tsv`）。最終入口移動でmainが変わるのはFOR入口の2バイトだけで、GOSUBの命令列は同一。最終ROMでもmemdynのlimits全群を別実行し、99/128/256/512/1024/2048のGOSUB深さ、128/256/512/1024/2048のFOR深さとERR7が通過した。
+- 追補3 CLIは13腕×2走の採取関門通過（`/private/tmp/pc88-forstack/accepted-addendum3.tsv`）。FOR深さ128→2・256→9・512→22・1024→49・既定→22とERR7、NEXTなし/前方のみのERR26、NEXT変数違いの本体実行後ERR1、正常NEXTの2周と後続行到達が依頼の公式観測と一致した。64はCLEARのERR7で拒否（依頼で提示された深さ比較の対象外）。
+- 指定の10自己検査（memmap・asm/asm・ext_bank・l4_basic・l4_program・l4_memdyn・l4_memlimit・l4_editinv・l4_s5j・l4_listnum）はすべてrc=0。memdynは追加分を含む全13群。追加したDATA後のNEXT陽性例は、本体でENDしてDATA行を実行せず、FORの後方走査がDATA中の引用符/コロンを飛ばしてDATA末尾後のNEXTを認識することを調べる。通常のNEXTによる反復は追補3と直接モードの別実行でも確認した。
+- ext_bankの初回は試験入口と機能域の間の埋め草検査が新入口6008を検出してNG。入口を既存機能域622Cへ移して、検査を変更せず再実行して通過した。memdyn追加検査の初回は長い打鍵列/未実装DATA文実行により停止したため、新規検査入力を自作D88からのLOAD/走査だけのDATA陽性例へ修正して全群を再実行した。計画書への追記以外のdocs/、tests/、tools/l4_pusing_*、他作業者のtools/run_all_selftests.shは編集していない。コミット・git addはしていない。

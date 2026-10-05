@@ -737,6 +737,7 @@ CONSTANTS = {
     "MM_USER_LIMIT_DEFAULT": 0xE5FD,
     "MM_USER_LIMIT_MAX": 0xE5FF,
     "MM_STACK_RESERVED": 92,
+    "MM_FOR_STACK_RESERVED": 80,  # 観測c=76〜85の中央寄り。全測定深さを満たす自作値。
     "MM_USER_STACK_SIZE": 512,
     "MM_STRING_PAGE_COUNT": 96,
     "MM_PROGRAM_AREA": 0x8400,
@@ -746,7 +747,7 @@ DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=298Bを追記",
     "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
-    "FOR_STACK": "STACK_BOTTOM+92から24Bずつ上向き（GOSUBと共用）",
+    "FOR_STACK": "STACK_BOTTOM+80から19Bずつ上向き（GOSUB追加時は余白92B）",
     "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",
     "CAPTURE": "HEAP_ENDからFREE_TOPまでの空き（SAVE中のみ）",
 }

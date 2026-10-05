@@ -127,6 +127,7 @@ BANK3_EXTRA_SOURCES = (
     "src/l4_basic/strfunc.asm",
     "src/l4_basic/peekpoke.asm",
     "src/l4_basic/hexconst.asm",
+    "src/l4_basic/forstack.asm",
 )
 
 
