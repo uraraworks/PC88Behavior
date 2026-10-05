@@ -77,7 +77,7 @@ def tokens(fmt, candidate='U_GW'):
     return out
 
 
-def numeric(field, value):
+def numeric(field, value, keep=False):
     left, places = field['left'], field['decimals']
     if left+places+int(field['dot']) >= 25:
         raise BasicError(5)
@@ -96,7 +96,7 @@ def numeric(field, value):
             exponent = magnitude.adjusted()-digits+1 if magnitude else 0
             magnitude = magnitude.scaleb(-exponent)
         rounded = magnitude.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
-        if field['sci'] and magnitude and rounded >= Decimal(10)**digits:
+        if field['sci'] and magnitude and rounded >= Decimal(10)**digits and not keep:
             rounded /= 10; exponent += 1
         body = format(rounded, f'.{places}f')
     if field['dot'] and not places:
@@ -142,7 +142,7 @@ def format_using(fmt, values, candidate='U_GW'):
                     s = value['value']
                     output += s[:field].ljust(field) if field else s
                 else:
-                    output += numeric(field, value)
+                    output += numeric(field, value, candidate == 'S_KEEP')
             except BasicError as error:
                 return output, error.number
             at += 1; used += 1
@@ -222,11 +222,15 @@ def program(arm, trap=True):
         chunks = [arm['constant'][i:i+35] for i in range(0, len(arm['constant']), 35)] or ['']
         for i, chunk in enumerate(chunks):
             lines += [str(30+i)+' print '+literal(chunk)+(arm['tail'] if i == len(chunks)-1 else ';')]
+    elif arm.get('noline'):
+        pass
     else:
-        fmt = literal(arm['fmt']) if isinstance(arm['fmt'], str) else str(arm['fmt'])
+        fmt = arm['fmtexpr'] if 'fmtexpr' in arm else literal(arm['fmt']) if isinstance(arm['fmt'], str) else str(arm['fmt'])
         values = [literal(v['value']) if v['type'] == 'string' else v['value']+('#' if v.get('double') else '') for v in arm['values']]
-        lines += ['30 print using '+fmt+';'+arm['sep'].join(values)+arm['tail']]
+        lines += ['30 '+arm.get('pre', '')+'print using '+fmt+';'+arm['sep'].join(values)+arm['tail']]
     lines += ['40 print "|s9hz"', '50 print "s9he";e', '60 print "s9hd"', '70 end', 'cls', 'run']
+    if arm.get('probe'):
+        lines += ['list 30-30']  # 行が入ったかを非空行数の差で数える。本文は読まない
     if not all(len(line) < 80 and line == line.lower() and '@' not in line and '_' not in line for line in lines):
         raise ValueError('打鍵行の制約違反')
     return lines
@@ -246,6 +250,8 @@ def projection(output, tail, error=0, ordinary=False):
 
 
 def prediction(arm, candidate='U_GW'):
+    if arm.get('noline'):
+        return projection('', ';')
     if 'constant' in arm:
         return projection(arm['constant'], arm['tail'], ordinary=True)
     output, error = format_using(arm['fmt'], arm['values'], candidate)
@@ -450,6 +456,84 @@ def rejudge(measured, out):
     return passed
 
 
+# ---- 追補2: 繰り上がり（S_NORM/S_KEEP）と空の書式 ----
+CANDIDATES2 = ('S_NORM', 'S_KEEP')
+
+
+def arms2():
+    result = []
+    def add(aid, fmt, values, **extra):
+        result.append(dict(id=aid, fmt=fmt, values=values, sep=';', tail=';', **extra))
+    for i, (fmt, v) in enumerate([('#.##^^^^', '9.999'), ('##.#^^^^', '99.99'), ('##.##^^^^', '999.5'),
+                                  ('#.###^^^^', '9.9999'), ('##.##^^^^', '-999.5'), ('##.##^^^^', '998.5'),
+                                  ('###^^^^', '995'), ('##.##^^^^', '999.9'), ('##.##', '99.999'), ('##', '99.5')]):
+        add(f'carry-{i+1:02d}', fmt, [num(v)])
+    add('empty-lit', '', [num(1)])
+    add('empty-var', '', [num(1)], fmtexpr='a$', pre='a$="":')
+    add('xonly-lit', 'x', [num(1)])
+    add('empty-lit-probe', '', [num(1)], probe=True)
+    add('empty-var-probe', '', [num(1)], fmtexpr='a$', pre='a$="":', probe=True)
+    add('xonly-lit-probe', 'x', [num(1)], probe=True)
+    add('probe-present', '!', [string('a')], probe=True)
+    add('probe-absent', '', [], noline=True, probe=True)
+    return result
+
+
+def gates2():
+    """1回目で2走一致・予測一致だった腕を同じ打鍵で再測する関門と、折り返さない定数対照。"""
+    one = {a['id']: a for a in arms()}
+    ctl = {a['id']: a for a in controls()}
+    gates = [dict(one[i], id='gate-'+i) for i in ('hash-02', 'scientific-02')]
+    return gates + [dict(ctl[i], id='gate-'+i) for i in ('control-empty', 'control-spaces')]
+
+
+def selected2():
+    return gates2()+arms2()
+
+
+def prediction2(arm, candidate):
+    return prediction(arm, candidate)
+
+
+def line_entered(by_id):
+    """probe 腕の非空行数を present/absent の基準と比べる。本文は使わない。"""
+    base = {k: by_id[k]['others'][0] for k in ('probe-present', 'probe-absent') if k in by_id}
+    out = {}
+    for aid, r in by_id.items():
+        if r['arm'].get('probe') and not r['failed'][0]:
+            o = r['others'][0]
+            out[aid] = ('entered' if o == base.get('probe-present') != base.get('probe-absent') else
+                        'absent' if o == base.get('probe-absent') != base.get('probe-present') else 'ambiguous')
+    return out
+
+
+def emit2(path, records, trap=True):
+    by_id = {r['arm']['id']: r for r in records}
+    def stable(r):
+        return not any(r['failed']) and r['obs'][0] == r['obs'][1] and valid(r['obs'][0])
+    gate_ok = all(a['id'] in by_id and stable(by_id[a['id']]) and
+                  by_id[a['id']]['obs'][0] == prediction(a) for a in gates2())
+    entered = line_entered(by_id)
+    rows, passed = [], gate_ok
+    for r in records:
+        aid = r['arm']['id']
+        preds = [prediction2(r['arm'], c) for c in CANDIDATES2]
+        gate = gate_ok and stable(r)
+        known = gate and r['obs'][0] in preds
+        free = aid.startswith(('empty-', 'xonly-', 'probe-'))
+        status = 'gate_failed' if not gate else 'pass' if known else 'observed' if free else 'differ'
+        passed = passed and gate and (known or free)
+        for i in range(2):
+            rows.append((aid, i+1, json.dumps(program(r['arm'], trap)), json.dumps(r['obs'][i]), r['others'][i],
+                         status, *(('agree' if r['obs'][i] == p else 'differ') if gate else 'gate_failed' for p in preds),
+                         entered.get(aid, ''), int(r['failed'][i])))
+    expected = {a['id'] for a in selected2()}
+    passed = passed and expected == set(by_id)
+    write(path, ['arm', 'repeat', 'typed_lines', 'observation', 'other_line_counts', 'status',
+                 'S_NORM', 'S_KEEP', 'line_entered', 'typing_or_capture_failed'], rows)
+    return passed
+
+
 def screen_of(obs):
     flat = bytearray(b' '*2000)
     payload = BEGIN+bytes(obs['codes'])+END
@@ -605,6 +689,63 @@ def selftest(work):
         write(root/'m.tsv', header, synth()[2:])
         assert not rejudge(root/'m.tsv', root/'r.tsv')
     print('OK 再判定の陽性・陰性（折り返し対照の除外、5対照・2走・形式・欠落・折り返し依存）')
+    # 追補2: 予測の固定値、既知腕の打鍵一致、合成陽性・陰性
+    assert format_using('##.##^^^^', [num('999.5')], 'S_NORM') == (' 1.00E+03', 0)
+    assert format_using('##.##^^^^', [num('999.5')], 'S_KEEP') == ('10.00E+02', 0)
+    assert format_using('##.##^^^^', [num('998.5')], 'S_NORM') == format_using('##.##^^^^', [num('998.5')], 'S_KEEP')
+    assert format_using('##.##', [num('99.999')], 'S_KEEP') == ('%100.00', 0)
+    assert format_using('', [num(1)], 'S_KEEP') == ('', 5) and format_using('x', [num(1)]) == ('x', 5)
+    round1 = {a['id']: a for a in controls()+arms()}
+    for g in gates2():
+        src = round1[g['id'][5:]]
+        assert program(g) == program(src) and prediction(g) == prediction(src), '関門の打鍵が1回目と不一致'
+    assert len(arms()) == 133 and len(controls()) == 7 and program(arms()[0])[2] == '15 on error goto 900'
+    assert len({a['id'] for a in selected2()}) == len(selected2()) and not {a['id'] for a in arms2()} & set(round1)
+    for a in selected2():
+        program(a)
+    assert any(a['id'] == 'carry-03' and a['fmt'] == '##.##^^^^' for a in arms2())
+    assert 'list 30-30' in program(arms2()[-2]) and 'list 30-30' not in program(round1['hash-02'])
+    assert not any(l.startswith('30 ') for l in program(arms2()[-1]))
+    assert prediction(arms2()[-1]) == projection('', ';')
+    old = kw.REPO.parent/'tmp/l4s9h-work/official_round1.tsv'
+    if old.exists():
+        with old.open(encoding='utf-8') as stream:
+            typed = {r['arm']: r['typed_lines'] for r in csv.DictReader(stream, delimiter='\t')}
+        for g in gates2():
+            assert typed.get(g['id'][5:]) == json.dumps(program(g)), '関門の打鍵が保存済みの1回目と不一致'
+    with tempfile.TemporaryDirectory(prefix='add2-', dir=work) as temp:
+        root = Path(temp)
+        sel2 = selected2()
+        def make(obs_for=None):
+            def replay(rom, official, arm, directory, trap=True):
+                o = obs_for(arm) if obs_for else prediction(arm, 'S_KEEP')
+                o = prediction(arm, 'S_KEEP') if o is None else o
+                return o, (5 if arm.get('probe') and not arm.get('noline') and arm['id'] != 'empty-lit-probe' else 4)
+            with patch(__name__+'.run_arm', replay):
+                return measure('', False, sel2, root)
+        records = make()
+        assert emit2(root/'a.tsv', records)
+        with (root/'a.tsv').open(encoding='utf-8') as stream:
+            got = {r['arm']: r for r in csv.DictReader(stream, delimiter='\t')}
+        assert got['carry-03']['S_KEEP'] == 'agree' and got['carry-03']['S_NORM'] == 'differ'
+        assert got['carry-06']['S_KEEP'] == 'agree' and got['carry-06']['S_NORM'] == 'agree'
+        assert got['xonly-lit-probe']['line_entered'] == 'entered' and got['probe-absent']['line_entered'] == 'absent'
+        assert got['empty-lit-probe']['line_entered'] == 'absent'
+        # 陽性: 空書式腕が予測外でも観測として残り、関門は通る
+        assert emit2(root/'b.tsv', make(lambda a: dict(prediction(a), err=7) if a['id'] == 'empty-var' else None))
+        # 陰性: 関門腕の値違い・2走不一致・欠落・数値腕の予測外・失敗
+        bad = make(lambda a: dict(prediction(a), err=7) if a['id'] == 'gate-hash-02' else None)
+        assert not emit2(root/'c.tsv', bad)
+        assert not emit2(root/'d.tsv', make(lambda a: dict(prediction(a), err=7) if a['id'] == 'carry-01' else None))
+        records[0]['obs'][1] = changed
+        assert not emit2(root/'e.tsv', records)
+        records = make()
+        assert not emit2(root/'f.tsv', records[1:])
+        def failed2(*args):
+            raise RuntimeError('合成の打鍵失敗')
+        with patch(__name__+'.run_arm', failed2):
+            assert not emit2(root/'g.tsv', measure('', False, sel2, root))
+    print('OK 追補2の予測固定値・既知腕の打鍵一致・合成陽性/陰性')
     with tempfile.TemporaryDirectory(prefix='selftest-', dir=work) as temp:
         root = Path(temp); rom = root/'rom'
         proc = subprocess.run([os.sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom),
@@ -628,6 +769,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('predict'); p.add_argument('--out', type=Path, required=True)
     m = sub.add_parser('measure'); m.add_argument('--rom-dir'); m.add_argument('--out', type=Path, required=True)
+    m.add_argument('--addendum', type=int, choices=(1, 2), default=1)
     m.add_argument('--official', action='store_true'); m.add_argument('--work-dir', type=Path, default=WORK)
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
     j = sub.add_parser('rejudge'); j.add_argument('--measured', type=Path, required=True); j.add_argument('--out', type=Path, required=True)
@@ -648,6 +790,8 @@ def main():
             passed = False
         print('照合一致' if passed else '照合不一致'); return 0 if passed else 1
     selected = controls()+arms()
+    if args.command == 'measure' and args.addendum == 2:
+        selected = selected2()
     if args.command == 'predict':
         write(args.out, ['arm', 'candidate', 'prediction', 'typed_lines'],
               [(a['id'], c, json.dumps(prediction(a, c)), json.dumps(program(a)))
@@ -657,7 +801,7 @@ def main():
     if not rom or (args.official and args.rom_dir):
         parser.error('公式ROMの場所は PC88_REF_ROM_DIR のみ、自作は --rom-dir で指定')
     records = measure(rom, args.official, selected, args.work_dir)
-    passed = emit(args.out, records)
+    passed = emit2(args.out, records) if args.addendum == 2 else emit(args.out, records)
     print(f'記録完了: {len(records)}腕×2走、既知候補との一致 '+('通過' if passed else '失敗'))
     return 0 if passed else 1
 
