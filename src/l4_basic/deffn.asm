@@ -8,6 +8,9 @@
 ; 未測定・自作判断: 本体の構文は呼出時に検査、無引数の括弧形はERR 2。
 ; 未測定・自作判断: #と%の変換は既存代入/CINT経路と共有する。
 ; 空き印付き枠を再利用し、末尾の空きだけ回収。他の番地は動かさない。
+; bank3.asmのB3_FN_PAGE_FREE_ENTRY/B3_FN_PAGE_ALLOC_ENTRYの固定入口。
+FN_PAGE_FREE_ENTRY EQU 0x61D0
+FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     ORG 0x6B00
     JP fn_match_stmt
     ORG 0x6B10
@@ -776,7 +779,7 @@ fn_release_string:
     INC HL
     LD D,(HL)
     LD (MM_FN_WORK),DE
-    LD HL,06008h
+    LD HL,FN_PAGE_FREE_ENTRY
     JP fn_bank3
 
 ; SWAPの左辺解決。A=0は新設可、A=1は存在必須。
@@ -1078,7 +1081,7 @@ fn_erase_strings:
     INC HL
     LD D,(HL)
     LD (MM_FN_WORK),DE
-    LD HL,06008h
+    LD HL,FN_PAGE_FREE_ENTRY
     CALL fn_bank3
 fn_erase_string_next:
     POP HL
@@ -1206,10 +1209,10 @@ fn_release_array_string:
     INC HL
     LD D,(HL)
     LD (MM_FN_WORK),DE
-    LD HL,06008h
+    LD HL,FN_PAGE_FREE_ENTRY
     JP fn_bank3
 fn_new_page:
-    LD HL,06010h
+    LD HL,FN_PAGE_ALLOC_ENTRY
     JP fn_bank3
 
 fn_ok:

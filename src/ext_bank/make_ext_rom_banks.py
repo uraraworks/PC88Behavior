@@ -57,34 +57,12 @@ BANK_FILES = (
 
 # 故障注入(--inject-no-org-fault、自己検査の陰性対照専用)。
 # bank0.asmのORG 0x6000/0x6010を0x0000/0x0010へ書き換える
-# (build_main_rom.pyのCURSOR_OLD/NEW等と同じテキスト置換の手法)。
+# 絶対番地試験を含む先頭部分だけを別に組み立て、通常バンクの同じ位置へ
+# 戻す。機能本体のORGには触れず、追加されたORGの置換漏れによる8KB超過
+# を防ぐ。通常の配置・呼び先検査は全て行う。
 NO_ORG_FAULT_SUBS = (
     ("    ORG 0x6000\n", "    ORG 0x0000\n"),
     ("    ORG 0x6010\n", "    ORG 0x0010\n"),
-    ("    ORG 0x6030\n", "    ORG 0x0030\n"),
-    # 2026-09-20追記(SQR、EXT_BANK0_SQR_ENTRY): 上と同じ理由で、この
-    # ORGも0始まりへ書き換えないと、base=0(故障注入時)のままコードが
-    # 0x6080まで詰め物される形になり、バンク(8KB)に収まらなくなる
-    # (故障注入の意図=絶対番地参照をズラすことと無関係な失敗)。
-    ("    ORG 0x6080\n", "    ORG 0x0080\n"),
-    # 2026-09-27追記(FILES、bank1.asm): 機能本体の入口も同じく、故障注入
-    # ビルドだけ0始まりへ移さないと8KBを超過する。
-    ("    ORG 0x6110\n", "    ORG 0x0110\n"),
-    # 2026-09-20追記(SIN/COS/TAN、EXT_BANK0_SIN_ENTRY/COS_ENTRY/
-    # TAN_ENTRY): 同じ理由。この3つを書き換え忘れると、故障注入時に
-    # 前段のORGだけ0始まりへ縮むのにこの3つは0x62xxのまま残り、
-    # その間が大量の詰め物になって8KBに収まらなくなる
-    # (run_all_selftests.sh ext_bank_selftest.shで発覚)。
-    ("    ORG 0x6200\n", "    ORG 0x0200\n"),
-    ("    ORG 0x6210\n", "    ORG 0x0210\n"),
-    ("    ORG 0x6220\n", "    ORG 0x0220\n"),
-    # 2026-09-20追記(ATN/EXP/LOG、EXT_BANK0_ATN_ENTRY/EXP_ENTRY/
-    # LOG_ENTRY): 同じ理由。
-    ("    ORG 0x6230\n", "    ORG 0x0230\n"),
-    ("    ORG 0x6240\n", "    ORG 0x0240\n"),
-    ("    ORG 0x6250\n", "    ORG 0x0250\n"),
-    ("    ORG 0x6270\n", "    ORG 0x0270\n"),
-    ("    ORG 0x6280\n", "    ORG 0x0280\n"),
 )
 
 # bank0.asmのEXT_BANK0_MBF_TEST_ENTRY(「バンク0の試験ルーチンが常駐の
@@ -145,22 +123,10 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")
-    # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、
-    # 詰め物(baseバイト)を切り落とす対象にする。ORGを使わない
-    # bank1-3.asmはPC 0始まり=そのままファイル先頭が窓の先頭を意味する
-    # ので、base=0(無変更)のままでよい。
+    # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
+    # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
     has_org = "    ORG 0x6000\n" in text
     base = BANK_ORG if has_org else 0
-    # 故障注入は ext_bank_selftest の陰性対照3（bank0.asm の ORG を外す）専用。
-    # LOAD 実装で bank1.asm も ORG 0x6000 を持つようになったので、対象を bank0 に限る。
-    if inject_no_org_fault and has_org and asm_path.name == "bank0.asm":
-        for old, new in NO_ORG_FAULT_SUBS:
-            if old in text:
-                if text.count(old) != 1:
-                    raise SystemExit(
-                        f"{asm_path.name}: 故障注入の置換対象が一意でない: {old!r}")
-                text = text.replace(old, new)
-                base = 0
     if mbf_add_addr is not None and MBF_ADD_ADDR_OLD in text:
         if text.count(MBF_ADD_ADDR_OLD) != 1:
             raise SystemExit(f"{asm_path.name}: MBF_ADD_ADDRの置換対象が一意でない")
@@ -183,7 +149,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
 
     # ORGによる先頭の詰め物(baseバイト)を切り落として、ファイル先頭
     # (=実行時は常に窓の先頭0x6000)からの内容にする。ORGを使わない
-    # バンク(bank1-3)はbase=0でここは無害な no-op。
+    # バンクはbase=0でここは無害な no-op。
     if len(code) < base:
         raise SystemExit(
             f"{asm_path.name}: ORG 0x{base:04X} の詰め物が想定より短い"
@@ -195,6 +161,28 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
             f"{asm_path.name}: バンク(8KB)に収まらない: {len(code)} > {BANK_SIZE}")
     rom = bytearray([FILL] * BANK_SIZE)
     rom[: len(code)] = code
+    if inject_no_org_fault and asm_path.name == "bank0.asm":
+        # 0x6030以降は常駐MBF呼出し試験と機能本体。そこは通常ビルドと同一。
+        boundary = "    ORG 0x6030\n"
+        if text.count(boundary) != 1:
+            raise SystemExit("bank0.asm: ORG故障注入の終端が一意でない")
+        fault_text = text.split(boundary, 1)[0]
+        for old, new in NO_ORG_FAULT_SUBS:
+            if fault_text.count(old) != 1:
+                raise SystemExit(f"bank0.asm: 故障注入の置換対象が一意でない: {old!r}")
+            fault_text = fault_text.replace(old, new)
+        fault_path = work / "bank0_no_org_test_gen.asm"
+        fault_path.write_text(fault_text, encoding="utf-8")
+        fault_asm = z80text.Assembler()
+        try:
+            fault_code = fault_asm.assemble(fault_path)
+        except z80text.AsmError as e:
+            raise SystemExit(f"bank0.asm: ORG故障注入のアセンブルエラー: {e}")
+        # 注入がMBF試験以降に及んだ場合はビルドを止める。
+        test_end = asm.labels["EXT_BANK0_ABS_TABLE"] + 1 - base
+        if len(fault_code) != test_end or test_end > 0x30:
+            raise SystemExit("bank0.asm: ORG故障注入が絶対番地試験の範囲を超えた")
+        rom[:test_end] = fault_code
     return bytes(rom)
 
 
