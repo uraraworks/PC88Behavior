@@ -536,10 +536,11 @@ VAR_WRITE_STRING:
     LD HL,07470h
     JP S9_BANK_CALL
 
-; PRINT_STRING_VAL — RUN_STR_TMP_LEN/BUFの内容をそのまま出力する。
+; PRINT_STRING_VAL — 評価済みの文字列を項目として出力する(第4.1節)。
 PRINT_STRING_VAL:
     LD A,(RUN_STR_TMP_LEN)
     LD B,A
+    CALL PRINT_FIELD_WRAP_CHECK   ; B(項目の長さ)を保存する
     LD C,0
 _psv_loop:
     LD A,B

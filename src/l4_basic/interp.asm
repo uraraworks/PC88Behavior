@@ -732,29 +732,22 @@ _l4ps_stmt_end:
     LD A,(SUPPRESS_NL)
     OR A
     RET NZ
-    CALL NEWLINE
-    RET
+    JP NEWLINE
 
 ; ---------------------------------------------------------------------
 ; ZONE_PAD — 現在桁を次のZONE_WIDTH刻みの境界まで空白で埋める
-;   (l4-basic.md 第4節zone_14。既に境界上でも必ず1ゾーン以上進む)。
+;   (l4-basic.md 第4・4.1節。桁56以上は完全欄が残らないので改行)。
 ; ---------------------------------------------------------------------
 ZONE_PAD:
     LD A,(VAR_COL)
-    LD B,A
-    LD C,0
+    CP 56
+    JP NC,NEWLINE
+    ; 負になるまで引き、次の境界までの距離を得る(境界上は14)。
 _l4zp_find:
-    LD A,C
-    ADD A,ZONE_WIDTH
-    LD C,A
-    CP B
-    JR Z,_l4zp_find
-    JR C,_l4zp_find
-    LD A,C
-    SUB B
+    SUB ZONE_WIDTH
+    JR NC,_l4zp_find
+    NEG
     LD B,A
-    OR A
-    RET Z
 _l4zp_pad_loop:
     LD A,' '
     CALL PRINT_CHAR
@@ -3119,25 +3112,22 @@ _l4ddc_advance:
     RET
 
 ; ---------------------------------------------------------------------
-; PRINT_FIELD_WRAP_CHECK — A=これから印字するフィールドの全幅(符号1+
-;   数字+末尾空白1)。現在桁(VAR_COL)から書くとその行(COLS=80桁)へ
-;   収まらない場合、印字前にNEWLINEを呼んで次の行の先頭へ送る。
-;
-;   根拠: docs/spec/l4-program.md 第5.3節(l4-s5f、`locate 78,5:print 12`
-;   の観測)。行の右端に近い桁で数値PRINTを行うと、その行には変化が
-;   一切現れず、値全体が次の行へまとまって現れた——PRINT_CHARの1文字
-;   ごとの折り返し(COLSを超えたらNEWLINE、screen.asm)とは別に、L4の
-;   数値PRINTはフィールド全体を割らずに丸ごと次行へ送る規則を持つ、
-;   という観測に基づく実装(厳密な桁の判定式そのものは同節が「未確定」
-;   としているため、収まるかどうかの単純な比較のみを実装する)。
+; PRINT_FIELD_WRAP_CHECK — A=これから印字する項目の全幅(0〜255)。
+;   数値は符号と末尾空白を含む。BCを保存、AFを破壊する。
+;   根拠: docs/spec/l4-basic.md 第4.1節(l4-s9i、W_GW)。行頭でなく、
+;   残り桁より長い場合だけ前改行。現在桁から81を引いた補数に幅を
+;   足すと、桁上がりは現在桁+幅>80を表す(幅255まで)。
+;   行頭の長い項目はPRINT_CHARに任せる。
 ; ---------------------------------------------------------------------
 PRINT_FIELD_WRAP_CHECK:
     PUSH BC
     LD B,A
     LD A,(VAR_COL)
+    OR A
+    JR Z,_l4pfwc_fit
+    SUB COLS+1
     ADD A,B
-    CP 81
-    JR C,_l4pfwc_fit
+    JR NC,_l4pfwc_fit
     CALL NEWLINE
 _l4pfwc_fit:
     POP BC
