@@ -139,6 +139,8 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     if asm_path.name == "bank3.asm":
         for rel in BANK3_EXTRA_SOURCES:
             text += "\n" + (REPO / rel).read_text(encoding="utf-8")
+    if asm_path.name == "bank1.asm":
+        text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
     # bank0.asmのように明示的に「ORG 0x6000」で始まるファイルだけ、
     # 詰め物(baseバイト)を切り落とす対象にする。ORGを使わない
     # bank1-3.asmはPC 0始まり=そのままファイル先頭が窓の先頭を意味する

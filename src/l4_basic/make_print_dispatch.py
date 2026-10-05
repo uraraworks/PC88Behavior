@@ -97,6 +97,8 @@ def write_asm(token_bytes: list[int], path: str) -> None:
     lines.append("TOK_PRINT_TOKEN:")
     lines.append("    DB " + ", ".join(f"0x{b:02X}" for b in token_bytes))
     lines.append("")
+    lines.append("; PRINT USING本体はbank1（第23節）、mainには中継だけ置く。")
+    lines.append("PRINT_USING_ENTRY EQU 0x6D00")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 

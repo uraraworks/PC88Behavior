@@ -637,9 +637,7 @@ _l4tmp_cmp:
 _l4tmp_boundary_ok:
     POP HL
 _l4tmp_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,TOK_PRINT_LEN
-    ADD HL,DE
+    ; HLは照合後の位置のまま（境界判定でもPUSH/POPで保持）。
     LD (CUR_PTR),HL
     LD A,1
     RET
@@ -652,6 +650,12 @@ _l4tmp_fail:
 ;   (l4-basic.md 第2〜5節の書式)。
 ; ---------------------------------------------------------------------
 PRINT_STMT:
+    ; 第23節。本体・USING照合はbank1、普通のPRINTはA=0で戻る。
+    LD A,1
+    LD HL,PRINT_USING_ENTRY
+    CALL EXT_BANK_CALL
+    OR A
+    RET NZ
     XOR A
     LD (SUPPRESS_NL),A
 _l4ps_loop:
