@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO / "tools"))
 import build_m6ib_measure_rom as m6ib  # noqa: E402
 sys.path.insert(0, str(REPO))
 import src.build_main_rom as mainrom  # noqa: E402
+from src import memmap  # noqa: E402
 sys.path.insert(0, str(REPO / "src" / "l3_service"))
 import make_subrom as subrom  # noqa: E402
 
@@ -51,18 +52,20 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
     )
     allocation_ok = True
     if arm != "B0":
-        expected = {
-            0xE009: "M6IB_FRAME_COUNT",
-            0xE00A: "M6IB_STAGE",
-            0xE00B: "M6IB_MARK_B",
-            0xE00C: "M6IB_MARK_C",
-        }
-        for addr, owner in expected.items():
-            names = {name for name, value in asm.symtab.items() if value == addr}
-            allocation_ok &= names == {owner}
+        ram = memmap.addresses()
+        owners = ("M6IB_FRAME_COUNT", "M6IB_STAGE", "M6IB_MARK_B", "M6IB_MARK_C")
         if arm in m6ib.B6_BRANCHES:
-            names = {name for name, value in asm.symtab.items() if value == 0xE00D}
-            allocation_ok &= names == {"M6IB_BRANCH_TAG"}
+            owners += ("M6IB_BRANCH_TAG",)
+        for owner in owners:
+            canonical = "MM_" + owner
+            addr = ram[canonical]
+            # memmapは未使用の別profileも宣言する。生成されたMM_*定義は
+            # 正典と全件照合し、実際の腕が持つ別名EQUについては唯一の所有者を要求。
+            allocation_ok &= asm.symtab.get(canonical) == addr
+            names = {name for name, value in asm.symtab.items()
+                     if value == addr and name not in ram}
+            allocation_ok &= names == {owner}
+        allocation_ok &= all(asm.symtab.get(name) == value for name, value in ram.items())
     return boundary_ok, allocation_ok
 
 

@@ -99,6 +99,23 @@ _m6ib_b6_run:
 
     a5_boot_body, a5_helpers = m6ia.BOOT_A5.split("; PUSH順", 1)
     loop = a5_boot_body.split("    LD HL,00C8h", 1)[1]
+    # B6-A5専用の測定ドライバだけ、同一のコピー・復元末尾を共有する。
+    # JPで合流するのでSPと12バイトの保存順は変わらず、200回の観測も残る。
+    # 通常ROM・B0/A0の同一性・既存バンクの常駐ラベル番地には影響しない。
+    copy_tail = """    LD BC,0000Ch
+    LDIR
+    POP IY
+    POP IX
+    POP HL
+    POP DE
+    POP BC
+    POP AF
+    RET
+"""
+    if a5_helpers.count(copy_tail) != 2:
+        raise SystemExit("B6-A5スナップショット共有末尾が2箇所でない")
+    a5_helpers = a5_helpers.replace(copy_tail, "    JP _m6ib_snapshot_copy\n", 1)
+    a5_helpers = a5_helpers.replace(copy_tail, "_m6ib_snapshot_copy:\n" + copy_tail, 1)
     return prefix + "    LD HL,00C8h" + loop + "; PUSH順" + a5_helpers
 
 

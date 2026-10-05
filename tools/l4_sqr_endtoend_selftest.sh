@@ -20,23 +20,12 @@
 # 修正(2026-09-20、src/ext_bank/relay.asm): C・EをCALL EXT_BANK_JUMP_HL
 # の前後でスタックへ退避するよう変更(PUSH BC/PUSH DE〜POP DE/POP BC)。
 #
-# 検査:
-#   1. 通常ビルドで`print sqr(4)\n`を打ち、期待どおり出力セルが変化する
-#      こと(cell_count>0)——ハングしていれば0のまま(以前の不具合の
-#      症状そのもの)。
-#   2. --io-logで、EXT_BANK_CALLの窓復元OUT(ポート0x71)の値が、直前の
-#      IN(同ポート)で読んだ値と一致すること(=窓が正しく復元されたこと
-#      の直接証拠。画面本文は一切見ない)。
-#   3. 陰性対照(--inject-ext-bank-bcde-fault、build_main_rom.py):
-#      修正前の状態(C/Eをスタック退避しない)を再現したビルドで、
-#      上記1・2がいずれも実際に壊れること(検出力の確認)。
-#
-# tests/conformance/expected_l4_trans.tsv(SQR1〜4)との公式ROM期待値
-# 照合はtools/conform_l4.sh(TRANS場面)が既に行っている。本器具は
-# それより軽量な単発の通し経路検査で、run_all_selftests.shから毎回
-# 回す想定。
-#
-# 使い方: tools/l4_sqr_endtoend_selftest.sh
+# 検査: 直接モードとRUN経路の通常出力を固定記録で照合し、窓復元も確認する。
+# RAM再配置後は直接モードの故障版も同じ数値を表示するため、RUN経路を
+# 陰性対照の場面に加える（正常版のSQR結果を確認してから記録を固定）。
+# RUNの戻り先は窓内にあるので、BC/DE退避欠落による復元不一致が出力にも現れる。
+# 計測失敗・復元ペア未採取は陰性対照の成功に含めない。
+# 詳細: docs/notes/tool-maintenance-2026-10-05-ram-relayout.md
 
 set -uo pipefail
 
@@ -62,18 +51,19 @@ if [ -z "$core" ]; then
 fi
 make -s -C "$REPO/tools/harness/frontend" || exit 1
 
-# tools/conform_l4.sh のSQR1('print sqr(2)')と同じ走行フレーム
-# (dump=824, run=1024, before=690)。打鍵文字列の長さも揃える
-# ('print sqr(4)\n'、SQR1の'print sqr(2)\n'と同じ13キー)。
+# 既存の単発直接モードと同じ採取時点。正しい結果2とOkを確認した固定記録。
 TYPED='print sqr(4)\n'
 BEFORE=690
 DUMP=824
 RUN=1024
+DIRECT_CELLS=1
+DIRECT_OK_ROW=2
+DIRECT_SHA=b7c6c0f9e88a41c3161497b494cd6f2f7f77eadc7c8e3b276afe06ffda6e9c95
+# RUN場面では、記録器が番号行を原点にするためrun入力3セルも含まれる。
+PROGRAM_CELLS=4
+PROGRAM_OK_ROW=3
+PROGRAM_SHA=5061a67904837027818fe593b751295b4baacd7b68e34af0f180ab5d7cdbd633
 
-# ---------------------------------------------------------------------
-# 1腕分の走行(--io-log付き)と、出力セル数・窓復元OUTの妥当性を返す。
-# 標準出力: "<cell_count> <restore_ok>" (restore_ok は 1=一致/0=不一致)
-# ---------------------------------------------------------------------
 vram_out_path() {
   local base="$1" frame="$2"
   local stem="${base%.bin}"
@@ -94,17 +84,18 @@ run_and_check() {
       --io-log "$iolog" \
       --vram-dump "$prefix.before.bin" --vram-dump-at "$BEFORE" \
       --vram-dump "$prefix.after.bin" --vram-dump-at "$DUMP" \
-      --type-at 300 --type '\n' --type-at 700 --type "$TYPED" || { echo "0 0"; return 1; }
+      --type-at 300 --type '\n' --type-at 700 --type "$TYPED" || { echo "NA NA NA -1"; return 1; }
   if grep -qi 'untypable\|打てない' "$prefix.stderr.txt" 2>/dev/null; then
-    echo "0 0"; return 1
+    echo "NA NA NA -1"; return 1
   fi
   if [ ! -f "$before_out" ] || [ ! -f "$after_out" ]; then
-    echo "0 0"; return 1
+    echo "NA NA NA -1"; return 1
   fi
-  local cell_count
-  cell_count="$(python3 "$RECORD" --before "$before_out" --after "$after_out" \
-      --count-only-rows 19 | cut -f1)"
-  [ -n "$cell_count" ] || cell_count=0
+  local cell_count ok_row output_sha record
+  record="$(python3 "$RECORD" --before "$before_out" --after "$after_out" \
+      --count-only-rows 19)" || { echo "NA NA NA -1"; return 1; }
+  read -r cell_count ok_row output_sha <<< "$record"
+  [ -n "$output_sha" ] || { echo "NA NA NA -1"; return 1; }
 
   # EXT_BANK_CALLの窓復元OUT(0x71)が、直前のIN(0x71)で読んだ値と
   # 一致するかを--io-logだけから機械的に確認する(値そのものは
@@ -160,48 +151,55 @@ for cols in rows:
             phase = 0
 
 if pairs == 0:
-    print(0)
+    print(-1)  # 復元ペア未採取を故障検出にしない
 else:
     print(1 if mismatch == 0 else 0)
 PYEOF
-)"
-  echo "${cell_count} ${restore_ok}"
+)" || { echo "NA NA NA -1"; return 1; }
+  echo "${cell_count} ${ok_row} ${output_sha} ${restore_ok}"
 }
 
 # -----------------------------------------------------------------------
-say "1. 通常ビルド(修正後)で print sqr(4) が正しく完了すること"
+say "1. 通常ビルド: 直接モードとRUN経路のSQR結果を固定記録で照合"
 NORMAL_ROM="$WORK/rom_normal"
 if ! python3 "$BUILD" "$NORMAL_ROM" >"$WORK/build_normal.txt" 2>&1; then
-  ng "build_main_rom.py(通常)が失敗"; cat "$WORK/build_normal.txt" >&2
+  cat "$WORK/build_normal.txt" >&2; exit 1
 fi
-read -r cell_ok restore_ok_n < <(run_and_check "$NORMAL_ROM" "$WORK/normal")
-if [ "${cell_ok:-0}" -gt 0 ] 2>/dev/null; then
-  ok "通常ビルド: 出力セルが変化した(cell_count=${cell_ok}、ハングしていない)"
+normal="$(run_and_check "$NORMAL_ROM" "$WORK/direct")" || { ng "直接モードの計測失敗"; exit 1; }
+read -r cells ok_row sha restore <<< "$normal"
+if [ "$cells" = "$DIRECT_CELLS" ] && [ "$ok_row" = "$DIRECT_OK_ROW" ] && [ "$sha" = "$DIRECT_SHA" ] && [ "$restore" = "1" ]; then
+  ok "直接モード: 固定記録一致(1セル、相対Ok行2、SHA一致)、窓復元一致"
 else
-  ng "通常ビルド: 出力セルが変化しなかった(cell_count=${cell_ok:-0}、ハングの疑い)"
-fi
-if [ "$restore_ok_n" = "1" ]; then
-  ok "通常ビルド: EXT_BANK_CALLの窓復元OUT(0x71)が直前のIN(0x71)の値と一致した"
-else
-  ng "通常ビルド: 窓復元OUT(0x71)が直前のIN(0x71)の値と食い違った(restore_ok=${restore_ok_n:-?})"
+  ng "直接モード: 正常記録または窓復元が不一致"; exit 1
 fi
 
-# -----------------------------------------------------------------------
-say "2. 陰性対照(--inject-ext-bank-bcde-fault): 修正前の状態を再現すると壊れること"
+TYPED='10 print sqr(4)\nrun\n'
+DUMP=1000
+RUN=1300
+normal="$(run_and_check "$NORMAL_ROM" "$WORK/normal")" || { ng "RUN経路の計測失敗"; exit 1; }
+read -r cells ok_row sha restore <<< "$normal"
+if [ "$cells" = "$PROGRAM_CELLS" ] && [ "$ok_row" = "$PROGRAM_OK_ROW" ] && [ "$sha" = "$PROGRAM_SHA" ] && [ "$restore" = "1" ]; then
+  ok "RUN経路: 固定記録一致(4セル、相対Ok行3、SHA一致)、窓復元一致"
+else
+  ng "RUN経路: 正常記録または窓復元が不一致"; exit 1
+fi
+
+say "2. 陰性対照: RUN経路でBC/DE退避欠落の影響を検出"
 FAULT_ROM="$WORK/rom_fault"
 if ! python3 "$BUILD" "$FAULT_ROM" --inject-ext-bank-bcde-fault >"$WORK/build_fault.txt" 2>&1; then
-  ng "build_main_rom.py(--inject-ext-bank-bcde-fault)が失敗"; cat "$WORK/build_fault.txt" >&2
+  cat "$WORK/build_fault.txt" >&2; exit 1
 fi
-read -r cell_f restore_ok_f < <(run_and_check "$FAULT_ROM" "$WORK/fault")
-if [ "${cell_f:-0}" -eq 0 ] 2>/dev/null; then
-  ok "陰性対照: 出力セルが変化しなかった(cell_count=${cell_f:-0}、修正前のハングを再現)"
+fault="$(run_and_check "$FAULT_ROM" "$WORK/fault")" || { ng "陰性対照の計測失敗"; exit 1; }
+read -r cells ok_row sha restore <<< "$fault"
+if [ -n "$sha" ] && [ "$sha" != "NA" ] && { [ "$cells" != "$PROGRAM_CELLS" ] || [ "$ok_row" != "$PROGRAM_OK_ROW" ] || [ "$sha" != "$PROGRAM_SHA" ]; }; then
+  ok "陰性対照: 固定した正常記録と不一致(cell_count=${cells}、相対Ok行=${ok_row}、SHA不一致)"
 else
-  ng "陰性対照: 出力セルが変化してしまった(cell_count=${cell_f}、故障注入が効いていない可能性)"
+  ng "陰性対照: 正常記録との不一致を確認できなかった"
 fi
-if [ "$restore_ok_f" = "0" ]; then
-  ok "陰性対照: 窓復元OUT(0x71)が直前のIN(0x71)の値と食い違った(修正前の不具合を再現)"
+if [ "$restore" = "0" ]; then
+  ok "陰性対照: 採取した窓復元ペアに食い違いあり"
 else
-  ng "陰性対照: 窓復元OUT(0x71)が一致してしまった(restore_ok=${restore_ok_f:-?}、故障注入が効いていない可能性)"
+  ng "陰性対照: 窓復元不一致を確認できなかった(restore_ok=${restore:-?})"
 fi
 
 # -----------------------------------------------------------------------

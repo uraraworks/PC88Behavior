@@ -84,8 +84,19 @@ source "$REPO/tools/lib_l3_measure.sh"
 CORE="$(find_l3_core)"; [ -n "$CORE" ] || gate_failed core_missing
 ensure_l3_frontend || gate_failed frontend_missing
 frames="$(cfg measurement_frames)"
+# 凍結TSVは過去の番地の記録。現在の受信域・到達/行マーカーを全て採取する。
+mem_range="$(python3 - "$REPO" <<'PY'
+import sys
+sys.path.insert(0,sys.argv[1])
+from src import memmap
+ram=memmap.addresses()
+addresses=[ram['MM_MAIN_SUB_SECTOR_BUF'],ram['MM_MAIN_SUB_SECTOR_BUF']+255,
+           ram['MM_MAIN_SUB_MARK_SUCCESS'],ram['MM_M6II_ROW_MARKER']]
+print(f'{min(addresses):04X}-{max(addresses):04X}')
+PY
+)" || gate_failed memmap
 qargs=(--core "$CORE" --rom-dir "$WORK/rom-$arm" --frames "$frames"
-       --mem-write-log "$WORK/run.mem.txt" --mem-write-range DF00-E038
+       --mem-write-log "$WORK/run.mem.txt" --mem-write-range "$mem_range"
        --disk "$WORK/a.d88" --disk2 "$WORK/b.d88")
 /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${qargs[@]}" \
   >"$WORK/run.stdout.txt" 2>"$WORK/run.stderr.txt" || gate_failed emulator_run

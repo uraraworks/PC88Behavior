@@ -23,7 +23,9 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(sys.argv[1])/'tools'))
 import check_m6ii_preregistration as c
-checks={'free_E038':c.equ_address_is_free(0xE038),'collision_E002':not c.equ_address_is_free(0xE002)}
+ram=c.memmap.addresses()
+checks={'free_current_marker':c.equ_address_is_free(ram['MM_M6II_ROW_MARKER']),
+        'collision_success':not c.equ_address_is_free(ram['MM_MAIN_SUB_MARK_SUCCESS'])}
 if {k for k,v in checks.items() if not v}: raise SystemExit(1)
 for target in checks:
     negative=dict(checks); negative[target]=False

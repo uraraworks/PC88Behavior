@@ -6,6 +6,7 @@ import argparse
 import ast
 import hashlib
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +17,10 @@ sys.path.insert(0, str(REPO))
 import analyze_m6ii as analyzer  # noqa: E402
 import judge_m6ii as judge  # noqa: E402
 import src.build_main_rom as mainrom  # noqa: E402
+from src import memmap  # noqa: E402
+
+# 再配置直前の自作実装。凍結表の番地の来歴を現在の配置と分けて照合する。
+FROZEN_RAM_COMMIT = "d0ff2fa1e2a402703ca736ea777a8c1f1accd434"
 
 ARMS = ("I-S", "I-F-H", "I-F-D", "I-F-R", "I-F-RETRY")
 ROWS = analyzer.ROWS
@@ -93,12 +98,29 @@ def numeric_equ_definitions() -> list[tuple[str, int, Path]]:
             else:
                 value = int(raw)
             found.append((name, value, path))
+    # 段A以後のEQUはMM_*を参照する。数値だけの走査では衝突を見落とす。
+    values = memmap.addresses()
+    values.update((name, value) for name, value, _path in found)
+    found.extend((name, value, REPO / "src/memmap.py")
+                 for name, value in values.items())
+    aliases = []
+    symbolic = re.compile(r"(?m)^\s*([A-Za-z_]\w*)\s+EQU\s+([A-Za-z_]\w*)\b")
+    for path in paths:
+        aliases.extend((name, ref, path) for name, ref in
+                       symbolic.findall(path.read_text(encoding="utf-8")))
+    while aliases:
+        resolved = [(name, values[ref], path) for name, ref, path in aliases if ref in values]
+        if not resolved:
+            break
+        aliases = [(name, ref, path) for name, ref, path in aliases if ref not in values]
+        found.extend(resolved)
+        values.update((name, value) for name, value, _path in resolved)
     return found
 
 
 def equ_address_is_free(address: int) -> bool:
     """m6i-i自身のEQUを除き、既存EQUを全列挙して同値がないか調べる。"""
-    return not any(value == address and name != "M6II_ROW_MARKER"
+    return not any(value == address and name not in {"M6II_ROW_MARKER", "MM_M6II_ROW_MARKER"}
                    for name, value, _path in numeric_equ_definitions())
 
 
@@ -146,14 +168,28 @@ def main() -> int:
         if len(cfg["judgment"]) != len(set(cfg["judgment"])) \
                 or tuple(cfg["judgment"]) != judge.REGISTERED:
             raise GateError("判定名")
-        marker = int(one(cfg, "row_marker_address"), 0)
-        if marker != analyzer.ROW_MARKER_ADDRESS \
-                or marker != mainrom.M6II_ROW_MARKER_ADDRESS \
-                or not 0xDF00 <= marker <= 0xE038:
-            raise GateError("行番号番地")
+        frozen_marker = int(one(cfg, "row_marker_address"), 0)
+        historical = subprocess.run(
+            ["git", "-C", str(REPO), "show", f"{FROZEN_RAM_COMMIT}:src/build_main_rom.py"],
+            check=True, capture_output=True, text=True).stdout
+        match = re.search(r"(?m)^M6II_ROW_MARKER_ADDRESS = (0x[0-9A-Fa-f]+)$", historical)
+        if match is None or frozen_marker != int(match[1], 16):
+            raise GateError("凍結時の行番号番地")
+        historical_helpers = subprocess.run(
+            ["git", "-C", str(REPO), "show", f"{FROZEN_RAM_COMMIT}:tools/build_m6ia_measure_rom.py"],
+            check=True, capture_output=True, text=True).stdout
+        repeat = re.search(r"(?m)^M6IA_REPEAT_LEFT\s+EQU\s+([0-9A-Fa-f]+)h", historical_helpers)
+        if repeat is None or frozen_marker != int(repeat[1], 16) + 2:
+            raise GateError("凍結時の2バイト領域との関係")
+
+        ram = memmap.addresses()
+        marker = ram["MM_M6II_ROW_MARKER"]
+        if marker != analyzer.ROW_MARKER_ADDRESS or marker != mainrom.M6II_ROW_MARKER_ADDRESS:
+            raise GateError("現在の行番号番地")
         if not equ_address_is_free(marker):
             raise GateError("行番号番地が既存EQUと衝突")
-        if marker in range(0xE036, 0xE038):
+        repeat_start = ram["MM_M6IA_REPEAT_LEFT"]
+        if marker in range(repeat_start, repeat_start + 2):
             raise GateError("行番号番地が既存2バイト領域と衝突")
 
         chr_source = (REPO / "src/l3_main/main_sub_read_chr.asm").read_text(encoding="utf-8")
@@ -192,7 +228,7 @@ def main() -> int:
                              "`0xA1`", "`0xB2`", "座標列の順に11個すべて観測される")
         if any(text not in addendum for text in required_addendum):
             raise GateError("追補1の優先条件")
-    except (OSError, UnicodeError, ValueError, SyntaxError, GateError) as exc:
+    except (OSError, UnicodeError, ValueError, SyntaxError, GateError, subprocess.CalledProcessError) as exc:
         print(f"gate_failed: {exc}", file=sys.stderr)
         return 1
     digest = hashlib.sha256(args.config.read_bytes()).hexdigest()

@@ -10,6 +10,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+from src import memmap  # noqa: E402
 from analyze_m6ia_main_sub import AnalysisError, MemEvent, read_memlog, sector_blocks  # noqa: E402
 from d88_read_sector import D88Error, D88Reader  # noqa: E402
 
@@ -20,8 +22,9 @@ ROWS = (
     (7, "A", 5, 1, 11), (8, "B", 0, 0, 1), (9, "B", 0, 1, 1),
     (10, "B", 39, 1, 16), (11, "A", 0, 0, 1),
 )
-ROW_MARKER_ADDRESS = 0xE038
-READ_ENTRY_ADDRESS = 0xE002
+ROW_MARKER_ADDRESS = memmap.addresses()["MM_M6II_ROW_MARKER"]
+READ_ENTRY_ADDRESS = memmap.addresses()["MM_MAIN_SUB_MARK_SUCCESS"]
+SECTOR_BUFFER_ADDRESS = memmap.addresses()["MM_MAIN_SUB_SECTOR_BUF"]
 
 
 def _sha(data: bytes) -> str:
@@ -44,7 +47,7 @@ def analyze_events(memory: list[MemEvent], disk_a: bytes, disk_b: bytes) -> dict
             interval = memory[start:end]
         entries = sum(row.addr == READ_ENTRY_ADDRESS and row.value == 0 for row in interval)
         entry_ok = entry_ok and entries >= 1
-        blocks = sector_blocks(interval)
+        blocks = sector_blocks(interval, start_address=SECTOR_BUFFER_ADDRESS)
         block = blocks[-1] if blocks else None
         expected = readers[drive].read_sector(cyl, head, sector)
         result = ("row_no_data" if block is None else

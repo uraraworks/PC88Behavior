@@ -87,29 +87,32 @@ def one_writes(rows: list[MemEvent], addr: int) -> int:
     return sum(row.addr == addr and row.value == 1 for row in rows)
 
 
-def sector_blocks(rows: list[MemEvent]) -> list[bytes]:
-    """DF00-DFFFへの連続256位置書込みを順序・番地込みで切り出す。"""
+def sector_blocks(rows: list[MemEvent], start_address: int = 0xDF00) -> list[bytes]:
+    """連続256位置書込みを順序・番地込みで切り出す。
+
+    既定値は凍結済みm6i-aログの受信域。現在の測定はmemmapの番地を渡す。
+    """
     blocks: list[bytes] = []
     current: list[int] = []
-    expected = 0xDF00
+    expected = start_address
     for row in rows:
-        if not 0xDF00 <= row.addr <= 0xDFFF:
+        if not start_address <= row.addr < start_address + 256:
             continue
-        if row.addr == 0xDF00:
+        if row.addr == start_address:
             if current:
                 current = []
-            expected = 0xDF00
+            expected = start_address
         if row.addr != expected:
             current = []
-            expected = 0xDF00
+            expected = start_address
             if row.addr != expected:
                 continue
         current.append(row.value)
         expected += 1
-        if expected == 0xE000:
+        if expected == start_address + 256:
             blocks.append(bytes(current))
             current = []
-            expected = 0xDF00
+            expected = start_address
     return blocks
 
 

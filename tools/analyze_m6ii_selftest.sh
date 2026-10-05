@@ -28,9 +28,9 @@ def events(actual=None,entries=None,order=None,partial_then_full=None):
         for _ in range(count): add(a.READ_ENTRY_ADDRESS,0)
         data=actual.get(n,payload(d,c,h,r))
         if n in partial_then_full:
-            for i,value in enumerate(data[:73]): add(0xDF00+i,value)
+            for i,value in enumerate(data[:73]): add(a.SECTOR_BUFFER_ADDRESS+i,value)
         if data is not None:
-            for i,value in enumerate(data): add(0xDF00+i,value)
+            for i,value in enumerate(data): add(a.SECTOR_BUFFER_ADDRESS+i,value)
     return out
 def analyze(rows): return a.analyze_events(rows,images['A'],images['B'])
 base=analyze(events())

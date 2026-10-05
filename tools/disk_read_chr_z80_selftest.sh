@@ -35,16 +35,15 @@ z80text = repo / "tools" / "asm" / "z80text.py"
 N88_SIZE = 0x8000
 DISK_SIZE = 0x0800
 
-COMMON_EQU = r"""
-MAIN_SUB_MARK_REQUEST     EQU 0E000h
-MAIN_SUB_MARK_RECV256     EQU 0E001h
-MAIN_SUB_MARK_SUCCESS     EQU 0E002h
-MAIN_SUB_MARK_TIMEOUT     EQU 0E003h
-MAIN_SUB_MARK_FAULT_WAIT  EQU 0E004h
-MAIN_SUB_MARK_FAULT_CONT  EQU 0E005h
-MAIN_SUB_MARK_FAULT_PAIR  EQU 0E006h
-MAIN_SUB_DRIVE_SELECT     EQU 0E007h
-"""
+sys.path.insert(0, str(repo))
+from src import memmap
+
+# 切り出した部品も本番と同じRAM正典と別名を持つ。
+COMMON_EQU = memmap.asm_prelude() + "".join(
+    f"{name} EQU MM_{name}\n" for name in (
+        "MAIN_SUB_MARK_REQUEST", "MAIN_SUB_MARK_RECV256", "MAIN_SUB_MARK_SUCCESS",
+        "MAIN_SUB_MARK_TIMEOUT", "MAIN_SUB_MARK_FAULT_WAIT", "MAIN_SUB_MARK_FAULT_CONT",
+        "MAIN_SUB_MARK_FAULT_PAIR", "MAIN_SUB_DRIVE_SELECT"))
 
 REQUEST_DRIVER = r"""
 SELFTEST_START:
@@ -264,7 +263,7 @@ def assemble_and_run(name, source, start_address, length):
         [sys.executable, str(z80text), str(asm_path), "-o", str(bin_path)],
         capture_output=True, text=True)
     if assembled.returncode != 0:
-        raise SystemExit(f"NG: {name}のアセンブル失敗")
+        raise SystemExit(f"NG: {name}のアセンブル失敗: {assembled.stderr.strip()}")
     program = bin_path.read_bytes()
     if len(program) > N88_SIZE:
         raise SystemExit(f"NG: {name}の自作ROMコードが32KBを超えた")

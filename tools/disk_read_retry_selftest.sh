@@ -18,7 +18,7 @@ FROZEN_ROOT="$WORK/frozen-root"
 FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
 mkdir -p "$FROZEN_SRC"
 ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
-git -C "$REPO" archive "$FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+git -C "$REPO" archive "$FROZEN_COMMIT" src tools | tar -x -C "$FROZEN_SRC"
 
 python3 "$FROZEN_SRC/src/build_main_rom.py" "$WORK/legacy" --enable-main-sub-read \
   --work-dir "$WORK/legacy-work" >/dev/null
@@ -49,6 +49,11 @@ import sys
 repo, work = map(pathlib.Path, sys.argv[1:])
 sys.path.insert(0, str(repo))
 import src.build_main_rom as build
+from src import memmap
+
+ram = memmap.addresses()
+mark_success = b"\x3a" + ram["MM_MAIN_SUB_MARK_SUCCESS"].to_bytes(2, "little")
+frame_count_addr = ram["MM_M6IB_FRAME_COUNT"].to_bytes(2, "little")
 
 work.mkdir()
 text = build.build_combined_asm(
@@ -63,8 +68,6 @@ def structural_checks(code, labels):
     body = code[start:end]
     read = labels["MAIN_SUB_READ_KNOWN"]
     call_read = bytes((0xCD, read & 0xFF, read >> 8))
-    mark_success = bytes((0x3A, 0x02, 0xE0))  # LD A,(0xE002)
-    frame_count_addr = bytes((0x09, 0xE0))     # M6IB_FRAME_COUNT=0xE009
     wait_labels = [
         name for name, address in labels.items()
         if start <= address < end and "wait" in name.lower()
@@ -86,8 +89,7 @@ end = asm.labels["MAIN_SUB_READ_KNOWN_RETRY_END"]
 body = bytes(rom[start:end])
 read = asm.labels["MAIN_SUB_READ_KNOWN"]
 call_read = bytes((0xCD, read & 0xFF, read >> 8))
-mark_success = bytes((0x3A, 0x02, 0xE0))
-frame_ref = bytes((0x3A, 0x09, 0xE0))
+frame_ref = b"\x3a" + frame_count_addr
 base_labels = {
     "MAIN_SUB_READ_KNOWN_RETRY": 0,
     "MAIN_SUB_READ_KNOWN_RETRY_END": len(body),
