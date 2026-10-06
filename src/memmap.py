@@ -424,6 +424,10 @@ FIELDS = {
     'MM_RUN_FOR_SEARCH_IDX': ('STACK_CONFIG', 8),
     'MM_RUN_TMP16': ('RUN', 47),
     'MM_RUN_STR_TMP_LEN': ('RUN', 49),
+    # 第4.21節 型宣言文。50〜75=英字26文字の型表（0=単精度、'%'・'$'・'#'の接尾辞文字そのもの。
+    # 0が既定なのでゼロ初期化でも単精度）、76=直近の識別子が接尾辞つきか（1=つき・0=表で決めた）。
+    'MM_DEFTYPE_TAB': ('RUN', 50),
+    'MM_IDENT_SFX': ('RUN', 76),
     'MM_RUN_STR_TMP_BUF': ('STRING_TMP', 0),
     'MM_RUN_SCAN_DEPTH': ('RUN', 81),
     'MM_RUN_GOSUB_SP': ('STACK_CONFIG', 6),

@@ -67,6 +67,8 @@ RUN_CTRL           EQU MM_RUN_CTRL  ; 1B 0=通常続行 1=ジャンプ済み 2=�
 IDENT_BUF          EQU MM_IDENT_BUF  ; 8B 直近に読んだ識別子(畳み込み済み)
 IDENT_LEN          EQU MM_IDENT_LEN  ; 1B 消費した文字数(接尾辞含む)
 IDENT_KIND         EQU MM_IDENT_KIND  ; 1B 0=識別子でない 1=無印 2=% 3=$ 4=#
+IDENT_SFX          EQU MM_IDENT_SFX  ; 1B 第4.21節 1=名前に接尾辞(% $ # !)がある 0=型表で決めた
+DEFTYPE_TAB        EQU MM_DEFTYPE_TAB  ; 26B 第4.21節 英字ごとの型(0=単精度 '%' '$' '#')
 RUN_ASSIGN_KIND    EQU MM_RUN_ASSIGN_KIND  ; 1B
 RUN_ASSIGN_NAME    EQU MM_RUN_ASSIGN_NAME  ; 8B
 RUN_FOR_VARNAME    EQU MM_RUN_FOR_VARNAME  ; 8B (FOR_STMT一時)
@@ -222,6 +224,7 @@ LEX_IDENT_PEEK:
     LD HL,IDENT_BUF
     LD B,8
     XOR A
+    LD (IDENT_SFX),A
 _lip_clear:
     LD (HL),A
     INC HL
@@ -278,7 +281,7 @@ _lip_alnum_skip_store:
     JR _lip_alnum_loop
 _lip_alnum_done:
     CALL AT_END
-    JR Z,_lip_have_kind_plain
+    JP Z,_lip_have_kind_plain
     CALL PEEK_CHAR
     CP '%'
     JR Z,_lip_suffix_percent
@@ -288,7 +291,7 @@ _lip_alnum_done:
     JR Z,_lip_suffix_double
     CP '!'
     JR Z,_lip_suffix_single
-    JR _lip_have_kind_plain
+    JP _lip_have_kind_plain
 _lip_suffix_percent:
     LD A,'%'
     LD (IDENT_BUF+7),A
@@ -297,7 +300,7 @@ _lip_suffix_percent:
     INC A
     LD (RUN_TMP16+1),A
     LD A,2
-    JR _lip_finish
+    JR _lip_explicit
 _lip_suffix_string:
     LD A,'$'
     LD (IDENT_BUF+7),A
@@ -306,7 +309,7 @@ _lip_suffix_string:
     INC A
     LD (RUN_TMP16+1),A
     LD A,3
-    JR _lip_finish
+    JR _lip_explicit
 _lip_suffix_double:
     LD A,'#'
     LD (IDENT_BUF+7),A
@@ -315,15 +318,40 @@ _lip_suffix_double:
     INC A
     LD (RUN_TMP16+1),A
     LD A,4
-    JR _lip_finish
-; 第4.19節のSWAP単精度型。未測定・自作判断: !は無印と同じ名前/型。
+    JR _lip_explicit
+; 第4.19節のSWAP単精度型。第4.21節: !は型表より優先して単精度（[7]は0のまま）。
 _lip_suffix_single:
     CALL ADV_PTR
     LD A,(RUN_TMP16+1)
     INC A
     LD (RUN_TMP16+1),A
-_lip_have_kind_plain:
     LD A,1
+_lip_explicit:
+    LD (IDENT_SFX),A           ; 接尾辞つき（0以外）。型表を引かない
+    JR _lip_finish
+; 第4.21節: 接尾辞が無ければ名前の1文字目で型表を引き、接尾辞のある名前と
+; 同じ表現（IDENT_BUF[7]とIDENT_KIND）にそろえる。
+_lip_have_kind_plain:
+    LD A,(IDENT_BUF)
+    SUB 'A'
+    LD E,A
+    LD D,0
+    LD HL,DEFTYPE_TAB
+    ADD HL,DE
+    LD A,(HL)
+    LD (IDENT_BUF+7),A
+    LD E,1
+    OR A
+    JR Z,_lip_pk
+    INC E
+    CP '%'
+    JR Z,_lip_pk
+    INC E
+    CP '$'
+    JR Z,_lip_pk
+    INC E
+_lip_pk:
+    LD A,E
 _lip_finish:
     ; ここまでCUR_PTRを実際に進めてしまっている(ADV_PTR/PEEK_CHARの
     ; 組み合わせで判定を進めたため)。PEEKという名前だが実装上は
@@ -582,14 +610,21 @@ PARSE_STRING_RHS:
     JR Z,_psr_literal
     CALL LEX_IDENT_CONSUME
     OR A
-    JR Z,_psr_syntax
+    JR Z,_psr_noident
     CP 3
     JR Z,_psr_fromvar
+_psr_typeerr:
     LD A,1
     LD (ERROR_FLAG),A
     LD A,13
     LD (ERROR_KIND),A
     RET
+; 第4.21節: 数値で始まる式（数字・'.'・'-'）は文字列を要求する文脈でType mismatch(13)、
+; それ以外はSyntax error(2)。判定はバンク0。
+_psr_noident:
+    LD HL,07800h
+    XOR A
+    JP EXT_BANK_CALL
 _psr_fromvar:
     CALL S9C_TRY_INKEY
     OR A
@@ -1116,6 +1151,20 @@ ASSIGN_STMT:
     RET NZ
     JP ASSIGN_NUMERIC_FROM_CUR
 
+; 第4.21節。代入先の型（RUN_ASSIGN_KIND）へCUR_TYPE/CUR_DATAを変換する。本体はバンク0。
+; 出力: Z=1で成功、Z=0でERROR_FLAGが立っている（範囲外はERR 6、変数は変えない）。
+ASSIGN_CONVERT_NAME:             ; 変数名（IDENT_BUF）の型へ。整数('%')か、それ以外は何もしない
+    LD HL,077D0h
+    JR _acc_call
+ASSIGN_CONVERT_CUR:
+    LD HL,077C0h
+_acc_call:
+    XOR A
+    CALL EXT_BANK_CALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET
+
 ; ASSIGN_NUMERIC_FROM_CUR — M7段階5c-2a追記: ASSIGN_STMTの「式を評価
 ;   し終えた直後」からの再入口。RUN_ASSIGN_KIND/NAMEが指す変数へ
 ;   CUR_TYPE/CUR_DATAの値を(kindに応じた型変換をしてから)書く部分だけを
@@ -1123,30 +1172,10 @@ ASSIGN_STMT:
 ;   (仕様書に無い判断: 実装上の再利用、代入そのものの規則はASSIGN_STMTと
 ;   完全に同じにする)。
 ASSIGN_NUMERIC_FROM_CUR:
-    LD A,(RUN_ASSIGN_KIND)
-    CP 4
-    JR Z,_as_promote_double
-    CP 2
-    JR NZ,_as_store_plain
-    LD A,(CUR_TYPE)
-    CP 2
-    JR NZ,_as_pct_have_type
-    CALL VAL_LOAD_CUR_TO_OPA_D
-    CALL MBF_DTOS
-    CALL VAL_SET_SINGLE_FROM_RES
-_as_pct_have_type:
-    LD A,(CUR_TYPE)
-    OR A
-    JR Z,_as_store_plain
-    CALL VAL_LOAD_CUR_TO_OPA
-    CALL MBF_ROUND_TO_INT16
-    OR A
-    JR Z,_as_overflow
-    EX DE,HL
-    CALL VAL_SET_INT
-    JR _as_store_plain
-_as_promote_double:
-    CALL VAL_PROMOTE_CUR_TO_DOUBLE
+    ; 第4.21節: 変数の型（接尾辞または型表）へ値を変換する。本体はバンク0
+    ; （単精度は倍精度から丸め、整数はCINTの丸めで範囲外ERR 6、倍精度は広げる）。
+    CALL ASSIGN_CONVERT_CUR
+    RET NZ
 _as_store_plain:
     LD HL,RUN_ASSIGN_NAME
     LD DE,IDENT_BUF
@@ -1158,12 +1187,6 @@ _as_copyname:
     INC DE
     DJNZ _as_copyname
     JP VAR_WRITE_NUMERIC
-_as_overflow:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,6
-    LD (ERROR_KIND),A
-    RET
 _as_string:
     CALL STRING_EXPR
     LD A,(ERROR_FLAG)
@@ -1689,6 +1712,8 @@ RUN_FOR_STEP_AND_TEST:
     LD DE,IDENT_BUF
     LD BC,8
     LDIR
+    CALL ASSIGN_CONVERT_NAME     ; 第4.21節: 整数の制御変数が32767を越えるとERR 6
+    RET NZ
     CALL VAR_WRITE_NUMERIC
     LD A,(ERROR_FLAG)
     OR A
@@ -1928,6 +1953,8 @@ FOR_STMT:
     LD DE,IDENT_BUF
     LD BC,8
     LDIR
+    CALL ASSIGN_CONVERT_NAME     ; 第4.21節: 整数の制御変数は初期値・上限・刻みを丸める
+    RET NZ
     CALL VAR_WRITE_NUMERIC
     LD A,(ERROR_FLAG)
     OR A
@@ -1939,6 +1966,8 @@ FOR_STMT:
     CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
+    RET NZ
+    CALL ASSIGN_CONVERT_CUR
     RET NZ
     LD A,(CUR_TYPE)
     LD (RUN_FOR_LIMIT_TYPE),A
@@ -1953,6 +1982,8 @@ FOR_STMT:
     CALL LOGIC_OR_EXPR
     LD A,(ERROR_FLAG)
     OR A
+    RET NZ
+    CALL ASSIGN_CONVERT_CUR
     RET NZ
     JR _for_have_step
 _for_default_step:
@@ -2841,6 +2872,13 @@ _rrs_pages:
     LD (HL),A
     INC HL
     DJNZ _rrs_pages
+    ; 第4.21節: 型表を全て単精度へ戻す（RUN・CLEAR・NEW・行の編集と共通の初期化）
+    LD HL,DEFTYPE_TAB
+    LD B,26
+_rrs_deftype:
+    LD (HL),A
+    INC HL
+    DJNZ _rrs_deftype
     LD HL,(MM_STACK_BOTTOM)
     LD (MM_FREE_TOP),HL
     CALL PROGRAM_FIND_END
@@ -3824,68 +3862,12 @@ _sdiv_qpos:
 _sdiv_rpos:
     RET
 
-; VAL_INTDIV — CUR = trunc(CUR \ RHS)(第4.12節)。
+; VAL_INTDIV — CUR = trunc(CUR \ RHS)(第4.12節)。第4.21節: 本体はバンク0へ移した（mainの
+;   空きを確保するため。処理は従来と同じ: 両辺を16bit整数へ丸め、範囲外ERR 6・0除算ERR 11）。
 VAL_INTDIV:
-    CALL VAL_TO_INT16_CUR
-    JR C,_vid_ovfl
-    LD (RUN_ARITH_L),DE
-    CALL VAL_TO_INT16_RHS
-    JR C,_vid_ovfl
-    LD (RUN_ARITH_R),DE
-    LD A,D
-    OR E
-    JR Z,_vid_divzero
-    LD HL,(RUN_ARITH_L)
-    LD DE,(RUN_ARITH_R)
-    CALL SDIV16
-    CALL VAL_SET_INT
+    LD HL,077E0h
     XOR A
-    LD (ERROR_FLAG),A
-    RET
-_vid_divzero:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,11
-    LD (ERROR_KIND),A
-    RET
-_vid_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,6
-    LD (ERROR_KIND),A
-    RET
-
-; VAL_MODOP — CUR = CUR MOD RHS(剰余、第4.12節)。
-VAL_MODOP:
-    CALL VAL_TO_INT16_CUR
-    JR C,_vmo_ovfl
-    LD (RUN_ARITH_L),DE
-    CALL VAL_TO_INT16_RHS
-    JR C,_vmo_ovfl
-    LD (RUN_ARITH_R),DE
-    LD A,D
-    OR E
-    JR Z,_vmo_divzero
-    LD HL,(RUN_ARITH_L)
-    LD DE,(RUN_ARITH_R)
-    CALL SDIV16
-    EX DE,HL
-    CALL VAL_SET_INT
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_vmo_divzero:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,11
-    LD (ERROR_KIND),A
-    RET
-_vmo_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP EXT_BANK_CALL
 
 ; =======================================================================
 ; べき乗 '^'(第4.12節)。FACTORとTERMの間に挿入する優先順位
@@ -4577,6 +4559,8 @@ ARRAY_ASSIGN_STMT:
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
+    CALL ASSIGN_CONVERT_CUR      ; 第4.21節: 要素の型へ変換（整数は丸め・範囲外ERR 6）
+    RET NZ
     LD HL,CUR_TYPE
     LD DE,(RUN_ARRAY_ASSIGN_ADDR)
     LD BC,9
@@ -4631,8 +4615,6 @@ OW_FOR_ROOM:
     LD HL,07D70h
     JP S9_BANK_CALL
 
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 ; LET/WHILE/WEND/DEF/SWAP/ERASE照合とFN本体はバンク0。
 ; mainには固定入口への中継だけを置く。照合は既存の大小不問経路を使う。
 OW_MATCH_STMT:
@@ -4677,6 +4659,16 @@ LOGIC_OR_EXPR:
     RET C
     LD HL,07450h
     JR _fis_tail
+
+; (第4.21節: 0x79D7の埋め草は、mainの末尾の空きを測定ROM用に残すため、中継の後ろへ移した)
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
+
+; VAL_MODOP — CUR = CUR MOD RHS(剰余、第4.12節)。本体はバンク0（VAL_INTDIVと同じ手順で剰余を返す）。
+VAL_MODOP:
+    LD HL,077F0h
+    XOR A
+    JP EXT_BANK_CALL
 
 DIM_STMT:
     LD HL,07750h
@@ -4775,6 +4767,13 @@ _dpnl_noneg:
     LD (RUN_DATA_NEG),A
 _dpnl_afterneg:
     CALL LEX_NUMBER
+    ; 第4.21節: 数字でないDATAの検査（hi→ERR 2）と、倍精度の読み先への'#'の補い。バンク0。
+    LD HL,07810h
+    XOR A
+    CALL EXT_BANK_CALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     LD A,(LIT_HASDOT)
     OR A
     JR NZ,_dpnl_general
@@ -4819,7 +4818,7 @@ _dpnl_applyneg:
 _dpnl_done:
     XOR A
     LD (ERROR_FLAG),A
-    RET
+    JP ASSIGN_CONVERT_CUR       ; 第4.21節: 読み先の型へ変換（整数は丸め・範囲外ERR 6）
 
 ; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
 ;   BUFへ読む(255文字超は切り詰め、引用符の特別扱いはしない・第8節29)。

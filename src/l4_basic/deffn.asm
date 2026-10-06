@@ -20,12 +20,7 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     LD A,1
     JP fn_try
     ORG 0x6B30
-    LD A,(MM_RUN_STMT_KIND)
-    CP 33
-    JP Z,fn_def
-    CP 34
-    JP Z,fn_swap
-    JP fn_erase
+    JP fn_stmt_dispatch
     ORG 0x6B40
     JP fn_array_string_read
     ORG 0x6B50
@@ -65,8 +60,6 @@ fn_match_loop:
 fn_match_yes:
     LD A,C
     RET
-fn_words:
-    DB 3,"LET",5,"WHILE",4,"WEND",3,"DEF",4,"SWAP",5,"ERASE",0
 
 ; FNは予約語の接頭辞。空白も受理し、その後は通常の識別子規則を使う。
 ; 不一致は位置不変。名前にFNを含めないので7文字の区別も通常変数と同じ。

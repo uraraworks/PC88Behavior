@@ -1097,13 +1097,18 @@ _l4factor_try_ident:
     CALL LEX_IDENT_CONSUME
     OR A
     JR Z,_l4factor_bad
-    CP 3
-    JR Z,_l4factor_ident_typeerr
-    CP 1
-    JR NZ,_l4factor_plain_ident
+    ; 第4.21節: 接尾辞の無い名前は型表で型が決まる（DEFINT等）が、関数名は型に
+    ; かかわらず先に照合する。接尾辞つきは従来どおり関数名にならない。
+    LD A,(IDENT_SFX)
+    OR A
+    JR NZ,_l4factor_sfx
     CALL FACTOR_TRY_NUM_FUNCS
     OR A
     RET NZ
+_l4factor_sfx:
+    LD A,(IDENT_KIND)
+    CP 3
+    JR Z,_l4factor_ident_typeerr
 _l4factor_plain_ident:
     CALL SKIP_SPACES
     CALL PEEK_CHAR

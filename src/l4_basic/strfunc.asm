@@ -804,6 +804,14 @@ s9e_c1:
     JR C,s9e_no
     CP 'z'+1
     JR NC,s9e_no
+    ; 第4.21節: 接尾辞の無い名前はDEFSTRで文字列になる。1文字目の型表の値をBへ
+    LD C,A
+    LD B,0
+    PUSH HL
+    LD HL,MM_DEFTYPE_TAB-61h
+    ADD HL,BC
+    LD B,(HL)
+    POP HL
 s9e_id:
     INC HL
     CALL s9e_more
@@ -812,14 +820,22 @@ s9e_id:
     CP '$'
     JR Z,s9e_is_str
     CP '0'
-    JR C,s9e_no
+    JR C,s9e_term
     CP '9'+1
     JR C,s9e_id
     OR 20h
     CP 'a'
-    JR C,s9e_no
+    JR C,s9e_term
     CP 'z'+1
     JR C,s9e_id
+s9e_term:                    ; 名前の終わり（'0'より小さい文字）。%・#・!の接尾辞ならDEFSTRでも文字列でない
+    SUB 21h
+    CP 5
+    JR C,s9e_no
+    LD A,B
+    CP '$'
+    JR NZ,s9e_no
+    JR s9e_is_str
 s9e_no:
     XOR A
     RET
