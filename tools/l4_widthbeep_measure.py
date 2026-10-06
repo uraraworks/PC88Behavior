@@ -31,7 +31,7 @@ MARK = re.compile(r'^(s9n[a-z])((?:'+NUMBER+r')+) *$', re.I)
 P, O = 'print "s9np";1;1', 'print "s9no";1;1'
 B, Z = 'print "s9nb";1;1', 'print "s9nz";1;1'
 PORT_LINE = re.compile(r'^\s*\d+\s+\d+\s+(\d+)\s+main\s+OUT\s+0040\s+([0-9A-Fa-f]{2})\s')
-PORT_LEAD = 600  # 窓の手前から記録して、窓の最初の書き込みの比較相手を持つ
+PORT_FROM = 1  # 追補1: 第1フレームから記録して、窓の最初の書き込みの比較相手（起動時の書き込み）を持つ
 
 
 def value(n):
@@ -380,7 +380,7 @@ def dump_path(path, frame, multiple):
 def port_summary(text, window):
     """ポート0x40のメインCPUのOUTだけから、窓の中のビットごとの立ち上がり・立ち下がりを数える。
     値列は返さない。窓の手前の最後の値を比較相手にする。"""
-    prev, rise, fall, outs = None, [0]*8, [0]*8, 0
+    prev, rise, fall, outs, prior = None, [0]*8, [0]*8, 0, 0
     for line in text.splitlines():
         m = PORT_LINE.match(line)
         if not m:
@@ -393,8 +393,10 @@ def port_summary(text, window):
                     x, y = (prev >> b) & 1, (val >> b) & 1
                     rise[b] += int(x == 0 and y == 1)
                     fall[b] += int(x == 1 and y == 0)
+        else:
+            prior = 1
         prev = val
-    return dict(rise=rise, fall=fall, outs=outs)
+    return dict(rise=rise, fall=fall, outs=outs, prior=prior)
 
 
 def run_arm(rom, official, a, work):
@@ -416,7 +418,7 @@ def run_arm(rom, official, a, work):
             at = frame+100
     iolog = work/'port.txt'
     if has_port(a):
-        args += ['--io-log', str(iolog), '--io-log-from-frame', str(max(1, window-PORT_LEAD))]
+        args += ['--io-log', str(iolog), '--io-log-from-frame', str(PORT_FROM)]
     args += ['--frames', str(at+100)]
     paths = [(name, dump_path(path, frame, len(captures) > 1))
              for name, path, frame in captures]
@@ -720,13 +722,16 @@ def selftest(work=None):
               (720, 'main', 'IN', 0x40, 0x20),                                        # IN
               (800, 'main', 'OUT', 0x40, 0x20)]                                       # 窓の中の立ち上がり
     got = port_summary(synthetic_iolog(100, events), 700)
-    assert got == dict(rise=[0, 0, 0, 0, 0, 1, 0, 0], fall=[0, 0, 0, 0, 0, 1, 0, 0], outs=2), got
-    assert port_summary(synthetic_iolog(100, events[:2]), 700) == dict(rise=[0]*8, fall=[0]*8, outs=0)
-    assert port_summary('', 1) == dict(rise=[0]*8, fall=[0]*8, outs=0)
+    assert got == dict(rise=[0, 0, 0, 0, 0, 1, 0, 0], fall=[0, 0, 0, 0, 0, 1, 0, 0], outs=2, prior=1), got
+    assert port_summary(synthetic_iolog(100, events[:2]), 700) == dict(rise=[0]*8, fall=[0]*8, outs=0, prior=1)
+    assert port_summary('', 1) == dict(rise=[0]*8, fall=[0]*8, outs=0, prior=0)
     assert port_summary(synthetic_iolog(100, [(500, 'main', 'OUT', 0x40, 0x21)]), 700)['outs'] == 0
     # 最初の書き込みは比較相手が無い（窓の手前に書き込みが無い）ので変化に数えない。
     one = port_summary(synthetic_iolog(100, [(650, 'main', 'OUT', 0x40, 0x20)]), 700)
-    assert one['rise'] == [0]*8
+    assert one['rise'] == [0]*8 and one['prior'] == 0 and one['outs'] == 1
+    # 追補1: 窓の手前に書き込みがあれば、窓の最初の書き込みの立ち上がりが数えられる。
+    first = port_summary(synthetic_iolog(0, [(5, 'main', 'OUT', 0x40, 0x00), (800, 'main', 'OUT', 0x40, 0x20)]), 700)
+    assert first['rise'] == [0, 0, 0, 0, 0, 1, 0, 0] and first['fall'] == [0]*8 and first['prior'] == 1
     assert dump_path(Path('x.bin'), 123, True).name == 'x.f000123.bin'
     assert dump_path(Path('x.bin'), 123, False).name == 'x.bin'
     with tempfile.TemporaryDirectory(prefix='l4s9n-selftest-', dir=work) as temp:
@@ -751,9 +756,9 @@ def selftest(work=None):
                 dump_path(path, frame, True).write_bytes(screen_of(planned_now[name]['rows']))
             if iolog:
                 # 窓は最初の本体行を打つフレーム = io_from + PORT_LEAD
-                w = io_from+PORT_LEAD
-                assert w == times[typed.index(program(plan)[program(plan).index(plan['pre'][0])]+'\n')]
-                iolog.write_text(synthetic_iolog(0, [(w-100, 'main', 'OUT', 0x40, 0x00),
+                assert io_from == PORT_FROM
+                w = times[typed.index(plan['pre'][0]+'\n')]
+                iolog.write_text(synthetic_iolog(0, [(5, 'main', 'OUT', 0x40, 0x00),
                                                       (w+50, 'main', 'OUT', 0x40, 0x20),
                                                       (w+300, 'main', 'OUT', 0x40, 0x00)]), encoding='utf-8')
             return subprocess.CompletedProcess(argv, 0, b'unknown-screen-body', b'unknown-screen-body')
