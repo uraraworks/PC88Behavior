@@ -306,7 +306,8 @@ def summarize(obs, a):
     """比較に使う観測の要約（予測と同じキー）。"""
     if a['kind'] == 'layout':
         fit = obs['fit']
-        rows = [r for r, _ in obs.get('nonblank_rows', []) if r not in (0, OK_ROW)]  # 行0は run の打鍵の跡
+        # 文字域 c に空白でないバイトがある行。属性域 a だけの行は既定の属性の組（全行にある）なので数えない。行0〜5は run の打鍵の跡（rem 腕）
+        rows = [r for r, reg in obs.get('nonblank_rows', []) if 'c' in reg and r >= 6 and r != OK_ROW]
         d = obs['port']['ports'].get('65', [])
         return dict(S=fit.get('S'), k=fit.get('k'), linear=fit['linear'], fkey_rows=rows,
                     dma65_tail=d[-2:] if d else None)
@@ -355,6 +356,16 @@ def emit(path, records):
     return calibrated and bool(records) and all(r['gate'] for r in records)
 
 
+def rle(vals):
+    out = []
+    for v in vals:
+        if out and out[-1][0] == v:
+            out[-1][1] += 1
+        else:
+            out.append([v, 1])
+    return out
+
+
 def report(measured):
     """作業置き場の記録から、結果ノートに書く数値だけを出す（印の位置・制御ポートの値。画面本文なし）。"""
     with measured.open(encoding='utf-8', newline='') as stream:
@@ -367,7 +378,7 @@ def report(measured):
     lines = []
     for r in rows:
         a, o = known[r['arm']], json.loads(r['observation'])
-        lines.append(f"## {a['id']} gate={r['gate']} judge={r['prediction_judgement']}")
+        lines.append(f"## {a['id']} gate={r['gate']} judge={json.dumps(judge(o, a))}")   # 判定は観測から毎回計算し直す
         if a['kind'] == 'layout':
             lines.append(f"  fit={json.dumps(o['fit'])} missing={o['missing']}")
             lines.append(f"  offsets={json.dumps({t: v for t, v in o['found'].items()})}")
@@ -379,7 +390,7 @@ def report(measured):
         p = o['port']
         for port, vals in sorted(p['ports'].items()):
             if base.get('ports', {}).get(port) != vals:
-                lines.append(f"  OUT {port}: {vals}")
+                lines.append(f"  OUT {port} [値,連続回数]: {json.dumps(rle(vals))}")
         crtc = [c for c in p['crtc'] if c not in base.get('crtc', [])]
         lines.append(f"  crtc(非カーソル,制御との差)={json.dumps(crtc)} cursor_cmds={p['cursor_cmds']}")
     return '\n'.join(lines)
@@ -527,7 +538,7 @@ def synthetic_obs_for(a):
                     post=[[0, 1]], port=dict(ports={}, crtc=[], cursor_cmds=0))
     p = prediction(a)
     o = synthetic_obs(a, p['S'], p['k'])
-    o['nonblank_rows'] = [[0, 'a'], [p['fkey_row'], 'ac'], [OK_ROW, 'ac']]
+    o['nonblank_rows'] = [[0, 'a'], [5, 'a'], [p['fkey_row'], 'ac'], [OK_ROW, 'ac'], [24 if p['fkey_row'] != 24 else 23, 'a']]
     if p['dma65_tail']:
         o['port']['ports'] = {'65': p['dma65_tail']}
     return o
