@@ -21,7 +21,6 @@ ALLOW = {
     ("l3_main/main_sub_read.asm", "MAIN_SUB_TIMEOUT_LIMIT EQU 0FFFFh"): "待機回数65535",
     ("l3_main/vsync_regcheck.asm", "LD IY,0x99AA"): "レジスタ保持試験のデータ",
     ("l4_basic/interp.asm", "LD HL,0FFFFh"): "真値-1",
-    ("l4_basic/run.asm", "LD HL,0FFFFh"): "真値-1",
     ("l4_basic/run.asm", "LD HL,0C752h"): "乱数の初期値（下位ワード）",
     ("l4_basic/run.asm", "LD HL,0804Fh"): "乱数の初期値（上位ワード）",
     ("ext_bank/bank0.asm", "LD H,0xFF"): "LOGの負指数を16bitへ符号拡張",

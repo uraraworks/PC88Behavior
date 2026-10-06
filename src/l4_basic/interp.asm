@@ -156,6 +156,7 @@ ZONE_WIDTH EQU 14
 BASIC_RUN_DIRECT:
     XOR A
     LD (VAL_SP),A               ; 起動時のRAM値・前回の誤り残りに依存しない
+    LD (RUN_CMP_PRELEFT),A      ; 第4.22節: PRINTの左辺評価済みの印は行の始めに消す
     LD (ERROR_FLAG),A
     LD (ERROR_IS_RUNTIME),A
     LD A,2
@@ -184,6 +185,7 @@ BASIC_RUN_DIRECT:
     JR Z,_l4brl_msg
     CALL NEWLINE          ; 範囲外・0除算の1行目(仕様書に無い判断、空行)
 _l4brl_msg:
+    CALL ERR_BELL
     CALL SELECT_ERROR_MSG
     CALL PRINT_STR
     CALL NEWLINE
@@ -700,6 +702,25 @@ _l4ps_str_item:
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
+    ; 第4.22節: 文字列式の直後に比較記号が続けば、評価済みの左辺を渡して比較式として評価する
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '<'
+    JR Z,_l4ps_cmp_item
+    CP '='
+    JR Z,_l4ps_cmp_item
+    CP '>'
+    JR NZ,_l4ps_str_out
+_l4ps_cmp_item:
+    LD A,1
+    LD (RUN_CMP_PRELEFT),A
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL PRINT_VALUE
+    JR _l4ps_after_item
+_l4ps_str_out:
     CALL PRINT_STRING_VAL
 _l4ps_after_item:
     XOR A

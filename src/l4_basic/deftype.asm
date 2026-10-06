@@ -21,7 +21,7 @@
     ORG 0x7810
     JP dt_data_fix
 
-; 文の種別(33=DEF 34=SWAP 35=ERASE 36〜39=DEFINT/DEFSNG/DEFDBL/DEFSTR、第4.21節)
+; 文の種別(33=DEF 34=SWAP 35=ERASE 36〜39=DEFINT/DEFSNG/DEFDBL/DEFSTR、第4.21節。40=RUN、41=BEEP 第4.22節)
 fn_stmt_dispatch:
     LD A,(MM_RUN_STMT_KIND)
     CP 33
@@ -32,11 +32,13 @@ fn_stmt_dispatch:
     JP Z,fn_erase
     CP 40
     JP Z,dt_run
+    CP 41
+    JP Z,wb_beep_stmt
     JP dt_stmt
 
 ; 文の語の表（照合順。DEFはDEFINT等より前でも、語の直後が英字なら一致しない）
 fn_words:
-    DB 3,"LET",5,"WHILE",4,"WEND",3,"DEF",4,"SWAP",5,"ERASE",6,"DEFINT",6,"DEFSNG",6,"DEFDBL",6,"DEFSTR",3,"RUN",0
+    DB 3,"LET",5,"WHILE",4,"WEND",3,"DEF",4,"SWAP",5,"ERASE",6,"DEFINT",6,"DEFSNG",6,"DEFDBL",6,"DEFSTR",3,"RUN",4,"BEEP",0
 
 dt_stmt:
 dt_next:

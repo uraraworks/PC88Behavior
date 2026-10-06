@@ -277,6 +277,10 @@ S9_IS_STRING:
     LD IX,S9_FN_IS_STRING_ADDR
     JP B3_MAIN_CALL_ADDR
 S9_FN_IS_STRING_ADDR EQU 0x1787
+S9E_OPS_ADDR EQU 0x1787
+S9E_OPS:
+    LD IX,S9E_OPS_ADDR
+    JP B3_MAIN_CALL_ADDR
 
 S9_HEX:
     LD A,16
@@ -783,6 +787,14 @@ S9E_L_BUF EQU MM_S9E_L_BUF
     ORG 0x7900
     JP S9E_CMP
 S9E_CMP:
+    ; 第4.22節: PRINTが左辺の文字列を評価済みなら（印を消して）左辺の複写から続ける
+    LD A,(MM_RUN_CMP_PRELEFT)
+    OR A
+    JR Z,s9e_fresh
+    XOR A
+    LD (MM_RUN_CMP_PRELEFT),A
+    JR s9e_have_left
+s9e_fresh:
     ; 左辺が文字列式か(先頭が'"'、または英字で始まる識別子の末尾が'$')を、
     ; CUR_PTRを読むだけで判定する。字句の試し読み(LEX_IDENT_PEEK)は
     ; IDENT_BUFとRUN_TMP16を壊し、数値の比較に副作用を残すので使わない。
@@ -850,6 +862,7 @@ s9e_is_str:
     CALL S9_STRING_EXPR
     CALL S9_BAD
     JR NZ,s9e_done
+s9e_have_left:
     LD A,(S9_TMP_LEN)
     LD (S9E_L_LEN),A
     LD C,A
@@ -861,42 +874,18 @@ s9e_is_str:
     LDIR
 s9e_lcopied:
     CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    LD D,2                   ; '=' : 等しい
-    CP '='
-    JR Z,s9e_op1
-    LD D,1                   ; '<'
-    CP '<'
-    JR Z,s9e_lt
-    LD D,4                   ; '>'
-    CP '>'
-    JR Z,s9e_gt
+    CALL S9E_OPS               ; 第4.22節: 比較記号の並び（mainのCMP_OPS）。A=許す順序、0=記号なし
+    LD D,A
+    CALL S9_BAD                ; 記号の重複は誤り2
+    JR NZ,s9e_done
+    LD A,D
+    OR A
+    JR NZ,s9e_rhs
 s9e_type:
     CALL S9_TYPE
 s9e_done:
     LD A,1
     RET
-s9e_lt:
-    CALL B3_ADV_PTR
-    CALL B3_PEEK_CHAR
-    CP '>'
-    LD D,5                   ; '<>' : 左<右 または 左>右
-    JR Z,s9e_op1
-    CP '='
-    LD D,3                   ; '<=' : 左<右 または 等しい
-    JR Z,s9e_op1
-    LD D,1
-    JR s9e_rhs
-s9e_gt:
-    CALL B3_ADV_PTR
-    CALL B3_PEEK_CHAR
-    CP '='
-    LD D,6                   ; '>=' : 等しい または 左>右
-    JR Z,s9e_op1
-    LD D,4
-    JR s9e_rhs
-s9e_op1:
-    CALL B3_ADV_PTR
 s9e_rhs:
     PUSH DE                  ; D=許す順序。右辺の評価(入れ子の比較)から守る
     CALL S9_IS_STRING

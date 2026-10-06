@@ -133,8 +133,7 @@ RUN_INTXT: DB " in ",0
 RUN_KW_TEXT             EQU MM_RUN_KW_TEXT ; 2B 汎用キーワード照合(下記)のスクラッチ
 RUN_KW_LEN              EQU MM_RUN_KW_LEN ; 1B
 LOGIC_TMP_RIGHT         EQU MM_LOGIC_TMP_RIGHT ; 2B AND/OR演算中の右辺int16退避
-RUN_CMP_OP              EQU MM_RUN_CMP_OP ; 1B 比較演算子種別(0=,1<>,2<,3>,4<=,5>=)
-RUN_CMP_RAW             EQU MM_RUN_CMP_RAW ; 1B VAL_COMPARE_CUR_RHSの生の結果
+RUN_CMP_PRELEFT         EQU MM_RUN_CMP_PRELEFT ; 1B PRINTが左辺の文字列を評価済みで比較へ渡す印(1=評価済み。バンク3が読んで消す)
 RUN_DATA_WANT_KIND      EQU MM_RUN_DATA_WANT_KIND ; 1B DATA_READ_ONEの要求型(0数値/1文字列)
 RUN_DATA_REC            EQU MM_RUN_DATA_REC ; 2B DATA走査中のレコード先頭(0=未着手)
 RUN_DATA_PTR            EQU MM_RUN_DATA_PTR ; 2B DATA走査/読み取りの再開位置
@@ -2369,6 +2368,7 @@ _irl_done:
 ; =======================================================================
 
 RUN_EMIT_ERROR:
+    CALL ERR_BELL
     CALL SELECT_ERROR_MSG
     CALL PRINT_STR
     LD HL,RUN_INTXT
@@ -4088,141 +4088,103 @@ _ne_ovfl:
     LD (ERROR_KIND),A
     RET
 
-; COMPARE_EXPR — EXPR(+ -のみ)を左右に、= <> < > <= >= の1回だけの
-;   比較(連鎖はしない、仕様書に無い判断・第8節15)。真=-1・偽=0
-;   (第4.8節)。
+; COMPARE_EXPR — EXPR(+ -のみ)を左右に、比較記号(CMP_OPS)で比べる。
+;   第4.22節: 比較は括弧なしで何段でも続き、左から畳む(1<2<3は(1<2)<3)。
+;   真=-1・偽=0(第4.8節)。左辺が文字列式ならバンク3が最初の比較を処理し、
+;   その結果(整数)から先は同じ連鎖。右辺が文字列なら誤り13(文字列の連鎖も同じ)。
 COMPARE_EXPR:
     ; 第21節: 左辺が文字列式なら文字列の比較(バンク3 0x7900)。A=1で処理済み。
     LD HL,07900h
     CALL S9_BANK_CALL
     OR A
-    RET NZ
+    JR NZ,_ce_chain
     CALL EXPR
+_ce_chain:
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
+_ce_next:
     CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP '='
-    JR Z,_ce_eq
-    CP '<'
-    JR Z,_ce_lt_family
-    CP '>'
-    JR Z,_ce_gt_family
-    RET
-_ce_eq:
-    CALL ADV_PTR
-    XOR A
-    LD (RUN_CMP_OP),A
-    JR _ce_rhs
-_ce_lt_family:
-    CALL ADV_PTR
-    CALL PEEK_CHAR
-    CP '>'
-    JR Z,_ce_ne
-    CP '='
-    JR Z,_ce_le
-    LD A,2
-    LD (RUN_CMP_OP),A
-    JR _ce_rhs
-_ce_ne:
-    CALL ADV_PTR
-    LD A,1
-    LD (RUN_CMP_OP),A
-    JR _ce_rhs
-_ce_le:
-    CALL ADV_PTR
-    LD A,4
-    LD (RUN_CMP_OP),A
-    JR _ce_rhs
-_ce_gt_family:
-    CALL ADV_PTR
-    CALL PEEK_CHAR
-    CP '='
-    JR Z,_ce_ge
-    LD A,3
-    LD (RUN_CMP_OP),A
-    JR _ce_rhs
-_ce_ge:
-    CALL ADV_PTR
-    LD A,5
-    LD (RUN_CMP_OP),A
-_ce_rhs:
+    CALL CMP_OPS
+    OR A
+    RET Z
+    PUSH AF                     ; 許す順序(1:左<右 2:等しい 4:左>右)。入れ子の比較から守る
     CALL VAL_PUSH
-    RET C                       ; 溢れ時は積まず、その呼出し段から戻る
+    JR NC,_ce_rhs
+    POP AF
+    RET                         ; 溢れ時は積まず、その呼出し段から戻る
+_ce_rhs:
+    CALL FN_IS_STRING
+    OR A
+    JR Z,_ce_num
+    LD A,13
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_FLAG),A
+    JR _ce_err
+_ce_num:
     CALL EXPR
     LD A,(ERROR_FLAG)
     OR A
     JR NZ,_ce_err
     CALL VAL_MOVE_CUR_TO_RHS
     CALL VAL_POP
-    CALL VAL_COMPARE_CUR_RHS
-    LD (RUN_CMP_RAW),A
-    JP CMP_EVAL_RESULT
-_ce_err:
-    CALL VAL_POP_DISCARD
-    RET
-
-CMP_EVAL_RESULT:
-    LD A,(RUN_CMP_RAW)
-    LD B,A
-    LD A,(RUN_CMP_OP)
+    CALL VAL_COMPARE_CUR_RHS    ; A=-1(左<右)/0/1
     OR A
-    JR Z,_cer_eq
-    CP 1
-    JR Z,_cer_ne
-    CP 2
-    JR Z,_cer_lt
-    CP 3
-    JR Z,_cer_gt
-    CP 4
-    JR Z,_cer_le
-    JR _cer_ge
-_cer_eq:
-    LD A,B
-    OR A
-    JR Z,_cer_true
-    JR _cer_false
-_cer_ne:
-    LD A,B
-    OR A
-    JR NZ,_cer_true
-    JR _cer_false
-_cer_lt:
-    LD A,B
-    CP 0FFh
-    JR Z,_cer_true
-    JR _cer_false
-_cer_gt:
-    LD A,B
-    CP 1
-    JR Z,_cer_true
-    JR _cer_false
-_cer_le:
-    LD A,B
-    OR A
-    JR Z,_cer_true
-    CP 0FFh
-    JR Z,_cer_true
-    JR _cer_false
-_cer_ge:
-    LD A,B
-    OR A
-    JR Z,_cer_true
-    CP 1
-    JR Z,_cer_true
-    JR _cer_false
-_cer_true:
-    LD HL,0FFFFh
-    CALL VAL_SET_INT
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_cer_false:
+    LD A,2
+    JR Z,_ce_bit
+    LD A,1
+    JP M,_ce_bit
+    LD A,4
+_ce_bit:
+    POP BC
+    AND B
     LD HL,0
+    JR Z,_ce_set
+    DEC HL
+_ce_set:
     CALL VAL_SET_INT
     XOR A
     LD (ERROR_FLAG),A
+    JR _ce_next
+_ce_err:
+    POP AF
+    JP VAL_POP_DISCARD
+
+; CMP_OPS — CUR_PTRの比較記号の並び(< = > を各1回、順不同)を読み進める(第4.22.1節)。
+;   出力: A=許す順序の論理和(1:<を含む 2:=を含む 4:>を含む)、記号が無ければ0(位置不変)。
+;   同じ記号の重複は誤り2(ERROR_FLAG=1・A=0)。<=>の3種は常に真(7)。
+CMP_OPS:
+    LD C,0
+_co_loop:
+    CALL PEEK_CHAR
+    LD B,1
+    CP '<'
+    JR Z,_co_bit
+    LD B,2
+    CP '='
+    JR Z,_co_bit
+    LD B,4
+    CP '>'
+    JR NZ,_co_done
+_co_bit:
+    LD A,C
+    AND B
+    JR NZ,_co_dup
+    LD A,C
+    OR B
+    LD C,A
+    CALL ADV_PTR
+    JR _co_loop
+_co_done:
+    LD A,C
+    RET
+_co_dup:
+    LD A,2
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_FLAG),A
+    XOR A
     RET
 
 ; IF_TEST_NONZERO — CUR_TYPE/DATAが0以外ならA=1、0ならA=0(第4.7節
@@ -4623,6 +4585,17 @@ OW_MATCH_STMT:
     JP EXT_BANK_CALL
 FN_EXEC_STMT:
     LD HL,06B30h
+    XOR A
+    JP EXT_BANK_CALL
+
+; 第4.22節。表示される誤りと CHR$(7) の出力で bit5 を鳴らす（本体はバンク0 widthbeep.asm）。
+; ERR 11（0除算）は鳴らさない。捕捉された誤りは表示されないのでここへ来ない。
+ERR_BELL:
+    LD A,(ERROR_KIND)
+    CP 11
+    RET Z
+BEEP_BELL:
+    LD HL,07A40h
     XOR A
     JP EXT_BANK_CALL
 FN_TRY_NUM:

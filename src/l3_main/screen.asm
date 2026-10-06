@@ -239,6 +239,8 @@ PRINT_CHAR:
     JP SAVE_CAPTURE_CHAR
 _pc_no_capture:
     POP AF
+    CP 7                        ; 第4.22節: BEL(CHR$(7))は表示せず BEEP と同じ音だけ鳴らす
+    JR Z,_pc_bell
     PUSH AF
     LD HL,(VAR_ROWBASE)
     LD A,(VAR_COL)
@@ -253,6 +255,11 @@ _pc_no_capture:
     CP COLS
     RET C
     CALL NEWLINE
+    RET
+_pc_bell:
+    PUSH BC                     ; 呼び出し元(文字列の出力ループ)がBCを使う
+    CALL BEEP_BELL
+    POP BC
     RET
 
 ; ---------------------------------------------------------------------
