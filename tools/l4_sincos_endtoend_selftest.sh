@@ -170,10 +170,14 @@ if ! python3 "$BUILD" "$FAULT_ROM" --inject-ext-bank-bcde-fault >"$WORK/build_fa
   ng "build_main_rom.py(--inject-ext-bank-bcde-fault)が失敗"; cat "$WORK/build_fault.txt" >&2
 fi
 read -r cell_f restore_ok_f < <(run_and_check "$FAULT_ROM" "$WORK/fault")
+# 故障の現れ方は常駐部の配置で変わる（ハングして出力が止まる／暴走して正常と別の出力になる）。
+# どちらも「故障を再現」と数える（正常ビルドの出力セル数と一致したときだけ効いていないと判定する）。
 if [ "${cell_f:-0}" -eq 0 ] 2>/dev/null; then
   ok "陰性対照: 出力セルが変化しなかった(cell_count=${cell_f:-0}、故障を再現)"
+elif [ "${cell_f}" != "${cell_ok}" ]; then
+  ok "陰性対照: 出力セル数が通常ビルドと食い違った(cell_count=${cell_f}、通常${cell_ok}。暴走して別の出力になった、故障を再現)"
 else
-  ng "陰性対照: 出力セルが変化してしまった(cell_count=${cell_f}、故障注入が効いていない可能性)"
+  ng "陰性対照: 出力セルが通常ビルドと同じに変化した(cell_count=${cell_f}、故障注入が効いていない可能性)"
 fi
 if [ "$restore_ok_f" = "0" ]; then
   ok "陰性対照: 窓復元OUT(0x71)が直前のIN(0x71)の値と食い違った(故障を再現)"

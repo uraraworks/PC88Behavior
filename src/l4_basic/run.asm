@@ -2121,8 +2121,8 @@ CLS_STMT:
 
 ; =======================================================================
 ; M7段階5c-2b: LOCATE(第5.2節「第1引数が桁(x)、第2引数が行(y)」)。
-;   本体はl3_main/screen.asmのLOCATE_SET_CURSORへ委ねる(範囲外の丸め等は
-;   そちら参照)。CLSと同じく直接モード・プログラム中の文の両方から使う。
+;   本体はバンク0のwb_locate(src/l4_basic/widthbeep.asm。範囲外の丸め等は
+;   そちら参照。桁・行の上限は現在のWIDTH)。CLSと同じく直接モード・プログラム中の文の両方から使う。
 ; =======================================================================
 LOCATE_STMT:
     CALL PARSE_INT_ARG
@@ -2140,11 +2140,13 @@ LOCATE_STMT:
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
-    LD A,(RUN_LOCATE_COL)
-    LD C,A
     LD A,E
-    LD B,A
-    CALL LOCATE_SET_CURSOR
+    LD (MM_FN_AUX+1),A          ; 行(y)。本体はバンク0 wb_locate（引数はRAM経由）
+    LD A,(RUN_LOCATE_COL)
+    LD (MM_FN_AUX),A            ; 桁(x)
+    LD HL,07A50h
+    XOR A
+    CALL EXT_BANK_CALL
     XOR A
     LD (ERROR_FLAG),A
     LD (RUN_CTRL),A
@@ -2152,7 +2154,7 @@ LOCATE_STMT:
 
 ; =======================================================================
 ; M7段階5c-2b: COLOR(第5.4節「引数の値が属性域の値バイトにそのまま
-;   入る」)。本体はl3_main/screen.asmのCOLOR_APPLYへ委ねる。
+;   入る」)。本体はバンク0のwb_color(src/l4_basic/widthbeep.asm)。
 ; =======================================================================
 COLOR_STMT:
     CALL PARSE_INT_ARG
@@ -2160,7 +2162,10 @@ COLOR_STMT:
     OR A
     RET NZ
     LD A,E
-    CALL COLOR_APPLY
+    LD (MM_FN_AUX),A            ; 値。本体はバンク0 wb_color（引数はRAM経由）
+    LD HL,07A60h
+    XOR A
+    CALL EXT_BANK_CALL
     XOR A
     LD (ERROR_FLAG),A
     LD (RUN_CTRL),A

@@ -136,7 +136,13 @@ FAULT_NEW = "    LD HL,TEXT_BASE+1\n    LD (VAR_ROWBASE),HL"
 # 箇所でCPUが無関係な番地へ飛び、L1適合検査①が344件目で全く別内容に
 # 化けて不合格になった）。バイト数を揃えることでこれを避けている。
 CURSOR_OLD = "    LD A,0x16\n    OUT (0x50),A\n    LD A,0x01\n    OUT (0x50),A"
-CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP"
+CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP"
+# WIDTH（l4-program.md 5.6.5）: 20行は0x19・25行は0x39を、垂直同期のたびにポート0x31へ出す。
+# ハンドラが出す2個の「LD A,0x19／OUT (0x31),A」（各4バイト）を、RAMの現在値を読む形
+# （各5バイト）へ置き換える。増える2バイトぶん、上のCURSOR_NEWのNOPを2個減らして
+# 全体のバイト数を保つ（VEC_TABLEの256バイト境界を動かさない。上の長い注記と同じ理由）。
+P31_OLD = "    LD A,0x19\n    OUT (0x31),A\n"
+P31_NEW = "    LD A,(MM_SCR_P31)\n    OUT (0x31),A\n"
 
 # 故障注入（陰性対照専用、tools/vsync_regcheck_selftest.sh）。VSYNC_HANDLER
 # 冒頭・末尾のレジスタ退避(PUSH/POP、src/l1_ipl/make_ipl_rom.py
@@ -202,13 +208,15 @@ KEY_TABLE_SHIFT_FAULT_NEW = (
 
 # M7段階2c: 故障注入（既定の属性域DEFAULT_ATTRの先頭バイトを変える。
 # l3-main.md 第14節nonzero_patternの検出力の陰性対照）。
+# （WIDTH実装でDEFAULT_ATTRの40バイト表をCLEAR_ROWの繰り返しに替えたため、
+#  位置バイト0x80を0x81に変える形で既定の並びを壊す。）
 DEFAULT_ATTR_FAULT_OLD = (
-    "DEFAULT_ATTR:\n"
-    "    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h"
+    "_cr_attr:\n"
+    "    LD (HL),080h"
 )
 DEFAULT_ATTR_FAULT_NEW = (
-    "DEFAULT_ATTR:\n"
-    "    DB 081h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h"
+    "_cr_attr:\n"
+    "    LD (HL),081h"
 )
 
 # M7段階2c: 故障注入（スクロール範囲を第15節fkey_row_reservedの
@@ -218,8 +226,10 @@ DEFAULT_ATTR_FAULT_NEW = (
 # LDIR範囲に内包されて別ランに分かれるだけで、2280バイトのランは残る)ため、
 # ROWS(=20)そのものを使い2400バイトへずらす(初期化クリアと同じ大きさに
 # 重なるほうを選び、"2280バイトのランが無くなる"という明確な違いにする)。
-SCROLL_RANGE_FAULT_OLD = "    LD BC,STRIDE*(USABLE_ROWS-1)\n    LDIR"
-SCROLL_RANGE_FAULT_NEW = "    LD BC,STRIDE*ROWS\n    LDIR"
+# （WIDTH実装でSCROLLの書き写し量を最終使用行(SCR_MAXROW)×STRIDEの計算に替えたため、
+#  行数に2を足して使用行数+1行ぶん（起動時は20行＝2400バイト）書き写す形にする。）
+SCROLL_RANGE_FAULT_OLD = "    LD B,A\n    LD HL,0\n    LD DE,STRIDE"
+SCROLL_RANGE_FAULT_NEW = "    INC A\n    INC A\n    LD B,A\n    LD HL,0\n    LD DE,STRIDE"
 
 # 故障注入: 第16節HOME/CLR(08H:0)のSHIFT分岐を反転する（自己検査の陰性
 # 対照専用。tools/l3_screen_editor_selftest.sh）。無修飾=clear/SHIFT=home
@@ -472,6 +482,8 @@ EXT_BANK0_DEFFN_ADDR_LABELS = {
     "TS_LOADOPB_D_ADDR": "VAL_LOAD_RHS_TO_OPB_D",
     "TS_DCMP_ADDR": "MBF_DCMP",
     "TS_ZONE_ADDR": "ZONE_PAD",
+    # 第4.22節 WIDTH（3000バイト全体の消去）
+    "WB_CLEAR_ADDR": "CLEAR_N_ROWS",
     # 第4.21節 型宣言文・プログラム中のRUN
     "DT_LINENUM_ADDR": "PARSE_LINENUM_CUR",
     "DT_FIND_ADDR": "RUN_FIND_LINE",
@@ -1106,6 +1118,13 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     if ipl_text.count(CURSOR_OLD) != 1:
         raise SystemExit(f"カーソル追従の置換点が一意でない: {CURSOR_OLD!r}")
     ipl_text = ipl_text.replace(CURSOR_OLD, CURSOR_NEW)
+    # VSYNCハンドラ（"VSYNC_HANDLER:" から "T_USART:" の手前まで）の中だけで0x31の値をRAM参照にする
+    vs_a = ipl_text.index("VSYNC_HANDLER:\n")
+    vs_b = ipl_text.index("T_USART:\n", vs_a)
+    vs_body = ipl_text[vs_a:vs_b]
+    if vs_body.count(P31_OLD) != 2:
+        raise SystemExit("VSYNCハンドラのポート0x31の出力が2個見つからない（make_ipl_rom.py が変わった？）")
+    ipl_text = ipl_text[:vs_a] + vs_body.replace(P31_OLD, P31_NEW) + ipl_text[vs_b:]
 
     screen_text = SCREEN_ASM.read_text(encoding="utf-8")
     if inject_fault:

@@ -598,10 +598,24 @@ _lf_done:
 LINE_READ_FROM_SCREEN:
     LD HL,(VAR_ROWBASE)
     LD DE,LINE_BUF
-    LD BC,COLS
-    LDIR
-    LD HL,LINE_BUF+COLS-1
-    LD B,COLS
+    LD A,(SCR_COLS)           ; 現在の桁数W（80桁は1バイトおき、40桁は2バイトおきにW文字読む）
+    LD C,A
+    LD B,A
+_lrfs_copy:
+    LD A,(HL)
+    LD (DE),A
+    INC DE
+    INC HL
+    LD A,C
+    CP COLS
+    JR Z,_lrfs_next
+    INC HL
+_lrfs_next:
+    DJNZ _lrfs_copy
+    LD H,D
+    LD L,E
+    DEC HL                    ; HL = LINE_BUF+W-1
+    LD B,C
 _lrfs_trim:
     LD A,B
     OR A
@@ -628,38 +642,38 @@ _lrfs_done:
 ; ---------------------------------------------------------------------
 INSERT_PUTCHAR:
     PUSH AF
+    LD A,(SCR_COLS)
+    DEC A
+    LD B,A                    ; B = 最終桁(W-1)
     LD A,(VAR_COL)
-    LD C,A
-    CP COLS-1
-    JR NC,_ip_no_shift
-    LD A,COLS-1
-    SUB C
-    LD B,A                    ; B = 押し出す回数 = (COLS-1)-col
-    LD HL,(VAR_ROWBASE)
-    LD DE,COLS-1
-    ADD HL,DE                 ; HL = dst = ROWBASE+(COLS-1)
-_ip_shift_loop:
-    LD D,H
-    LD E,L
-    DEC DE                    ; DE = src = dst-1
-    LD A,(DE)
-    LD (HL),A
-    LD H,D
-    LD L,E                    ; 次の周のdst = 今回のsrc
-    DJNZ _ip_shift_loop
-_ip_no_shift:
-    LD HL,(VAR_ROWBASE)
-    LD E,C
-    LD D,0
-    ADD HL,DE                 ; HL = ROWBASE+col = 書き込み位置
+    LD C,A                    ; C = カーソルの桁
+    CP B
+    JR NC,_ip_no_shift        ; 最終桁以降は押し出す先が無い
+_ip_shift_loop:               ; 桁 B-1 の文字を桁 B へ（B=W-1 から C+1 まで）
+    LD A,B
+    DEC A
+    CALL CELL_PTR
+    LD A,(HL)
+    PUSH AF
+    LD A,B
+    CALL CELL_PTR
     POP AF
     LD (HL),A
+    DEC B
+    LD A,B
+    CP C
+    JR NZ,_ip_shift_loop
+_ip_no_shift:
     LD A,C
-    CP COLS-1
-    JR NC,_ip_no_advance       ; 既に列79なら進めない(選択、上記コメント参照)
-    INC A
+    CALL CELL_PTR             ; HL = 書き込み位置
+    POP AF
+    LD (HL),A
+    INC C
+    LD A,(SCR_COLS)
+    CP C
+    RET Z                     ; 既に最終桁なら進めない(選択、上記コメント参照)
+    LD A,C
     LD (VAR_COL),A
-_ip_no_advance:
     RET
 
 ; ---------------------------------------------------------------------
@@ -687,8 +701,10 @@ KEY_CURSOR_UP:
 ; (USABLE_ROWS-1、ファンクションキー予約行の手前)では無反応
 ; (仕様書に無い、安全側の選択。LOCATE_SET_CURSORの範囲丸めと同じ境界)。
 KEY_CURSOR_DOWN:
+    LD A,(SCR_MAXROW)
+    LD E,A
     LD A,(VAR_ROW)
-    CP USABLE_ROWS-1
+    CP E
     RET NC
     INC A
     LD (VAR_ROW),A
@@ -715,7 +731,8 @@ _kcl_boundary:
     RET Z
     DEC A
     LD (VAR_ROW),A
-    LD A,COLS-1
+    LD A,(SCR_COLS)
+    DEC A
     LD (VAR_COL),A
     LD HL,(VAR_ROWBASE)
     LD DE,STRIDE
@@ -730,15 +747,20 @@ _kcl_boundary:
 ; 第18節項8)。最終使用可能行の列79では、それより下に行が無いため無反応
 ; (この組み合わせは本節の測定対象外。仕様書に無い、安全側の選択)。
 KEY_CURSOR_RIGHT:
+    LD A,(SCR_COLS)
+    DEC A
+    LD E,A
     LD A,(VAR_COL)
-    CP COLS-1
+    CP E
     JR Z,_kcr_boundary
     INC A
     LD (VAR_COL),A
     RET
 _kcr_boundary:
+    LD A,(SCR_MAXROW)
+    LD E,A
     LD A,(VAR_ROW)
-    CP USABLE_ROWS-1
+    CP E
     RET Z
     INC A
     LD (VAR_ROW),A
@@ -761,28 +783,26 @@ KEY_DEL_LEFT:
     DEC A
     LD (VAR_COL),A
     LD C,A                     ; C = 削除位置(新カーソル位置)
-    LD B,0
-    LD HL,(VAR_ROWBASE)
-    ADD HL,BC
-    PUSH HL                    ; dstをスタックへ退避
-    INC HL                     ; HL = src = ROWBASE+col+1
-    LD B,COLS-1
-    LD A,B
-    SUB C
-    LD B,A                     ; B = (COLS-1)-col = コピーするバイト数
-    POP DE                     ; DE = dst
-    LD A,B
-    OR A
-    JR Z,_kdl_lastonly
 _kdl_loop:
+    LD A,(SCR_COLS)
+    DEC A
+    CP C
+    JR Z,_kdl_last             ; 最終桁まで詰め終えた
+    LD A,C
+    INC A
+    CALL CELL_PTR              ; src = 桁C+1
     LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _kdl_loop
-_kdl_lastonly:
-    LD A,020h
-    LD (DE),A                  ; 最終列(79)を空白で埋める
+    PUSH AF
+    LD A,C
+    CALL CELL_PTR              ; dst = 桁C
+    POP AF
+    LD (HL),A
+    INC C
+    JR _kdl_loop
+_kdl_last:
+    LD A,C
+    CALL CELL_PTR
+    LD (HL),020h               ; 最終桁を空白で埋める
     RET
 
 ; KEY_ENTER_INSERT — INS/DEL+SHIFT(ins_mode_only)。押した時点では行内容

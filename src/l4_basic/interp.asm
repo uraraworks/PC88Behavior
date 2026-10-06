@@ -770,8 +770,10 @@ _l4ps_stmt_end:
 ;   (l4-basic.md 第4・4.1節。桁56以上は完全欄が残らないので改行)。
 ; ---------------------------------------------------------------------
 ZONE_PAD:
+    LD A,(SCR_ZT)               ; 改行閾値T（80桁56・40桁14。l4-program.md 4.22.4）
+    LD B,A
     LD A,(VAR_COL)
-    CP 56
+    CP B
     JP NC,NEWLINE
     ; 負になるまで引き、次の境界までの距離を得る(境界上は14)。
 _l4zp_find:
@@ -3153,10 +3155,9 @@ _l4ddc_advance:
 ; ---------------------------------------------------------------------
 ; PRINT_FIELD_WRAP_CHECK — A=これから印字する項目の全幅(0〜255)。
 ;   数値は符号と末尾空白を含む。BCを保存、AFを破壊する。
-;   根拠: docs/spec/l4-basic.md 第4.1節(l4-s9i、W_GW)。行頭でなく、
-;   残り桁より長い場合だけ前改行。現在桁から81を引いた補数に幅を
-;   足すと、桁上がりは現在桁+幅>80を表す(幅255まで)。
-;   行頭の長い項目はPRINT_CHARに任せる。
+;   根拠: docs/spec/l4-basic.md 第4.1節(l4-s9i、W_GW)・l4-program.md 4.22.4
+;   （80を現在の桁数Wに置き換える）。行頭でなく、残り桁(W-現在桁)より
+;   長い場合だけ前改行。行頭の長い項目はPRINT_CHARに任せる。
 ; ---------------------------------------------------------------------
 PRINT_FIELD_WRAP_CHECK:
     PUSH BC
@@ -3164,8 +3165,10 @@ PRINT_FIELD_WRAP_CHECK:
     LD A,(VAR_COL)
     OR A
     JR Z,_l4pfwc_fit
-    SUB COLS+1
-    ADD A,B
+    LD C,A
+    LD A,(SCR_COLS)
+    SUB C                       ; 残りの桁数（現在の桁数W-現在桁）
+    CP B
     JR NC,_l4pfwc_fit
     CALL NEWLINE
 _l4pfwc_fit:

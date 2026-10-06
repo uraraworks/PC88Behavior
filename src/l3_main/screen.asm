@@ -37,13 +37,18 @@
 
 TEXT_BASE   EQU MM_TEXT_BASE   ; l3-main.md 第2節
 STRIDE      EQU 120      ; l3-main.md 第1節（80桁+40属性）
-COLS        EQU 80
+COLS        EQU 80       ; 起動時の桁数。行の文字域のバイト数（桁数40でも80バイト。l4-program.md 5.6.1）
 ATTR_BYTES  EQU 40
 ROWS        EQU 20       ; docs/spec/l1-ipl.md 第0節（起動時の実際の表示行数）
 ; 第15節（fkey_row_reserved）: ファンクションキー表示ありの既定では、
 ; スクロール・PRINTの対象範囲は表示行数-1。最下行(row0=ROWS-1=19)は
 ; ファンクションキー表示の行として予約し、スクロール対象から外す。
+; WIDTH（l4-program.md 4.22・5.6）で桁数・行数が変わる。現在値は下のRAM変数。
 USABLE_ROWS EQU ROWS-1
+SCR_COLS    EQU MM_SCR_COLS     ; 現在の桁数（40か80）
+SCR_MAXROW  EQU MM_SCR_MAXROW   ; 現在の最終の使用行（行0始まり。行数-2。起動時18、25行で23）
+SCR_P31     EQU MM_SCR_P31      ; 垂直同期のたびにポート0x31へ出す値（20行0x19・25行0x39。l4-program.md 5.6.5）
+SCR_ZT      EQU MM_SCR_ZT       ; コンマ欄の改行閾値T（80桁56・40桁14。l4-program.md 4.22.4）
 
 ; ---- RAM変数（0000-7FFFはROM＝L1のROM/RAMモード設定のため書けない。
 ;      8000-FFFF側の、VRAM(F3C8-)ともスタック(F000から下方)とも
@@ -63,6 +68,10 @@ SCREEN_MAIN:
     LD (VAR_COL),A
     LD HL,TEXT_BASE
     LD (VAR_ROWBASE),HL
+    LD HL,((ROWS-2)<<8)|COLS    ; 起動時の桁数80・最終使用行18（WIDTHの状態）
+    LD (SCR_COLS),HL
+    LD HL,(56<<8)|019h          ; ポート0x31の値0x19（20行）・コンマ欄閾値56
+    LD (SCR_P31),HL
     CALL CLEAR_SCREEN
     CALL KEY_INIT           ; keyboard.asm — KEY_OLDを初期化（M7段階2b）
     CALL PROGRAM_INIT       ; l4_basic/program.asm — プログラム領域を
@@ -91,7 +100,7 @@ _sm_no_extra:
     RET
 
 ; ---------------------------------------------------------------------
-; CLEAR_SCREEN — 全20行を空白＋既定の属性で埋める
+; CLEAR_SCREEN — 起動時の全20行を空白＋既定の属性で埋める
 ; ---------------------------------------------------------------------
 CLEAR_SCREEN:
     LD B,ROWS
@@ -101,46 +110,54 @@ CLEAR_SCREEN:
 ; ---------------------------------------------------------------------
 ; CLEAR_N_ROWS — HL=先頭VRAM番地、B=消す行数。空白＋既定の属性で埋める
 ;   (CLEAR_SCREENの本体を切り出した共通部、M7段階5c-2a追記)。
+;   WIDTH（l4-program.md 5.6.4）の3000バイト全体の消去（B=25）もここを使う。
 ; ---------------------------------------------------------------------
 CLEAR_N_ROWS:
-_cs_row_loop:
+_cn_loop:
     PUSH BC
-    PUSH HL
+    CALL CLEAR_ROW
+    POP BC
+    DJNZ _cn_loop
+    RET
+
+; ---------------------------------------------------------------------
+; CLEAR_ROW — HL=行の先頭。文字域80バイトを空白、属性域を既定の20組
+;   (位置0x80,値0x00。l3-main.md 第14節・l4-program.md 5.6.2)にして、
+;   HLは次の行の先頭（120バイト先）になる。破壊: AF,B,HL。
+;   既定の属性は40バイトの表でなく同じ値の繰り返しとして書く（mainの空き節約）。
+; ---------------------------------------------------------------------
+CLEAR_ROW:
     LD B,COLS
     LD A,020h
-_cs_txt_loop:
+_cr_txt:
     LD (HL),A
     INC HL
-    DJNZ _cs_txt_loop
-    LD DE,DEFAULT_ATTR
-    LD B,ATTR_BYTES
-_cs_attr_loop:
-    LD A,(DE)
-    LD (HL),A
+    DJNZ _cr_txt
+    LD B,ATTR_BYTES/2
+_cr_attr:
+    LD (HL),080h
     INC HL
-    INC DE
-    DJNZ _cs_attr_loop
-    POP HL
-    LD DE,STRIDE
-    ADD HL,DE
-    POP BC
-    DJNZ _cs_row_loop
+    LD (HL),000h
+    INC HL
+    DJNZ _cr_attr
     RET
 
 ; ---------------------------------------------------------------------
 ; CLS_SCREEN — M7段階5c-2a: `CLS`文の本体(docs/spec/l4-program.md
-;   第5.1節)。ファンクションキー表示行(row0=19、予約行)を除く
-;   USABLE_ROWS行だけを空白＋既定の属性で埋め、カーソルを絶対行0・
-;   桁0へ戻す(第5.1節F1「消した後に残るのはOk相当の行とファンクション
-;   キー表示の行だけ」——予約行を対象外にする構造はCLEAR_SCREENの
-;   スクロール対象と同じNEWLINE/SCROLLの規約(第15節)をそのまま流用)。
+;   第5.1節)。ファンクションキー表示行（最下行、予約行）を除く
+;   現在の使用行数(SCR_MAXROW+1)行だけを空白＋既定の属性で埋め、
+;   カーソルを絶対行0・桁0へ戻す(第5.1節F1「消した後に残るのはOk相当の行と
+;   ファンクションキー表示の行だけ」——予約行を対象外にする構造はスクロール
+;   対象と同じNEWLINE/SCROLLの規約(第15節)をそのまま流用)。
 ; ---------------------------------------------------------------------
 ; (build_main_rom.pyの故障注入FAULT_OLD/NEWは、SCREEN_MAINの
 ;  "LD HL,TEXT_BASE"直後に"LD (VAR_ROWBASE),HL"が続く2行を対象に一意に
 ;  検索するため、ここでは同じ並びを作らないよう命令の順序をずらす
 ;  〔仕様書に無い判断、実装上の都合のみ〕。)
 CLS_SCREEN:
-    LD B,USABLE_ROWS
+    LD A,(SCR_MAXROW)
+    INC A
+    LD B,A
     LD HL,TEXT_BASE
     CALL CLEAR_N_ROWS
     LD HL,TEXT_BASE
@@ -150,66 +167,24 @@ CLS_SCREEN:
     LD (VAR_ROWBASE),HL
     RET
 
-; ---------------------------------------------------------------------
-; LOCATE_SET_CURSOR — M7段階5c-2b: `LOCATE`文の本体(docs/spec/
-;   l4-program.md 第5.2節「第1引数が桁(x)、第2引数が行(y)」)。
-;   入力: C=桁(x、0-255)・B=行(y、0-255)。範囲外は最大値へ丸める
-;   (仕様書に無い判断——第5.2節は原点と1点の座標しか確認しておらず、
-;   範囲外の扱いは未確定。既存のUSABLE_ROWS/COLSの境界に合わせて
-;   単純に丸める)。VAR_ROWBASEを引数の行から作り直し、既存行への
-;   上書き(F12「変化前のセルは空白ではなかった」)を再現する——
-;   本ルーチンは文字/属性を一切書き換えず、続くPRINTが上書きする。
-;   破壊: AF,BC,DE,HL。
-; ---------------------------------------------------------------------
-LOCATE_SET_CURSOR:
-    LD A,C
-    CP COLS
-    JR C,_lsc_col_ok
-    LD A,COLS-1
-_lsc_col_ok:
-    LD (VAR_COL),A
-    LD A,B
-    CP USABLE_ROWS
-    JR C,_lsc_row_ok
-    LD A,USABLE_ROWS-1
-_lsc_row_ok:
-    LD (VAR_ROW),A
-    LD DE,TEXT_BASE
-    OR A
-    JR Z,_lsc_rowbase_done
-    LD B,A
-_lsc_rowloop:
-    LD HL,STRIDE
-    ADD HL,DE
-    EX DE,HL
-    DJNZ _lsc_rowloop
-_lsc_rowbase_done:
-    LD (VAR_ROWBASE),DE
-    RET
+; LOCATE（第5.2節）の本体と COLOR（第5.4節）の本体は拡張ROMバンク0
+; （src/l4_basic/widthbeep.asm の wb_locate・wb_color）へ移した。
+; 呼び出しは run.asm の LOCATE_STMT・COLOR_STMT。
 
 ; ---------------------------------------------------------------------
-; COLOR_APPLY — M7段階5c-2b: `COLOR`文の本体(docs/spec/l4-program.md
-;   第5.4節「COLORの引数の値は、属性域の(位置,値)組の値バイトにそのまま
-;   入る」)。入力: A=属性値(0-255、下位1バイトだけを使う。引数の範囲・
-;   色の意味は未確定、第5.4節・第8節)。
-;   現在行(VAR_ROWBASE)の属性域(COLS〜COLS+ATTR_BYTES-1)を
-;   20組×(位置0x80,値=A)で塗り直す。仕様書に無い判断: 効果は呼び出し
-;   時点の「現在行」だけに限る(以後の行・スクロール・CLSの既定色を
-;   変える恒常状態は持たせない——第5.4節はCOLOR実行後に同じ行へ
-;   PRINTした結果しか確認しておらず、以後の行への影響は未測定)。
-;   破壊: AF,BC,DE,HL。
+; CELL_PTR — A=桁(0始まり)。HL=現在行のその桁の文字のVRAM番地
+;   (80桁は ROWBASE+桁、40桁は ROWBASE+2×桁。l4-program.md 5.6.1)。
+;   破壊: AF,DE,HL。BCは保つ。
 ; ---------------------------------------------------------------------
-COLOR_APPLY:
+CELL_PTR:
     LD HL,(VAR_ROWBASE)
-    LD DE,COLS
+    LD E,A
+    LD D,0
     ADD HL,DE
-    LD B,20
-_ca_loop:
-    LD (HL),080h
-    INC HL
-    LD (HL),A
-    INC HL
-    DJNZ _ca_loop
+    LD A,(SCR_COLS)
+    CP COLS
+    RET Z
+    ADD HL,DE
     RET
 
 ; ---------------------------------------------------------------------
@@ -242,20 +217,18 @@ _pc_no_capture:
     CP 7                        ; 第4.22節: BEL(CHR$(7))は表示せず BEEP と同じ音だけ鳴らす
     JR Z,_pc_bell
     PUSH AF
-    LD HL,(VAR_ROWBASE)
     LD A,(VAR_COL)
-    LD E,A
-    LD D,0
-    ADD HL,DE
+    CALL CELL_PTR
     POP AF
     LD (HL),A
     LD A,(VAR_COL)
     INC A
     LD (VAR_COL),A
-    CP COLS
-    RET C
-    CALL NEWLINE
-    RET
+    LD E,A
+    LD A,(SCR_COLS)
+    CP E                        ; 桁が現在の桁数に達したら自動折り返し
+    RET NZ
+    JP NEWLINE
 _pc_bell:
     PUSH BC                     ; 呼び出し元(文字列の出力ループ)がBCを使う
     CALL BEEP_BELL
@@ -274,12 +247,15 @@ NEWLINE:
     JP NZ,SAVE_CAPTURE_NEWLINE
     XOR A
     LD (VAR_COL),A
+    LD A,(SCR_MAXROW)
+    INC A                       ; 使用行数
+    LD E,A
     LD A,(VAR_ROW)
     INC A
-    CP USABLE_ROWS
+    CP E
     JR C,_nl_no_scroll
     CALL SCROLL
-    LD A,USABLE_ROWS-1
+    LD A,(SCR_MAXROW)
     LD (VAR_ROW),A
     RET
 _nl_no_scroll:
@@ -300,26 +276,20 @@ _nl_no_scroll:
 ; 最下行（ファンクションキー表示の予約行）はここでは一切触らない。
 ; ---------------------------------------------------------------------
 SCROLL:
+    LD A,(SCR_MAXROW)           ; 書き写す行数 = 使用行数-1 = 最終使用行
+    LD B,A
+    LD HL,0
+    LD DE,STRIDE
+_sc_mul:
+    ADD HL,DE
+    DJNZ _sc_mul
+    LD B,H
+    LD C,L                      ; BC = STRIDE*(使用行数-1)
     LD HL,TEXT_BASE+STRIDE
     LD DE,TEXT_BASE
-    LD BC,STRIDE*(USABLE_ROWS-1)
     LDIR
     LD HL,(VAR_ROWBASE)
-    LD B,COLS
-    LD A,020h
-_sc_txt_loop:
-    LD (HL),A
-    INC HL
-    DJNZ _sc_txt_loop
-    LD DE,DEFAULT_ATTR
-    LD B,ATTR_BYTES
-_sc_attr_loop:
-    LD A,(DE)
-    LD (HL),A
-    INC HL
-    INC DE
-    DJNZ _sc_attr_loop
-    RET
+    JP CLEAR_ROW
 
 ; ---------------------------------------------------------------------
 ; データ
@@ -331,14 +301,6 @@ FILLER_TXT:
 OK_TXT:
     DB "Ok",0
 
-; 既定の属性域（40バイト＝2バイト1組×20組）。l3-main.md 第14節
-; （nonzero_pattern）の白黒既定: (位置,値)=(0x80,0x00)×20組。
-; 起動直後は白黒（第11節）なのでこの並びを使う。カラーの既定
-; (0x80,0xE8)×20組はこの段階では使わない（COLOR/CONSOLE未実装）。
-; 各組の値バイトの各ビット意味は第3節・第16節-1で未確定。
-DEFAULT_ATTR:
-    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h
-    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h
-    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h
-    DB 080h,000h, 080h,000h, 080h,000h, 080h,000h, 080h,000h
-    ; = ATTR_BYTES(40)バイト＝20組
+; 既定の属性域（40バイト＝2バイト1組×20組、(位置0x80,値0x00)×20組。l3-main.md 第14節
+; nonzero_pattern）は CLEAR_ROW が同じ値の繰り返しとして書く（旧DEFAULT_ATTR表は廃止）。
+; 起動直後は白黒（第11節）。カラーの既定(0x80,0xE8)×20組はこの段階では使わない。
