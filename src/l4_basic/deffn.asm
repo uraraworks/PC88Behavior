@@ -15,7 +15,7 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     JP fn_match_stmt
     ORG 0x6B10
     XOR A
-    JP fn_try
+    JP ts_try
     ORG 0x6B20
     LD A,1
     JP fn_try
@@ -31,7 +31,7 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     ORG 0x6B50
     JP fn_array_string_assign
     ORG 0x6B60
-    JP fn_is_string
+    JP ts_print
 
 ; 既存の大小不問照合へ語をRAM経由で渡す。窓復元中にバンク文字列を読まない。
 fn_match_stmt:

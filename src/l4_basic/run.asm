@@ -1309,11 +1309,10 @@ _mri_overflow:
 ;   (両方を単精度へ揃えてMBF_CMPを使う)。出力: A=0等しい/1 CUR>RHS/
 ;   0xFF CUR<RHS。破壊: AF,HL,UA_*・UB_*等。
 VAL_COMPARE_CUR_RHS:
-    CALL VAL_LOAD_CUR_TO_OPA
-    CALL VAL_LOAD_RHS_TO_OPB
-    CALL MBF_CMP
-    LD A,(MBF_OUT_CMP)
-    RET
+    ; 第4.20.3節: どちらかが倍精度なら倍精度で比べる。本体はバンク0（整数どうしは窓内で完結）。
+    LD HL,07460h
+    XOR A
+    JP EXT_BANK_CALL
 
 ; VAL_IS_NEGATIVE — CUR_TYPE/CUR_DATAが負なら1、0以上なら0を返す
 ;   (RHSを0にしてVAL_COMPARE_CUR_RHSを使う。RHS_TYPE/DATAを破壊する)。
@@ -3989,7 +3988,7 @@ _powc_done:
 ;   (* / \ MOD) > POWER_FACTOR(^) > FACTOR。PRINT/ASSIGN/FOR/配列添字/
 ;   カッコの中は、いずれもLOGIC_OR_EXPR(最上位)から入る。
 ; =======================================================================
-LOGIC_OR_EXPR:
+LOGIC_OR_LEVEL:
     CALL LOGIC_AND_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -4664,8 +4663,20 @@ FN_ARRAY_STRING_ASSIGN:
 
 FN_IS_STRING:
     LD HL,06B60h
+_fis_tail:
     XOR A
     JP EXT_BANK_CALL
+
+; 第4.20節。論理の上位段（XOR・EQV・IMP）の入口。本体はバンク0。
+; OR段までは従来のLOGIC_OR_LEVEL。次の語が英字で始まるときだけバンクへ入る
+; （バンクは誤り・XOR/EQV/IMPでないことを確かめて戻る）。尾はFN_IS_STRINGと共有。
+LOGIC_OR_EXPR:
+    CALL LOGIC_OR_LEVEL
+    CALL SKIP_SPACES
+    CP 'A'
+    RET C
+    LD HL,07450h
+    JR _fis_tail
 
 DIM_STMT:
     LD HL,07750h

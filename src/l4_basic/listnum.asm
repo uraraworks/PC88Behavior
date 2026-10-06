@@ -443,8 +443,10 @@ _ln_el_spaces:
     JR _ln_el_spaces
 _ln_el_char:
     CALL LN_FOLD
-    CP 'L'
     POP HL
+    CP 'L'
+    JR Z,_ln_suffix
+    CP 'Q'                   ; 第4.20節: 5 EQV 3 のEは指数でない（ELSEのELと同様）
     JR Z,_ln_suffix
     LD A,1
     JR _ln_exponent

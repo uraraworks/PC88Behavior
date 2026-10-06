@@ -685,6 +685,8 @@ _l4ps_loop:
     ; PRINT_CHARする別経路だったが、連結・関数呼び出しに対応できなかった
     ; ため統合した)。
     CALL FN_IS_STRING
+    CP 2                        ; 第4.20節: 2=バンクがTAB(・SPC(を出した（続きはループの先頭から）
+    JP Z,_l4ps_loop
     OR A
     JR NZ,_l4ps_str_item
     CALL LOGIC_OR_EXPR
