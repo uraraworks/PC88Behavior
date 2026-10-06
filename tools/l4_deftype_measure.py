@@ -118,7 +118,7 @@ def arms():
     # 7 すでにある変数との関係（型ごとに別の変数）
     direct('exist-before', ['a=2.6', 'defint a', V('a'), V('a!*10')], [0, 26])
     direct('exist-return', ['a=2.6', 'defint a', 'a=5', 'defsng a', V('a*10')], [26])
-    direct('exist-int-return', ['defint a', 'a=2.6', 'defsng a', V('a'), 'defint a', V('a')], [0, 3])
+    direct('exist-int-return-s', ['defint a:a=2.6:defsng a', V('a'), 'defint a', V('a')], [0, 3])
     direct('first-letter-only', ['defint a', 'ba=2.6', V('ba*10'), 'abc=2.6', V('abc')], [26, 3])
     # 8 何が宣言を戻すか（直接モード）
     direct('keep-none', ['defint a', 'a=2.6', V('a*10')], [30])
@@ -144,12 +144,12 @@ def arms():
     prog('prog-if-false', ['if 0 then defint a', 'a=2.6:' + V('a*10')], [26])
     # 10 配列
     direct('array-int', ['defint a', 'dim a(3)', 'a(1)=2.6', V('a(1)')], [3])
-    direct('array-before-def', ['dim a(3)', 'a(1)=2.6', 'defint a', 'a(1)=5', V('a(1)'), 'defsng a', V('a(1)*10')], [5, 26])
+    direct('array-before-def-s', ['dim a(3):a(1)=2.6:defint a:a(1)=5', V('a(1)'), 'defsng a', V('a(1)*10')], [5, 26])
     direct('array-redim-int', ['dim a%(3)', 'defint a', 'dim a(3)', 'a(1)=4', V('a(1)')], [4], error=10)
     direct('array-over', ['defint a', 'dim a(3)', 'a(1)=40000', V('a(1)')], [0], error=6)
     direct('array-str', ['defstr a', 'dim a(2)', 'a(1)="xy"', V('len(a(1))')], [2])
     direct('array-str-numeric', ['defstr a', 'dim a(2)', 'a(1)=1', V('len(a(1))')], [0], error=13)
-    direct('array-erase', ['dim a(3)', 'defint a', 'erase a', 'defsng a', 'erase a', 'dim a(5)', 'a(5)=1:' + V('a(5)')], [1], error=5)
+    direct('array-erase-s', ['dim a(3):defint a', 'erase a', 'defsng a:erase a:dim a(5)', 'a(5)=1:' + V('a(5)')], [1], error=5)
     # 11 FOR・DEF FN・READ・SWAP
     prog('for-int', ['defint i:k=0:for i=1 to 3:k=k+i:next', V('k')], [6])
     prog('for-int-limit', ['defint i:k=0:for i=1 to 2.6:k=k+1:next', V('k')], None)
@@ -537,7 +537,7 @@ def selftest(work=None):
            'dbl-third':[value(-1)],'sng-third':[value(0)],'dbl-big':[value(9)],'sng-big':[value(12)],
            'str-len':[value(2)],'str-concat':[value(3)],'range-a-c':[value(9),value(26)],
            'err-comma-end':[value(3)],'exist-before':[value(0),value(26)],
-           'exist-int-return':[value(0),value(3)],'keep-none':[value(30)],'reset-insert':[value(26)],
+           'exist-int-return-s':[value(0),value(3)],'keep-none':[value(30)],'reset-insert':[value(26)],
            'prog-runtime-type':[value(26),value(0),value(30)],'fn-def-a':[value(6)],'fn-def-f':[value(5)],
            'prog-reverse':[['s9me',1,2,1]],'prog-empty':[['s9me',1,2,1]],'for-str':[['s9me',1,13,1]]}
     for aid,rows in fixed.items():
