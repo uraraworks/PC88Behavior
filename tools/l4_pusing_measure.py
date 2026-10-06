@@ -348,16 +348,33 @@ def write(path, header, rows):
         writer.writerow(header); writer.writerows(rows)
 
 
+WRAP_CONTROLS = ('control-wrap', 'control-long')
+# 折り返し対照2腕の公式観測（l4-s9h 1回目、2走一致。自分のプログラムの出力の文字コード列）。
+# 自作ROMは l4-s9i の W_GW で公式と同じ規則になったため、自己検査の期待値はこれを使う。
+WRAP_OFFICIAL_OBS = {
+    'control-wrap': dict(codes=[97]*70+[32]*5+[97, 97, 32, 32, 98, 32, 32, 32], end=[1, 8], err=0),
+    'control-long': dict(codes=[98]*70+[32]*5+[98]*25+[32, 32], end=[1, 27], err=0),
+}
+
+
+def control_value(a):
+    # 折り返し2対照は、公式の観測（W_GW）で値を照合する。旧80桁の予測は使わない。
+    return WRAP_OFFICIAL_OBS[a['id']] if a['id'] in WRAP_CONTROLS else prediction(a)
+
+
 def emit(path, records, trap=True):
     by_id = {r['arm']['id']: r for r in records}
     def stable(r):
         return r['gate'] and not any(r['failed']) and r['obs'][0] == r['obs'][1] and valid(r['obs'][0])
     calibration = all(a['id'] in by_id and stable(by_id[a['id']]) and
-                      by_id[a['id']]['obs'][0] == prediction(a) for a in controls())
+                      by_id[a['id']]['obs'][0] == control_value(a) for a in controls())
     rows, passed = [], calibration
     for r in records:
         predictions = {c: prediction(r['arm'], c) for c in ('U_GW', 'U_N88')}
-        known = r['obs'][0] in predictions.values()
+        if r['arm']['id'] in WRAP_CONTROLS:
+            known = r['obs'][0] == WRAP_OFFICIAL_OBS[r['arm']['id']]
+        else:
+            known = r['obs'][0] in predictions.values()
         gate = calibration and stable(r)
         passed = passed and gate and known
         for i in range(2):
@@ -396,15 +413,6 @@ def check(expected, measured):
         if not valid(obs[0]) or obs[0] not in values:
             return False
     return True
-
-
-WRAP_CONTROLS = ('control-wrap', 'control-long')
-# 折り返し対照2腕の公式観測（l4-s9h 1回目、2走一致。自分のプログラムの出力の文字コード列）。
-# 自作ROMは l4-s9i の W_GW で公式と同じ規則になったため、自己検査の期待値はこれを使う。
-WRAP_OFFICIAL_OBS = {
-    'control-wrap': dict(codes=[97]*70+[32]*5+[97, 97, 32, 32, 98, 32, 32, 32], end=[1, 8], err=0),
-    'control-long': dict(codes=[98]*70+[32]*5+[98]*25+[32, 32], end=[1, 27], err=0),
-}
 
 
 def wrap_dependent(arm, obs):
@@ -620,20 +628,27 @@ def selftest(work):
     with tempfile.TemporaryDirectory(prefix='replay-', dir=work) as temp:
         root = Path(temp)
         def replay(rom, official, arm, directory, trap=True):
-            return extract(screen_of(prediction(arm)))
+            return extract(screen_of(control_value(arm) if arm['id'] in WRAP_CONTROLS else prediction(arm)))
         with patch(__name__+'.run_arm', replay):
             records = measure('', False, selected, root)
         assert emit(root/'good.tsv', records)
         write(root/'expected.tsv', ['arm', 'candidate', 'prediction'],
-              [(a['id'], 'U_GW', json.dumps(prediction(a))) for a in selected])
+              [(a['id'], 'U_GW', json.dumps(control_value(a))) for a in selected])
         assert check(root/'expected.tsv', root/'good.tsv')
+        # 陰性: 折り返し対照が旧80桁の値（W_FULL）なら関門で落ちる（値の一致を判定し続ける）。
+        for aid in WRAP_CONTROLS:
+            old = copy.deepcopy(records)
+            r0 = next(r for r in old if r['arm']['id'] == aid)
+            r0['obs'] = [prediction(r0['arm'])]*2
+            assert not emit(root/'old80.tsv', old), aid+'の旧80桁値を拒まない'
         write(root/'wrong.tsv', ['arm', 'prediction'],
-              [(a['id'], json.dumps(changed if a['id'] == 'control-spaces' else prediction(a))) for a in selected])
+              [(a['id'], json.dumps(changed if a['id'] == 'control-spaces' else control_value(a))) for a in selected])
         assert not check(root/'wrong.tsv', root/'good.tsv')
+        saved_last = records[-1]['obs']
         records[-1]['obs'] = [dict(prediction(records[-1]['arm']), err=5)]*2
         assert not emit(root/'different.tsv', records)
         assert not check(root/'expected.tsv', root/'different.tsv')
-        records[-1]['obs'] = [prediction(records[-1]['arm'])]*2
+        records[-1]['obs'] = saved_last
         records[0]['obs'][1] = changed
         assert not emit(root/'bad.tsv', records) and not check(root/'expected.tsv', root/'bad.tsv')
         calls = 0
@@ -764,15 +779,10 @@ def selftest(work):
         assert all(r['gate'] and r['obs'][0] == expect(r['arm']) for r in records), \
             '自作定数関門失敗: '+json.dumps([(r['arm']['id'], r['obs'], r['failed']) for r in records])
         measured, expected = root/'measured.tsv', root/'expected.tsv'
-        # emit は全対照を prediction（80桁折り返しの仮定）と照合する従来の流れのまま。
-        # 折り返し対照2腕は上で公式観測と照合済みなので、emit/check の流れには
-        # 予測値に置き換えて通す（追補1の再判定では同2腕を関門外にしているのと整合）。
+        # emit も折り返し2対照は公式観測（W_GW）で照合する。値を置き換えず実測のまま通す。
         flow = copy.deepcopy(records)
-        for r in flow:
-            if r['arm']['id'] in WRAP_CONTROLS:
-                r['obs'] = [prediction(r['arm'])]*2
         assert emit(measured, flow, trap=False)
-        write(expected, ['arm', 'prediction'], [(a['id'], json.dumps(prediction(a))) for a in controls()])
+        write(expected, ['arm', 'prediction'], [(a['id'], json.dumps(control_value(a))) for a in controls()])
         assert check(expected, measured)
         flow[1]['obs'] = [changed, changed]
         assert not emit(measured, flow, trap=False) and not check(expected, measured)
