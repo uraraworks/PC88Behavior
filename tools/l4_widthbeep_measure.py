@@ -210,6 +210,22 @@ def arms():
     Bp('beep-if', ['if 1 then beep'], 'both')
     Bp('beep-expr', ['a=1:beep a:beep a-1'], 'both')
     Bp('beep-chr7', ['print chr$(7);'], 'both')
+    # ---- 8 追補2: 誤りそのものが bit 5 を動かすのか（BEEP を含まない誤り・トラップ・BEEP の組合せ）
+    Bp('e-none-print', ['print 1'], 'none')
+    Bp('e-direct-syntax', ['print 1+'], 'none', error=2)
+    Bp('e-direct-undef', ['goto 999'], 'none', error=8)
+    Bp('e-direct-div0', ['print 1/0'], 'none', error=11)
+    Bp('e-direct-type', ['a$=1'], 'none', error=13)
+    Bp('e-direct-error5', ['error 5'], 'none', error=5)
+    Bp('e-prog-ok', ['10 print 1', 'run'], 'none')
+    Bp('e-prog-undef', ['10 goto 999', 'run'], 'none', error=8)
+    Bp('e-prog-type', ['10 a$=1', 'run'], 'none', error=13)
+    Bp('e-trap-type', ['10 on error goto 30:a$=1', '30 print 2:end', 'run'], 'none')
+    Bp('e-trap-error5', ['10 on error goto 30:error 5', '30 print 2:end', 'run'], 'none')
+    Bp('e-prog-beep', ['10 beep', 'run'], 'both')
+    Bp('e-prog-beep-str', ['10 beep "a"', 'run'], None, error=13, predicted=False)
+    Bp('e-trap-beep-str', ['10 on error goto 30:beep "a"', '30 print 2:end', 'run'], None, predicted=False)
+    Bp('e-trap-beep-neg', ['10 on error goto 30:beep -1', '30 print 2:end', 'run'], None, predicted=False)
     PR('beep-prog', ['p=1:beep:beep 0', V('9')], [9])
     PR('beep-prog-str', ['p=1:beep "a"'], [], err=(13, 1))
     return out
@@ -645,7 +661,7 @@ def selftest(work=None):
     by_id = {a['id']: a for a in known}
     assert len(by_id) == len(known) and len(controls()) == 12
     unpredicted = [a['id'] for a in known if prediction(a) is None]
-    assert len(unpredicted) == 17, unpredicted
+    assert len(unpredicted) == 20, unpredicted
     for a in known:
         program(a)
         p = prediction(a)
