@@ -1,0 +1,6 @@
+arm	observation
+tab-k80-n5	"{""prepare"": {""rows"": [[""s9lp"", 1, 1]], ""errors"": []}, ""operation"": {""rows"": [[""s9lo"", 1, 1]], ""errors"": []}, ""result"": {""rows"": [[""s9lb"", 1, 1], [""s9lv"", 1, 5], [""s9lv"", 1, 1], [""s9lz"", 1, 1]], ""errors"": []}}"
+tab-k80-n80	"{""prepare"": {""rows"": [[""s9lp"", 1, 1]], ""errors"": []}, ""operation"": {""rows"": [[""s9lo"", 1, 1]], ""errors"": []}, ""result"": {""rows"": [[""s9lb"", 1, 1], [""s9lv"", 1, 0], [""s9lv"", 1, 1], [""s9lz"", 1, 1]], ""errors"": []}}"
+tab-k80-n1	"{""prepare"": {""rows"": [[""s9lp"", 1, 1]], ""errors"": []}, ""operation"": {""rows"": [[""s9lo"", 1, 1]], ""errors"": []}, ""result"": {""rows"": [[""s9lb"", 1, 1], [""s9lv"", 1, 1], [""s9lv"", 1, 1], [""s9lz"", 1, 1]], ""errors"": []}}"
+spc-k70-n10	"{""prepare"": {""rows"": [[""s9lp"", 1, 1]], ""errors"": []}, ""operation"": {""rows"": [[""s9lo"", 1, 1]], ""errors"": []}, ""result"": {""rows"": [[""s9lb"", 1, 1], [""s9lv"", 1, 0], [""s9lv"", 1, 1], [""s9lz"", 1, 1]], ""errors"": []}}"
+csng-underflow	"{""prepare"": {""rows"": [[""s9lp"", 1, 1]], ""errors"": []}, ""operation"": {""rows"": [[""s9lo"", 1, 1]], ""errors"": []}, ""result"": {""rows"": [[""s9lb"", 1, 1], [""s9lv"", 1, 0], [""s9lz"", 1, 1]], ""errors"": []}}"
