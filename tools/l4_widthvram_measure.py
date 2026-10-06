@@ -7,7 +7,7 @@
  (2) 印を置いた行の、印のセルの外にある空白でないバイト（属性域）の行内位置と値。印の行は自作の印しか書かれない行だけ。
  (3) 印の行以外で、空白でないバイトを含む行の番号と領域の区別（文字域か属性域か）。値・長さは出さない。
 モード切替の OUT は、窓の中のメインCPUの OUT のうち、制御ポート（0x30・0x31 等のシステム制御、CRTC の 0x51 コマンドと 0x50 の
-パラメータ、DMAC の 0x64・0x65・0x68）だけを順序つきで採る。カーソル位置の更新（CRTC コマンド 0x80）は件数だけ。
+パラメータ、DMAC の 0x64・0x65・0x68）だけを順序つきで採る。カーソル位置の更新（CRTC コマンド 0x80・0x81）は件数だけ。
 公式ROM由来のバイト列は扱わない。生ログ・写しは作業置き場の一時ファイルで、採取後に器具が消す。
 """
 import argparse
@@ -30,7 +30,7 @@ PORT_FROM = 1
 RUN_WAIT = 3000            # run を打ってから写しを取るまでの余裕（フレーム）
 # 制御ポート: システム制御・CRTC・DMAC のみ。0x50/0x51 はコマンド単位に畳む。
 VALUE_PORTS = (0x30, 0x31, 0x32, 0x34, 0x35, 0x53, 0x64, 0x65, 0x66, 0x67, 0x68)
-CURSOR_CMD = 0x80
+CURSOR_CMDS = (0x80, 0x81)   # カーソル位置の読み込み（0x81 は表示つき）。パラメータは位置なので件数だけ採る
 
 # 印: (名前, 桁, 行)。桁 None は「最終桁−2」（桁数で変わる）。
 TOKENS = [('qa1', 0, 6), ('qb2', 0, 7), ('qc3', 0, 8), ('qd4', 10, 9), ('qe5', 20, 10),
@@ -59,13 +59,24 @@ ERASE_MODES = (
 )
 
 
+COLOR_MODES = ('rem', 'w40', 'w40-25', 'w80-20', 'w80-25')
+COLOR_TOKENS = [('qa1', 0, 6, None), ('qb2', 0, 7, None), ('qi9', 0, 13, 2), ('qj0', 10, 14, 3), ('qy7', 20, 15, 4)]
+
+
 def arms():
     out = []
     for key, line, cols, rows in MODES:
         out.append(dict(id=f'layout-{key}', kind='layout', mode=line, cols=cols, rows=rows))
     for key, line, cols, rows in ERASE_MODES:
         out.append(dict(id=f'erase-{key}', kind='erase', mode=line, cols=cols, rows=rows))
+    for key, line, cols, rows in MODES:      # 追補1: 色の境界の位置バイトの規則と、切替のOUTの順序
+        if key in COLOR_MODES:
+            out.append(dict(id=f'color-{key}', kind='color', mode=line, cols=cols, rows=rows))
     return out
+
+
+def base_arms():
+    return [a for a in arms() if a['kind'] != 'color']
 
 
 def lastcol(a):
@@ -77,7 +88,15 @@ def program_lines(a):
     def put(tok, col, row):
         return f'locate {col},{row}:print "{tok}";'
     lines = {}
-    if a['kind'] == 'layout':
+    if a['kind'] == 'color':
+        lines[10] = a['mode']
+        n = 20
+        for tok, col, row, color in COLOR_TOKENS:
+            lines[n] = (put(tok, col, row) if color is None else
+                        f'locate {col},{row}:color {color}:print "{tok}";:color 7')
+            n += 10
+        lines[n] = put(*LAST)
+    elif a['kind'] == 'layout':
         lines[10] = a['mode']
         n = 20
         for tok, col, row in TOKENS:
@@ -181,6 +200,31 @@ def color_diff(obs):
     return [[o, a.get(o), b.get(o)] for o in sorted(set(a)|set(b)) if a.get(o) != b.get(o)]
 
 
+def analyze_color(data, a):
+    if len(data) != 3000:
+        raise ValueError('画面写しの長さが不正')
+    found, missing = {}, []
+    for tok, col, row, color in COLOR_TOKENS+[(LAST[0], LAST[1], LAST[2], None)]:
+        hits = find_token(data, tok)
+        if len(hits) == 1:
+            found[tok] = hits[0]
+        else:
+            missing.append([tok, len(hits)])
+    out = dict(kind='color', found=found, missing=missing, fit=dict(linear=False))
+    if not missing:
+        S = found['qb2'][0]-found['qa1'][0]
+        k10 = found['qj0'][0]-found['qi9'][0]-S
+        k = k10//10
+        ok = S > 0 and k10 % 10 == 0 and len({v[1] for v in found.values()}) == 1
+        for tok, col, row, color in COLOR_TOKENS+[(LAST[0], LAST[1], LAST[2], None)]:
+            ok = ok and found[tok][0] == found['qa1'][0]+S*(row-6)+k*col
+        out['fit'] = dict(S=S, k=k, gap=found['qa1'][1], base=found['qa1'][0], linear=bool(ok))
+        if ok:
+            # 印の行（自作の印しか書かれない行）の属性域40バイトの生値。行7は色なしの対照。
+            out['tail_raw'] = {str(r): list(data[r*S+80:r*S+120]) for r in (7, 13, 14, 15)}
+    return out
+
+
 def analyze_erase(data, a):
     if len(data) != 3000:
         raise ValueError('画面写しの長さが不正')
@@ -193,6 +237,7 @@ def analyze_erase(data, a):
 def port_summary(text, win_from, win_to):
     """窓 [win_from, win_to) のメインCPUの制御ポート OUT。値の列は制御ポート（システム制御・CRTC・DMAC）だけ。"""
     ports, crtc, cursor, cur = {}, [], 0, None
+    ordered, skipping = [], False
     for line in text.splitlines():
         m = IO_LINE.match(line)
         if not m or m[4] != 'main' or m[5] != 'OUT':
@@ -200,6 +245,14 @@ def port_summary(text, win_from, win_to):
         frame, port, val = int(m[3]), int(m[6], 16), int(m[7], 16)
         if not (win_from <= frame < win_to):
             continue
+        if port in (0x50, 0x51) or port in VALUE_PORTS:
+            if port == 0x51:
+                skipping = (val in CURSOR_CMDS)
+            if not (port in (0x50, 0x51) and skipping):
+                if ordered and ordered[-1][:2] == [port, val]:
+                    ordered[-1][2] += 1
+                else:
+                    ordered.append([port, val, 1])
         if port == 0x51:
             if cur is not None:
                 crtc.append(cur)
@@ -211,16 +264,16 @@ def port_summary(text, win_from, win_to):
             ports.setdefault(f'{port:02X}', []).append(val)
     if cur is not None:
         crtc.append(cur)
-    cursor = sum(1 for c in crtc if c[0] == CURSOR_CMD)
+    cursor = sum(1 for c in crtc if c[0] in CURSOR_CMDS)
     rle = []
     for c in crtc:
-        if c[0] == CURSOR_CMD:
+        if c[0] in CURSOR_CMDS:
             continue
         if rle and rle[-1][:2] == c:
             rle[-1][2] += 1
         else:
             rle.append([c[0], list(c[1]), 1])
-    return dict(ports=ports, crtc=rle, cursor_cmds=cursor)
+    return dict(ports=ports, crtc=rle, cursor_cmds=cursor, ordered=ordered)
 
 
 # ---------------------------------------------------------------- 走らせる
@@ -249,7 +302,7 @@ def run_arm(rom, official, a, work):
                 or '打てない'.encode() in proc.stderr):
             raise RuntimeError('測定器の実行または打鍵に失敗')
         data = dump[0].read_bytes()
-        obs = analyze_layout(data, a) if a['kind'] == 'layout' else analyze_erase(data, a)
+        obs = {'layout': analyze_layout, 'erase': analyze_erase, 'color': analyze_color}[a['kind']](data, a)
         obs['port'] = port_summary(iolog.read_text(encoding='utf-8', errors='replace'), window, dump[1]+1)
         return obs
     finally:
@@ -262,8 +315,8 @@ def run_arm(rom, official, a, work):
 def valid(obs, a):
     if not isinstance(obs, dict) or obs.get('kind') != a['kind'] or 'port' not in obs:
         return False
-    if a['kind'] == 'layout':
-        return not obs['missing'] and obs['fit'].get('linear') is True
+    if a['kind'] in ('layout', 'color'):
+        return not obs['missing'] and obs['fit'].get('linear') is True and (a['kind'] == 'layout' or 'tail_raw' in obs)
     return (set(obs['survive']) == {t for t, _, _ in ERASE_TOKENS} and len(obs['post']) == 1)
 
 
@@ -286,6 +339,8 @@ def measure(rom, official, selected, work):
 # ---------------------------------------------------------------- 予測（事前登録 l4-s9o-width-vram-preregistration.md）
 def prediction(a):
     """予測は並びの規則と制御ポートの最後のDMA設定だけ。None は予測なし。"""
+    if a['kind'] == 'color':
+        return dict(S=120, k=1 if a['cols'] == 80 else 2, linear=True)
     if a['kind'] == 'layout':
         wide = a['cols'] == 80
         pred = dict(S=120, k=1 if wide else 2, linear=True, fkey_row=a['rows']-1 if a['mode'] != 'rem' else 19)
@@ -304,6 +359,8 @@ def prediction(a):
 
 def summarize(obs, a):
     """比較に使う観測の要約（予測と同じキー）。"""
+    if a['kind'] == 'color':
+        return dict(S=obs['fit'].get('S'), k=obs['fit'].get('k'), linear=obs['fit']['linear'])
     if a['kind'] == 'layout':
         fit = obs['fit']
         # 文字域 c に空白でないバイトがある行。属性域 a だけの行は既定の属性の組（全行にある）なので数えない。行0〜5は run の打鍵の跡（rem 腕）
@@ -322,6 +379,8 @@ def judge(obs, a):
         for t, want in p['survive'].items():
             res[t] = 'noprediction' if want is None else ('agree' if s['survive'][t] == want else 'differ')
         return res
+    if a['kind'] == 'color':
+        return dict(S='agree' if s['S'] == p['S'] else 'differ', k='agree' if s['k'] == p['k'] else 'differ')
     res = dict(S='agree' if s['S'] == p['S'] else 'differ', k='agree' if s['k'] == p['k'] else 'differ',
                fkey='agree' if s['fkey_rows'] == [p['fkey_row']] else 'differ',
                dma='noprediction' if p['dma65_tail'] is None else
@@ -341,13 +400,19 @@ def emit(path, records):
     for r in records:
         r['gate'] = (r['gate'] and r['arm'] == known.get(r['arm']['id']) and len(r['obs']) == 2
                      and all(valid(o, r['arm']) for o in r['obs']) and r['obs'][0] == r['obs'][1])
-    # 陽性対照: rem は 80桁・120/1 の並びで印が全て見つかり、写しの解析が既知の並びを返すこと。
-    rem = [r for r in records if r['arm']['id'] == 'layout-rem']
-    erem = [r for r in records if r['arm']['id'] == 'erase-rem']
-    calibrated = (len(rem) == 1 and rem[0]['gate'] and summarize(rem[0]['obs'][0], rem[0]['arm']).get('S') == 120
-                  and summarize(rem[0]['obs'][0], rem[0]['arm']).get('k') == 1
-                  and len(erem) == 1 and erem[0]['gate']
-                  and all(erem[0]['obs'][0]['survive'].values()))
+    # 陽性対照: rem は 80桁・120/1 の並びで印が全て見つかり、erase-rem は3つの印が全て残ること。
+    # 対照が崩れたら全腕を関門落ちにする。測った種類（layout・erase・color）ごとに対応する rem 腕を要る。
+    kinds = {r['arm']['kind'] for r in records}
+    calibrated = True
+    for kind in kinds:
+        rem = [r for r in records if r['arm']['id'] == f'{kind}-rem']
+        ok = len(rem) == 1 and rem[0]['gate']
+        if ok and kind == 'erase':
+            ok = all(rem[0]['obs'][0]['survive'].values())
+        elif ok:
+            sm = summarize(rem[0]['obs'][0], rem[0]['arm'])
+            ok = sm.get('S') == 120 and sm.get('k') == 1
+        calibrated = calibrated and ok
     write(path, ['arm', 'repeat', 'plan', 'observation', 'gate', 'prediction_judgement', 'failed'],
           [(r['arm']['id'], i+1, json.dumps(plan(r['arm'])), json.dumps(r['obs'][i]),
             'pass' if calibrated and r['gate'] else 'gate_failed',
@@ -385,12 +450,20 @@ def report(measured):
             lines.append(f"  tail_row11={json.dumps(o.get('tails', {}).get('11'))}")
             lines.append(f"  color_diff(off,row12,row11)={json.dumps(color_diff(o))} gap_values={o.get('gap_values')}")
             lines.append(f"  nonblank_rows={o.get('nonblank_rows')} fill(20,00,other)={o.get('empty_rows_fill')}")
+        elif a['kind'] == 'color':
+            lines.append(f"  fit={json.dumps(o['fit'])} missing={o['missing']}")
+            lines.append(f"  offsets={json.dumps(o['found'])}")
+            for row, raw in o.get('tail_raw', {}).items():
+                lines.append(f"  tail_raw[row{row}][0:12]={raw[:12]}  (残り{raw[12:] == raw[12:13]*28 or 'varied'})")
         else:
             lines.append(f"  survive={json.dumps(o['survive'])} post={o['post']}")
         p = o['port']
         for port, vals in sorted(p['ports'].items()):
             if base.get('ports', {}).get(port) != vals:
                 lines.append(f"  OUT {port} [値,連続回数]: {json.dumps(rle(vals))}")
+        if p.get('ordered'):
+            first = next((i for i, e in enumerate(p['ordered']) if e[0] == 0x30), 0)
+            lines.append(f"  ordered[port,val,count] 0x30 の前4件から後40件: {json.dumps(p['ordered'][max(0, first-4):first+40])}")
         crtc = [c for c in p['crtc'] if c not in base.get('crtc', [])]
         lines.append(f"  crtc(非カーソル,制御との差)={json.dumps(crtc)} cursor_cmds={p['cursor_cmds']}")
     return '\n'.join(lines)
@@ -423,7 +496,7 @@ def selftest(work=None):
     if work is not None:
         work.mkdir(parents=True, exist_ok=True)
     known = {a['id']: a for a in arms()}
-    assert len(known) == 11
+    assert len(known) == 16
     for a in known.values():
         lines = program_lines(a)
         assert all(len(f'{n} {s}') < 80 for n, s in lines.items())
@@ -490,7 +563,20 @@ def selftest(work=None):
     assert got['ports'] == {'30': [0x10], '65': [0x5F, 0x89]}, got
     assert got['crtc'] == [[0, [0x4F, 0x93], 2]], got['crtc']
     assert got['cursor_cmds'] == 1
-    assert port_summary('', 0, 10) == dict(ports={}, crtc=[], cursor_cmds=0)
+    assert got['ordered'] == [[0x30, 0x10, 1], [0x51, 0, 1], [0x50, 0x4F, 1], [0x50, 0x93, 1], [0x51, 0, 1],
+                              [0x50, 0x4F, 1], [0x50, 0x93, 1], [0x65, 0x5F, 1], [0x65, 0x89, 1]], got['ordered']
+    # 色の境界の解析（追補1）: 並びの回復・生の属性域・欠け・ずれ
+    ac = known['color-w40']
+    for S, k in ((120, 2), (120, 1), (100, 2)):
+        o = analyze_color(synthetic_color_dump(S, k), ac)
+        assert o['fit']['linear'] and o['fit']['S'] == S and o['fit']['k'] == k and set(o['tail_raw']) == {'7', '13', '14', '15'}
+        assert o['tail_raw']['13'][:4] == [7, 0, 9, 2] and len(o['tail_raw']['13']) == 40 and o['tail_raw']['7'][:2] == [0, 0]
+    d = bytearray(synthetic_color_dump(120, 2)); d[find_token(bytes(d), 'qj0')[0][0]] = ord('x')
+    assert analyze_color(bytes(d), ac)['missing'] == [['qj0', 0]]
+    d = bytearray(synthetic_color_dump(120, 2)); p0 = find_token(bytes(d), 'qy7')[0][0]
+    d[p0:p0+5] = b'     '; d[p0+2:p0+7] = b'q\x20y\x207'
+    assert not analyze_color(bytes(d), ac)['fit']['linear']
+    assert port_summary('', 0, 10) == dict(ports={}, crtc=[], cursor_cmds=0, ordered=[])
     assert judge(synthetic_obs(a40, 120, 2), a40)['S'] == 'agree'
     assert judge(synthetic_obs(a40, 120, 1), a40)['k'] == 'differ'
     print('OK 並びの回復（陽性5種）・欠け・ずれ・重複の拒否・属性域の抽出・本文非出力・消去の検出・ポート集計', flush=True)
@@ -501,7 +587,7 @@ def selftest(work=None):
         built = subprocess.run([os.sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom),
                                 '--work-dir', str(root/'asm')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         assert built.returncode == 0, '自作ROM一時ビルド失敗'
-        own = [known['layout-rem'], dict(known['erase-rem'], nowidth=True)]   # 自作ROMは width を持たない
+        own = [known['layout-rem'], dict(known['erase-rem'], nowidth=True), known['color-rem']]   # 自作ROMは width を持たない
         observed = measure(rom, False, own, root)
         bad = [r['arm']['id'] for r in observed if not r['gate']]
         if bad:
@@ -513,6 +599,8 @@ def selftest(work=None):
         l = summarize(observed[0]['obs'][0], own[0])
         assert l['S'] == 120 and l['k'] == 1 and l['linear'], l
         assert all(observed[1]['obs'][0]['survive'].values())
+        c = summarize(observed[2]['obs'][0], own[2])
+        assert c['S'] == 120 and c['k'] == 1 and c['linear'], c
         # 故障注入: 並びを 80/2 とした期待に対する判定は differ になる（検査が一致を作り出さない）
         assert judge(observed[0]['obs'][0], known['layout-w40'])['S'] == 'agree'
         assert judge(observed[0]['obs'][0], known['layout-w40'])['k'] == 'differ'
@@ -527,11 +615,27 @@ def selftest(work=None):
         assert not emit(out, recs)
         assert 'gate_failed' in out.read_text()
     print('OK 記録の出力・較正の関門（陽性対照が崩れると全腕が gate_failed）')
-    print('OK 自作ROMの既知値対照2腕×2走（80桁の並び120/1・印の残存）・故障注入で判定が differ になる', flush=True)
+    print('OK 自作ROMの既知値対照3腕×2走（80桁の並び120/1・印の残存）・故障注入で判定が differ になる', flush=True)
     return 0
 
 
+def synthetic_color_dump(S, k):
+    data = bytearray([0x20]*3000)
+    for tok, col, row, color in COLOR_TOKENS+[(LAST[0], LAST[1], LAST[2], None)]:
+        off = row*S+col*k
+        for j, ch in enumerate(tok):
+            data[off+j*k] = ord(ch)
+    data[13*S+80:13*S+84] = bytes([7, 0, 9, 2])      # 既知の属性域の値（合成）
+    data[7*S+80:7*S+82] = bytes([0, 0])
+    return bytes(data)
+
+
 def synthetic_obs_for(a):
+    if a['kind'] == 'color':
+        p = prediction(a)
+        o = analyze_color(synthetic_color_dump(p['S'], p['k']), a)
+        o['port'] = dict(ports={}, crtc=[], cursor_cmds=0, ordered=[])
+        return o
     if a['kind'] == 'erase':
         p = prediction(a)['survive']
         return dict(kind='erase', survive={t: ([[0, 1]] if p[t] is not False else []) for t, _, _ in ERASE_TOKENS},
@@ -556,6 +660,7 @@ def main():
     m = sub.add_parser('measure'); m.add_argument('--rom-dir')
     m.add_argument('--official', action='store_true'); m.add_argument('--out', type=Path, required=True)
     m.add_argument('--work-dir', type=Path, default=WORK)
+    m.add_argument('--kind', choices=('base', 'color'), default='base', help='base=layout+erase（登録の本体）、color=追補1')
     r = sub.add_parser('report'); r.add_argument('--measured', type=Path, required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
     args = parser.parse_args()
@@ -566,7 +671,7 @@ def main():
     rom = os.environ.get('PC88_REF_ROM_DIR') if args.official else args.rom_dir
     if not rom or (args.official and args.rom_dir):
         parser.error('公式ROMはPC88_REF_ROM_DIRだけ、自作ROMは--rom-dirで指定する')
-    records = measure(rom, args.official, arms(), args.work_dir)
+    records = measure(rom, args.official, base_arms() if args.kind == 'base' else [a for a in arms() if a['kind'] == 'color'], args.work_dir)
     ok = emit(args.out, records)
     print(f'記録完了: {len(records)}腕×2走、関門'+('通過' if ok else '失敗'))
     return 0 if ok else 1
