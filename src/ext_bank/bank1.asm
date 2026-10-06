@@ -794,6 +794,7 @@ _load_error_before_clear:
     RET
 _load_error_after_clear:
     LD (B1_ERROR_KIND),A
+    CALL _b1_call_err_bell      ; 第4.22.7節: 表示される誤りは鳴る（メッセージの前。mainの経路と同じ）
     CALL _b1_call_select_error_msg
     CALL _b1_call_print_str
     CALL _b1_call_newline
@@ -860,6 +861,10 @@ _b1_call_select_error_msg:
 BANK1_SKIP_SPACES_ADDR EQU 0x1787
 _b1_call_skip_spaces:
     LD IX,BANK1_SKIP_SPACES_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_ERR_BELL_ADDR EQU 0x1787
+_b1_call_err_bell:
+    LD IX,BANK1_ERR_BELL_ADDR
     JP BANK1_MAIN_CALL_ADDR
 BANK1_MAIN_CALL_ADDR EQU 0x1787
 BANK1_OK_TXT_ADDR EQU 0x1787

@@ -24,7 +24,7 @@ bank=(repo/'src/ext_bank/bank1.asm').read_text(encoding='utf-8')
 # この検査の小型ROMでは、mainの試験関数を窓外に直接置く。
 # 実ビルドでの汎用中継経路はconform_load.shが検査する。
 for name in ('PARSE_LINENUM','PROGRAM_STORE_LINE','SELECT_ERROR_MSG',
-             'PRINT_STR','NEWLINE'):
+             'PRINT_STR','NEWLINE','ERR_BELL'):
     old=f'_b1_call_{name.lower()}:\n    LD IX,BANK1_{name}_ADDR\n    JP BANK1_MAIN_CALL_ADDR'
     new=f'_b1_call_{name.lower()}:\n    JP {name}'
     assert bank.count(old)==1
@@ -224,6 +224,8 @@ SELECT_ERROR_MSG:
 PRINT_STR:
     RET
 NEWLINE:
+    RET
+ERR_BELL:
     RET
 _test_load_dispatch:
     RET
