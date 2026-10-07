@@ -74,7 +74,7 @@ def arms():
     for c in CF_ARMS:
         out.append(dict(c, kind='cf'))
     for i, st in enumerate(chunks(CV_STMTS, 13)):
-        out.append(dict(id=f'cv-{i+1}', kind='stmts', wrap='clear', stmts=st))
+        out.append(dict(id=f'cv-{i+1}', kind='stmts', wrap='clear', stmts=st, lenient=True))
     for i, st in enumerate(chunks(CO_STMTS, CHUNK, CO_REFS)):
         out.append(dict(id=f'co-{i+1}', kind='stmts', wrap='color', stmts=st))
     for key, st in CP_STMTS:
@@ -173,11 +173,19 @@ def extract(data):
     return rows, other
 
 
-def probe_result(rows, n):
-    """プローブ走行の印 → [(e, fre), ...]。形が崩れていれば例外。"""
+def probe_result(rows, n, lenient=False):
+    """プローブ走行の印 → [(e, fre), ...]。形が崩れていれば例外。
+    lenient（追補2、cv の小さい第3引数用）: 途中の行が欠けてよい。欠けたプローブは None（開始・終了の印と、残りの行の形は同じ検査）。"""
     if not rows or rows[0] != ['s9qa', 1, 1] or rows[-1] != ['s9qd', 1, 1]:
         raise ValueError('開始・終了の印が無い')
     mid = rows[1:-1]
+    if lenient:
+        idx = [r[1] for r in mid if len(r) > 1]
+        if (any(r[0] != 's9qr' or len(r) != 4 or not (1 <= r[1] <= n) or not (0 <= r[2] <= 255) for r in mid)
+                or idx != sorted(set(idx))):
+            raise ValueError('プローブ行が崩れている')
+        got = {r[1]: (r[2], r[3]) for r in mid}
+        return [got.get(i+1) for i in range(n)]
     if len(mid) != n or any(r[0] != 's9qr' or len(r) != 4 or r[1] != i+1 or not (0 <= r[2] <= 255) for i, r in enumerate(mid)):
         raise ValueError('プローブ行が崩れている')
     return [(r[2], r[3]) for r in mid]
@@ -269,8 +277,11 @@ def pick(lo, hi, k, known):
     return sorted({p for p in pts if lo < p < hi and p not in known})
 
 
+TOP = 0xE5FF                                            # 受理の最大（s9d 追補1）。これより上は誤り5が別の境界になる
+
+
 def boundaries(known):
-    cls = {x: {classify(e) for e, _ in v} for x, v in known.items()}
+    cls = {x: {classify(e) for e, _ in v} for x, v in known.items() if x <= TOP}
     xs = sorted(cls)
     one = {x: next(iter(c)) for x, c in cls.items() if len(c) == 1}
     e5 = [x for x in xs if x in one and one[x] == 'E5']
@@ -315,32 +326,54 @@ def search(probe_fn, nvar=NVAR, max_rounds=10):
         pts = sorted({p for a, b in ivs for p in pick(a, b, k, known)})
         do(fill(pts), rounds % 2 == 1)
         rounds += 1
+    res = summarize(known, anchors, trace, rounds)
+    # 検証走行: 境界の両側と各領域の内部。既知の点も測り直して一致を見る。
+    if res['b5'] is not None and res['b7'] is not None:
+        ver = [res['b5']-1, res['b5'], res['b7']-1, res['b7'], TOP, TOP+1, 0x8000, res['b7']+0x200]
+        uniq = list(dict.fromkeys(ver))[:nvar]
+        do(fill(uniq), True)
+        res = summarize(known, anchors, trace, rounds)
+    return res
+
+
+def summarize(known, anchors, trace, rounds):
+    """探索の記録（known・anchors・trace）から境界・T・関門の項目を作る。再判定（rejudge）も同じ関数を通る。"""
     lo5, hi5, lo7, hi7 = boundaries(known)
     res = dict(rounds=rounds, b5=hi5 if lo5 is not None and hi5 is not None and hi5 - lo5 == 1 else None,
                b7=hi7 if lo7 is not None and hi7 is not None and hi7 - lo7 == 1 else None,
                lo5=lo5, hi5=hi5, lo7=lo7, hi7=hi7)
-    # 検証走行: 境界の両側と各領域の内部。既知の点も測り直して一致を見る。
-    if res['b5'] is not None and res['b7'] is not None:
-        ver = [res['b5']-1, res['b5'], res['b7']-1, res['b7'], 0x8000, res['b7']+0x200, 0xE5FF, 0xE600]
-        do(fill(sorted(set(ver))[:nvar]) if nvar < 8 else fill(ver), True)
     T = None
     if anchors and all(e == 0 for e, _ in anchors):
         Ts = {ANCHOR_X - f for _, f in anchors}
         T = Ts.pop() if len(Ts) == 1 else None
     consistent = all(len(set(v)) == 1 for v in known.values())
-    ranks = [(x, RANK.get(classify(v[0][0]))) for x, v in sorted(known.items())]
+    ranks = [(x, RANK.get(classify(v[0][0]))) for x, v in sorted(known.items()) if x <= TOP]
     mono = all(r is not None for _, r in ranks) and all(a[1] <= b[1] for a, b in zip(ranks, ranks[1:]))
+    tops = [classify(e) for x, v in known.items() if x > TOP for e, _ in v]
     slope = T is not None and all(f == x - T for x, v in known.items() for e, f in v if e == 0)
     res.update(T=T, anchors_equal=T is not None, consistent=consistent, mono=mono, slope=slope,
+               top_e5=bool(tops) and all(t == 'E5' for t in tops),
                m=known[res['b7']][0][1] if res['b7'] in known else None,
                other=sorted({e for v in known.values() for e, _ in v if e not in ROMAN}),
                trace=trace)
     return res
 
 
+def resummarize(obs):
+    """保存された観測（trace）から再計算する（関門の定義だけを直した再判定用）。"""
+    known, anchors = {}, []
+    for t in obs['trace']:
+        for x, r in zip(t['xs'], t['res']):
+            known.setdefault(x, []).append(tuple(r))
+        for r in t['anchor']:
+            known.setdefault(ANCHOR_X, []).append(tuple(r))
+            anchors.append(tuple(r))
+    return summarize(known, anchors, obs['trace'], obs['rounds'])
+
+
 def search_ok(r):
     return (r['b5'] is not None and r['b7'] is not None and r['anchors_equal'] and r['consistent'] and r['mono']
-            and r['slope'] and not r['other'])
+            and r['slope'] and r['top_e5'] and not r['other'])
 
 
 def confirm(probe_fn, base, nprobe=1):
@@ -383,7 +416,7 @@ def confirm_arm(rom, official, spec, base, work):
 def stmts_arm(rom, official, spec, work):
     with tempfile.TemporaryDirectory(prefix='run-', dir=work) as t:
         rows, _ = run_lines(rom, official, program_lines(spec), Path(t))
-    return dict(res=[list(x) for x in probe_result(rows, len(spec['stmts']))])
+    return dict(res=[None if x is None else list(x) for x in probe_result(rows, len(spec['stmts']), spec.get('lenient'))])
 
 
 def port_arm(rom, official, spec, work):
@@ -500,10 +533,25 @@ def emit(path, records):
     return cal and bool(records) and all(r['gate'] for r in records)
 
 
-def load(path):
+def load(path, both=False):
     with path.open(encoding='utf-8', newline='') as stream:
-        rows = [r for r in csv.DictReader(stream, delimiter='\t') if r['repeat'] == '1']
-    return [dict(arm=json.loads(r['spec']), obs=[json.loads(r['observation'])], gate=r['gate'] == 'pass') for r in rows]
+        rows = list(csv.DictReader(stream, delimiter='\t'))
+    if both:
+        by = {}
+        for r in rows:
+            d = by.setdefault(r['arm'], dict(arm=json.loads(r['spec']), obs=[None, None]))
+            d['obs'][int(r['repeat'])-1] = json.loads(r['observation'])
+        return list(by.values())
+    return [dict(arm=json.loads(r['spec']), obs=[json.loads(r['observation'])], gate=r['gate'] == 'pass')
+            for r in rows if r['repeat'] == '1']
+
+
+def rejudge(src, out):
+    """保存した観測から探索の要約と関門だけを作り直す（再測定しない。追補2: 単調性は 0xE5FF 以下で見て、0xE600 以上は誤り5を別に見る）。"""
+    recs = load(src, both=True)
+    for r in recs:
+        r['obs'] = [resummarize(o) if r['arm']['kind'] == 'cl' and 'trace' in o else o for o in r['obs']]
+    return emit(out, recs)
 
 
 def report(path):
@@ -523,8 +571,8 @@ def report(path):
             out.append(f"{a['id']} gate={r['gate']} T={o.get('T')} tests={[(t['x'], t['want'], t['got']) for t in o.get('tests', [])]}")
         elif a['kind'] == 'stmts':
             out.append(f"{a['id']} gate={r['gate']}")
-            for s, (e, f) in zip(a['stmts'], o['res']):
-                out.append(f"  {s!r}: err={e} fre={f}")
+            for s, t in zip(a['stmts'], o['res']):
+                out.append(f"  {s!r}: " + ('出力なし' if t is None else f"err={t[0]} fre={t[1]}"))
         elif a['kind'] == 'port':
             out.append(f"{a['id']} gate={r['gate']} err={o['err']} crtc={o['crtc']} ports={json.dumps({k: [len(v), sorted(set(v)), v[:6]] for k, v in o['ports'].items()}, sort_keys=True)}")
         else:
@@ -537,7 +585,7 @@ def model(T, m, b5, bad=None):
     """合成の公式モデル: x<b5 → 誤り5、b5<=x<T+m → 誤り7、それ以外は受理（fre = x−T）。"""
     def fn(xs):
         def one(x):
-            if x < b5:
+            if x < b5 or x > TOP:
                 return (5, 0)
             if x - T < m:
                 return (7, 0)
@@ -643,7 +691,31 @@ def selftest(work=None):
     assert not confirm(conf_fn(35400, 7, 0x8600), base)['tests_ok']          # m が違う
     assert not confirm(conf_fn(35400, 0, 0x8700), base)['tests_ok']          # b5 が違う
     assert not confirm(conf_fn(35400, 0, 0x8600), dict(b5=None, m=None))['tests_ok']
-    print('OK 腕・打鍵行・写しの解析（陽性・陰性・本文非出力）・ポート集計・k分探索（陽性5・陰性4）・確認腕（陽性・陰性3）', flush=True)
+    # --- 追補2: 0xE600 以上の誤り5は単調性の外（別に top_e5 で見る）。再判定は保存した trace から同じ結果を作る
+    r = search(model(35098, 0, 0x8600))
+    assert r['top_e5'] and r['mono'] and search_ok(r)
+    assert resummarize(r) == r and resummarize(json.loads(json.dumps(r))) == json.loads(json.dumps(r))
+    def top_ok_model(xs):
+        out = model(35098, 0, 0x8600)(xs)
+        out['res'] = [(0, x - 35098) if x > TOP else t for t, x in zip(out['res'], xs)]
+        return out
+    r2 = search(top_ok_model)
+    assert not r2['top_e5'] and not search_ok(r2)                    # 0xE600 が受理されるなら関門落ち
+    assert search(model(35098, 0, 0x8600), nvar=7)['top_e5']       # 可変7本でも検証に 0xE5FF・0xE600 が入る
+    # lenient（cv の小さい第3引数）: 中間の欠けを許し、開始・終了の印と行の形は検査する
+    L = [['s9qa', 1, 1], ['s9qr', 3, 0, 22662], ['s9qr', 4, 7, 5], ['s9qd', 1, 1]]
+    assert probe_result(L, 4, lenient=True) == [None, None, (0, 22662), (7, 5)]
+    for bad in (L[1:], L[:-1], [L[0], L[2], L[1], L[3]], [L[0], ['s9qr', 9, 0, 1], L[3]], [L[0], ['s9qr', 1, 300, 1], L[3]]):
+        try:
+            probe_result(bad, 4, lenient=True); raise AssertionError('不正な形が通った')
+        except ValueError:
+            pass
+    try:
+        probe_result(L, 4); raise AssertionError('厳密な検査が欠けを通した')
+    except ValueError:
+        pass
+    assert all(a.get('lenient') for a in al if a['id'].startswith('cv-')) and not any(a.get('lenient') for a in al if a['id'].startswith('co-'))
+    print('OK 腕・打鍵行・写しの解析（陽性・陰性・本文非出力）・ポート集計・k分探索（陽性5・陰性4）・確認腕（陽性・陰性3）・0xE600の扱い・再判定・欠け許容', flush=True)
     # --- 関門・較正・記録（合成）
     def rec(spec, ob, ob2=None):
         return dict(arm=spec, obs=[ob, ob2 if ob2 is not None else ob])
@@ -704,6 +776,9 @@ def main():
     m.add_argument('--work-dir', type=Path, default=WORK)
     m.add_argument('--only', default='', help='腕IDの接頭辞（カンマ区切り）。空なら全腕＋較正')
     m.add_argument('--jobs', type=int, default=4)
+    j = sub.add_parser('rejudge')
+    j.add_argument('--measured', type=Path, required=True)
+    j.add_argument('--out', type=Path, required=True)
     r = sub.add_parser('report')
     r.add_argument('--measured', type=Path, required=True)
     s = sub.add_parser('selftest')
@@ -711,6 +786,10 @@ def main():
     args = parser.parse_args()
     if args.command == 'selftest':
         return selftest(args.work_dir)
+    if args.command == 'rejudge':
+        ok = rejudge(args.measured, args.out)
+        print('再判定: 関門'+('通過' if ok else '失敗'))
+        return 0 if ok else 1
     if args.command == 'report':
         print(report(args.measured))
         return 0
