@@ -44,7 +44,32 @@
 # rcにも影響させない。登録に無い名前を除外指定したら、打ち間違いで黙って
 # 通らないよう、その名前をNGとして表に出しoverall=1にする。
 #
-# 使い方: tools/run_all_selftests.sh
+# 入力キャッシュとロケール実行の絞り込み（2026-10-07、全体約5時間の短縮）
+# --------------------------------------------------------------------
+# 「推測で飛ばす」は禁止（過去に RAM 配置の変更で退行5本を見逃した）。許すのは
+# 「入力がバイト単位で前回合格時と同じ」だけ。tools/runall_cache.py が各
+# スクリプトの入力の指紋を作り、前回その指紋で合格していれば実行を飛ばして
+# 表に CACHED(合格時の日時・コミット)と出す。指紋の中身・src 依存の決め方・
+# 安全側への倒れ方は tools/runall_cache.py の冒頭を参照。
+#   - 前回 NG・SKIP・未実行・指紋不一致なら必ず実行する。
+#   - src/ などリポジトリ側の入力は、スクリプトごとに「前回の実行で実際に読んだ
+#     ファイル」を python フック(tools/runall_hook)で記録して指紋にする。記録が
+#     信用できない(フックが外れる書き方・シェルが直接読む等)ときは src/ 全体
+#     (＋閉包に名前が出る dir)に倒す。git に依存するものはリポジトリ全体。
+#   - ロケール: スクリプト本文とそれが呼ぶ .sh の本文が、前回の2ロケール合格時から
+#     変わっていなければ UTF-8 の1回だけ実行する。UTF-8 を残す理由は
+#     docs/notes/locale-utf8-var-expansion-2026-08-11.md（事故は UTF-8 側でだけ
+#     出た。C では動く）。代わりに「$変数の直後に非ASCII文字」の型を
+#     tools/**/*.sh から毎回静的に検出し、見つかれば NG。
+#
+# 使い方: tools/run_all_selftests.sh [オプション]
+#   --no-cache      キャッシュを見ずに全部実行する（両ロケール）。合格は記録する
+#   --cache-off     キャッシュを一切使わない（見ない・書かない）。従来の動作
+#   --clear-cache   キャッシュを捨ててから実行する
+#   --part K/N      登録表を N 分割した K 番目だけ実行する（2時間制限のある環境で
+#                   分割して実行し、キャッシュを積み上げるため）
+# 環境変数: PC88_RUNALL_CACHE_DIR（既定 <repo>/../tmp/runall-cache）、
+#          PC88_RUNALL_NO_CACHE=1（--no-cache と同じ）
 #        PC88_SELFTEST_EXCLUDE="tools/harness/disk2_selftest.sh tools/harness/insert_disk2_selftest.sh" tools/run_all_selftests.sh
 
 set -u
@@ -464,8 +489,40 @@ SCRIPTS_EXPECTED=(
   "tools/measure_m6fc_protect_driver_selftest.sh:0"
 )
 
+RC="$REPO/tools/runall_cache.py"
+HOOK_DIR="$REPO/tools/runall_hook"
+
+LOOKUP=1; STORE=1; BOTH_ALWAYS=0; CLEAR=0; PART_K=0; PART_N=0
+[ "${PC88_RUNALL_NO_CACHE:-0}" = "1" ] && { LOOKUP=0; BOTH_ALWAYS=1; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-cache) LOOKUP=0; BOTH_ALWAYS=1 ;;
+    --cache-off) LOOKUP=0; STORE=0; BOTH_ALWAYS=1 ;;
+    --clear-cache) CLEAR=1 ;;
+    --part)
+      shift
+      PART_K="${1%%/*}"; PART_N="${1##*/}"
+      case "$PART_K$PART_N" in *[!0-9]*|"") echo "エラー: --part K/N の形式で指定する" >&2; exit 2 ;; esac
+      if [ "$PART_K" -lt 1 ] || [ "$PART_K" -gt "$PART_N" ]; then
+        echo "エラー: --part K/N は 1<=K<=N" >&2; exit 2
+      fi ;;
+    -h|--help) sed -n '/^# 使い方/,/^#        PC88_SELFTEST_EXCLUDE/p' "$0"; exit 0 ;;
+    *) echo "エラー: 不明なオプション: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+# ヘルパが無ければ（古い配置・偽のリポジトリ）従来どおり全部実行する
+HAVE_RC=1
+if [ ! -f "$RC" ]; then HAVE_RC=0; LOOKUP=0; STORE=0; BOTH_ALWAYS=1; fi
+if [ "$CLEAR" = "1" ] && [ "$HAVE_RC" = "1" ]; then python3 "$RC" clear >/dev/null; fi
+
+RUNTMP="$(mktemp -d "${TMPDIR:-/tmp}/rst.XXXXXX")"
+trap 'rm -rf "$RUNTMP"' EXIT
+T_START=$(date +%s)
+
 overall=0
 excluded_count=0
+n_cached=0; n_both=0; n_utf8=0; n_notpart=0
 EXCLUDE_NAMES="${PC88_SELFTEST_EXCLUDE:-}"
 
 is_excluded() {
@@ -485,73 +542,150 @@ is_registered() {
   return 1
 }
 
-printf '%-45s %6s %6s %8s %s\n' "script" "C" "UTF-8" "期待rc" "判定"
-printf '%-45s %6s %6s %8s %s\n' "------" "-" "-----" "------" "----"
+# 1回の実行。$1=ロケール $2=出力先 $3=読んだ入力の記録先。rc を標準出力へ。
+run_locale() {
+  (
+    if [ "$HAVE_RC" = "1" ] && [ -d "$HOOK_DIR" ]; then
+      export PYTHONPATH="$HOOK_DIR${PYTHONPATH:+:$PYTHONPATH}"
+      export PC88_RUNALL_LOG="$3" PC88_RUNALL_ROOT="$REPO"
+    fi
+    LC_ALL="$1" bash "$s" >"$2" 2>&1
+    echo $?
+  )
+}
 
+printf '%-45s %6s %6s %8s %-9s %s\n' "script" "C" "UTF-8" "期待rc" "実行" "判定"
+printf '%-45s %6s %6s %8s %-9s %s\n' "------" "-" "-----" "------" "----" "----"
+
+# 静的検査: tools/**/*.sh の「$変数の直後に非ASCII文字」(UTF-8ロケールで変数名を
+# 吸い込む型)。毎回走らせる。見つかれば NG。
+if [ "$HAVE_RC" = "1" ]; then
+  lint_out="$(python3 "$RC" lint 2>&1)"; lint_rc=$?
+  if [ "$lint_rc" = "0" ]; then
+    printf '%-45s %6s %6s %8s %-9s %s\n' "(静的)locale-lint" "-" "-" "0" "静的" "OK($(printf '%s' "$lint_out" | tail -1))"
+  else
+    printf '%-45s %6s %6s %8s %-9s %s\n' "(静的)locale-lint" "-" "-" "0" "静的" "NG(\$変数の直後に非ASCII文字)"
+    printf '%s\n' "$lint_out"
+    overall=1
+  fi
+fi
+
+total_registered=${#SCRIPTS_EXPECTED[@]}
+idx=-1
 for entry in "${SCRIPTS_EXPECTED[@]}"; do
+  idx=$((idx+1))
   s="${entry%%:*}"
   expected="${entry##*:}"
 
+  if [ "$PART_N" -gt 0 ] && [ $(( idx * PART_N / total_registered + 1 )) -ne "$PART_K" ]; then
+    n_notpart=$((n_notpart+1))
+    continue
+  fi
+
   if is_excluded "$s"; then
-    printf '%-45s %6s %6s %8s %s\n' "$s" "-" "-" "$expected" "除外(PC88_SELFTEST_EXCLUDE)"
+    printf '%-45s %6s %6s %8s %-9s %s\n' "$s" "-" "-" "$expected" "-" "除外(PC88_SELFTEST_EXCLUDE)"
     excluded_count=$((excluded_count+1))
     continue
   fi
 
   if [ ! -x "$s" ] && [ ! -f "$s" ]; then
-    printf '%-45s %6s %6s %8s %s\n' "$s" "-" "-" "$expected" "NG(見つからない)"
+    printf '%-45s %6s %6s %8s %-9s %s\n' "$s" "-" "-" "$expected" "-" "NG(見つからない)"
     overall=1
     continue
   fi
 
-  rc_c="$(LC_ALL=C bash "$s" >/tmp/rst_c.$$ 2>&1; echo $?)"
-  rc_u="$(LC_ALL=ja_JP.UTF-8 bash "$s" >/tmp/rst_u.$$ 2>&1; echo $?)"
-  skip_c=0; skip_u=0
-  case "$s" in
-    */conform_l3.sh)
-      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
-      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
-      ;;
-    */verify_drive_byte2_attribution.sh)
-      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_c.$$ && skip_c=1
-      grep -q "SKIP: 公式ROM・公式ディスクの環境変数が未設定" /tmp/rst_u.$$ && skip_u=1
-      ;;
-    */verify_error_response_bit6_attribution.sh)
-      grep -q "SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定" /tmp/rst_c.$$ && skip_c=1
-      grep -q "SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定" /tmp/rst_u.$$ && skip_u=1
-      ;;
-  esac
+  # 実行方針: cached / both(両ロケール) / utf8(UTF-8のみ)
+  mode=both; plan_ok=0
+  plan_file="$RUNTMP/plan.json"; rm -f "$plan_file"
+  if [ "$HAVE_RC" = "1" ]; then
+    plan_args=()
+    [ "$LOOKUP" = "0" ] && plan_args+=(--no-lookup)
+    [ "$BOTH_ALWAYS" = "1" ] && plan_args+=(--force-both)
+    if plan_line="$(python3 "$RC" plan "$s" --plan-file "$plan_file" ${plan_args[@]+"${plan_args[@]}"} 2>"$RUNTMP/plan.err")"; then
+      plan_ok=1
+      mode="${plan_line%%$'\t'*}"
+    else
+      plan_ok=0; mode=both
+      echo "  (キャッシュ判定に失敗したため全実行: $(tail -1 "$RUNTMP/plan.err"))"
+    fi
+  fi
 
-  if [ "$skip_c" != "$skip_u" ]; then
+  if [ "$mode" = "cached" ]; then
+    IFS=$'\t' read -r _m c_when c_commit c_dep <<<"$plan_line"
+    printf '%-45s %6s %6s %8s %-9s %s\n' "$s" "-" "-" "$expected" "CACHED" "OK(CACHED $c_when $c_commit)"
+    n_cached=$((n_cached+1))
+    continue
+  fi
+
+  rm -f "$RUNTMP/log.c" "$RUNTMP/log.u" "$RUNTMP/out.c" "$RUNTMP/out.u"
+  skip_c=0; skip_u=0
+  if [ "$mode" = "both" ]; then
+    rc_c="$(run_locale C "$RUNTMP/out.c" "$RUNTMP/log.c")"
+    n_both=$((n_both+1)); exec_label="2ロケール"
+  else
+    rc_c="-"; : >"$RUNTMP/out.c"
+    n_utf8=$((n_utf8+1)); exec_label="UTF-8のみ"
+  fi
+  rc_u="$(run_locale ja_JP.UTF-8 "$RUNTMP/out.u" "$RUNTMP/log.u")"
+
+  skip_msg=""
+  case "$s" in
+    */conform_l3.sh|*/verify_drive_byte2_attribution.sh)
+      skip_msg="SKIP: 公式ROM・公式ディスクの環境変数が未設定" ;;
+    */verify_error_response_bit6_attribution.sh)
+      skip_msg="SKIP: PC88_ERROR_RESPONSE_OPT_IN未設定" ;;
+  esac
+  if [ -n "$skip_msg" ]; then
+    [ "$mode" = "both" ] && grep -q "$skip_msg" "$RUNTMP/out.c" && skip_c=1
+    grep -q "$skip_msg" "$RUNTMP/out.u" && skip_u=1
+  fi
+
+  pass=0
+  if [ "$mode" = "both" ] && [ "$skip_c" != "$skip_u" ]; then
     verdict="NG(本体SKIP状態がロケール間で不一致)"
     overall=1
-  elif [ "$skip_c" = "1" ]; then
+  elif [ "$skip_u" = "1" ]; then
     verdict="SKIP(公式環境なし。本体未実行、自己検査のみrc=0)"
-  elif [ "$rc_c" != "$rc_u" ]; then
+  elif [ "$mode" = "both" ] && [ "$rc_c" != "$rc_u" ]; then
     verdict="NG(ロケール不一致 C=$rc_c UTF-8=$rc_u)"
     overall=1
-  elif [ "$rc_c" != "$expected" ]; then
+  elif [ "$mode" = "both" ] && [ "$rc_c" != "$expected" ]; then
     verdict="NG(期待rc=${expected} だが実際rc=${rc_c}。宣言を見直すか実装を直す)"
     overall=1
+  elif [ "$rc_u" != "$expected" ]; then
+    verdict="NG(期待rc=${expected} だが実際rc=${rc_u}。宣言を見直すか実装を直す)"
+    overall=1
   elif [ "$expected" = "0" ]; then
-    verdict="OK"
+    verdict="OK"; pass=1
   else
-    verdict="OK(想定内の失敗。rc=$expected を正常として宣言済み)"
+    verdict="OK(想定内の失敗。rc=$expected を正常として宣言済み)"; pass=1
   fi
 
-  printf '%-45s %6s %6s %8s %s\n' "$s" "$rc_c" "$rc_u" "$expected" "$verdict"
-  if [ "$rc_c" != "$expected" ] || [ "$rc_u" != "$expected" ] || [ "$skip_c" != "$skip_u" ]; then
-    echo "  --- Cロケール出力（末尾20行） ---"
-    tail -20 /tmp/rst_c.$$
+  printf '%-45s %6s %6s %8s %-9s %s\n' "$s" "$rc_c" "$rc_u" "$expected" "$exec_label" "$verdict"
+  if [ "$rc_u" != "$expected" ] || { [ "$mode" = "both" ] && [ "$rc_c" != "$expected" ]; } || [ "$skip_c" != "$skip_u" ]; then
+    if [ "$mode" = "both" ]; then
+      echo "  --- Cロケール出力（末尾20行） ---"
+      tail -20 "$RUNTMP/out.c"
+    fi
     echo "  --- UTF-8ロケール出力（末尾20行） ---"
-    tail -20 /tmp/rst_u.$$
+    tail -20 "$RUNTMP/out.u"
   fi
-  rm -f /tmp/rst_c.$$ /tmp/rst_u.$$
+
+  # 結果の記録（合格だけがキャッシュに残る。NG/SKIPは前回の記録も捨てる）
+  if [ "$HAVE_RC" = "1" ] && [ "$plan_ok" = "1" ]; then
+    if [ "$pass" = "1" ]; then rec_status=pass; elif [ "$skip_u" = "1" ]; then rec_status=skip; else rec_status=ng; fi
+    rec_args=()
+    [ "$STORE" = "0" ] && rec_args+=(--no-store)
+    rec_msg="$(python3 "$RC" record --plan-file "$plan_file" --status "$rec_status" --mode "$mode" \
+        ${rec_args[@]+"${rec_args[@]}"} --logs "$RUNTMP/log.c" "$RUNTMP/log.u" 2>&1)"
+    case "$rec_msg" in not-stored\(*) echo "  (キャッシュに残さない: ${rec_msg#not-stored})" ;; esac
+  fi
+  rm -f "$RUNTMP/out.c" "$RUNTMP/out.u" "$RUNTMP/log.c" "$RUNTMP/log.u"
 done
 
 for e in $EXCLUDE_NAMES; do
   if ! is_registered "$e"; then
-    printf '%-45s %6s %6s %8s %s\n' "$e" "-" "-" "-" "NG(除外指定が登録に無い)"
+    printf '%-45s %6s %6s %8s %-9s %s\n' "$e" "-" "-" "-" "-" "NG(除外指定が登録に無い)"
     overall=1
   fi
 done
@@ -565,5 +699,9 @@ if [ "$excluded_count" -gt 0 ]; then
   echo
   echo "除外あり: ${excluded_count}件"
 fi
+
+echo
+echo "実行内訳: CACHED ${n_cached}本 / 2ロケール ${n_both}本 / UTF-8のみ ${n_utf8}本" \
+     "$( [ "$n_notpart" -gt 0 ] && echo "/ --part対象外 ${n_notpart}本" ) / 所要 $(( $(date +%s) - T_START ))秒"
 
 exit "$overall"
