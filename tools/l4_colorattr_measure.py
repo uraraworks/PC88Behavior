@@ -57,6 +57,15 @@ REFS = ('fc', 'sn', 'ul', 'tm', 'ov')
 CUR80 = ((0, 0), (1, 3), (10, 7), (39, 12), (79, 15))
 CUR40 = ((0, 0), (1, 3), (10, 7), (20, 9), (39, 12))
 MIX = ('m1', 'm2', 'm3', 'm4', 'm5')
+MIX_ADD = (('m6', 24), ('m7', 20), ('m8', 21))     # 追補1: 20組を超える色替え。v_i = 1+(i mod 7)（20・21・24番目が互いに異なる）
+# 追補1の誤り番号腕（80桁）: (key, 文, 予測する誤り番号。None は続行)。参照5つは番号の方法の較正にも使う
+EN = [
+    ('fc', 'a$=chr$(300)', 5), ('sn', 'a=*3', 2), ('ul', 'goto 999', 8), ('tm', 'a$=1', 13), ('ov', 'a%=40000', 6),
+    ('c8', 'color 8', 5), ('c256', 'color 256', 5), ('cm1', 'color -1', 5), ('cbg8', 'color ,8', 5), ('cstr', 'color "a"', 13),
+    ('fbare', 'color', 22), ('ffive', 'color 5,1,1,2,3', 5), ('f5b', 'color 3,0,0,0,0', 5),
+    ('f4b', 'color 3,1,1,2', None), ('fcomma', 'color 2,', None),
+]
+EN_REFS = ('fc', 'sn', 'ul', 'tm', 'ov')
 
 
 def arms():
@@ -70,6 +79,11 @@ def arms():
     for cols in (80, 40):
         for m in MIX:
             out.append(dict(id=f'mix{cols}-{m}', kind='mix', cols=cols, m=m))
+    for cols in (80, 40):
+        for m, n in MIX_ADD:
+            out.append(dict(id=f'mix{cols}-{m}', kind='mix', cols=cols, m=m, n=n, add=1))
+    for key, stmt, want in EN:
+        out.append(dict(id=f'en-{key}', kind='en', cols=80, key=key, stmt=stmt, add=1))
     return out
 
 
@@ -77,6 +91,8 @@ def program_lines(a):
     lines = {}
     if a['cols'] == 40:
         lines[5] = 'width 40'
+    if a['kind'] == 'en':
+        lines[5] = 'on error goto 100'
     lines[10] = 'locate 0,6:print "qa1";:locate 0,7:print "qb2";'
     lines[12] = 'locate 10,8:print "qc3";'
     k = a['kind']
@@ -89,6 +105,12 @@ def program_lines(a):
             lines[n] = f'locate 0,{9+c}:color {c}:print "zzz";'
             n += 10
         lines[n] = f'goto {n}'
+    elif k == 'en':
+        lines[20] = a['stmt']
+        lines[30] = 'locate 0,14:print "qk0";'
+        lines[40] = 'goto 110'
+        lines[100] = 'locate 0,13:print "qe";err;"q";'
+        lines[110] = 'goto 110'
     elif k == 'stmt':
         lines[20] = a['stmt']
         lines[30] = 'locate 0,13:print "qi9";'
@@ -98,6 +120,9 @@ def program_lines(a):
         m = a['m']
         if m == 'm1':
             lines[20] = 'locate 0,13:color 2:print "zzz";:color 4:print "zzz";'
+            end = 30
+        elif m in ('m6', 'm7', 'm8'):
+            lines[20] = f"locate 0,13:for i=1 to {a['n']}:color 1+i-7*int(i/7):print \"z\";:next"
             end = 30
         elif m == 'm2':
             lines[20] = 'locate 0,13:for i=1 to 24:color 2+(i and 1):print "z";:next'
@@ -177,6 +202,12 @@ def analyze(data, a):
     kind = a['kind']
     if kind == 'val':
         out['raw'] = {str(9+c): row(9+c) for c in range(8)}
+    elif kind == 'en':
+        qk = wv.find_token(data, 'qk0')
+        out['cont'] = len(qk) == 1
+        text = ''.join(chr(data[13*S+c*gap]) if 0x20 <= data[13*S+c*gap] < 0x7F else '.' for c in range(80//gap))
+        m = re.search(r'qe\s*(\d{1,3})\s*q', text)
+        out['errnum'] = int(m.group(1)) if m else None      # 自作の `err` の印字結果の数字だけ。他の文字は出さない
     elif kind == 'stmt':
         qi, qz = wv.find_token(data, 'qi9'), wv.find_token(data, 'qz9')
         out['tok'] = dict(qi9=len(qi), qz9=len(qz))
@@ -270,6 +301,8 @@ def valid(obs, a):
         return len(obs.get('raw', {})) == 8
     if k == 'stmt':
         return 'raw' in obs and 'sig' in obs
+    if k == 'en':
+        return 'cont' in obs and (obs['cont'] != (obs.get('errnum') is not None) )
     if a['m'] == 'm5':
         return 'row' in obs and 'raw' in obs
     return 'raw' in obs
@@ -300,6 +333,11 @@ def mix_expect(a):
         return [[pos(3), 2], [pos(6), 4]]
     if m == 'm2':
         return [[pos(i), 3 if i % 2 else 2] for i in range(1, 21)]
+    if m in ('m6', 'm7', 'm8'):
+        n = a['n']
+        v = lambda i: 1+(i % 7)
+        out = [[pos(i), v(i)] for i in range(1, 20)]
+        return out+[[pos(20), v(20)] if n == 20 else [0x80, v(n)]]
     if m == 'm3':
         return [[pos(3), 2], [pos(5), 5], [pos(6), 4], [pos(9), 6]]
     return [[pos(3), 2], [pos(6), 0], [pos(9), 4]]
@@ -335,6 +373,9 @@ def judge(obs, a, ctx=None):
             got = errsig(obs, ctx.get('base'))
             res['err'] = 'agree' if got and got == ctx['refs'].get(exp['err']) else 'differ'
         return res
+    if k == 'en':
+        want = {key: w for key, _, w in EN}[a['key']]
+        return dict(errnum='agree' if obs['errnum'] == want else 'differ', cont='agree' if obs['cont'] == (want is None) else 'differ')
     if a['m'] == 'm5':
         return dict(pairs='agree' if nontrivial(obs['raw']['row']) == mix_expect(a) else 'differ')
     return dict(pairs='agree' if nontrivial(obs['raw']['13']) == mix_expect(a) else 'differ')
@@ -359,6 +400,17 @@ def calibrated(records):
         refs = context(records)['refs']
         vals = [tuple(refs[n]) for n in refs]
         ok = ok and all(vals) and len(set(vals)) == len(vals) and len(refs) == len(REFS)
+    # 追補1: 誤り番号の方法は、参照5つの全てで番号が採れ（誤りで止まり）互いに異なること。
+    en = [r for r in records if r['arm']['kind'] == 'en']
+    if en:
+        ref = [r for r in en if r['arm']['key'] in EN_REFS]
+        nums = [r['obs'][0].get('errnum') if r['obs'] and r['obs'][0] else None for r in ref]
+        ok = ok and len(ref) == len(EN_REFS) and all(n is not None for n in nums) and len(set(nums)) == len(nums)
+    # 追補1: 20組超の腕は、同じ幅の m1（80桁・40桁とも規則どおり）が対照として同じ記録にあること。
+    for cols in (80, 40):
+        if any(r['arm']['id'] in (f'mix{cols}-m6', f'mix{cols}-m7', f'mix{cols}-m8') for r in records):
+            ctl = [r for r in records if r['arm']['id'] == f'mix{cols}-m1']
+            ok = ok and len(ctl) == 1 and bool(ctl[0]['gate']) and judge(ctl[0]['obs'][0], ctl[0]['arm'])['pairs'] == 'agree'
     return ok
 
 
@@ -369,12 +421,12 @@ def write_tsv(path, header, rows):
         w.writerow(header); w.writerows(rows)
 
 
-def emit(path, records, need_cal=True):
+def emit(path, records, need_cal=True):   # need_cal は互換のため残す（較正は常に掛ける）
     known = {a['id']: a for a in arms()}
     for r in records:
         r['gate'] = (r['gate'] and r['arm'] == known.get(r['arm']['id']) and len(r['obs']) == 2
                      and all(valid(o, r['arm']) for o in r['obs']) and r['obs'][0] == r['obs'][1])
-    cal = calibrated(records) if need_cal else True
+    cal = calibrated(records)
     ctx = context(records) if any(r['arm']['id'] == 'stmt-rem' for r in records) else None
     write_tsv(path, ['arm', 'repeat', 'plan', 'observation', 'gate', 'prediction_judgement', 'failed'],
               [(r['arm']['id'], i+1, json.dumps(plan(r['arm'])), json.dumps(r['obs'][i]),
@@ -402,6 +454,8 @@ def report(measured):
         elif k == 'val':
             for row, raw in o['raw'].items():
                 lines.append(f"  row{row} pairs={json.dumps(nontrivial(raw))} rest_default={rest_default(raw)} raw[:8]={raw[:8]}")
+        elif k == 'en':
+            lines.append(f"  cont={o['cont']} errnum={o['errnum']}")
         elif k == 'stmt':
             e = errsig(o, ctx['base'])
             match = [n for n, s in ctx['refs'].items() if s and s == e]
@@ -453,7 +507,7 @@ def selftest(work=None):
     if work is not None:
         work.mkdir(parents=True, exist_ok=True)
     known = {a['id']: a for a in arms()}
-    assert len(known) == 41, len(known)
+    assert len(known) == 41+6+15, len(known)
     for a in known.values():
         program_lines(a); plan(a)
     # アンカーの回復（陽性）と欠け・ずれ・重複（陰性）
@@ -535,12 +589,31 @@ def selftest(work=None):
     oc = dict(cur=dict(n=2, last=[[0x81, [10, 7], 5]]))
     assert judge(oc, ac) == dict(params='differ', alt_plain='match')
     assert judge(dict(cur=dict(n=2, last=[[0x81, [10, 7], 5]])), known['cur80-c10r7'])['params'] == 'agree'
+    # 追補1: 誤り番号の読み取り（自作の印字の数字だけ）・20組超の期待
+    def en_dump(text=None, cont=False):
+        d = bytearray(synthetic_dump(toks=(('qk0', 0, 14),) if cont else ()))
+        if text:
+            d[13*120:13*120+len(text)] = text
+        return bytes(d)
+    ae = known['en-fc']
+    o = analyze(en_dump(b'qe 5 q'), ae); assert o['errnum'] == 5 and not o['cont'] and valid(dict(o, cur=dict(n=0, last=[])), ae)
+    o = analyze(en_dump(b'qe 13 qZZSECRET'), ae); assert o['errnum'] == 13 and 'SECRET' not in json.dumps(o)
+    o = analyze(en_dump(cont=True), ae); assert o['errnum'] is None and o['cont'] and valid(dict(o, cur=dict(n=0, last=[])), ae)
+    o = analyze(en_dump(), ae); assert not valid(dict(o, cur=dict(n=0, last=[])), ae)            # 続行も誤りも見えない
+    assert judge(analyze(en_dump(b'qe 5 q'), ae), ae) == dict(errnum='agree', cont='agree')
+    assert judge(analyze(en_dump(b'qe 6 q'), ae), ae)['errnum'] == 'differ'
+    assert judge(analyze(en_dump(cont=True), known['en-f4b']), known['en-f4b']) == dict(errnum='agree', cont='agree')
+    assert mix_expect(known['mix80-m6'])[-1] == [0x80, 4] and mix_expect(known['mix80-m8'])[-1] == [0x80, 1]
+    assert mix_expect(known['mix80-m7'])[-1] == [20, 7] and mix_expect(known['mix40-m7'])[-1] == [39, 7]
+    assert mix_expect(known['mix40-m6'])[18] == [37, 1+19 % 7] and len(mix_expect(known['mix40-m8'])) == 20
     print('OK アンカー回復・欠け・ずれ・重複・組の読み出し・val/mix/stmt の判定（陽性・陰性）・署名の本文非出力・カーソル集計', flush=True)
     # 較正の関門と記録の出力（合成）
     def good_records():
         recs = []
         errtext = {'fc': b'ZZ1', 'sn': b'ZZ2', 'ul': b'ZZ3', 'tm': b'ZZ4', 'ov': b'ZZ5'}
         for a in known.values():
+            if a.get('add'):
+                continue
             if a['id'] in [f'stmt-{n}' for n in REFS]:
                 o = err_obs(a['id'], 2, errtext[a['key']])
             elif a['kind'] == 'stmt':
@@ -569,6 +642,25 @@ def selftest(work=None):
         bad[i]['obs'] = [fake_obs(known['stmt-fc'])]*2                                     # 誤りが起きていない参照
         assert not calibrated(bad)
         assert not emit(out, bad) and 'gate_failed' in out.read_text()
+        # 追補1の較正: 参照5つの番号が揃わない・同じ、m1 対照が崩れた、の陰性
+        def en_rec(key, num, cont=False):
+            o = analyze(en_dump(b'qe %d q' % num) if num is not None else en_dump(cont=True), known[f'en-{key}']); o['cur'] = dict(n=0, last=[])
+            return dict(arm=known[f'en-{key}'], obs=[o, o], failed=[False, False], gate=True)
+        nums = dict(fc=5, sn=2, ul=8, tm=13, ov=6)
+        ens = [en_rec(k, n) for k, n in nums.items()]
+        assert calibrated(ens)
+        assert not calibrated([en_rec(k, 5) for k in nums])                       # 番号が全て同じ
+        assert not calibrated(ens[:4])                                            # 参照が欠ける
+        assert not calibrated([en_rec(k, None) for k in nums])                    # 誤りで止まらない
+        def mix_rec(arm_id, pairs, row=13):
+            a = known[arm_id]
+            o = analyze(synthetic_dump(rows={row: pairs_raw(*pairs)}), a); o['cur'] = dict(n=0, last=[])
+            return dict(arm=a, obs=[o, o], failed=[False, False], gate=True)
+        m1 = mix_rec('mix80-m1', mix_expect(known['mix80-m1']))
+        m6 = mix_rec('mix80-m6', mix_expect(known['mix80-m6']))
+        assert calibrated([m1, m6])
+        assert not calibrated([m6])                                               # 対照 m1 が無い
+        assert not calibrated([mix_rec('mix80-m1', [[3, 2], [7, 4]]), m6])         # 対照が規則どおりでない
     print('OK 較正の関門（陰性3種）・記録の出力・本文非出力', flush=True)
     # 自作ROMの既知値対照: stmt-rem（80桁・組なし）・mix80-m1・cur80
     with tempfile.TemporaryDirectory(prefix='l4s9p-selftest-', dir=work) as temp:
@@ -616,11 +708,10 @@ def main():
     if not rom or (args.official and args.rom_dir):
         parser.error('公式ROMはPC88_REF_ROM_DIRだけ、自作ROMは--rom-dirで指定する')
     pre = tuple(x for x in args.only.split(',') if x)
-    selected = [a for a in arms() if not pre or a['id'].startswith(pre)]
+    selected = [a for a in arms() if (a['id'].startswith(pre) if pre else not a.get('add'))]
     records = measure(rom, args.official, selected, args.work_dir)
-    full = len(selected) == len(arms())
-    ok = emit(args.out, records, need_cal=full)
-    print(f'記録完了: {len(records)}腕×2走、関門'+('通過' if ok else '失敗')+('' if full else '（部分腕。較正と署名の判定は結合後に report で）'))
+    ok = emit(args.out, records)
+    print(f'記録完了: {len(records)}腕×2走、関門'+('通過' if ok else '失敗'))
     return 0 if ok else 1
 
 
