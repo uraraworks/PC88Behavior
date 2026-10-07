@@ -1,6 +1,6 @@
 ;
 ; docs/spec/l4-program.md 4.22（l4-s9n）の観測から独立実装。本体はバンク0（deftype.asmの後ろへ連結）。
-; WIDTH（l4-program.md 4.22.2〜4.22.4・5.6、l4-s9n・l4-s9o）・LOCATE・COLOR の本体も置く。
+; WIDTH（l4-program.md 4.22.2〜4.22.4・5.6、l4-s9n・l4-s9o）・LOCATE・COLOR（5.4・5.6.2、l4-s9p）の本体も置く。
 ; ポート0x40は書き込み専用で読み戻せない（IN 0x40 は別の意味。l1-ipl.md のポート表）。
 ; そこで他のビット（b0〜b4）は、起動処理（l1-ipl.md 付録A）が最後に書く値 0x01 のまま保つ
 ; 定数にし、bit5（BEEP）だけを 0x21（鳴る）と 0x01（止める）で動かす。
@@ -21,8 +21,10 @@ WB_ON EQU 021h
     JP wb_bell
     ORG 0x7A50
     JP wb_locate               ; MM_FN_AUX=桁x、MM_FN_AUX+1=行y（run.asm LOCATE_STMT）
+    ORG 0x7A54
+    JP wb_attr                 ; 印字したセルの色を属性域へ（screen.asm PRINT_CHAR）
     ORG 0x7A60
-    JP wb_color                ; MM_FN_AUX=値（run.asm COLOR_STMT）
+    JP wb_color_stmt           ; COLOR 文の全体（run.asm COLOR_STMT）
     ORG 0x7A70
 
 ; BEEP（文の種別41、第4.22.6節）。引数なし=鳴らして止める、BEEP n=nが0以外なら立てたまま・0なら下げる
@@ -104,23 +106,286 @@ wb_lc_base:
     LD (MM_VAR_ROWBASE),HL
     RET
 
-; ---- COLOR の本体（第5.4節）。現在行の属性域20組を (位置0x80,値=引数) で塗り直す。
-; 位置0x80は行の終端より後ろ（5.6.2の「区間の終端」が行の外）なので、桁数40でも同じ。
-; 自作判断（未測定）: 5.6.2 の「印字した区間ごとの組」（終端桁／40桁は2×終端桁-1）は
-; 作らない。効果は呼び出し時点の現在行だけ。
-wb_color:
+; ---- COLOR（第5.4節）。書式: COLOR [n][,[第2引数][,[第3引数][,[第4引数]]]]。
+; 受理範囲と誤り（l4-s9p の観測）: n は 0〜7（小数は四捨五入）、範囲外=ERR 5、文字列=ERR 13、
+; 引数なし・「,」で終わる=ERR 22、第5引数=ERR 2。第1引数が省略（COLOR ,3）なら色は変えない。
+; 誤りのときは色を変えない（文末まで確かめてから設定する）。
+; 未測定・自作判断: 第2・第4引数は 0〜7、第3引数は 0 だけを受理し、他は ERR 5 とする
+; （観測は「color 3,1,1,2 は ERR 5」「color 3,0,0,6・color 2,3 は受理」だけで、どの引数が境目かは不明）。
+; 第2〜4引数は検査するだけで意味は持たない（グラフィック側。5.4.1）。
+; 現在の色は MM_SCR_ZT の上位3bit。作業値は MM_FN_AUX（+0=第1引数、0xFFは省略。+1=引数番号）。
+wb_color_stmt:
+    LD A,0FFh
+    LD (MM_FN_AUX),A
+    XOR A
+    LD (MM_FN_AUX+1),A
+wb_c_arg:
+    CALL fn_skip
+    CALL fn_peek
+    CP ','
+    JR Z,wb_c_sep              ; この引数は省略されている
+    OR A
+    JR Z,wb_c_missing
+    CP ':'
+    JR Z,wb_c_missing
+    CALL fn_is_string
+    OR A
+    JR Z,wb_c_num
+    JP fn_type
+wb_c_num:
+    CALL wb_wn_num             ; A=1成功（DE=四捨五入した整数）、A=0失敗（誤りは設定済み）
+    OR A
+    RET Z
+    LD A,D
+    OR A
+    JR NZ,wb_c_range
+    LD A,(MM_FN_AUX+1)
+    CP 2
+    LD A,E
+    JR NZ,wb_c_r7
+    OR A
+    JR NZ,wb_c_range           ; 第3引数は 0 だけ
+    JR wb_c_store
+wb_c_r7:
+    CP 8
+    JR NC,wb_c_range
+wb_c_store:
+    LD C,A
+    LD A,(MM_FN_AUX+1)
+    OR A
+    JR NZ,wb_c_sep
+    LD A,C
+    LD (MM_FN_AUX),A           ; 第1引数
+wb_c_sep:
+    CALL fn_skip
+    CALL fn_peek
+    CP ','
+    JR NZ,wb_c_fin
+    LD A,(MM_FN_AUX+1)
+    CP 3
+    JP NC,fn_syntax            ; 第5引数（値の検査は済んだあと）
+    INC A
+    LD (MM_FN_AUX+1),A
+    CALL fn_adv
+    JR wb_c_arg
+wb_c_fin:
+    CALL wb_w_at_end
+    JP NZ,fn_syntax
+    LD A,(MM_FN_AUX)
+    CP 0FFh
+    JP Z,fn_ok                 ; 第1引数なし: 色は変えない
+    RRCA                       ; n(0〜7)を bit5〜7 へ
+    RRCA
+    RRCA
+    AND 0E0h
+    LD B,A
+    LD A,(MM_SCR_ZT)
+    AND 01Fh
+    OR B
+    LD (MM_SCR_ZT),A
+    JP fn_ok
+wb_c_missing:
+    LD A,22
+    JP fn_error
+wb_c_range:
+    JP fn_illegal
+
+; ---- 印字したセルの色を属性域の組へ反映する（PRINT_CHAR から。第5.6.2節）。
+; 行の属性域は 20組×(位置,値)。組 k は区間 [組k-1の終端, 組kの終端) の値（先頭の区間は桁0から）。
+; 位置は終端桁（80桁）／2×終端桁-1（40桁）。位置0x80は「ここから先すべて」（尾）。組19は常に尾。
+; VAR_COL のセル（PRINT_CHAR が書いたばかり）を現在の色 v にする:
+;  1. 色0で組が無い行は何もしない（COLOR 0 だけの行は全組 (0x80,0)）。
+;  2. セルが入る区間 i（終端 > 桁 の最初の組）の値 w が v に等しければ変更なし。
+;     ただし値0の尾は「まだ書いていない」ので、その先頭に有限の区間を作る（別の色の後の値0の区間）。
+;  3. 区間 i を [始点,桁)=w・[桁,桁+1)=v・[桁+1,終端)=w に割る（空の区間は作らない）。
+;     組を右へずらして挿入し、組19が尾でなくなったら (0x80,v) にする（20区間以上: 20組目は最後の区間の値）。
+;  4. 隣り合う有限の組で値が同じものは1つにまとめる（上書きで区間が組み直される）。
+; 破壊: AF,BC,DE,HL。
+wb_attr:
+    CALL wa_getv
+    LD E,A                     ; E = v
+    LD HL,(MM_VAR_ROWBASE)
+    LD BC,80
+    ADD HL,BC                  ; HL = 組0
+    LD A,E
+    OR A
+    JR NZ,wa_start
+    BIT 7,(HL)
+    RET NZ
+wa_start:
+    LD A,(MM_VAR_COL)
+    LD C,A                     ; C = 桁
+    LD D,0                     ; D = 区間の始点
+    LD B,0                     ; B = 組の番号
+wa_find:
+    CALL wa_dec
+    CP C
+    JR Z,wa_next
+    JR NC,wa_found
+wa_next:
+    LD D,A
+    INC HL
+    INC HL
+    INC B
+    LD A,B
+    CP 19
+    JR C,wa_find
+wa_found:
+    INC HL
+    LD A,(HL)                  ; A = w
+    DEC HL
+    CP E
+    JR NZ,wa_split
+    OR A
+    RET NZ                     ; w = v ≠ 0
+    BIT 7,(HL)
+    RET Z                      ; 有限の区間で w = v = 0
+wa_split:
+    PUSH AF                    ; w
+    CALL wa_dec                ; A = 終端
+    SUB C
+    CP 1
+    JR Z,wa_noc                ; 終端 = 桁+1: 後ろの w の区間は無い
+    LD A,C
+    INC A
+    CALL wa_enc
+    CALL wa_ins                ; [桁,桁+1)=v を組 i に挿入（元の組は組 i+1 になる）
+    JR wa_a
+wa_noc:
+    INC HL
+    LD (HL),E                  ; 組 i の値だけを v にする（位置はそのまま）
+    DEC HL
+wa_a:
+    POP AF
+    LD E,A                     ; E = w
+    LD A,C
+    CP D
+    JR Z,wa_norm               ; 始点 = 桁: [始点,桁) は空
+    CALL wa_enc
+    CALL wa_ins                ; [始点,桁)=w
+wa_norm:
+    LD A,19
+    SUB B
+    ADD A,A
+    LD E,A
+    LD D,0
+    ADD HL,DE                  ; HL = 組19
+    LD A,(HL)
+    CP 080h
+    JR Z,wa_compact
+    LD (HL),080h               ; 20区間以上: 20組目は (0x80, 最後の区間の値)
+    INC HL
+    CALL wa_getv
+    LD (HL),A
+wa_compact:
     LD HL,(MM_VAR_ROWBASE)
     LD DE,80
     ADD HL,DE
-    LD A,(MM_FN_AUX)
+    LD B,18
+wc_loop:
+    LD A,(HL)
+    CP 080h
+    RET Z
+    INC HL
+    LD D,(HL)                  ; D = 組kの値
+    INC HL
+    LD A,(HL)
+    CP 080h
+    RET Z                      ; 次が尾: まとめない
+    INC HL
+    LD A,(HL)                  ; 組k+1の値
+    DEC HL                     ; HL = 組k+1
+    CP D
+    JR NZ,wc_next
+    PUSH HL                    ; 同じ値: 組kを消す（組k+1以降を1組左へ。組19は (0x80,0)）
+    LD A,B
+    INC A
+    ADD A,A
     LD C,A
-    LD B,20
-wb_cl_loop:
+    LD B,0
+    LD D,H
+    LD E,L
+    DEC DE
+    DEC DE
+    LDIR
+    DEC HL
+    LD (HL),0
+    DEC HL
     LD (HL),080h
+    POP HL
+    JR wa_compact
+wc_next:
+    DJNZ wc_loop
+    RET
+
+; 現在の色（MM_SCR_ZT の上位3bit）→ A
+wa_getv:
+    LD A,(MM_SCR_ZT)
+    RLCA
+    RLCA
+    RLCA
+    AND 7
+    RET
+
+; (HL)=位置バイト → A=終端桁（論理）。0x80は255。BC,DE,HL保存。
+wa_dec:
+    LD A,(HL)
+    CP 080h
+    JR NZ,wa_d1
+    LD A,0FFh
+    RET
+wa_d1:
+    PUSH BC
+    LD B,A
+    LD A,(MM_SCR_COLS)
+    CP 80
+    LD A,B
+    POP BC
+    RET Z
+    INC A                      ; 40桁: 位置 = 2×終端桁-1
+    SRL A
+    RET
+
+; A=終端桁（論理）→ A=位置バイト（80桁はそのまま、40桁は 2×終端桁-1）。BC,DE,HL保存。
+wa_enc:
+    PUSH BC
+    LD B,A
+    LD A,(MM_SCR_COLS)
+    CP 80
+    LD A,B
+    POP BC
+    RET Z
+    ADD A,A
+    DEC A
+    RET
+
+; 組 i（HL、番号B）に (A, E) を挿入する。組 i〜18 を1組右へずらす（組19の元の内容は捨てる）。BC,DE,HL保存。
+wa_ins:
+    PUSH BC
+    PUSH DE
+    PUSH HL
+    PUSH AF
+    LD A,19
+    SUB B
+    JR Z,wi_w
+    ADD A,A
+    LD C,A
+    LD B,0
+    ADD HL,BC
+    LD D,H
+    LD E,L
+    INC DE
+    DEC HL
+    LDDR
+wi_w:
+    POP AF
+    POP HL
+    POP DE
+    LD (HL),A
     INC HL
-    LD (HL),C
-    INC HL
-    DJNZ wb_cl_loop
+    LD (HL),E
+    DEC HL
+    POP BC
     RET
 
 ; ---- WIDTH（文の種別42。l4-program.md 4.22.2〜4.22.4・5.6）
@@ -272,12 +537,16 @@ wb_w_apply:
     JR NZ,wb_wa_tab
     LD HL,wb_w_tab25
 wb_wa_tab:
-    LD A,C                     ; コンマ欄の改行閾値T=(⌊W÷14⌋-1)×14（80桁56・40桁14）
+    LD A,(MM_SCR_ZT)           ; 上位3bit（現在の COLOR 値）は保つ
+    AND 0E0h
+    LD B,A
+    LD A,C                     ; コンマ欄の改行閾値T=(⌊W÷14⌋-1)×14（80桁56・40桁14）の半分を下位5bitへ
     CP 80
-    LD A,56
+    LD A,28
     JR Z,wb_wa_zt
-    LD A,14
+    LD A,7
 wb_wa_zt:
+    OR B
     LD (MM_SCR_ZT),A
     LD A,(HL)                  ; 1: OUT 0x31（20行0x19／25行0x39）。垂直同期ごとに同じ値を出す
     LD (MM_SCR_P31),A

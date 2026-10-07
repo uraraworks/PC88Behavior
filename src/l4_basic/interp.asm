@@ -770,7 +770,9 @@ _l4ps_stmt_end:
 ;   (l4-basic.md 第4・4.1節。桁56以上は完全欄が残らないので改行)。
 ; ---------------------------------------------------------------------
 ZONE_PAD:
-    LD A,(SCR_ZT)               ; 改行閾値T（80桁56・40桁14。l4-program.md 4.22.4）
+    LD A,(SCR_ZT)               ; 改行閾値T÷2（下位5bit。80桁28・40桁7。l4-program.md 4.22.4）
+    AND 01Fh
+    ADD A,A
     LD B,A
     LD A,(VAR_COL)
     CP B

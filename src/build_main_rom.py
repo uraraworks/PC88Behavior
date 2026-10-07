@@ -159,8 +159,10 @@ VSYNC_POP_NEW = "    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n    NOP\n
 
 # カーソル追従の故障注入（tools/l3_main_selftest.sh --cursor-fault 相当）。
 # SET_CURSOR(keyboard.asm)のCOL/ROWの出力順を1バイトずらす。
-CURSOR_FAULT_OLD = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    OUT (50h),A"
-CURSOR_FAULT_NEW = "    LD A,(VAR_COL)\n    OUT (50h),A\n    LD A,(VAR_ROW)\n    INC A\n    OUT (50h),A"
+# （40桁のX＝2×桁の分岐を SET_CURSOR に足したため、COL出力とROW出力が隣り合わなくなった。
+#  ROW出力の側（直後が RET）を1ずらす形に対象を変えた。）
+CURSOR_FAULT_OLD = "    LD A,(VAR_ROW)\n    OUT (50h),A\n    RET"
+CURSOR_FAULT_NEW = "    LD A,(VAR_ROW)\n    INC A\n    OUT (50h),A\n    RET"
 
 # M7段階3b追記2: 故障注入（SPACE(09H:6)のエコー前進を無効化し、段階3b
 # までの「SPACEは書かない」変種へ戻す。l3-main.md 第9節末尾の追記の

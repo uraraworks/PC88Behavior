@@ -2147,27 +2147,24 @@ LOCATE_STMT:
     LD HL,07A50h
     XOR A
     CALL EXT_BANK_CALL
+    CALL CURSOR_UPDATE          ; locate のあとのカーソル位置（5.6.5）
     XOR A
     LD (ERROR_FLAG),A
     LD (RUN_CTRL),A
     RET
 
 ; =======================================================================
-; M7段階5c-2b: COLOR(第5.4節「引数の値が属性域の値バイトにそのまま
-;   入る」)。本体はバンク0のwb_color(src/l4_basic/widthbeep.asm)。
+; M7段階5c-2b: COLOR(第5.4節)。引数の検査と現在の色の設定は、バンク0の
+;   wb_color_stmt(src/l4_basic/widthbeep.asm)。色は印字のたびにPRINT_CHARが
+;   属性域の組へ反映する(5.6.2。screen.asm・widthbeep.asm wb_attr)。
 ; =======================================================================
 COLOR_STMT:
-    CALL PARSE_INT_ARG
+    LD HL,07A60h                ; 引数の読み取りも本体もバンク0 wb_color_stmt（widthbeep.asm）
+    XOR A
+    CALL EXT_BANK_CALL
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
-    LD A,E
-    LD (MM_FN_AUX),A            ; 値。本体はバンク0 wb_color（引数はRAM経由）
-    LD HL,07A60h
-    XOR A
-    CALL EXT_BANK_CALL
-    XOR A
-    LD (ERROR_FLAG),A
     LD (RUN_CTRL),A
     RET
 

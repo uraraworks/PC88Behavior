@@ -48,7 +48,7 @@ USABLE_ROWS EQU ROWS-1
 SCR_COLS    EQU MM_SCR_COLS     ; 現在の桁数（40か80）
 SCR_MAXROW  EQU MM_SCR_MAXROW   ; 現在の最終の使用行（行0始まり。行数-2。起動時18、25行で23）
 SCR_P31     EQU MM_SCR_P31      ; 垂直同期のたびにポート0x31へ出す値（20行0x19・25行0x39。l4-program.md 5.6.5）
-SCR_ZT      EQU MM_SCR_ZT       ; コンマ欄の改行閾値T（80桁56・40桁14。l4-program.md 4.22.4）
+SCR_ZT      EQU MM_SCR_ZT       ; bit0-4=コンマ欄の改行閾値T÷2（80桁28・40桁7。l4-program.md 4.22.4）、bit5-7=現在の COLOR 値（5.4。0〜7）
 
 ; ---- RAM変数（0000-7FFFはROM＝L1のROM/RAMモード設定のため書けない。
 ;      8000-FFFF側の、VRAM(F3C8-)ともスタック(F000から下方)とも
@@ -70,7 +70,7 @@ SCREEN_MAIN:
     LD (VAR_ROWBASE),HL
     LD HL,((ROWS-2)<<8)|COLS    ; 起動時の桁数80・最終使用行18（WIDTHの状態）
     LD (SCR_COLS),HL
-    LD HL,(56<<8)|019h          ; ポート0x31の値0x19（20行）・コンマ欄閾値56
+    LD HL,(28<<8)|019h          ; ポート0x31の値0x19（20行）・コンマ欄閾値56÷2・COLOR 値0
     LD (SCR_P31),HL
     CALL CLEAR_SCREEN
     CALL KEY_INIT           ; keyboard.asm — KEY_OLDを初期化（M7段階2b）
@@ -221,6 +221,21 @@ _pc_no_capture:
     CALL CELL_PTR
     POP AF
     LD (HL),A
+    LD A,(SCR_ZT)               ; l4-program.md 5.4・5.6.2: 印字したセルの色を属性域の組へ反映する。
+    AND 0E0h                    ; 色0で行に組が無い（組0の位置が0x80）ときは何も書かないので呼ばない
+    JR NZ,_pc_attr
+    LD HL,(VAR_ROWBASE)
+    LD DE,COLS
+    ADD HL,DE
+    BIT 7,(HL)
+    JR NZ,_pc_adv
+_pc_attr:
+    PUSH BC
+    LD HL,07A54h                ; バンク0 wb_attr（widthbeep.asm）
+    XOR A
+    CALL EXT_BANK_CALL
+    POP BC
+_pc_adv:
     LD A,(VAR_COL)
     INC A
     LD (VAR_COL),A

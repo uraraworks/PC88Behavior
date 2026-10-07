@@ -56,7 +56,7 @@ REGIONS = (
     Region('CONT_POSITION', 0xFFF4, 6, '保持', 'CONT保存位置（編集/CLEAR/NEW/LOAD/RUNで無効化）', 'normal'),
     Region('RUN_EXTRA_TAIL', 0xF025, 43, '保持/一時', '整数演算・配列・IF作業', 'normal'),
     Region('ON_ERROR', 0xFFFA, 4, '保持', 'ON ERROR行番号・ACTIVE・ERR', 'normal'),
-    Region('WIDTH_B', 0xFFFE, 2, '保持', 'WIDTH: 垂直同期で出すポート0x31の値・コンマ欄の改行閾値', 'normal'),
+    Region('WIDTH_B', 0xFFFE, 2, '保持', 'WIDTH: 垂直同期で出すポート0x31の値・コンマ欄の閾値（下位5bit）と現在の COLOR 値（上位3bit）', 'normal'),
     Region('RESUME', 0xF21A, 6, '保持', 'RESUME保存位置3ポインタ', 'normal'),
     Region('STR_ARG_LEN', 0xF050, 1, '一時', '文字列第1引数長', 'normal'),
     Region('STR_ACC_LEN', 0xF051, 1, '一時', '文字列連結長', 'normal'),
