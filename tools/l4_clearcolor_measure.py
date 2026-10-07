@@ -346,7 +346,7 @@ def summarize(known, anchors, trace, rounds):
     if anchors and all(e == 0 for e, _ in anchors):
         Ts = {ANCHOR_X - f for _, f in anchors}
         T = Ts.pop() if len(Ts) == 1 else None
-    consistent = all(len(set(v)) == 1 for v in known.values())
+    consistent = all(len({(e, f if e == 0 else None) for e, f in v}) == 1 for v in known.values())   # 誤りの fre は履歴で変わる（追補3）
     ranks = [(x, RANK.get(classify(v[0][0]))) for x, v in sorted(known.items()) if x <= TOP]
     mono = all(r is not None for _, r in ranks) and all(a[1] <= b[1] for a, b in zip(ranks, ranks[1:]))
     tops = [classify(e) for x, v in known.items() if x > TOP for e, _ in v]
@@ -546,9 +546,13 @@ def load(path, both=False):
             for r in rows if r['repeat'] == '1']
 
 
-def rejudge(src, out):
+def rejudge(src, out, extra=None):
     """保存した観測から探索の要約と関門だけを作り直す（再測定しない。追補2: 単調性は 0xE5FF 以下で見て、0xE600 以上は誤り5を別に見る）。"""
     recs = load(src, both=True)
+    new = {}
+    for path in extra or []:           # 再走行した腕で置き換える（追補2: cv-2、追補3: cl-n10）
+        new.update({r['arm']['id']: r for r in load(path, both=True)})
+    recs = [new.get(r['arm']['id'], r) for r in recs]
     for r in recs:
         r['obs'] = [resummarize(o) if r['arm']['kind'] == 'cl' and 'trace' in o else o for o in r['obs']]
     return emit(out, recs)
@@ -715,6 +719,21 @@ def selftest(work=None):
     except ValueError:
         pass
     assert all(a.get('lenient') for a in al if a['id'].startswith('cv-')) and not any(a.get('lenient') for a in al if a['id'].startswith('co-'))
+    # --- 追補3: 誤りの fre（失敗した CLEAR の後の stale な値）は履歴で変わってよく、受理の fre が変わるのは不整合
+    cnt = [0]
+    def stale_model(xs):
+        out = model(35098, 0, 0x8600)(xs)
+        cnt[0] += 1
+        out['res'] = [(e, f + cnt[0]) if e else (e, f) for e, f in out['res']]
+        return out
+    r3 = search(stale_model)
+    assert search_ok(r3) and r3['b7'] == 35098
+    def drift_model(xs):
+        out = model(35098, 0, 0x8600)(xs)
+        cnt[0] += 1
+        out['res'] = [(e, f + cnt[0]) if e == 0 and x != 0xE5FF else (e, f) for (e, f), x in zip(out['res'], xs)]
+        return out
+    assert not search_ok(search(drift_model))
     print('OK 腕・打鍵行・写しの解析（陽性・陰性・本文非出力）・ポート集計・k分探索（陽性5・陰性4）・確認腕（陽性・陰性3）・0xE600の扱い・再判定・欠け許容', flush=True)
     # --- 関門・較正・記録（合成）
     def rec(spec, ob, ob2=None):
@@ -779,6 +798,7 @@ def main():
     j = sub.add_parser('rejudge')
     j.add_argument('--measured', type=Path, required=True)
     j.add_argument('--out', type=Path, required=True)
+    j.add_argument('--with', dest='extra', type=Path, nargs='*', help='再走行した腕の記録（複数可）。同じ腕IDを置き換える')
     r = sub.add_parser('report')
     r.add_argument('--measured', type=Path, required=True)
     s = sub.add_parser('selftest')
@@ -787,7 +807,7 @@ def main():
     if args.command == 'selftest':
         return selftest(args.work_dir)
     if args.command == 'rejudge':
-        ok = rejudge(args.measured, args.out)
+        ok = rejudge(args.measured, args.out, args.extra)
         print('再判定: 関門'+('通過' if ok else '失敗'))
         return 0 if ok else 1
     if args.command == 'report':
