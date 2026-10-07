@@ -27,7 +27,8 @@ IO_LINE = wv.IO_LINE
 MARK = re.compile(r'^(s9q[ared])((?: *-?\d+)+) *$')
 PORTS = (0x30, 0x31, 0x32, 0x34, 0x35, 0x52, 0x53) + tuple(range(0x54, 0x5C))
 ANCHOR_X = 0xE000
-GRID = [0x8000 + 0x200*i for i in range(14)]          # 0x8000〜0x9A00（0x200 刻み、14点）
+NVAR = 11                                              # 1走行の可変プローブ数（画面が19行ほどしか残らず、印は13行以内）
+GRID = [0x8000 + 0x280*i for i in range(NVAR)]         # 0x8000〜0x9900（0x280 刻み）
 ROMAN = {0: 'OK', 5: 'E5', 7: 'E7'}
 RANK = {'E5': 0, 'E7': 1, 'OK': 2}
 STR36 = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -35,7 +36,7 @@ STR36 = 'abcdefghijklmnopqrstuvwxyz0123456789'
 # ---------------------------------------------------------------- 腕の定義
 CL_CONDS = [
     dict(id='cl-base'),
-    dict(id='cl-n10', nvar=8),
+    dict(id='cl-n10', nvar=7),
     dict(id='cl-padrem', pad=('rem', 800)),
     dict(id='cl-padrem2', pad=('rem', 2400)),
     dict(id='cl-paddata', pad=('data', 800)),
@@ -59,7 +60,7 @@ CO_STMTS = (['color 0', 'color 7']
 CP_STMTS = ([('base', 'rem')] + [(f'bg{b}', f'color ,{b}') for b in range(8)]
             + [(f'bo{b}', f'color ,,{b}') for b in range(8)] + [(f'fg{b}', f'color ,,,{b}') for b in range(8)]
             + [('t2', 'color 2'), ('t7', 'color 7'), ('out52', 'out &h52,&h40')])
-CHUNK = 14
+CHUNK = 11
 
 
 def chunks(stmts, size, refs=()):
@@ -72,7 +73,7 @@ def arms():
         out.append(dict(c, kind='cl'))
     for c in CF_ARMS:
         out.append(dict(c, kind='cf'))
-    for i, st in enumerate(chunks(CV_STMTS, 16)):
+    for i, st in enumerate(chunks(CV_STMTS, 13)):
         out.append(dict(id=f'cv-{i+1}', kind='stmts', wrap='clear', stmts=st))
     for i, st in enumerate(chunks(CO_STMTS, CHUNK, CO_REFS)):
         out.append(dict(id=f'co-{i+1}', kind='stmts', wrap='color', stmts=st))
@@ -283,7 +284,7 @@ def boundaries(known):
     return lo5, hi5, lo7, hi7
 
 
-def search(probe_fn, nvar=14, max_rounds=10):
+def search(probe_fn, nvar=NVAR, max_rounds=10):
     """k分探索。probe_fn(xs) → dict(anchor=[(e,fre),(e,fre)], res=[(e,fre)...])。nvar は1走行の可変プローブ数（固定）。"""
     known, anchors, trace = {}, [], []
     def do(xs, rev):
@@ -365,7 +366,7 @@ def confirm(probe_fn, base, nprobe=1):
 
 # ---------------------------------------------------------------- 測定
 def search_arm(rom, official, spec, work):
-    nvar = spec.get('nvar', 14)
+    nvar = spec.get('nvar', NVAR)
     def fn(xs):
         with tempfile.TemporaryDirectory(prefix='run-', dir=work) as t:
             return run_probes(rom, official, spec, xs, Path(t))
@@ -525,7 +526,7 @@ def report(path):
             for s, (e, f) in zip(a['stmts'], o['res']):
                 out.append(f"  {s!r}: err={e} fre={f}")
         elif a['kind'] == 'port':
-            out.append(f"{a['id']} gate={r['gate']} err={o['err']} crtc={o['crtc']} ports={json.dumps(o['ports'], sort_keys=True)}")
+            out.append(f"{a['id']} gate={r['gate']} err={o['err']} crtc={o['crtc']} ports={json.dumps({k: [len(v), sorted(set(v)), v[:6]] for k, v in o['ports'].items()}, sort_keys=True)}")
         else:
             out.append(f"{a['id']} gate={r['gate']} rows={o['rows']}")
     return '\n'.join(out)
@@ -547,7 +548,7 @@ def model(T, m, b5, bad=None):
         if bad == 'slope':
             res = [(e, f + 1) if e == 0 and x % 2 else (e, f) for (e, f), x in zip(res, xs)]
         if bad == 'nonmono':
-            res = [(5, 0) if x == 0x9000 else t for t, x in zip(res, xs)]
+            res = [(5, 0) if x == GRID[6] else t for t, x in zip(res, xs)]
         return dict(anchor=[one(ANCHOR_X), one(ANCHOR_X)], res=res)
     return fn
 
@@ -568,22 +569,22 @@ def selftest(work=None):
     assert len({a['id'] for a in al}) == len(al)
     for a in al:
         if a['kind'] in ('cl', 'cf'):
-            program_lines(a, [0x8000+i for i in range(a.get('nvar', 14 if a['kind'] == 'cl' else 1))])
+            program_lines(a, [0x8000+i for i in range(a.get('nvar', NVAR if a['kind'] == 'cl' else 1))])
         else:
             program_lines(a)
     for a in known_arms():
         program_lines(a)
-    base = program_lines(dict(id='x', kind='cl'), GRID[:14])
+    base = program_lines(dict(id='x', kind='cl'), GRID[:NVAR])
     assert base[:3] == ['new', '5 on error goto 950', '10 print "s9qa";1;1'] and base[-3:] == ['950 e=err:resume next', 'cls', 'run']
-    assert '100 e=0:clear ,&he000' in base and '130 e=0:clear ,&he000' in base and '132 e=0:clear ,&he000' not in base  # 先頭・末尾アンカー（16本=100..130）
-    stk = program_lines(dict(id='x', kind='cl', n=1024), [0x8000]*14)
+    assert '100 e=0:clear ,&he000' in base and '124 e=0:clear ,&he000' in base and '126 e=0:clear ,&he000' not in base  # 先頭・末尾アンカー（13本=100..124）
+    stk = program_lines(dict(id='x', kind='cl', n=1024), [0x8000]*NVAR)
     assert '100 e=0:clear ,&he000,1024' in stk
-    strs = program_lines(dict(id='x', kind='cl', first=1000), [0x8000]*14)
+    strs = program_lines(dict(id='x', kind='cl', first=1000), [0x8000]*NVAR)
     assert '100 e=0:clear 1000,&he000' in strs
-    var = program_lines(dict(id='x', kind='cl', var=True), [0x8000]*14)
+    var = program_lines(dict(id='x', kind='cl', var=True), [0x8000]*NVAR)
     assert any('b$=a$+a$+a$:clear ,&he000' in l for l in var)
-    prem = [l for l in program_lines(dict(id='x', kind='cl', pad=('rem', 800)), [0x8000]*14) if ' rem ' in l]
-    pdat = [l for l in program_lines(dict(id='x', kind='cl', pad=('data', 800)), [0x8000]*14) if ' data ' in l]
+    prem = [l for l in program_lines(dict(id='x', kind='cl', pad=('rem', 800)), [0x8000]*NVAR) if ' rem ' in l]
+    pdat = [l for l in program_lines(dict(id='x', kind='cl', pad=('data', 800)), [0x8000]*NVAR) if ' data ' in l]
     assert len(prem) == len(pdat) >= 10 and all(len(l) < 80 for l in prem+pdat)
     arr = program_lines(dict(id='x', kind='cf', arr=500), [0x8400])
     assert '15 dim a(500)' in arr and sum('clear ,' in l for l in arr) == 2 and arr.index('15 dim a(500)') < arr.index('100 e=0:clear ,&h8400')
@@ -592,7 +593,7 @@ def selftest(work=None):
     co = program_lines(al[[a['id'] for a in al].index('co-1')])
     assert '100 e=0:a$=chr$(300)' in co and '102 e=0:a$=1' in co
     assert all('clear' not in l for l in co)
-    assert sum(1 for a in al if a['id'].startswith('co-')) == 6 and len(CO_STMTS) == 2+39+27+12
+    assert sum(1 for a in al if a['id'].startswith('co-')) == 8 and len(CO_STMTS) == 2+39+27+12
     assert sum(1 for a in al if a['id'].startswith('cp-')) == 28
     # --- 写しの解析（陽性・陰性）と本文非出力
     rows = [['s9qa', 1, 1], ['s9qr', 1, 5, 0], ['s9qr', 2, 0, 12345], ['s9qd', 1, 1]]
@@ -624,7 +625,7 @@ def selftest(work=None):
         r = search(model(T, m, b5))
         assert search_ok(r), (T, m, b5, {k: v for k, v in r.items() if k != 'trace'})
         assert r['b5'] == b5 and r['b7'] == T + m and r['m'] == m and r['T'] == T, (T, m, b5, r['b5'], r['b7'])
-        assert all(len(t['xs']) == 14 for t in r['trace'])
+        assert all(len(t['xs']) == NVAR for t in r['trace'])
     r = search(model(35098, 0, 0x8600), nvar=8)
     assert search_ok(r) and r['b7'] == 35098 and r['b5'] == 0x8600
     # --- k分探索の陰性: 失敗後のアンカー崩れ・傾き崩れ・非単調・境界が見つからない を拒否
