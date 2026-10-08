@@ -52,3 +52,20 @@ void retro_q88h_text(uint8_t *dst, uint32_t rows, uint32_t cols, uint32_t stride
                 ? main_ram[(Q88H_TEXT_BASE + r * stride + c) & 0xFFFF]
                 : 0;
 }
+
+/*
+ * グラフィックVRAM の読み出し（l4-s9t）。
+ *
+ * メイン CPU の C000-FFFF に重なる 3 プレーン（0=青・1=赤・2=緑）を、
+ * プレーンごとに 0x4000 バイトずつ、計 0xC000 バイト書き出す。
+ * 画面に出た点は ROM を実行した結果として外部から観測できる図形であり、
+ * ROM のバイト列ではない。ただし公式が自分で描いた図形は記録の対象外
+ * （測定側が「こちらが描かせた点」だけを取り出す）。
+ */
+void retro_q88h_gvram(uint8_t *dst)
+{
+    uint32_t a, p;
+    for (p = 0; p < 3; p++)
+        for (a = 0; a < 0x4000; a++)
+            dst[p * 0x4000 + a] = main_vram ? main_vram[a][p] : 0;
+}

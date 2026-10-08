@@ -77,6 +77,10 @@ void retro_q88h_trace_reset(void);
  * 画面に出た文字は ROM の実行結果であって ROM のバイト列ではない。 */
 void retro_q88h_text(uint8_t *dst, uint32_t rows, uint32_t cols, uint32_t stride);
 
+/* グラフィックVRAM の3プレーン（青・赤・緑）を 0x4000 バイトずつ、計 0xC000 バイト読み出す。
+ * l4-s9t。こちらが描かせた図形の位置・ビットを測るための器具。 */
+void retro_q88h_gvram(uint8_t *dst);
+
 #ifdef __cplusplus
 }
 #endif

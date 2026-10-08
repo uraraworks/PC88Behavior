@@ -108,6 +108,7 @@ static q88h_trace_t *(*p_trace)(void);
 static q88h_trace_t *(*p_trace_sub)(void);
 static void          (*p_trace_reset)(void);
 static void          (*p_text)(uint8_t *, uint32_t, uint32_t, uint32_t);
+static void          (*p_gvram)(uint8_t *);     /* l4-s9t。無いコアでは NULL（--gvram-dump 指定時だけ必須） */
 
 /* 二本ロード時の末端検査。QUASI88 は quasi88_disk_insert() が成功した後だけ
  * filename_get_disk() の返す状態へ実パスを保存する。単にspecialへ渡した引数を
@@ -665,6 +666,7 @@ static bool load_core(const char *path)
     SYM(p_trace_sub,   "retro_q88h_trace_sub");
     SYM(p_trace_reset, "retro_q88h_trace_reset");
     SYM(p_text,        "retro_q88h_text");
+    *(void **)(&p_gvram) = dlsym(h, "retro_q88h_gvram");
 
     /* トラップROM足場は M2 で足したばかりの機能なので、古いビルドのコアには
      * 無いことがある。SYM と違ってここは失敗を許す — 見つからなければ
@@ -1505,6 +1507,10 @@ int main(int argc, char **argv)
     struct { const char *path; unsigned frame; bool done; } vram_dump[VRAM_DUMP_MAX];
     int         n_vram_dump = 0;
     const char *vram_dump_pending_path = NULL;
+    /* グラフィックVRAMの写し（l4-s9t）。1枚だけ。0xC000 バイト（青・赤・緑の順に 0x4000 ずつ）。 */
+    const char *gvram_dump_path = NULL;
+    unsigned    gvram_dump_frame = 0;
+    bool        gvram_dump_at_set = false, gvram_dump_done = false;
     /* キーマトリクス直接操作（M7段階1の器具その2）。HOLD省略時は
      * その時点の --key-hold の値を使う（--type の hold と同じ、指定順に
      * 依存する規則）。apply/release はフレームループ内で1回ずつだけ行う
@@ -1841,6 +1847,12 @@ int main(int argc, char **argv)
             n_vram_dump++;
             vram_dump_pending_path = NULL;
         }
+        else if (!strcmp(argv[i], "--gvram-dump") && i + 1 < argc)
+            gvram_dump_path = argv[++i];
+        else if (!strcmp(argv[i], "--gvram-dump-at") && i + 1 < argc) {
+            gvram_dump_frame = (unsigned)strtoul(argv[++i], NULL, 0);
+            gvram_dump_at_set = true;
+        }
         else if (!strcmp(argv[i], "--key-matrix") && i + 1 < argc) {
             const char *spec = argv[++i];
             int port_i, bit_i, frame_i, hold_i = -1;
@@ -1978,6 +1990,14 @@ int main(int argc, char **argv)
                 vram_dump_pending_path);
         return 2;
     }
+    if (gvram_dump_path && !gvram_dump_at_set) {
+        fprintf(stderr, "[q88measure] --gvram-dump %s に対応する --gvram-dump-at が無い\n", gvram_dump_path);
+        return 2;
+    }
+    if (gvram_dump_path && gvram_dump_frame >= frames) {
+        fprintf(stderr, "[q88measure] --gvram-dump-at %u は --frames %u 未満で指定すること\n", gvram_dump_frame, frames);
+        return 2;
+    }
     if (mem_write_log_path && !mem_write_range_set) {
         fprintf(stderr, "[q88measure] --mem-write-log には --mem-write-range が要る\n");
         return 2;
@@ -2012,6 +2032,8 @@ int main(int argc, char **argv)
         if (reject_if_unsafe_output_path("--vram-dump", vram_dump[k].path))
             return 1;
     }
+    if (gvram_dump_path && reject_if_unsafe_output_path("--gvram-dump", gvram_dump_path))
+        return 1;
 
     /* 何を測ったのかが後から辿れるように、必ず出す。
      * ここが取り違えられていると測定結果そのものが無意味になる。 */
@@ -2322,6 +2344,27 @@ int main(int argc, char **argv)
                             outpath, g_frame);
                 vram_dump[k].done = true;
             }
+        }
+
+        /* グラフィックVRAMの写し（l4-s9t）。テキストVRAMの写しと同じ時点（retro_run() の直前）。 */
+        if (gvram_dump_path && !gvram_dump_done && g_frame == gvram_dump_frame) {
+            static uint8_t gbuf[0xC000];
+            FILE *gp;
+            if (!p_gvram) {
+                fprintf(stderr, "[q88measure] このコアには retro_q88h_gvram が無い（コアを再ビルドすること）\n");
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            p_gvram(gbuf);
+            /* 故障注入（selftest 専用）。既定では環境変数が無いので何もしない。 */
+            if (getenv("Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP")) gbuf[0x4000 + 80] ^= 0x01;
+            gp = fopen(gvram_dump_path, "wb");
+            if (!gp) { perror(gvram_dump_path); p_unload_game(); p_deinit(); return 1; }
+            fwrite(gbuf, 1, sizeof(gbuf), gp);
+            fclose(gp);
+            fprintf(stderr, "[q88measure] グラフィックVRAM写しを書き出した: %s (frame=%u)\n", gvram_dump_path, g_frame);
+            gvram_dump_done = true;
         }
 
         /* キーマトリクス直接操作（M7段階1の器具その2）。「g_frame==FRAME
