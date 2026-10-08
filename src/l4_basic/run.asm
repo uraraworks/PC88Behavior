@@ -2335,6 +2335,7 @@ INPUT_READLINE:
     XOR A
     LD (RUN_INPUT_RAW_LEN),A
 _irl_loop:
+    CALL CURSOR_INPUT           ; 入力待ちは毎フレーム、カーソル表示のコマンド 0x81＋位置（l4-program.md 5.6.5）
     CALL KEY_READ
     OR A
     JR Z,_irl_loop
@@ -5021,7 +5022,7 @@ S9C_POLL:
     LD (HL),A
     JR Z,_s9c_matrix
     OR A
-    JR NZ,_s9c_scan
+    JR NZ,_s9c_rise
 _s9c_matrix:
     LD HL,MM_IK_OLD             ; IK_OLD（RUN開始時・バンク走査時に更新）
     LD C,0
@@ -5037,10 +5038,36 @@ _s9c_port:
     RET
 _s9c_changed:
     XOR A
+    JR _s9c_scan
+_s9c_rise:
+    PUSH AF                      ; 実行中は毎フレーム、カーソル非表示のコマンド 0x80＋位置（l4-program.md 5.6.5）
+    CALL CURSOR_UPDATE
+    POP AF
 _s9c_scan:
     LD (MM_IK_TICK),A            ; 中継がAF/BC/DEを使うのでRAMで渡す
     LD HL,06F20h
     JP S9_BANK_CALL
+; CURSOR_INPUT — INPUT の入力待ち（INPUT_READLINE のポーリング）。垂直帰線の立ち上がりごとに
+; 0x81＋位置を出す（l4-program.md 5.6.5: input 待ち・打鍵中は 0x81）。ポーリングは割り込みの外で
+; 動くので、垂直同期のハンドラの 0x81 は来ない。位相は SCR_MODE の bit5 に覚える（IN 0x40 の
+; bit5 と同じ位置）。mainの末尾側に置く（窓の手前の空きが少ない）。破壊: AF,B,HL。
+CURSOR_INPUT:
+    IN A,(40h)
+    AND 20h
+    LD B,A
+    LD HL,SCR_MODE
+    LD A,(HL)
+    XOR B
+    AND 20h
+    RET Z                       ; 位相が変わっていない
+    XOR (HL)
+    LD (HL),A                   ; bit5 を反転
+    LD A,B
+    OR A
+    RET Z                       ; 立ち下がりでは出さない
+    LD A,081h
+    OUT (51h),A
+    JP SET_CURSOR
 S9C_INIT:
     LD HL,06F10h
     JP S9_BANK_CALL

@@ -48,6 +48,7 @@ USABLE_ROWS EQU ROWS-1
 SCR_COLS    EQU MM_SCR_COLS     ; 現在の桁数（40か80）
 SCR_MAXROW  EQU MM_SCR_MAXROW   ; 現在の最終の使用行（行0始まり。行数-2。起動時18、25行で23）
 SCR_P31     EQU MM_SCR_P31      ; 垂直同期のたびにポート0x31へ出す値（20行0x19・25行0x39。l4-program.md 5.6.5）
+SCR_MODE    EQU MM_SCR_MODE     ; bit0=カラーモード（console ,,,1。l4-program.md 5.4.5・5.4.6）、bit5=INPUT待ちで見た垂直帰線の位相（RUN_CURSOR_INPUT）
 SCR_ZT      EQU MM_SCR_ZT       ; bit0-4=コンマ欄の改行閾値T÷2（80桁28・40桁7。l4-program.md 4.22.4）、bit5-7=現在の COLOR 値（5.4。0〜7）
 
 ; ---- RAM変数（0000-7FFFはROM＝L1のROM/RAMモード設定のため書けない。
@@ -66,6 +67,7 @@ SCREEN_MAIN:
     LD (SAVE_DONE_FLAG),A
     LD (VAR_ROW),A
     LD (VAR_COL),A
+    LD (SCR_MODE),A             ; 起動直後は白黒モード（l4-program.md 5.4.5）
     LD HL,TEXT_BASE
     LD (VAR_ROWBASE),HL
     LD HL,((ROWS-2)<<8)|COLS    ; 起動時の桁数80・最終使用行18（WIDTHの状態）
@@ -123,7 +125,7 @@ _cn_loop:
 ; ---------------------------------------------------------------------
 ; CLEAR_ROW — HL=行の先頭。文字域80バイトを空白、属性域を既定の20組
 ;   (位置0x80,値0x00。l3-main.md 第14節・l4-program.md 5.6.2)にして、
-;   HLは次の行の先頭（120バイト先）になる。破壊: AF,B,HL。
+;   HLは次の行の先頭（120バイト先）になる。破壊: AF,BC,HL。
 ;   既定の属性は40バイトの表でなく同じ値の繰り返しとして書く（mainの空き節約）。
 ; ---------------------------------------------------------------------
 CLEAR_ROW:
@@ -133,11 +135,17 @@ _cr_txt:
     LD (HL),A
     INC HL
     DJNZ _cr_txt
+    LD A,(SCR_MODE)             ; 既定の属性値: 白黒 0x00、カラー 0xE8（l3-main.md 第14節）
+    AND 1
+    JR Z,_cr_mono
+    LD A,0E8h
+_cr_mono:
+    LD C,A
     LD B,ATTR_BYTES/2
 _cr_attr:
     LD (HL),080h
     INC HL
-    LD (HL),000h
+    LD (HL),C
     INC HL
     DJNZ _cr_attr
     RET
@@ -221,8 +229,11 @@ _pc_no_capture:
     CALL CELL_PTR
     POP AF
     LD (HL),A
+    LD A,(SCR_MODE)             ; カラーモードは既定の値が 0xE8 で、色0も組を書くので常に呼ぶ（5.4.5）
+    AND 1
+    JR NZ,_pc_attr
     LD A,(SCR_ZT)               ; l4-program.md 5.4・5.6.2: 印字したセルの色を属性域の組へ反映する。
-    AND 0E0h                    ; 色0で行に組が無い（組0の位置が0x80）ときは何も書かないので呼ばない
+    AND 0E0h                    ; 白黒の色0で行に組が無い（組0の位置が0x80）ときは何も書かないので呼ばない
     JR NZ,_pc_attr
     LD HL,(VAR_ROWBASE)
     LD DE,COLS
@@ -318,4 +329,4 @@ OK_TXT:
 
 ; 既定の属性域（40バイト＝2バイト1組×20組、(位置0x80,値0x00)×20組。l3-main.md 第14節
 ; nonzero_pattern）は CLEAR_ROW が同じ値の繰り返しとして書く（旧DEFAULT_ATTR表は廃止）。
-; 起動直後は白黒（第11節）。カラーの既定(0x80,0xE8)×20組はこの段階では使わない。
+; 起動直後は白黒（第11節）。カラーの既定(0x80,0xE8)×20組は SCR_MODE のbit0が立っているとき CLEAR_ROW が書く。

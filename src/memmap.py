@@ -85,7 +85,7 @@ REGIONS = (
     Region('INKEY', 0xF1D2, 24, '保持', 'INKEY状態', 'normal'),
     Region('INKEY_QUEUE', 0xF1EA, 32, '保持', 'INKEYキュー', 'normal'),
     Region('PROGRAM_WORK', 0xFF80, 29, '一時', '本文編集・LISTポインタ', 'normal'),
-    Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別', 'normal'),
+    Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別・画面モード', 'normal'),
     Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
     Region('CPU_STACK', 0xF246, 386, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
@@ -173,6 +173,7 @@ FIELDS = {
     'MM_RUN_GOSUB_STACK': ('MEMDYN', 10),
     'MM_CAPTURE_END': ('MEMDYN', 12),
     'MM_HEAP_KIND': ('MEMDYN', 14),
+    'MM_SCR_MODE': ('MEMDYN', 15),
     'MM_S2_CAPTURE_BASE': ('MEMDYN', 4),
 
     "MM_IK_TEST_SEEN": ("INKEY_TEST", 0),

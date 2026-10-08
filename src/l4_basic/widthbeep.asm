@@ -237,12 +237,12 @@ wb_c_range:
 ; 破壊: AF,BC,DE,HL。
 wb_attr:
     CALL wa_getv
-    LD E,A                     ; E = v
+    LD E,A                     ; E = v（属性域に書く値。白黒は n、カラーは 0x08|(n<<5)）
     LD HL,(MM_VAR_ROWBASE)
     LD BC,80
     ADD HL,BC                  ; HL = 組0
-    LD A,E
-    OR A
+    CALL wa_def
+    CP E
     JR NZ,wa_start
     BIT 7,(HL)
     RET NZ
@@ -270,10 +270,11 @@ wa_found:
     DEC HL
     CP E
     JR NZ,wa_split
-    OR A
-    RET NZ                     ; w = v ≠ 0
+    CALL wa_def                ; A = 既定の値（白黒0・カラー0xE8）
+    CP E
+    RET NZ                     ; w = v ≠ 既定
     BIT 7,(HL)
-    RET Z                      ; 有限の区間で w = v = 0
+    RET Z                      ; 有限の区間で w = v = 既定
 wa_split:
     PUSH AF                    ; w
     CALL wa_dec                ; A = 終端
@@ -352,13 +353,31 @@ wc_next:
     DJNZ wc_loop
     RET
 
-; 現在の色（MM_SCR_ZT の上位3bit）→ A
+; 現在の色（MM_SCR_ZT の上位3bit）→ A = 属性域に書く値（5.4.5）。
+; 白黒モードは n そのもの、カラーモードは 0x08|(n<<5)（n の3ビットを bit5〜7 に置いたまま bit3 を立てる）。
 wa_getv:
     LD A,(MM_SCR_ZT)
+    LD B,A
+    LD A,(MM_SCR_MODE)
+    RRCA
+    LD A,B
+    JR C,wa_gv_color
     RLCA
     RLCA
     RLCA
     AND 7
+    RET
+wa_gv_color:
+    AND 0E0h
+    OR 008h
+    RET
+
+; 既定の属性値（行の初期値）→ A。白黒 0x00・カラー 0xE8（l3-main.md 第14節）。フラグを壊す。
+wa_def:
+    LD A,(MM_SCR_MODE)
+    AND 1
+    RET Z
+    LD A,0E8h
     RET
 
 ; (HL)=位置バイト → A=終端桁（論理）。0x80は255。BC,DE,HL保存。
@@ -592,6 +611,13 @@ wb_wa_zt:
     JR Z,wb_wa_30
     LD A,022h
 wb_wa_30:
+    LD B,A                     ; カラーモードは bit1=0（console ,,,1 の 0x21 と同じ形。自作判断: width 後の値は未測定）
+    LD A,(MM_SCR_MODE)
+    RRCA
+    LD A,B
+    JR NC,wb_wa_30o
+    AND 0FDh
+wb_wa_30o:
     OUT (0x30),A
     XOR A                      ; 3: CRTC RESET
     OUT (0x51),A
@@ -607,12 +633,19 @@ wb_wa_30:
     LD A,(HL)
     OUT (0x65),A
     INC HL
-    LD B,5                     ; 7: CRTC RESETの5パラメータ
+    LD B,4                     ; 7: CRTC RESETの5パラメータ（5つ目はカラーモードで bit6 を足す）
 wb_wa_crtc:
     LD A,(HL)
     OUT (0x50),A
     INC HL
     DJNZ wb_wa_crtc
+    LD A,(MM_SCR_MODE)
+    RRCA
+    LD A,(HL)
+    JR NC,wb_wa_p5
+    OR 040h
+wb_wa_p5:
+    OUT (0x50),A
     LD A,043h                  ; 8
     OUT (0x51),A
     LD A,0E4h                  ; 9
@@ -631,3 +664,41 @@ wb_wa_crtc:
     JP fn_ok
 
 WB_CLEAR_ADDR EQU 0x1787
+
+; ---- CONSOLE ,,,1（文の種別43。l4-program.md 5.4.6、l4-s9r）
+; 測ったのは第4引数に1を指定した形（console ,,,1）だけ。他の形（第1〜3引数・第4引数の他の値）は未測定なので、
+; 従来どおり構文の誤り（ERR 2）にする。実行すると画面がカラーモードになる（ポート 0x30 に 0x21＝bit1 が 0、
+; 画面は書き換わる、のは 5.4.6 の観測）。
+; 自作判断（未測定）: 現在の桁・行のまま WIDTH と同じ切替（wb_w_apply）をカラーモードで行う。つまり
+;   0x31・0x30（カラーは bit1=0）・CRTC RESET・DMAC を書き直し、3000バイト全体をカラーの既定の属性
+;   （0x80,0xE8）で消してカーソルを先頭へ。CRTC RESET の5つ目のパラメータは、カラーモードのとき
+;   属性の方式のビット（AT1-AT0 の下位 = bit6。l1-ipl.md 第5d節の P5）を立てる（0x13→0x53）。
+;   これを立てないと属性値が色として解釈されない（実描画で確認）。公式がこの CRTC 書き込みをするかは未測定。
+wb_console_stmt:
+    LD A,3
+    LD (MM_FN_AUX),A
+wb_cs_comma:
+    CALL fn_skip
+    CALL fn_peek
+    CP ','
+    JP NZ,fn_syntax
+    CALL fn_adv
+    LD HL,MM_FN_AUX
+    DEC (HL)
+    JR NZ,wb_cs_comma
+    CALL fn_skip
+    CALL fn_peek
+    CP '1'
+    JP NZ,fn_syntax
+    CALL fn_adv
+    CALL wb_w_at_end
+    JP NZ,fn_syntax
+    LD A,(MM_SCR_MODE)
+    OR 1
+    LD (MM_SCR_MODE),A
+    LD A,(MM_SCR_COLS)
+    LD (MM_FN_AUX),A
+    LD A,(MM_SCR_MAXROW)
+    ADD A,2
+    LD (MM_FN_AUX+1),A
+    JP wb_w_apply
