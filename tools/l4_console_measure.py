@@ -317,6 +317,15 @@ def cursor_pre(seq, gap=1):
     return seq[-1] if seq else None
 
 
+def cols_end(a):
+    """プログラムの最後に有効な桁数。最後の width 文で決まる（40桁では文字が2バイトおきに置かれる: l4-program 5.6.1）。"""
+    cols = 80
+    for tok, arg in a.get('tokens', []):
+        if tok == 'S' and arg.startswith('width '):
+            cols = 40 if arg.strip() == 'width 40' else 80
+    return cols
+
+
 def analyze(a, vram, iolog_text, window):
     obs = dict(kind=a['kind'])
     obs['ports'] = cp.port_values(iolog_text, window)
@@ -329,8 +338,9 @@ def analyze(a, vram, iolog_text, window):
     if a['kind'] == 'ac':
         obs['err'] = decode_ac(vram, len(a['probes'])+1)
     else:
-        obs.update(analyze_vram(vram, 2 if a.get('cols') == 40 and a.get('act') == 'ww' else 1))
-        obs['cur_pre'] = cursor_pre(seq, 2 if a.get('cols') == 40 and a.get('act') == 'ww' else 1)
+        gap = 2 if cols_end(a) == 40 else 1
+        obs.update(analyze_vram(vram, gap))
+        obs['cur_pre'] = cursor_pre(seq, gap)
     return obs
 
 
@@ -623,6 +633,8 @@ def selftest(work=None):
     for a in known.values():
         plan(a)
     assert len(known) == len(arms())
+    assert [i for i, a in known.items() if cols_end(a) == 40] == ['ww-width40-14', 'ww-width40-bot', 'cm-w40', 'cm-c1-w40', 'cm-w40-c1']
+    assert cols_end(known['cm-c1-w80']) == 80 and cols_end(known['ac20-1']) == 80 and cols_end(known['cm-w25-c1']) == 80
     print(f'OK 腕{len(known)}本の組み立て（行長・小文字・ASCII・行番号）', flush=True)
     # VRAM 解析: 目印の英字・空行・その他('?')・本文非出力・属性域・終了の印
     ladder = {r: chr(65+r) for r in range(19)}
@@ -641,6 +653,11 @@ def selftest(work=None):
     assert o40['rows'][4] == 'D' and analyze_vram(synth_vram({4: 'D'}, gap=2), 1)['rows'][4] == '?'
     s40 = bytearray(synth_vram()); s40[60:60+8:2] = b's9sz'
     assert analyze_vram(bytes(s40), 2)['sz'] == [[0, 30]]
+    # 追補1: 最後に40桁になる腕は文字が2バイトおき。間隔1で読むと終了の印が見つからず関門落ちになる（初回の公式・自作の測定で起きた）
+    assert analyze_vram(bytes(s40), 1)['sz'] == []
+    o40 = analyze(known['cm-w40'], bytes(s40), '', 0)
+    assert valid(o40, known['cm-w40']) and o40['sz'] == [[0, 30]]
+    assert not valid(analyze(known['cm-c1'], bytes(s40), '', 0), known['cm-c1'])                       # 80桁の腕では2バイトおきの印は印と読めない
     try:
         analyze_vram(v[:-1]); assert False
     except ValueError:
