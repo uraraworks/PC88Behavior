@@ -14,8 +14,7 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     ORG 0x6B00
     JP fn_match_stmt
     ORG 0x6B10
-    XOR A
-    JP ts_try
+    JP gfx_try_num             ; POINT( を先に見てから ts_try へ（gfxhook.asm）
     ORG 0x6B20
     LD A,1
     JP fn_try

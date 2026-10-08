@@ -94,6 +94,7 @@ REGIONS = (
     Region('EXT_TEST_HIGH', 0xFFA5, 5, '一時', 'EXT_BANK_ST_*（通常ビルドでは使わない）', 'ext-test'),
     Region('VSYNC_TEST', 0xFFAA, 13, '一時', 'vsync_regcheck（通常ビルドでは使わない）', 'vsync-test'),
     Region('MEASURE_LOW', 0xFFB7, 5, '一時', 'M6IB/M6IH測定（通常ビルドでは使わない）', 'measure'),
+    Region('GFX', 0xFFBC, 24, '保持/一時', 'グラフィック(l4-graphics.md): LP(x,y)・前景(xor 7)・背景・白黒とページ・座標とSCREENの作業値', 'normal'),
     Region('MEASURE_REGS', 0xFFBC, 38, '一時', 'M6IAレジスタ・バンク写し（通常ビルドでは使わない）', 'measure'),
     Region('MEASURE_HIGH', 0xFFE2, 6, '一時', 'M6IA/M6II/M6IK測定（通常ビルドでは使わない）', 'measure'),
     Region('INKEY_TEST', 0xFFE8, 3, '一時', 'INKEY頑健性ドライバ専用（通常ビルドでは使わない）', 'inkey-test'),
@@ -107,6 +108,7 @@ OVERLAPS = {
     frozenset(("PU_FORMAT", "FILES_FAT")): "PRINT USINGは書式を文内だけ保持し、FILES/LOADの文入口とは排他的。式評価はFILES/LOADを呼ばない。",
     frozenset(("PU_FORMAT", "SAVE_FAT")): "PRINT USINGとSAVE/KILLの文入口は排他的。SAVEのLIST捕捉はPRINT USINGも式評価も呼ばない。",
     frozenset(("FILES_FAT", "SAVE_FAT")): "FILES/LOADはbank1の独立した文入口、SAVE/KILLはbank2の文入口。互いを呼ばず、SAVEの入れ子はLIST捕捉(bank3)のみ。各入口でFATを読み直し、文の終了後に保持しない。256BのLDIR全体を共用。",
+    frozenset(("GFX", "MEASURE_REGS")): "M6IAの測定専用ビルド（tools/build_m6ia_measure_rom.py）だけが使う域。測定ビルドは起動後の定常ループからだけ使い、BASICのグラフィック文を実行しないので重ならない。GFXは起動時（EXT_BANK_INIT）に0へ戻す。",
     frozenset(("LIST", "STRCMP")): "LISTNUM_STARTは行の登録・LIST_RENDER_TEXT（SAVE捕捉も同経路）からのみ呼び、数値書式化はMBFだけを使用。S9E_CMPは文字列式評価だけから呼び、LIST/行登録を呼ばない。LIST文の引数は空白・行末のみで式を評価しない。",
 }
 
@@ -758,6 +760,23 @@ FIELDS = {
     'MM_M6IK_ROW_MARKER': ('MEASURE_HIGH', 3),
     'MM_M6IK_PRE_MARKER': ('MEASURE_HIGH', 4),
     'MM_M6IK_NEXT_ROW': ('MEASURE_HIGH', 5),
+    # グラフィック（l4-graphics.md）。FGは前景色のxor 7（ゼロ初期化で既定の7）。MONO=1は白黒モード（screen 1）、APAGEはアクティブページ(0〜2)。
+    'MM_GFX_LPX': ('GFX', 0),
+    'MM_GFX_LPY': ('GFX', 2),
+    'MM_GFX_FG': ('GFX', 4),
+    'MM_GFX_BG': ('GFX', 5),
+    'MM_GFX_MONO': ('GFX', 6),
+    'MM_GFX_APAGE': ('GFX', 7),
+    'MM_GFX_TX': ('GFX', 8),
+    'MM_GFX_TY': ('GFX', 10),
+    'MM_GFX_STEP': ('GFX', 12),
+    'MM_GFX_TC': ('GFX', 13),
+    'MM_GFX_SI': ('GFX', 14),
+    'MM_GFX_SM': ('GFX', 15),
+    'MM_GFX_S0': ('GFX', 16),
+    'MM_GFX_S1': ('GFX', 17),
+    'MM_GFX_S2': ('GFX', 18),
+    'MM_GFX_S3': ('GFX', 19),
 }
 
 
@@ -819,6 +838,10 @@ CONSTANTS = {
     "MM_STRING_PAGE_COUNT": 96,
     "MM_PROGRAM_AREA": 0x8400,
     "MM_SYNTH_DATA": 0x8400,
+    # グラフィックVRAM（l4-graphics.md 第1節）。メインCPUのC000〜FFFFに重なる。1プレーン80B×200ライン=16000B（FE80の手前まで。FE80〜FFFFの384Bは触らない）。
+    "MM_GVRAM_BASE": 0xC000,
+    "MM_GVRAM_END_HI": 0xFE,
+    "MM_GVRAM_END_LO": 0x80,
 }
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",

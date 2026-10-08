@@ -260,7 +260,7 @@ wb_c_r7:
     AND 3
     JR Z,wb_c_first
     CP 1
-    JR NZ,wb_c_sep             ; 第4引数は検査だけ
+    JR NZ,wb_c_fg              ; 第4引数: 検査したあとグラフィックの前景色へ覚える
     LD A,C                     ; 第2引数 b を bit2〜4 へ
     ADD A,A
     ADD A,A
@@ -308,6 +308,8 @@ wb_c_p2:
     OR 007h
 wb_c_p3:
     OUT (054h),A
+    LD A,B                     ; 第2引数 b（省略時0）はグラフィックの背景色にもなる（l4-graphics.md 第6節）
+    LD (MM_GFX_BG),A
     LD A,(MM_FN_AUX)
     CP 0FFh
     JP Z,fn_ok                 ; 第1引数なし: 色は変えない
@@ -321,6 +323,11 @@ wb_c_p3:
     OR B
     LD (MM_SCR_ZT),A
     JP fn_ok
+wb_c_fg:
+    LD A,C                     ; 前景色は xor 7 で覚える（ゼロ初期化で既定の7。gfx.asm）
+    XOR 7
+    LD (MM_GFX_FG),A
+    JR wb_c_sep
 wb_c_missing:
     LD A,22
     JP fn_error

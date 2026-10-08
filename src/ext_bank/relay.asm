@@ -103,6 +103,13 @@ EXT_BANK_INIT:
     LD (EXT_BANK_BUSY),A
     LD (EXT_BANK_REENTRY_DETECTED),A
     LD (MAIN_SUB_LOGICAL_SENT),A
+    ; グラフィックの状態（LP・前景/背景・白黒/ページ・作業値。l4-graphics.md）を0へ。前景はxor 7で持つので0=既定の7。
+    LD HL,MM_GFX_LPX
+    LD B,MM_GFX_SIZE
+_ebi_gfx:
+    LD (HL),A
+    INC HL
+    DJNZ _ebi_gfx
     ; 第16節: RUNと同じ乱数初期状態。直接モードが使う変数/スタックも初期化。
     JP RUN_RESET_STATE
 
