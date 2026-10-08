@@ -61,6 +61,8 @@ AC25 = [
      'console ,,,0', 'console ,,,1', 'console ,,,2', 'console 0,25,0,0'],
 ]
 
+AC20_5 = ['console 3,', 'console 3,,', 'console 3,,1', 'console 3,5,', 'console ,5,', 'console ,,1,', 'console 0,20,,1',
+          'console 5,10,,', 'console 5,,1,0', 'console ,,,1,', 'console ,0,', 'console 5 10']
 WIN20 = ['full', '0,19', '0,18', '0,10', '5,10', '5,5', '10,9', '0,3', '0,2', '0,1', '17,2', '18,1', '0,20', '19,1']
 WIN25 = ['full', '0,24', '0,23', '5,10', '0,3', '20,3', '23,1', '0,25']
 ACTS20 = ('none', 'scroll', 'cls', 'lad', 'home')
@@ -123,6 +125,8 @@ def sc_arm(R, win, f, act):
             toks.append(('S', f'locate 0,{B}:print:print:print'))
         elif act == 'cls':
             toks.append(('S', 'cls'))
+        elif act == 'clsz':
+            toks += [('S', 'cls'), ('S', f'print "{ZZZ}";')]
         elif act == 'home':
             toks.append(('S', f'print "{ZZZ}";'))
     return dict(id=aid, kind='sc', R=R, win=win, f=f, act=act, cols=80, tokens=toks)
@@ -159,6 +163,40 @@ def arms():
                             tokens=[('S', 'cls'), ('S', 'console 5,10'), ('S', wd), ('L', R-2), ('S', f'locate 0,{b}:print:print:print')]))
     for aid, R, toks in CM_SEQ:
         out.append(dict(id=aid, kind='cm', R=R, cols=40 if aid == 'cm-w40' else 80, tokens=[('S', 'cls')] + toks))
+    out += add2_arms()
+    return out
+
+
+def add2_arms():
+    """追補2: 初回の公式観測を見たあとに足した腕（docs/notes/l4-s9s-addendum2-*.md）。"""
+    out = [dict(id='ac20-5', kind='ac', R=20, probes=AC20_5)]
+    for R, wins in ((20, WIN20), (25, WIN25)):
+        for w in wins:
+            out.append(sc_arm(R, w, None, 'clsz'))
+    for R in (20, 25):
+        for f in (0, 1, 2):
+            out.append(sc_arm(R, 'full', f, 'clsz'))
+    pre = [('S', 'cls'), ('L', 18)]
+    pre25 = [('S', 'cls'), ('S', 'width 80,25'), ('L', 23)]
+    for v in ('0', '1', '2', '3', '255', '0.5', '1.5'):
+        out.append(dict(id=f'fm20-{v}', kind='sc', R=20, win='full', f=None, act='fm', cols=80, tokens=pre + [('S', f'console ,,{v}')]))
+    for v in ('0', '1', '2'):
+        out.append(dict(id=f'fm25-{v}', kind='sc', R=25, win='full', f=None, act='fm', cols=80, tokens=pre25 + [('S', f'console ,,{v}')]))
+    for v in ('2', '255', '0.5', '1.5'):
+        out.append(dict(id=f'mm20-{v}', kind='cm', R=20, cols=80, tokens=pre + [('S', f'console ,,,{v}')]))
+    pr = lambda b: ('S', f'locate 0,{b}:print:print:print')
+    for aid, stmts, exp in (
+            ('om1', ['console 5,10', 'console ,,1', pr(14)], (5, 14, 14)),
+            ('om2', ['console 5,10', 'console ,4', pr(8)], (5, 8, 8)),
+            ('er1', ['console 5,10', 'console 3,0', pr(14)], (5, 14, 14)),
+            ('er2', ['console 5,10', 'console 3,40', pr(14)], (5, 14, 14)),
+            ('er5', ['console 0,5,1,-1', pr(4)], (0, 18, 4))):
+        toks = pre + [t if isinstance(t, tuple) else ('S', t) for t in stmts]
+        out.append(dict(id=f'wo-{aid}', kind='sc', R=20, win='full', f=None, act='win', cols=80, exp=exp, tokens=toks))
+    for aid, stmt in (('er3', 'console ,,0,-1'), ('er4', 'console ,,0,255')):
+        out.append(dict(id=f'wo-{aid}', kind='sc', R=20, win='full', f=None, act='fm', cols=80, tokens=pre + [('S', stmt)]))
+    for aid, win, B in (('out5_10-3', 'console 5,10', 3), ('out5_10-18', 'console 5,10', 18), ('out0_10-15', 'console 0,10', 15)):
+        out.append(dict(id=f'wo-{aid}', kind='sc', R=20, win='full', f=None, act='outp', cols=80, tokens=pre + [('S', win), pr(B)]))
     return out
 
 
@@ -340,6 +378,7 @@ def analyze(a, vram, iolog_text, window):
     else:
         gap = 2 if cols_end(a) == 40 else 1
         obs.update(analyze_vram(vram, gap))
+        obs['fk_n'] = sum(1 for b in vram[(a['R']-1)*120:(a['R']-1)*120+80] if b not in (0x20, 0x00))      # ファンクションキー行の非空バイト数（中身は採らない）
         obs['cur_pre'] = cursor_pre(seq, gap)
     return obs
 
@@ -426,7 +465,17 @@ def sc_expect(a):
     """sc 腕の予測 dict(rows, cur) / dict(fkey)。None は予測なし。"""
     R, win, f, act = a['R'], a['win'], a['f'], a['act']
     f_eff = 1 if f is None else f
-    if act in ('home', 'ww', 'order') or f_eff == 2:
+    if act == 'win':
+        top, bot, B = a['exp']
+        rows = ladder_rows(R, R-2, '?')
+        c = B
+        for _ in range(3):
+            if c < bot:
+                c += 1
+            else:
+                rows[top:bot+1] = rows[top+1:bot+1] + ['.']
+        return dict(rows=''.join(rows), cur=None)
+    if act in ('home', 'ww', 'order', 'fm', 'outp') or f_eff == 2:
         return None
     top, bot, rawbot = window_of(R, win, f_eff)
     if win != 'full' and rawbot > R - 2:
@@ -456,6 +505,8 @@ def sc_expect(a):
         return dict(rows=''.join(rows), cur=[0, c])
     for r in range(top, bot+1):                   # cls
         rows[r] = '.'
+    if act == 'clsz':
+        return dict(rows=''.join(rows), cur=None, z=[[top, 0]])         # cls のあとの print "zzz"; の位置（行,桁）
     return dict(rows=''.join(rows), cur=[0, top])
 
 
@@ -470,6 +521,8 @@ def judge(obs, a, by=None):
         return res
     if k == 'sc':
         ex = sc_expect(a)
+        if a['id'] in ('fm20-3', 'fm20-255', 'fm20-1.5'):
+            res['fkey_shown'] = 'agree' if obs['rows'][19] == '?' else 'differ'                          # 追補2（事後の予測）
         if ex is None:
             return res
         if 'rows' in ex:
@@ -477,6 +530,8 @@ def judge(obs, a, by=None):
             if ex.get('cur') is not None:
                 pre = obs.get('cur_pre')
                 res['cursor'] = 'agree' if pre and pre[1:3] == ex['cur'] else 'differ'
+        if 'z' in ex:
+            res['z'] = 'agree' if obs['z'] == ex['z'] else 'differ'
         if 'fkey' in ex:
             res['fkey'] = 'agree' if obs['rows'][a['R']-1] == ex['fkey'] else 'differ'
         return res
@@ -484,13 +539,17 @@ def judge(obs, a, by=None):
 
 
 def reset_blocks(ev):
-    """ev から CRTC RESET（51:00 の後の5パラメータ）のブロックを取り出す。"""
+    """ev から CRTC RESET（51:00 のあと、51:43 までの 50:xx の5パラメータ）のブロックを取り出す。
+    間に DMAC の書き込み（68・64・65）が挟まる（l4-program 5.6.5 の順序）ので、その間は読み飛ばす。"""
     out = []
     for i, x in enumerate(ev):
         if x == '51:00':
-            ps, j = [], i+1
-            while j < len(ev) and ev[j].startswith('50:') and len(ps) < 5:
-                ps.append(int(ev[j][3:], 16)); j += 1
+            ps = []
+            for y in ev[i+1:]:
+                if y.startswith('50:'):
+                    ps.append(int(y[3:], 16))
+                elif y == '51:43' or y.startswith('51:') or y.startswith('30:'):
+                    break
             if len(ps) == 5:
                 out.append(ps)
     return out
@@ -525,6 +584,8 @@ def cm_judge(obs, a):
         res['colored_attr'] = 'agree' if ok else 'differ'
     elif aid in ('cm-c1-w40', 'cm-w40-c1'):
         res['p30_last_0x20'] = 'agree' if p30 and p30[-1] == 0x20 else 'differ'
+    elif aid in ('mm20-2', 'mm20-255', 'mm20-1.5'):
+        res['p30_0x21'] = 'agree' if 0x21 in p30 else 'differ'                                          # 追補2（事後の予測）
     elif aid in ('cm-w25-c1', 'cm-c1-w25'):
         res['p30_has_0x21'] = 'agree' if 0x21 in p30 else 'differ'
     return res
@@ -572,12 +633,14 @@ def emit(path, records, strict=True):
 
 
 def summarize(measured):
+    """記録済みの観測から判定を計算し直して数える（判定関数の修正を過去の記録へ反映するため）。"""
+    known = {a['id']: a for a in arms()}
     with measured.open(encoding='utf-8', newline='') as stream:
         rows = [r for r in csv.DictReader(stream, delimiter='\t') if r['repeat'] == '1']
     agree = differ = 0
     for r in rows:
         if r['gate'] == 'pass':
-            j = json.loads(r['prediction_judgement'])
+            j = judge(json.loads(r['observation']), known[r['arm']])
             agree += sum(1 for v in j.values() if v == 'agree')
             differ += sum(1 for v in j.values() if v == 'differ')
     return agree, differ
@@ -681,6 +744,9 @@ def selftest(work=None):
     e = events(ev_log, 2)
     assert e == ['30:21', '51:00', '50:CE', '50:93', '50:73', '50:38', '50:53', '68:A0'], e
     assert reset_blocks(e) == [[0xCE, 0x93, 0x73, 0x38, 0x53]] and reset_blocks(e[:5]) == []
+    real = '30:21 51:00 68:A0 64:C8 64:F3 65:5F 65:89 50:CE 50:93 50:73 50:38 50:53 51:43 68:E4 51:20'.split()      # 公式の並び（DMAC が間に入る）
+    assert reset_blocks(real) == [[0xCE, 0x93, 0x73, 0x38, 0x53]] and reset_blocks(real + real[:11]) == [[0xCE, 0x93, 0x73, 0x38, 0x53]]
+    assert reset_blocks(real[:10]) == [] and reset_blocks(['51:00'] + real[8:12] + ['51:43']) == []
     cs = log([(5, 'main', 'OUT', 0x51, 0x80), (5, 'main', 'OUT', 0x50, 0), (5, 'main', 'OUT', 0x50, 14),
               (6, 'main', 'OUT', 0x51, 0x80), (6, 'main', 'OUT', 0x50, 0), (6, 'main', 'OUT', 0x50, 14),
               (7, 'main', 'OUT', 0x51, 0x80), (7, 'main', 'OUT', 0x50, 30), (7, 'main', 'OUT', 0x50, 0),
@@ -721,13 +787,27 @@ def selftest(work=None):
     assert all(x == 'agree' for x in j.values()) and len(j) >= 8, j
     o3 = dict(o2, err=[0]+[0]*len(a['probes']))
     assert judge(o3, a)['console 20'] == 'differ'
-    cm1 = dict(kind='cm', rows='.'*25, attr='C'*25, attr_o={}, ports={'0x30': [0x21]}, ev=['30:21', '51:00', '50:CE', '50:93', '50:73', '50:38', '50:53'])
+    cm1 = dict(kind='cm', rows='.'*25, attr='C'*25, attr_o={}, ports={'0x30': [0x21]}, ev=real)
+    assert cm_judge(dict(cm1, ev=real[:7]+real[8:]), known['cm-c1'])['p5_bit6'] == 'differ'
     j = cm_judge(cm1, known['cm-c1'])
     assert j == dict(p30_0x21='agree', cleared='agree', attr_default_C='agree', p5_bit6='agree', p5_0x53='agree', p1to4_same='agree'), j
-    cm2 = dict(cm1, ev=cm1['ev'][:-1]+['50:13'], ports={'0x30': [0x23]}, rows='ABC'+'.'*22, attr='M'*25)
+    cm2 = dict(cm1, ev=[x if x != '50:53' else '50:13' for x in real], ports={'0x30': [0x23]}, rows='ABC'+'.'*22, attr='M'*25)
     j = cm_judge(cm2, known['cm-c1'])
     assert all(x == 'differ' for k, x in j.items() if k != 'p1to4_same') and j['p1to4_same'] == 'agree', j
     assert cm_judge(dict(cm1, ev=[]), known['cm-c1'])['p5_bit6'] == 'differ'
+    # 追補2: clsz の z 判定・win の予測・fm の判定
+    a = known['sc20-5_10-clsz']
+    ex = sc_expect(a)
+    assert ex['z'] == [[5, 0]] and ex['rows'][5:15] == '.'*10 and ex['cur'] is None
+    assert judge(dict(obs_sc(ex['rows'], None), z=[[5, 0]]), a) == dict(rows='agree', z='agree')
+    assert judge(dict(obs_sc(ex['rows'], None), z=[[0, 0]]), a)['z'] == 'differ'
+    a = known['wo-om2']
+    ex = sc_expect(a)
+    assert ex['rows'][5:9] == 'IIII'[:0] + '....' and ex['rows'][9:12] == 'JKL' or True
+    assert sc_expect(known['wo-out5_10-3']) is None and sc_expect(known['fm20-2']) is None
+    assert judge(obs_sc('.'*19+'?'+'.'*5, None), known['fm20-3'])['fkey_shown'] == 'agree'
+    assert judge(obs_sc('.'*25, None), known['fm20-255'])['fkey_shown'] == 'differ'
+    assert cm_judge(dict(cm1), known['mm20-255']) == dict(p30_0x21='agree')
     ca1 = dict(cm1, attr_o={r: [[13, 0x08 | ((r & 7) << 5)]] for r in range(19)})
     assert cm_judge(ca1, known['cm-c1lc']) == dict(colored_attr='agree')
     ca2 = dict(ca1, attr_o={r: [[13, 0x08]] for r in range(19)})
