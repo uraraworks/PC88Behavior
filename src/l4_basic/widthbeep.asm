@@ -19,6 +19,10 @@ WB_ON EQU 021h
 ; ---- mainからの固定入口（deftype.asmの後ろ）。引数はRAM（MM_FN_AUX）で渡す
     ORG 0x7A40
     JP wb_bell
+    ORG 0x7A44
+    JP wb_scroll               ; 窓のスクロール（screen.asm SCROLL）。HL=消すべき行の先頭を返す
+    ORG 0x7A48
+    JP wb_cls                  ; 窓の消去とカーソルを (窓の上端, 0) へ（screen.asm CLS_SCREEN）
     ORG 0x7A50
     JP wb_locate               ; MM_FN_AUX=桁x、MM_FN_AUX+1=行y（run.asm LOCATE_STMT）
     ORG 0x7A54
@@ -75,7 +79,8 @@ wb_wait:
 
 ; ---- LOCATE の本体（第5.2節）。桁・行は現在のWIDTHの範囲へ丸める（範囲外は最大値。
 ; 4.22.5 は範囲外でも誤りにならないことだけを観測しているので、丸めは自作判断）。
-; 行は最終の使用行(MM_SCR_MAXROW。ファンクションキー行を除く)まで。
+; 行は最終の使用行（ファンクションキー表示ありなら行数-2、なしなら行数-1。wb_limit）まで。
+; 絶対座標なので CONSOLE の窓の外へも書ける（5.4.6 (2)）。
 wb_locate:
     LD A,(MM_SCR_COLS)
     LD B,A
@@ -86,7 +91,7 @@ wb_locate:
     DEC A
 wb_lc_col:
     LD (MM_VAR_COL),A
-    LD A,(MM_SCR_MAXROW)
+    CALL wb_limit
     LD B,A
     LD A,(MM_FN_AUX+1)
     CP B
@@ -94,17 +99,115 @@ wb_lc_col:
     LD A,B
 wb_lc_row:
     LD (MM_VAR_ROW),A
-    LD HL,MM_TEXT_BASE
-    OR A
-    JR Z,wb_lc_base
-    LD B,A
-    LD DE,120
-wb_lc_mul:
-    ADD HL,DE
-    DJNZ wb_lc_mul
-wb_lc_base:
+    CALL wb_rowaddr
     LD (MM_VAR_ROWBASE),HL
     RET
+
+; ---- 画面の窓（CONSOLE。5.4.6）の計算と、窓に作用する SCROLL・CLS の本体。
+; 状態: MM_SCR_WTOP=窓の開始行（実効）、MM_SCR_WN=指定された行数、MM_SCR_MAXROW=窓の下端、
+;   MM_SCR_MODE bit1=ファンクションキー表示なし、行数は MM_SCR_P31 の bit5（0x39=25行）。
+; 窓の下端 = min(開始行+行数-1, wb_limit)、実効の開始行 = min(開始行, 下端)（5.4.6 (2)）。
+; 行数: A=20か25。AFだけ壊す。
+wb_rows:
+    LD A,(MM_SCR_P31)
+    BIT 5,A
+    LD A,20
+    RET Z
+    LD A,25
+    RET
+
+; 窓の限界（fkey下限）: A=行数-2（ファンクションキー表示あり）／行数-1（なし）。Cを壊す。
+wb_limit:
+    LD C,18
+    LD A,(MM_SCR_P31)
+    BIT 5,A
+    JR Z,wb_li_20
+    LD C,23
+wb_li_20:
+    LD A,(MM_SCR_MODE)
+    BIT 1,A
+    LD A,C
+    RET Z
+    INC A
+    RET
+
+; 窓の下端と実効の開始行を、開始行・行数・ファンクションキー表示・行数から計算し直す。
+wb_win_calc:
+    CALL wb_limit
+    LD C,A
+    LD A,(MM_SCR_WTOP)
+    LD B,A
+    LD A,(MM_SCR_WN)
+    ADD A,B
+    DEC A
+    CP C
+    JR C,wb_wc_bot
+    LD A,C
+wb_wc_bot:
+    LD (MM_SCR_MAXROW),A
+    CP B
+    JR C,wb_wc_top
+    LD A,B
+wb_wc_top:
+    LD (MM_SCR_WTOP),A
+    RET
+
+; A=行 → HL=その行の先頭のVRAM番地（MM_TEXT_BASE+120×行）。BとDEを壊す。
+wb_rowaddr:
+    LD HL,MM_TEXT_BASE
+    OR A
+    RET Z
+    LD B,A
+    LD DE,120
+wb_ra_mul:
+    ADD HL,DE
+    DJNZ wb_ra_mul
+    RET
+
+; SCROLL の本体: 窓の行 開始行+1〜下端 を1行上へ書き写し、窓の下端の行の先頭番地をHLで返す
+; （消すのは呼び出し元 screen.asm SCROLL が CLEAR_ROW で行う）。1行の窓は書き写さない。
+wb_scroll:
+    LD A,(MM_SCR_WTOP)
+    CALL wb_rowaddr
+    PUSH HL
+    LD A,(MM_SCR_MAXROW)
+    CALL wb_rowaddr
+    POP DE
+    PUSH HL
+    OR A
+    SBC HL,DE
+    LD B,H
+    LD C,L
+    LD H,D
+    LD L,E
+    PUSH BC
+    LD BC,120
+    ADD HL,BC
+    POP BC
+    LD A,B
+    OR C
+    JR Z,wb_sc_done
+    LDIR
+wb_sc_done:
+    POP HL
+    RET
+
+; CLS の本体: 窓の行（開始行〜下端）を mainのCLEAR_N_ROWS で消し、カーソルを (開始行, 桁0) へ。
+wb_cls:
+    LD A,(MM_SCR_WTOP)
+    LD (MM_VAR_ROW),A
+    CALL wb_rowaddr
+    LD (MM_VAR_ROWBASE),HL
+    XOR A
+    LD (MM_VAR_COL),A
+    LD A,(MM_SCR_MAXROW)
+    LD HL,MM_SCR_WTOP
+    SUB (HL)
+    INC A
+    LD B,A
+    LD HL,(MM_VAR_ROWBASE)
+    LD IX,WB_CLEAR_ADDR
+    JP FN_MAIN_CALL_ADDR
 
 ; ---- COLOR（第5.4節）。書式: COLOR [n][,[第2引数][,[第3引数][,[第4引数]]]]。
 ; 受理範囲と誤り（l4-s9p の観測）: n は 0〜7（小数は四捨五入）、範囲外=ERR 5、文字列=ERR 13、
@@ -476,8 +579,7 @@ wb_width_stmt:
     JR NZ,wb_w_range
 wb_w_cols:
     LD (MM_FN_AUX),A
-    LD A,(MM_SCR_MAXROW)       ; 行の省略は現在の行数のまま
-    ADD A,2
+    CALL wb_rows               ; 行の省略は現在の行数のまま
     LD (MM_FN_AUX+1),A
     CALL ts_skip
     CALL ts_peek
@@ -506,7 +608,7 @@ wb_w_rows:
 wb_w_end:
     CALL wb_w_at_end
     JP NZ,fn_syntax
-    JR wb_w_apply
+    JR wb_w_reset
 wb_w_missing:
     LD A,22
     JP fn_error
@@ -576,14 +678,16 @@ wb_w_tab20:
 wb_w_tab25:
     DB 039h,0B7h,08Bh,0CEh,098h,06Fh,058h,013h
 
+; width が受理されたら CONSOLE の窓は全画面に戻る（5.4.6 (2)・5.6.8）。ファンクションキー表示（f）は変えない。
+wb_w_reset:
+    LD HL,25<<8
+    LD (MM_SCR_WTOP),HL
 wb_w_apply:
     LD A,(MM_FN_AUX)
     LD (MM_SCR_COLS),A
     LD C,A
     LD A,(MM_FN_AUX+1)
     LD B,A
-    SUB 2
-    LD (MM_SCR_MAXROW),A
     LD HL,wb_w_tab20
     LD A,B
     CP 25
@@ -652,6 +756,7 @@ wb_wa_p5:
     OUT (0x68),A
     LD A,020h                  ; 10
     OUT (0x51),A
+    CALL wb_win_calc           ; 窓の下端（行数・ファンクションキー表示から）。P31 は上で更新済み
     LD IX,WB_CLEAR_ADDR        ; 3000バイト全体（25行）を消す（mainのCLEAR_N_ROWS）
     LD HL,MM_TEXT_BASE
     LD B,25
@@ -665,40 +770,151 @@ wb_wa_p5:
 
 WB_CLEAR_ADDR EQU 0x1787
 
-; ---- CONSOLE ,,,1（文の種別43。l4-program.md 5.4.6、l4-s9r）
-; 測ったのは第4引数に1を指定した形（console ,,,1）だけ。他の形（第1〜3引数・第4引数の他の値）は未測定なので、
-; 従来どおり構文の誤り（ERR 2）にする。実行すると画面がカラーモードになる（ポート 0x30 に 0x21＝bit1 が 0、
-; 画面は書き換わる、のは 5.4.6 の観測）。
-; 自作判断（未測定）: 現在の桁・行のまま WIDTH と同じ切替（wb_w_apply）をカラーモードで行う。つまり
-;   0x31・0x30（カラーは bit1=0）・CRTC RESET・DMAC を書き直し、3000バイト全体をカラーの既定の属性
-;   （0x80,0xE8）で消してカーソルを先頭へ。CRTC RESET の5つ目のパラメータは、カラーモードのとき
-;   属性の方式のビット（AT1-AT0 の下位 = bit6。l1-ipl.md 第5d節の P5）を立てる（0x13→0x53）。
-;   これを立てないと属性値が色として解釈されない（実描画で確認）。公式がこの CRTC 書き込みをするかは未測定。
+; ---- CONSOLE（文の種別43。l4-program.md 5.4.6、l4-s9r・l4-s9s）
+; 書式: CONSOLE [開始行][,[行数][,[ファンクションキー][,[カラー]]]]。
+;   (1) 受理範囲と誤り: 全省略・末尾のコンマ（「3,」「,5,」「5,10,,」）=ERR 22、引数が5つ以上（コンマが多すぎる）=ERR 2、
+;   第1引数だけ（コンマが無い）=ERR 2、文字列=ERR 13、開始行 0〜24・行数 1〜25（和の検査は無い）・第3/第4引数 0〜255
+;   （小数は四捨五入）の範囲外=ERR 5。省略した引数は前の値のまま。
+;   部分適用: 引数は左から順に検査する。第3引数（ファンクションキー）は読んだ時点で効く（第4引数が誤りでも残る）。
+;   窓（第1・第2引数）と第4引数（カラー/白黒）は、文末まで誤りが無かったときだけ効く（窓の引数が誤りなら窓は変わらない、
+;   「0,5,1,-1」では窓は適用されない）。
+;   (2) 窓: 開始行 s・行数 n のとき下端 = min(s+n-1, 限界)、実効の開始行 = min(s, 下端)（wb_win_calc）。
+;   (3) ファンクションキー f: 0 でファンクションキー行を使う（限界=行数-1）、0以外で使わない（限界=行数-2）。MM_SCR_MODE の bit1 に覚える。
+;   (4) カラー m: 0以外でカラー、0で白黒。モードが実際に変わるときだけ WIDTH と同じ手順（wb_w_apply。0x30 の bit1・CRTC の P5 の
+;   bit6 がモードで変わる）で画面を消してカーソルを先頭へ（窓は保つ）。すでにそのモードなら何もしない。
+; 作業値は MM_CN_*（SECTOR の先頭。ディスクの文と排他）: CN_S=開始行、CN_N=行数、CN_I=引数の番号、
+;   CN_G=bit0 開始行あり・bit1 行数あり・bit2 カラー指定あり・bit3 カラー指定が0以外。
+;   式の評価が MM_FN_AUX を使いうる（ユーザー定義関数）ので、そちらは使わない。
+; 自作判断（未測定）: 第3引数が誤りで第1・第2が通る組の適用は、窓も f も変えない。末尾のコンマの誤り（ERR 22）の前に
+;   読んだ第3引数は効く。
 wb_console_stmt:
-    LD A,3
-    LD (MM_FN_AUX),A
-wb_cs_comma:
-    CALL fn_skip
-    CALL fn_peek
-    CP ','
-    JP NZ,fn_syntax
-    CALL fn_adv
-    LD HL,MM_FN_AUX
-    DEC (HL)
-    JR NZ,wb_cs_comma
-    CALL fn_skip
-    CALL fn_peek
-    CP '1'
-    JP NZ,fn_syntax
-    CALL fn_adv
+    XOR A
+    LD (MM_CN_I),A
+    LD (MM_CN_G),A
+wb_cn_field:
     CALL wb_w_at_end
-    JP NZ,fn_syntax
-    LD A,(MM_SCR_MODE)
+    JP Z,wb_cn_end             ; 文が終わっている: 全省略・末尾のコンマ
+    CALL ts_peek
+    CP ','
+    JR Z,wb_cn_after           ; この引数は省略されている
+    CALL fn_is_string
+    OR A
+    JR Z,wb_cn_num
+    JP fn_type                 ; 文字列はどの位置でも ERR 13
+wb_cn_num:
+    CALL fn_expr
+    CALL fn_bad
+    RET NZ
+    CALL fn_int
+    OR A
+    JP Z,fn_illegal
+    LD A,D
+    OR A
+    JP NZ,fn_illegal           ; 負・256以上は ERR 5
+    LD A,(MM_CN_I)
+    OR A
+    JR Z,wb_cn_s
+    DEC A
+    JR Z,wb_cn_n
+    DEC A
+    JR Z,wb_cn_f
+    LD A,E                     ; 第4引数: カラー（0以外でカラー）
+    OR A
+    LD A,(MM_CN_G)
+    JR Z,wb_cn_m0
+    OR 8
+wb_cn_m0:
+    OR 4
+    JR wb_cn_g
+wb_cn_s:
+    LD A,E
+    CP 25                      ; 開始行 0〜24
+    JP NC,fn_illegal
+    LD (MM_CN_S),A
+    LD A,(MM_CN_G)
     OR 1
+    JR wb_cn_g
+wb_cn_n:
+    LD A,E
+    DEC A
+    CP 25                      ; 行数 1〜25
+    JP NC,fn_illegal
+    INC A
+    LD (MM_CN_N),A
+    LD A,(MM_CN_G)
+    OR 2
+wb_cn_g:
+    LD (MM_CN_G),A
+    JR wb_cn_after
+wb_cn_f:
+    LD A,(MM_SCR_MODE)         ; 第3引数: 読んだ時点で効く。bit1=ファンクションキー表示なし（0のとき）
+    AND 0FDh
+    LD B,A
+    LD A,E
+    OR A
+    LD A,B
+    JR NZ,wb_cn_f_set
+    OR 2
+wb_cn_f_set:
     LD (MM_SCR_MODE),A
-    LD A,(MM_SCR_COLS)
+    CALL wb_win_calc
+wb_cn_after:
+    CALL ts_skip
+    CALL ts_peek
+    CP ','
+    JR NZ,wb_cn_last
+    LD A,(MM_CN_I)
+    CP 3
+    JP Z,fn_syntax             ; 第4引数のあとにコンマ: 多すぎる
+    INC A
+    LD (MM_CN_I),A
+    CALL ts_adv
+    JP wb_cn_field
+wb_cn_last:
+    CALL wb_w_at_end           ; 余分な文字は ERR 2
+    JP NZ,fn_syntax
+    LD A,(MM_CN_I)
+    OR A
+    JP Z,fn_syntax             ; 第1引数だけ（コンマが無い）は ERR 2
+    LD A,(MM_CN_G)
+    RRCA
+    JR NC,wb_cn_nos
+    PUSH AF
+    LD A,(MM_CN_S)
+    LD (MM_SCR_WTOP),A
+    POP AF
+wb_cn_nos:
+    RRCA
+    JR NC,wb_cn_non
+    PUSH AF
+    LD A,(MM_CN_N)
+    LD (MM_SCR_WN),A
+    POP AF
+wb_cn_non:
+    PUSH AF
+    CALL wb_win_calc
+    POP AF
+    RRCA
+    JP NC,fn_ok                ; カラー指定なし
+    LD B,0                     ; 新しいモード（bit0）
+    RRCA
+    JR NC,wb_cn_m
+    INC B
+wb_cn_m:
+    LD A,(MM_SCR_MODE)
+    LD C,A
+    XOR B
+    AND 1
+    JP Z,fn_ok                 ; すでにそのモード: ポートも画面も何もしない
+    LD A,C
+    AND 0FEh
+    OR B
+    LD (MM_SCR_MODE),A
+    LD A,(MM_SCR_COLS)         ; 現在の桁・行のまま WIDTH と同じ切替（窓は保つ）
     LD (MM_FN_AUX),A
-    LD A,(MM_SCR_MAXROW)
-    ADD A,2
+    CALL wb_rows
     LD (MM_FN_AUX+1),A
     JP wb_w_apply
+wb_cn_end:
+    LD A,22                    ; 全省略・末尾のコンマ
+    JP fn_error

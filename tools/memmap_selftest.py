@@ -319,7 +319,7 @@ def main():
     assert addresses["MM_STACK_INDEX"] == addresses["MM_RUN_CUR_RECORD"] + 81
     assert addresses["MM_STACK_TOP"] == 0xF3C8
     check_value_stack()
-    print("memmap_selftest: OK（段D/E仮置き全廃・利用者領域に固定域なし・25行VRAM禁止・スタック386B/最低384B・分割番地・EQU・重なり・陰性対照7種＋旧仮置き7構造）")
+    print("memmap_selftest: OK（段D/E仮置き全廃・利用者領域に固定域なし・25行VRAM禁止・スタック384B/最低384B・分割番地・EQU・重なり・陰性対照7種＋旧仮置き7構造）")
     return 0
 
 

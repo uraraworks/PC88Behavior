@@ -228,10 +228,11 @@ DEFAULT_ATTR_FAULT_NEW = (
 # LDIR範囲に内包されて別ランに分かれるだけで、2280バイトのランは残る)ため、
 # ROWS(=20)そのものを使い2400バイトへずらす(初期化クリアと同じ大きさに
 # 重なるほうを選び、"2280バイトのランが無くなる"という明確な違いにする)。
-# （WIDTH実装でSCROLLの書き写し量を最終使用行(SCR_MAXROW)×STRIDEの計算に替えたため、
-#  行数に2を足して使用行数+1行ぶん（起動時は20行＝2400バイト）書き写す形にする。）
-SCROLL_RANGE_FAULT_OLD = "    LD B,A\n    LD HL,0\n    LD DE,STRIDE"
-SCROLL_RANGE_FAULT_NEW = "    INC A\n    INC A\n    LD B,A\n    LD HL,0\n    LD DE,STRIDE"
+# （CONSOLE実装で書き写しをバンク0 wb_scroll へ移したため、mainのSCROLLで窓の下端の行の
+#  あとにもう1行〔下の行＝予約行〕を余計に消す形にする。起動時は書き写し2160バイト＋消去120バイトの
+#  連続2280バイトに、さらに120バイトが続いて2400バイトの連続になり、2280バイトの連続が消える。）
+SCROLL_RANGE_FAULT_OLD = "    CALL EXT_BANK_CALL\n    JP CLEAR_ROW"
+SCROLL_RANGE_FAULT_NEW = "    CALL EXT_BANK_CALL\n    CALL CLEAR_ROW\n    JP CLEAR_ROW"
 
 # 故障注入: 第16節HOME/CLR(08H:0)のSHIFT分岐を反転する（自己検査の陰性
 # 対照専用。tools/l3_screen_editor_selftest.sh）。無修飾=clear/SHIFT=home

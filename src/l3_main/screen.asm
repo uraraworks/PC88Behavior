@@ -46,9 +46,11 @@ ROWS        EQU 20       ; docs/spec/l1-ipl.md 第0節（起動時の実際の�
 ; WIDTH（l4-program.md 4.22・5.6）で桁数・行数が変わる。現在値は下のRAM変数。
 USABLE_ROWS EQU ROWS-1
 SCR_COLS    EQU MM_SCR_COLS     ; 現在の桁数（40か80）
-SCR_MAXROW  EQU MM_SCR_MAXROW   ; 現在の最終の使用行（行0始まり。行数-2。起動時18、25行で23）
+SCR_MAXROW  EQU MM_SCR_MAXROW   ; 窓（スクロール範囲）の下端の行（行0始まり。窓なしでファンクションキー表示ありなら行数-2。起動時18、25行で23。CONSOLE で変わる）
+SCR_WTOP    EQU MM_SCR_WTOP     ; 窓の上端の行（実効。起動時0）。窓の下端は SCR_MAXROW。窓の計算・SCROLL・CLS_SCREEN の本体はバンク0（widthbeep.asm）
+SCR_WN      EQU MM_SCR_WN       ; CONSOLE で指定された行数（省略時に前の値を残すための保持。起動時25）
 SCR_P31     EQU MM_SCR_P31      ; 垂直同期のたびにポート0x31へ出す値（20行0x19・25行0x39。l4-program.md 5.6.5）
-SCR_MODE    EQU MM_SCR_MODE     ; bit0=カラーモード（console ,,,1。l4-program.md 5.4.5・5.4.6）、bit5=INPUT待ちで見た垂直帰線の位相（RUN_CURSOR_INPUT）
+SCR_MODE    EQU MM_SCR_MODE     ; bit0=カラーモード（console ,,,1。l4-program.md 5.4.5・5.4.6）、bit1=ファンクションキー表示なし（console ,,0）、bit5=INPUT待ちで見た垂直帰線の位相（RUN_CURSOR_INPUT）
 SCR_ZT      EQU MM_SCR_ZT       ; bit0-4=コンマ欄の改行閾値T÷2（80桁28・40桁7。l4-program.md 4.22.4）、bit5-7=現在の COLOR 値（5.4。0〜7）
 
 ; ---- RAM変数（0000-7FFFはROM＝L1のROM/RAMモード設定のため書けない。
@@ -72,6 +74,8 @@ SCREEN_MAIN:
     LD (VAR_ROWBASE),HL
     LD HL,((ROWS-2)<<8)|COLS    ; 起動時の桁数80・最終使用行18（WIDTHの状態）
     LD (SCR_COLS),HL
+    LD HL,25<<8                 ; 窓は全画面（開始行0・行数25。l4-program.md 5.4.6）
+    LD (SCR_WTOP),HL
     LD HL,(28<<8)|019h          ; ポート0x31の値0x19（20行）・コンマ欄閾値56÷2・COLOR 値0
     LD (SCR_P31),HL
     CALL CLEAR_SCREEN
@@ -153,27 +157,18 @@ _cr_attr:
 ; ---------------------------------------------------------------------
 ; CLS_SCREEN — M7段階5c-2a: `CLS`文の本体(docs/spec/l4-program.md
 ;   第5.1節)。ファンクションキー表示行（最下行、予約行）を除く
-;   現在の使用行数(SCR_MAXROW+1)行だけを空白＋既定の属性で埋め、
-;   カーソルを絶対行0・桁0へ戻す(第5.1節F1「消した後に残るのはOk相当の行と
-;   ファンクションキー表示の行だけ」——予約行を対象外にする構造はスクロール
-;   対象と同じNEWLINE/SCROLLの規約(第15節)をそのまま流用)。
+;   窓の行（SCR_WTOP〜SCR_MAXROW。窓なしなら0〜SCR_MAXROW）だけを空白＋既定の属性で埋め、
+;   カーソルを (窓の上端, 桁0) へ戻す(第5.1節F1「消した後に残るのはOk相当の行と
+;   ファンクションキー表示の行だけ」、5.4.6 (2)「cls 後のカーソルは (窓の上端, 桁0)」)。
+;   本体はバンク0 wb_cls（mainの空きを作るため）。
 ; ---------------------------------------------------------------------
 ; (build_main_rom.pyの故障注入FAULT_OLD/NEWは、SCREEN_MAINの
 ;  "LD HL,TEXT_BASE"直後に"LD (VAR_ROWBASE),HL"が続く2行を対象に一意に
-;  検索するため、ここでは同じ並びを作らないよう命令の順序をずらす
-;  〔仕様書に無い判断、実装上の都合のみ〕。)
+;  検索するため、この並びを他に作らない。)
 CLS_SCREEN:
-    LD A,(SCR_MAXROW)
-    INC A
-    LD B,A
-    LD HL,TEXT_BASE
-    CALL CLEAR_N_ROWS
-    LD HL,TEXT_BASE
+    LD HL,07A48h                ; バンク0 wb_cls（widthbeep.asm）: 窓の行（開始行〜窓の下端）を消し、カーソルを (窓の上端, 0) へ
     XOR A
-    LD (VAR_ROW),A
-    LD (VAR_COL),A
-    LD (VAR_ROWBASE),HL
-    RET
+    JP EXT_BANK_CALL
 
 ; LOCATE（第5.2節）の本体と COLOR（第5.4節）の本体は拡張ROMバンク0
 ; （src/l4_basic/widthbeep.asm の wb_locate・wb_color）へ移した。
@@ -280,10 +275,7 @@ NEWLINE:
     INC A
     CP E
     JR C,_nl_no_scroll
-    CALL SCROLL
-    LD A,(SCR_MAXROW)
-    LD (VAR_ROW),A
-    RET
+    JP SCROLL                   ; 窓の下端以降（窓の下の行を含む）からは窓がスクロールし、カーソルは動かない（l4-program.md 5.4.6 (2)）
 _nl_no_scroll:
     LD (VAR_ROW),A
     LD HL,(VAR_ROWBASE)
@@ -294,27 +286,16 @@ _nl_no_scroll:
 
 ; ---------------------------------------------------------------------
 ; SCROLL — VRAMを1行ぶん書き写す（l3-main.md 第5節）。
-; 対象は使用可能な先頭行を除く USABLE_ROWS-1 行 =
-; 120*(USABLE_ROWS-1) バイトの連続コピー（第15節: ファンクションキー
-; 表示ありの既定では範囲は表示行数-1＝USABLE_ROWS）。
-; 最終使用可能行（VAR_ROWBASEが指す、コピー前の最終使用可能行の
-; アドレス＝コピー後は空くべき行と同じ番地）を空白＋既定属性で埋め直す。
-; 最下行（ファンクションキー表示の予約行）はここでは一切触らない。
+; 窓（SCR_WTOP〜SCR_MAXROW。窓なしでファンクションキー表示ありなら 0〜行数-2）の行だけを
+; 1行上へ書き写し（120*(下端-上端)バイトの連続コピー）、窓の下端の行を空白＋既定属性で
+; 埋め直す。窓の外の行（ファンクションキー表示の予約行を含む）は触らない
+; （l4-program.md 5.4.6 (2)・第15節）。コピーはバンク0 wb_scroll が行い、
+; 消すべき行（窓の下端の行）の先頭番地をHLで返す。
 ; ---------------------------------------------------------------------
 SCROLL:
-    LD A,(SCR_MAXROW)           ; 書き写す行数 = 使用行数-1 = 最終使用行
-    LD B,A
-    LD HL,0
-    LD DE,STRIDE
-_sc_mul:
-    ADD HL,DE
-    DJNZ _sc_mul
-    LD B,H
-    LD C,L                      ; BC = STRIDE*(使用行数-1)
-    LD HL,TEXT_BASE+STRIDE
-    LD DE,TEXT_BASE
-    LDIR
-    LD HL,(VAR_ROWBASE)
+    LD HL,07A44h                ; バンク0 wb_scroll（widthbeep.asm）
+    XOR A
+    CALL EXT_BANK_CALL
     JP CLEAR_ROW
 
 ; ---------------------------------------------------------------------
