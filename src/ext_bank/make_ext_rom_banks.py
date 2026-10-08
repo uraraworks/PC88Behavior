@@ -123,6 +123,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/l4_basic/widthbeep.asm").read_text(encoding="utf-8")
     if asm_path.name == "bank2.asm":
         text += "\n" + (REPO / "src/ext_bank/gfx.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/ext_bank/line.asm").read_text(encoding="utf-8")
     if asm_path.name == "bank3.asm":
         for rel in BANK3_EXTRA_SOURCES:
             text += "\n" + (REPO / rel).read_text(encoding="utf-8")

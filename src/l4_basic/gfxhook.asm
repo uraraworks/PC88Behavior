@@ -2,7 +2,7 @@
 ; bank0.asm の後ろ・deffn.asm の前の空き（0x6A33〜0x6AFF）に置く（make_ext_rom_banks.py が連結順を決める）。
 ; グラフィック文の本体はバンク2（src/ext_bank/gfx.asm）。ここに置くのは次の3つだけ。
 ;   (1) 文の語の表 fn_words（deftype.asm から移した。PSET・PRESET・POINT・SCREEN を足した）。
-;       文の種別は表の並びの番号+29（LET=1→30 ... CONSOLE=14→43、PSET=15→44、PRESET=45、POINT=46、SCREEN=47）。
+;       文の種別は表の並びの番号+29（LET=1→30 ... CONSOLE=14→43、PSET=15→44、PRESET=45、POINT=46、SCREEN=47、LINE=48）。
 ;   (2) 種別44以上の文をバンク2へ渡す中継（deftype.asm fn_stmt_dispatch から）。
 ;   (3) 式の中の POINT( を ts_try より先に見てバンク2の関数入口へ渡す。
 ; バンク0からバンク2を呼ぶには、窓外中継 EXT_BANK_MAIN_CALL でmainの EXT_BANK_CALL を呼ぶ
@@ -15,7 +15,7 @@ GFX_POINT_ENTRY EQU 0x7310
 ; 文の語の表（照合順。DEFはDEFINT等より前でも、語の直後が英字なら一致しない）
 fn_words:
     DB 3,"LET",5,"WHILE",4,"WEND",3,"DEF",4,"SWAP",5,"ERASE",6,"DEFINT",6,"DEFSNG",6,"DEFDBL",6,"DEFSTR",3,"RUN",4,"BEEP",5,"WIDTH",7,"CONSOLE"
-    DB 4,"PSET",6,"PRESET",5,"POINT",6,"SCREEN",0
+    DB 4,"PSET",6,"PRESET",5,"POINT",6,"SCREEN",4,"LINE",0
 
 gfx_stmt_fwd:
     LD HL,GFX_STMT_ENTRY

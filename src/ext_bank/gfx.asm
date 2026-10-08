@@ -102,6 +102,8 @@ gx_stmt:
     JR Z,gx_preset
     CP 46
     JR Z,gx_point_stmt
+    CP 47
+    JP NZ,gx_line               ; 48=LINE（line.asm）
     JP gx_screen
 
 ; PSET [STEP](x,y)[,色]。色の省略は前景（COLOR 第4引数。既定7）
@@ -145,6 +147,7 @@ gx_color_arg:
     RET
 gx_ca_have:
     CALL s2_adv
+gx_ca_val:                      ; ',' は読み済み（LINE からも入る）
     CALL gx_parse_int
     CALL gx_bad
     RET NZ
