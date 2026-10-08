@@ -326,7 +326,17 @@ def arms():
            'line(10,10)-step(5,5),7', 'line(10,10)-(20,20),7,b,', 'line(10,10)-(20,20),7,,', 'line(10,10)-(20,20),7,,,5', 'line step-(5,5)']
     out.append(arm('sx-a', PRE + [syn_item(s) for s in syn[:12]]))
     out.append(arm('sx-b', PRE + [syn_item(s) for s in syn[12:]]))
-    return out
+    return out + add1_arms()
+
+
+def add1_arms():
+    """追補1: 初回の bx-p2 で、画面の外にしかない箱を描いたのに (0,0) が色7で光った。どの箱が原因かを分ける記述的な腕（予測なし、的中数に数えない）。
+    docs/notes/l4-s9u-addendum1-box-corner.md"""
+    return [arm('bx-q1', PRE + [L((-30, -30), (-10, -10), 7, 'bf')]),
+            arm('bx-q2', PRE + [L((700, 10), (800, 50), 7, 'b')]),
+            arm('bx-q3', PRE + [L((-20, 120), (800, 180), 7, 'b')]),
+            arm('bx-q4', PRE + [L((-5000, -5000), (5000, 5000), 3, 'b')]),
+            arm('bx-q5', PRE + [L((-30, -30), (-10, -10), 7, 'b')])]
 
 
 # ---------------------------------------------------------------- 予測のモデル（事前登録のとおり。強 s・中 m・弱 w）
@@ -768,6 +778,8 @@ def judge(obs, a):
             put(f'p{i}_e', vals[0], pred['e'][0], pred['e'][1])
         if pred.get('lp') is not None and pred['lp'][0] is not None:
             put(f'p{i}_lp', tuple(vals[1:3]), pred['lp'][0], pred['lp'][1])
+    if a['id'].startswith('bx-q'):
+        return res                      # 追補1は初回を見たあとの記述的な腕。予測は付けない
     if a['id'] == 'base-cls3':
         put('empty', obs['n'], 0, 'm')
         return res
