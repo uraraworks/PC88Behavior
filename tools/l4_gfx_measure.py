@@ -33,6 +33,8 @@ PORTS = (0x30, 0x31, 0x32, 0x34, 0x35, 0x53) + tuple(range(0x54, 0x60))
 EVP = (0x34, 0x35, 0x5C, 0x5D, 0x5E, 0x5F)
 LIT_MAX = 100
 EV_MAX = 60
+EVX_PORTS = (0x31, 0x34, 0x35, 0x53, 0x5C, 0x5D, 0x5E, 0x5F)      # 追補1: VRAM 切替・表示系 OUT の全列（連長圧縮）
+EVX_MAX = 3000
 SENT = 's9tz'
 GV_LEN = 0xC000
 PLANE = 0x4000
@@ -81,8 +83,11 @@ def text(stmt):
     return dict(op='text', stmt=stmt)
 
 
-def arm(aid, items, pix=None, rec_lit=True, group=None, note=''):
-    return dict(id=aid, items=items, pix=pix or [], rec_lit=rec_lit, group=group or aid.split('-')[0], note=note)
+def arm(aid, items, pix=None, rec_lit=True, group=None, note='', evx=False):
+    a = dict(id=aid, items=items, pix=pix or [], rec_lit=rec_lit, group=group or aid.split('-')[0], note=note)
+    if evx:
+        a['evx'] = True
+    return a
 
 
 PRE = [screen('0,0'), cls(3)]
@@ -179,6 +184,22 @@ def arms():
         out.append(arm(f'scr-e{k//10}', PRE + [x for s in se[k:k+10] for x in (point_stmt(77, 66), screen(s, probe=True, restore=True))]))
     for m in ('2', '3', '4'):
         out.append(arm(f'scr-m{m}', PRE + [pset(100, 100, 7, probe=False), point_stmt(77, 66), screen(m, probe=True)]))
+    return out + add1_arms()
+
+
+def add1_arms():
+    """追補1: 初回の公式観測で出た疑問（書き込み経路・screen 文ごとのポート）を詰める腕。docs/notes/l4-s9t-addendum1-access-and-screen-ports.md"""
+    out = [arm('acc2-0', PRE, evx=True), arm('acc2-1', PRE + [pset(1, 0, 7, probe=False)], evx=True),
+           arm('acc2-2', PRE + [pset(1, 0, 3, probe=False)], evx=True),
+           arm('acc2-3', PRE + [pset(1, 0, 7, probe=False), pset(9, 1, 2, probe=False)], evx=True),
+           arm('acc2-p', PRE + [pset(1, 0, pre=True, probe=False)], evx=True),
+           arm('acc2-r', PRE + [pset(1, 0, 7, probe=False), pfn(1, 0)], evx=True),
+           arm('acc2-m0', [screen('1'), cls(3)], evx=True),
+           arm('acc2-m1', [screen('1'), cls(3), pset(1, 0, 1, probe=False)], evx=True),
+           arm('acc2-m2', [screen('1,0,1,7'), cls(3), pset(1, 0, 1, probe=False)], evx=True),
+           arm('acc2-mr', [screen('1'), cls(3), pset(1, 0, 1, probe=False), pfn(1, 0)], evx=True)]
+    for x in ('0,0', '0,1', '0,2', '0,3', '1', '1,0,0,7', '1,0,0,1', '1,0,0,2', '1,0,0,4', '1,0,0,0', '1,0,1,3', '1,0,2,5', '2'):
+        out.append(arm('scp-' + x.replace(',', '_'), PRE + [screen(x)], evx=True))
     return out
 
 
@@ -485,7 +506,7 @@ def marker_count(vram, tok=b'qqq'):
     return sum(bytes(vram[r*120:r*120+80]).count(tok) for r in range(25))
 
 
-def events(text_, f0):
+def events(text_, f0, evx=False):
     """VRAM 切替系 OUT の連長圧縮列 [[port, 値, 回数], ...] と総数、制御ポートの初出順と最後の値。"""
     seq, n = [], 0
     seen = {p: [] for p in PORTS}
@@ -505,8 +526,23 @@ def events(text_, f0):
                 seq[-1][2] += 1
             else:
                 seq.append([port, val, 1])
-    return dict(ev=seq[:EV_MAX], ev_n=n, ev_runs=len(seq), ports={hex(p): v for p, v in seen.items() if v},
-                last={hex(p): v for p, v in sorted(last.items())})
+    out = dict(ev=seq[:EV_MAX], ev_n=n, ev_runs=len(seq), ports={hex(p): v for p, v in seen.items() if v},
+               last={hex(p): v for p, v in sorted(last.items())})
+    if evx:
+        x = []
+        for line in text_.splitlines():
+            m = IO_LINE.match(line)
+            if not m or m[4] != 'main' or m[5] != 'OUT' or int(m[3]) < f0:
+                continue
+            port, val = int(m[6], 16), int(m[7], 16)
+            if port in EVX_PORTS:
+                if x and x[-1][0] == port and x[-1][1] == val:
+                    x[-1][2] += 1
+                else:
+                    x.append([port, val, 1])
+        out['evx'] = x[:EVX_MAX]
+        out['evx_n'] = len(x)
+    return out
 
 
 def pix_stat(img, pts):
@@ -526,7 +562,7 @@ def analyze(a, gv, vram, iolog_text, window, img=None):
     obs['res'] = {str(k): v for k, v in sorted(res.items())}
     obs['sent'] = sent
     obs['qqq'] = marker_count(vram)
-    obs.update(events(iolog_text, window))
+    obs.update(events(iolog_text, window, a.get('evx', False)))
     if a['pix'] and img is not None:
         obs['pix'] = pix_stat(img, a['pix'])
     return obs
@@ -603,6 +639,8 @@ def judge(obs, a, by=None):
     st, m = steps(a)
     res = {}
     gid = a['id']
+    if gid.startswith(('acc2-', 'scp-')):
+        return res                      # 追補1は初回を見たあとの記述的な腕。予測は付けない
 
     def put(name, got, want, strength):
         res[name] = ('agree:' if got == want else 'differ:') + strength
@@ -891,7 +929,11 @@ def selftest(work=None):
           (2, 'main', 'OUT', 0x31, 0x19), (3, 'main', 'OUT', 0x31, 0x11), (0, 'main', 'OUT', 0x31, 0x77), (3, 'main', 'IN', 0x5C, 0x01)]
     e = events(log(ev), 1)
     assert e['ev'] == [[0x5C, 0, 2], [0x5F, 0, 1]] and e['ev_n'] == 3 and e['ports']['0x31'] == [0x19, 0x11] and e['last']['0x31'] == 0x11, e
-    print('OK 結果行の解析・ポートの初出順と連長圧縮（サブCPU・IN・窓前は除外）', flush=True)
+    ex = events(log(ev + [(3, 'main', 'OUT', 0x34, 0x07), (3, 'main', 'OUT', 0x34, 0x07), (3, 'main', 'OUT', 0x35, 0x80), (3, 'main', 'OUT', 0x20, 0x41)]), 1, True)
+    assert ex['evx'] == [[0x5C, 0, 2], [0x5F, 0, 1], [0x31, 0x19, 1], [0x31, 0x11, 1], [0x34, 7, 2], [0x35, 0x80, 1]] and ex['evx_n'] == 6, ex['evx']   # データポート 0x20 は採らない
+    assert 'evx' not in events(log(ev), 1)
+    assert all(a.get('evx') for a in known.values() if a['id'].startswith(('acc2-', 'scp-'))) and not any(a.get('evx') for a in known.values() if a['id'].startswith(('map-', 'co-')))
+    print('OK 結果行の解析・ポートの初出順と連長圧縮（サブCPU・IN・窓前は除外）・追補1の全列（データポート非採取）', flush=True)
     # PPM の画素
     img = (640, 400, bytes(640*400*3))
     d = bytearray(img[2])
