@@ -506,6 +506,7 @@ def sc_expect(a):
     for r in range(top, bot+1):                   # cls
         rows[r] = '.'
     if act == 'clsz':
+        rows[top] = '?'                           # zzz が打たれた行は空行ではない
         return dict(rows=''.join(rows), cur=None, z=[[top, 0]])         # cls のあとの print "zzz"; の位置（行,桁）
     return dict(rows=''.join(rows), cur=[0, top])
 
@@ -798,7 +799,7 @@ def selftest(work=None):
     # 追補2: clsz の z 判定・win の予測・fm の判定
     a = known['sc20-5_10-clsz']
     ex = sc_expect(a)
-    assert ex['z'] == [[5, 0]] and ex['rows'][5:15] == '.'*10 and ex['cur'] is None
+    assert ex['z'] == [[5, 0]] and ex['rows'][5:15] == '?'+'.'*9 and ex['cur'] is None
     assert judge(dict(obs_sc(ex['rows'], None), z=[[5, 0]]), a) == dict(rows='agree', z='agree')
     assert judge(dict(obs_sc(ex['rows'], None), z=[[0, 0]]), a)['z'] == 'differ'
     a = known['wo-om2']
