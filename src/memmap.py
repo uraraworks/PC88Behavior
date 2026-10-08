@@ -803,6 +803,8 @@ CONSTANTS = {
     "MM_USER_START": 0x8400,
     "MM_USER_LIMIT_DEFAULT": 0xE5FD,
     "MM_USER_LIMIT_MAX": 0xE5FF,
+    "MM_CLEAR_X_MIN": 0x8719,       # CLEAR 上限 X の誤り5の境界（l4-basic 20.9.1）。X がこれ未満は誤り5
+    "MM_CLEAR_BOUND7": 34606,       # 誤り7: X+1-n < これ（X < 34605+n。l4-basic 20.9.1）
     "MM_STACK_RESERVED": 92,
     "MM_FOR_STACK_RESERVED": 80,  # 観測c=76〜85の中央寄り。全測定深さを満たす自作値。
     "MM_USER_STACK_SIZE": 512,

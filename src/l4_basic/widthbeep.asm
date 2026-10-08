@@ -110,10 +110,12 @@ wb_lc_base:
 ; 受理範囲と誤り（l4-s9p の観測）: n は 0〜7（小数は四捨五入）、範囲外=ERR 5、文字列=ERR 13、
 ; 引数なし・「,」で終わる=ERR 22、第5引数=ERR 2。第1引数が省略（COLOR ,3）なら色は変えない。
 ; 誤りのときは色を変えない（文末まで確かめてから設定する）。
-; 未測定・自作判断: 第2・第4引数は 0〜7、第3引数は 0 だけを受理し、他は ERR 5 とする
-; （観測は「color 3,1,1,2 は ERR 5」「color 3,0,0,6・color 2,3 は受理」だけで、どの引数が境目かは不明）。
-; 第2〜4引数は検査するだけで意味は持たない（グラフィック側。5.4.1）。
-; 現在の色は MM_SCR_ZT の上位3bit。作業値は MM_FN_AUX（+0=第1引数、0xFFは省略。+1=引数番号）。
+; 第5.4.4節（l4-s9q の観測）: 第2・第4引数は 0〜7、第3引数は 0 だけを受理し、他は ERR 5。
+; 省略した引数は検査しない。受理された COLOR はポート 0x54 へ必ず2回書く（第2引数 b、省略時0）:
+;   1回目 = 0x80 | (b bit0 なら 0x07) | (b bit1 なら 0x38)、2回目 = 0xC0 | (b bit2 なら 0x07)。
+;   第3・第4引数はポートに出ない。誤りの COLOR は書かない（文末まで確かめてから書く）。
+; 現在の色は MM_SCR_ZT の上位3bit。作業値は MM_FN_AUX（+0=第1引数、0xFFは省略。
+;   +1=下位2bit が引数番号、bit2〜4 が第2引数 b）。
 wb_color_stmt:
     LD A,0FFh
     LD (MM_FN_AUX),A
@@ -125,9 +127,9 @@ wb_c_arg:
     CP ','
     JR Z,wb_c_sep              ; この引数は省略されている
     OR A
-    JR Z,wb_c_missing
+    JP Z,wb_c_missing
     CP ':'
-    JR Z,wb_c_missing
+    JP Z,wb_c_missing
     CALL fn_is_string
     OR A
     JR Z,wb_c_num
@@ -138,22 +140,32 @@ wb_c_num:
     RET Z
     LD A,D
     OR A
-    JR NZ,wb_c_range
+    JP NZ,wb_c_range
     LD A,(MM_FN_AUX+1)
+    AND 3
     CP 2
     LD A,E
     JR NZ,wb_c_r7
     OR A
-    JR NZ,wb_c_range           ; 第3引数は 0 だけ
-    JR wb_c_store
+    JP NZ,wb_c_range           ; 第3引数は 0 だけ
+    JR wb_c_sep
 wb_c_r7:
     CP 8
-    JR NC,wb_c_range
-wb_c_store:
+    JP NC,wb_c_range
     LD C,A
     LD A,(MM_FN_AUX+1)
-    OR A
-    JR NZ,wb_c_sep
+    AND 3
+    JR Z,wb_c_first
+    CP 1
+    JR NZ,wb_c_sep             ; 第4引数は検査だけ
+    LD A,C                     ; 第2引数 b を bit2〜4 へ
+    ADD A,A
+    ADD A,A
+    LD HL,MM_FN_AUX+1
+    OR (HL)
+    LD (HL),A
+    JR wb_c_sep
+wb_c_first:
     LD A,C
     LD (MM_FN_AUX),A           ; 第1引数
 wb_c_sep:
@@ -162,15 +174,37 @@ wb_c_sep:
     CP ','
     JR NZ,wb_c_fin
     LD A,(MM_FN_AUX+1)
+    AND 3
     CP 3
     JP NC,fn_syntax            ; 第5引数（値の検査は済んだあと）
-    INC A
-    LD (MM_FN_AUX+1),A
+    LD HL,MM_FN_AUX+1
+    INC (HL)
     CALL fn_adv
     JR wb_c_arg
 wb_c_fin:
     CALL wb_w_at_end
     JP NZ,fn_syntax
+    LD A,(MM_FN_AUX+1)         ; ポート 0x54 へ2回（5.4.4）
+    RRCA
+    RRCA
+    AND 7
+    LD B,A
+    LD A,080h
+    BIT 0,B
+    JR Z,wb_c_p1
+    OR 007h
+wb_c_p1:
+    BIT 1,B
+    JR Z,wb_c_p2
+    OR 038h
+wb_c_p2:
+    OUT (054h),A
+    LD A,0C0h
+    BIT 2,B
+    JR Z,wb_c_p3
+    OR 007h
+wb_c_p3:
+    OUT (054h),A
     LD A,(MM_FN_AUX)
     CP 0FFh
     JP Z,fn_ok                 ; 第1引数なし: 色は変えない

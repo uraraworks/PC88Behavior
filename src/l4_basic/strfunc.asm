@@ -31,18 +31,23 @@ S9B_CLEAR:
     CALL B3_SKIP_SPACES
     CALL B3_PEEK_CHAR
     OR A
-    JP Z,s9b_clear_apply
+    JR Z,s9b_clear_apply
     CP ':'
-    JP Z,s9b_clear_apply
+    JR Z,s9b_clear_apply
     CP ','
     JR Z,s9b_clear_second
     CALL S9B_CLEAR_EXPR
     CALL S9_BAD
     RET NZ
+    CALL S9_TO_INT             ; 第1引数: 符号付き16bitを外れると誤り6、負は誤り5（20.9.3）
+    OR A
+    JP Z,S9_OVERFLOW
+    BIT 7,D
+    JP NZ,S9_ILLEGAL
     CALL B3_SKIP_SPACES
     CALL B3_PEEK_CHAR
     CP ','
-    JP NZ,s9b_clear_apply
+    JR NZ,s9b_clear_apply
 s9b_clear_second:
     CALL B3_ADV_PTR
     CALL B3_SKIP_SPACES
@@ -55,12 +60,10 @@ s9b_clear_second:
     CALL S9B_ADDRESS_CUR       ; 上限aもPEEK/POKEと同じ番地変換
     CALL S9_BAD
     RET NZ
-    LD HL,MM_USER_START
+    LD HL,MM_CLEAR_X_MIN-1     ; 上限 X < 0x8719 は誤り5（固定。20.9.1）
     OR A
     SBC HL,DE
-    JR Z,s9b_clear_min_ok
     JP NC,S9_ILLEGAL
-s9b_clear_min_ok:
     LD HL,MM_USER_LIMIT_MAX
     OR A
     SBC HL,DE
@@ -78,6 +81,9 @@ s9b_clear_third:
     CALL S9B_ADDRESS_CUR
     CALL S9_BAD
     RET NZ
+    LD A,D                     ; 第3引数 0 は誤り5（20.9.3）
+    OR E
+    JP Z,S9_ILLEGAL
     LD (MM_CLEAR_STACK),DE
 s9b_clear_apply:
     CALL B3_SKIP_SPACES
@@ -100,7 +106,13 @@ s9b_clear_validate:
     OR A
     SBC HL,DE
     JR C,s9b_clear_oom
-    LD DE,(MM_HEAP_START)       ; 本文＋番兵。既存記号はCLEARで消す。
+    PUSH HL                     ; X+1-n < 34606（X < 34605+n）は誤り7（20.9.1）
+    LD DE,MM_CLEAR_BOUND7
+    OR A
+    SBC HL,DE
+    POP HL
+    JR C,s9b_clear_oom
+    LD DE,(MM_HEAP_START)       ; 本文＋番兵。既存記号はCLEARで消す。自作判断: 収まらないときだけ誤り7
     OR A
     SBC HL,DE
     JR C,s9b_clear_oom
