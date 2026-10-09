@@ -392,6 +392,8 @@ def arms():
     for tag, nn in (('8a', 4000), ('8b', 8000), ('8c', 12000), ('8d', 16000), ('8e', 5000), ('8f', 5500), ('8g', 6000), ('8h', 6500), ('8i', 7000), ('8j', 7500)):
         out.append(ws(f'ws-{tag}', [[X(f'dim a({nn})', None, probe=True)]] + lat2,
                       [P(c, 5, 7, probe=True, st='w', exp=dict(nopred=True)) for c in ((1, 1), (111, 1), (3, 153))], None, wait=30000, guard=True))
+    for tag, stack in (('10a', 96), ('10b', 112), ('10c', 120), ('10d', 127), ('10e', 129), ('10f', 136), ('10g', 160), ('10h', 192)):
+        out.append(ws(f'ws-{tag}', [comb_items(n, 2, y) for n, x0, y in combs], wsp(cpts, (0, 0, 0)), stack, guard=True))
     out.append(arm('ws-9a', PRE + [lm.L((0, 100), (639, 121), 7, 'b'),
                                    X('for j=102 to 120 step 2:line(2,j)-(637,j),7,,&haaaa:next',
                                      lambda m: [m.line(lm.L((2, j), (637, j), 7, None, '&haaaa')) for j in range(102, 121, 2)]),
@@ -452,7 +454,8 @@ class Model(cm.Model):
         """線の画素。l4-s9u で確定済みの規則（和が主軸の差以上。cm.LINE_RULE）を使う（事前登録時の器具は lm.PRIMARY=「超える」で、cn-1 の2腕が外れた。結果ノート参照）。"""
         pts = lm.line_pts(p1, p2, **cm.LINE_RULE)
         if style is not None:
-            if pts[0] != p1 and pts[-1] == p1:
+            start = p1 if p1[1] < p2[1] else p2                    # 数え始めは「引く側の始点」＝Y の小さい端（Y が等しければ第2点。l4-graphics 第9.6節）
+            if pts[0] != start:
                 pts = pts[::-1]
             pts = [p for k, p in enumerate(pts) if (style >> (15-k % 16)) & 1]
         return pts
@@ -1066,6 +1069,7 @@ def selftest(work=None):
     mf, _ = run(ring)
     mp, _ = run(ring, stopfill=True)
     assert (6, 6) in mf.pix and mf.pix[(6, 6)] == 5 and (6, 6) not in mp.pix and len(mf.pix) > len(mp.pix)
+    assert Model().draw_set((0, 0), (3, 0), 0xAAAA) == [(3, 0), (1, 0)] and Model().draw_set((3, 0), (0, 0), 0xAAAA) == [(3, 0), (1, 0)]   # 水平線のスタイルは第2座標から数える（逆向きに指定しても同じ）
     assert Model().draw_set((0, 0), (4, 1)) == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1)]       # 線の規則は「以上」（cm.LINE_RULE）。「超える」だと cn-1 の2腕が外れた
     # 白黒
     mm = Model(); mm.do_screen('1,0,0,7')
