@@ -29,6 +29,15 @@ GFX_POINT_ENTRY:
 GFX_CLS_ENTRY:
     JP gx_cls                   ; CLS 文の全体（main run.asm CLS_STMT から）
 
+    ORG 0x7330
+; バンク1の CIRCLE（src/ext_bank/circle.asm）が EXT_BANK_CALL で呼ぶ入口（l4-graphics.md 第10節）
+GFX_COORD_ENTRY:
+    JP gx_coord                 ; [STEP](x,y) を読んで LP を更新（誤りは ERROR_FLAG）
+GFX_CIFLUSH_ENTRY:
+    JP gx_ci_flush              ; MM_CI_BUF の8点を MM_GFX_TC の色で打つ
+GFX_CILINE_ENTRY:
+    JP gx_ci_line               ; MM_LN_OX の2点を実線で引く（LINE と同じ規則。扇形の線）
+
     ORG 0x7340
 ; ---- mainの呼び先（窓外中継。IX=呼び先。BANK2_MAIN_CALL_ADDR は bank2.asm）
 gx_expect:                      ; A=期待する1文字（空白を挟んでよい）。不一致は ERR 2
@@ -664,3 +673,35 @@ gx_sc_max:
     DB 2,3,2,7
 gx_sc_bit:
     DB 1,2,4,8
+
+; ---- CIRCLE の共通部への入口（本体はバンク1）。点の列は 8 組（x,y 各16ビット符号付き。x の上位が 0x80 なら範囲外の印）を
+; まとめて受け、点ごとにバンクを往復しない。
+gx_ci_flush:
+    CALL gx_pt_begin            ; IX=色の行
+    LD HL,MM_CI_BUF
+    LD A,8
+gx_cf_l:
+    PUSH AF
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    INC HL
+    LD C,(HL)
+    INC HL
+    LD B,(HL)
+    INC HL
+    PUSH HL
+    EX DE,HL                    ; HL=x
+    LD D,B
+    LD E,C                      ; DE=y
+    CALL gx_plotxy
+    POP HL
+    POP AF
+    DEC A
+    JR NZ,gx_cf_l
+    RET
+gx_ci_line:
+    LD HL,65535
+    LD (MM_LN_STYLE),HL         ; 実線
+    LD (MM_LN_STY),HL
+    JP ln_seg

@@ -131,6 +131,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/ext_bank/circle.asm").read_text(encoding="utf-8")
     # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
     # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
     has_org = "    ORG 0x6000\n" in text
