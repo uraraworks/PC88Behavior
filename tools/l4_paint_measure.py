@@ -389,9 +389,15 @@ def arms():
     lat2 = [dots_items(0, 0, 100, 40), dots_items(110, 0, 200, 80), comb_items(80, 2, 100)]
     for tag, stack, errs in (('7a', 32000, (0, 0, 0)), ('7b', 60000, (7, 7, 7))):
         out.append(ws(f'ws-{tag}', lat2, wsp([(1, 1), (111, 1), (3, 153)], errs), stack, wait=30000, guard=True))
-    for tag, nn in (('8a', 4000), ('8b', 8000), ('8c', 12000), ('8d', 16000)):
+    for tag, nn in (('8a', 4000), ('8b', 8000), ('8c', 12000), ('8d', 16000), ('8e', 5000), ('8f', 5500), ('8g', 6000), ('8h', 6500), ('8i', 7000), ('8j', 7500)):
         out.append(ws(f'ws-{tag}', [[X(f'dim a({nn})', None, probe=True)]] + lat2,
                       [P(c, 5, 7, probe=True, st='w', exp=dict(nopred=True)) for c in ((1, 1), (111, 1), (3, 153))], None, wait=30000, guard=True))
+    out.append(arm('ws-9a', PRE + [lm.L((0, 100), (639, 121), 7, 'b'),
+                                   X('for j=102 to 120 step 2:line(2,j)-(637,j),7,,&haaaa:next',
+                                     lambda m: [m.line(lm.L((2, j), (637, j), 7, None, '&haaaa')) for j in range(102, 121, 2)]),
+                                   P((1, 101), 5, 7, probe=True, st='w')], wait=30000))
+    dl = [((2, 10), (102, 10)), ((2, 14), (302, 14)), ((2, 18), (502, 18)), ((2, 22), (637, 22)), ((100, 26), (637, 26)), ((3, 30), (637, 30))]
+    out.append(arm('ws-9b', PRE + [lm.L(a_, b_, 7, None, '&haaaa') for a_, b_ in dl]))
     # ---- 速さ(sp)。補助の腕
     out += speed_arms()
     return out
