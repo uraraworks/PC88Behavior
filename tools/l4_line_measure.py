@@ -923,6 +923,78 @@ def emit(path, records, strict=True):
     return cal and bool(records) and all(r['gate'] for r in records)
 
 
+# ---------------------------------------------------------------- 公式観測の期待値と照合
+def comparable(obs):
+    """腕の観測のうち、公式と自作で比べる数値だけ。ポート最終値（last）・VRAM統計（stat）は比べない。"""
+    if not obs:
+        return None
+    pix = [dict(at=p['at'], dot=p['dot']) for p in (obs.get('pix') or [])]
+    return dict(n=obs['n'], hash=obs['hash'], tail=obs['tail'], spans=obs.get('spans'), res=obs['res'], pix=pix)
+
+
+def read_runs(path):
+    with Path(path).open(encoding='utf-8', newline='') as stream:
+        rows = [r for r in csv.DictReader(stream, delimiter='\t') if r['arm'] != '_group']
+    runs = {}
+    for r in rows:
+        runs.setdefault(r['arm'], []).append(r)
+    return runs
+
+
+def make_expected(out, *officials):
+    """公式観測（関門通過の2走が一致した腕）から期待値ファイルを作る。"""
+    seen = {}
+    for path in officials:
+        for aid, rs in read_runs(path).items():
+            assert len(rs) == 2 and all(r['gate'] == 'pass' for r in rs), aid
+            o = [comparable(json.loads(r['observation'])) for r in rs]
+            assert o[0] == o[1], aid
+            assert seen.get(aid, o[0]) == o[0], aid
+            seen[aid] = o[0]
+    write_tsv(Path(out), ['arm', 'observation'], [(aid, json.dumps(o, separators=(',', ':'))) for aid, o in sorted(seen.items())])
+    return len(seen)
+
+
+def diff_obs(want, got):
+    """数値だけの差の一覧。"""
+    d = []
+    for k in ('n', 'hash', 'tail', 'res', 'pix'):
+        if want[k] != got[k]:
+            if k == 'res':
+                ks = sorted(set(want[k]) | set(got[k]), key=int)
+                d.append('res:' + ','.join(f'{x}:{got[k].get(x)}!={want[k].get(x)}' for x in ks if want[k].get(x) != got[k].get(x)))
+            elif k == 'n':
+                d.append(f"n:{got['n']}!={want['n']}")
+            else:
+                d.append(k)
+    if want['spans'] != got['spans'] and want['spans'] is not None and got['spans'] is not None:
+        w, o = from_spans(want['spans']), from_spans(got['spans'])
+        d.append(f'spans:欠け{len([k for k in w if k not in o])}画素・余り{len([k for k in o if k not in w])}画素・色違い{len([k for k in w if k in o and w[k] != o[k]])}画素')
+    elif want['spans'] != got['spans']:
+        d.append('spans:片側が省略')
+    return d
+
+
+def check(expected, measured, only=None):
+    """期待値の各腕を自作の測定 TSV と照合する。戻り値 (一致した腕, {不一致の腕: 差の一覧})。"""
+    with Path(expected).open(encoding='utf-8', newline='') as stream:
+        want = {r['arm']: json.loads(r['observation']) for r in csv.DictReader(stream, delimiter='\t')}
+    runs = read_runs(measured)
+    ok, bad = [], {}
+    for aid, w in want.items():
+        if only and aid not in only:
+            continue
+        rs = runs.get(aid)
+        if not rs or len(rs) != 2 or any(r['gate'] != 'pass' for r in rs):
+            bad[aid] = ['測定なし・2走でない・関門落ち']; continue
+        gots = [comparable(json.loads(r['observation'])) for r in rs]
+        if gots[0] != gots[1]:
+            bad[aid] = ['2走が不一致']; continue
+        d = diff_obs(w, gots[0]) if gots[0] != w else []
+        (bad.__setitem__(aid, d) if d else ok.append(aid))
+    return ok, bad
+
+
 def report(measured):
     arms_by = {a['id']: a for a in arms()}
     with measured.open(encoding='utf-8', newline='') as stream:
@@ -1119,6 +1191,28 @@ def selftest(work=None):
         rs2 = [rec('cal-vis', o_v), dict(arm=known['base-cls3'], obs=[o_c, dict(o_c, hash='y')], failed=[False, False], gate=True)]
         assert not emit(out, rs2) and 'gate_failed' in out.read_text()
     print('OK 較正の関門（陰性）・記録の出力・2走不一致の関門落ち', flush=True)
+    # 期待値との照合（陽性と陰性）
+    with tempfile.TemporaryDirectory(prefix='l4s9u-chk-', dir=work) as temp:
+        tdir = Path(temp)
+        o1 = dict(base_o, arm='cal-vis', n=3, hash='h1', spans=[[150, 400, 402, 7]], pix=[dict(at=[400, 150], dot=['ffffff', 'ffffff'], ref=['000000', '000000'])])
+        o2 = dict(base_o, arm='base-cls3', n=0, spans=[])
+        def wr(path, obs_list):
+            write_tsv(path, ['arm', 'repeat', 'plan', 'observation', 'gate', 'prediction_judgement', 'failed'],
+                      [(o['arm'], i+1, '[]', json.dumps(o), 'pass', '{}', 0) for o in obs_list for i in range(2)])
+        wr(tdir/'off.tsv', [o1, o2]); make_expected(tdir/'exp.tsv', tdir/'off.tsv')
+        wr(tdir/'same.tsv', [o1, o2]); ok_, bad_ = check(tdir/'exp.tsv', tdir/'same.tsv')
+        assert len(ok_) == 2 and not bad_
+        sh = dict(o1, hash='h2', spans=[[150, 401, 403, 7]])
+        wr(tdir/'shift.tsv', [sh, o2]); ok_, bad_ = check(tdir/'exp.tsv', tdir/'shift.tsv')
+        assert ok_ == ['base-cls3'] and 'cal-vis' in bad_ and any(x.startswith('spans:') for x in bad_['cal-vis'])
+        wr(tdir/'miss.tsv', [o2]); assert 'cal-vis' in check(tdir/'exp.tsv', tdir/'miss.tsv')[1]
+        wr(tdir/'res.tsv', [o1, dict(o2, res={'1': [5, 0, 0]})]); assert 'base-cls3' in check(tdir/'exp.tsv', tdir/'res.tsv')[1]
+        # 1画素ずらした期待値で本物の観測が不一致になる（期待値側の改ざんの検出）
+        tampered = (tdir/'exp.tsv').read_text().replace('[150,400,402,7]', '[150,401,403,7]')
+        assert tampered != (tdir/'exp.tsv').read_text()
+        (tdir/'exp2.tsv').write_text(tampered)
+        assert 'cal-vis' in check(tdir/'exp2.tsv', tdir/'same.tsv')[1]
+    print('OK 期待値の作成・照合（陽性、1画素ずれ・欠け・結果行違いの陰性）', flush=True)
     # 自作ROMの対照: 器具が走り、グラフィックVRAMの写しが採れる。故障注入で写しが変わる
     with tempfile.TemporaryDirectory(prefix='l4s9u-selftest-', dir=work) as temp:
         root = Path(temp)
@@ -1152,10 +1246,21 @@ def main():
     m.add_argument('--no-calibration', action='store_true', help='自作ROMの現状記録用。較正の関門を免除する')
     r = sub.add_parser('report'); r.add_argument('--measured', type=Path, required=True)
     sub.add_parser('describe')
+    e = sub.add_parser('expected'); e.add_argument('--out', type=Path, required=True); e.add_argument('official', type=Path, nargs='+')
+    c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
+    c.add_argument('--only', default='', help='腕IDのカンマ区切り。空なら期待値の全腕')
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
     args = parser.parse_args()
     if args.command == 'selftest':
         return selftest(args.work_dir)
+    if args.command == 'expected':
+        print(f'期待値 {make_expected(args.out, *args.official)}腕'); return 0
+    if args.command == 'check':
+        ok, bad = check(args.expected, args.measured, set(x for x in args.only.split(',') if x))
+        for aid, d in bad.items():
+            print(f'DIFF {aid}: ' + ' / '.join(d))
+        print(f'一致 {len(ok)}腕 / 不一致 {len(bad)}腕')
+        return 0 if not bad else 1
     if args.command == 'describe':
         print(describe()); return 0
     if args.command == 'report':
