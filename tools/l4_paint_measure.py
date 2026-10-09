@@ -385,7 +385,10 @@ def arms():
     out.append(ws('ws-6e', [dots_items(0, 0, 300, 80), maze_items(0, 100, 300, 40)], wsp([(1, 1), (1, 101)], (7, 7)), 64, guard=True))
     lat = [dots_items(0, 0, 100, 40), dots_items(110, 0, 200, 80), dots_items(0, 100, 639, 99)]
     for tag, stack, errs in (('4', None, (0, 0, 7)), ('4b', 4096, (0, 0, 0))):
-        out.append(ws(f'ws-{tag}', lat, wsp([(1, 1), (111, 1), (1, 101)], errs), stack, wait=30000, guard=True))
+        out.append(ws(f'ws-{tag}', lat, wsp([(1, 1), (111, 1), (1, 101)], errs), stack, wait=150000, guard=True))
+    lat2 = [dots_items(0, 0, 100, 40), dots_items(110, 0, 200, 80), comb_items(80, 2, 100)]
+    for tag, stack, errs in (('7a', 32000, (0, 0, 0)), ('7b', 60000, (7, 7, 7))):
+        out.append(ws(f'ws-{tag}', lat2, wsp([(1, 1), (111, 1), (3, 153)], errs), stack, wait=30000, guard=True))
     # ---- 速さ(sp)。補助の腕
     out += speed_arms()
     return out
@@ -435,6 +438,15 @@ class Model(cm.Model):
     def __init__(self, rule=None):
         super().__init__()
         self.rule = rule or {}
+
+    def draw_set(self, p1, p2, style=None):
+        """線の画素。l4-s9u で確定済みの規則（和が主軸の差以上。cm.LINE_RULE）を使う（事前登録時の器具は lm.PRIMARY=「超える」で、cn-1 の2腕が外れた。結果ノート参照）。"""
+        pts = lm.line_pts(p1, p2, **cm.LINE_RULE)
+        if style is not None:
+            if pts[0] != p1 and pts[-1] == p1:
+                pts = pts[::-1]
+            pts = [p for k, p in enumerate(pts) if (style >> (15-k % 16)) & 1]
+        return pts
 
     def cv(self, c):
         """画面モードに応じた画素値（白黒は 0/1<<ページ）。"""
@@ -1039,6 +1051,7 @@ def selftest(work=None):
     mf, _ = run(ring)
     mp, _ = run(ring, stopfill=True)
     assert (6, 6) in mf.pix and mf.pix[(6, 6)] == 5 and (6, 6) not in mp.pix and len(mf.pix) > len(mp.pix)
+    assert Model().draw_set((0, 0), (4, 1)) == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1)]       # 線の規則は「以上」（cm.LINE_RULE）。「超える」だと cn-1 の2腕が外れた
     # 白黒
     mm = Model(); mm.do_screen('1,0,0,7')
     mm.line(lm.L((10, 10), (14, 14), 3, 'b'))
