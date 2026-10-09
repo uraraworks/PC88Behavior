@@ -177,12 +177,18 @@ def program_lines(a):
         for stmt in a['ops']:
             if stmt.startswith(('get','put')):
                 add('e=0:'+stmt); add('g=e:x=point(0):y=point(1)')
-                add(f'print "s9xr{probe}:";g;",";x;",";y;";";')
+                if a['id']=='mono-color' and probe==0:
+                    add('r0e=g:r0x=x:r0y=y')
+                else:
+                    add(f'print "s9xr{probe}:";g;",";x;",";y;";";')
                 # GET成功直後だけ配列値を出す。PUTなどの後から覗かない。
                 if stmt.startswith('get') and a['dump']:
                     add(f'if g=0 then gosub 8000')
                 probe += 1
-            else: add(stmt)
+            else:
+                add(stmt)
+                if a['id']=='mono-color' and stmt=='cls 3':
+                    add('print "s9xr0:";r0e;",";r0x;",";r0y;";";')
         if a['id']=='cal-num': add('gosub 8000')
     add('print "s9xz;";'); add(f'goto {number}')
     lines[9000]='e=err:n=n+1:resume next'
@@ -449,13 +455,14 @@ def selftest(work):
         tmp=Path(tmp); rom=tmp/'rom'
         build=subprocess.run([sys.executable,str(kw.REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(tmp/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         assert build.returncode==0,'自作ROMビルド失敗'
-        selected=[known[k] for k in ('base-cls3','cal-vis','cal-num','fmt-c-9-3','put-c-pset','sp-nop','sp-get','sp-put')]
+        selected=[known[k] for k in ('base-cls3','cal-vis','cal-num','fmt-c-9-3','put-c-pset','mono-color','sp-nop','sp-get','sp-put')]
         records=measure(rom,False,selected,tmp)
         assert all(r['gate'] for r in records),'自作ROM器具の関門'
         assert calibrated(records),'自作ROM較正'
         by={r['arm']['id']:r['obs'][0] for r in records}
         assert by['fmt-c-9-3']['res']['0'][0]==2 and not by['fmt-c-9-3']['array']
         assert [v[0] for v in by['put-c-pset']['res'].values()]==[2,2]
+        assert [by['mono-color']['res'][str(i)][0] for i in range(2)]==[2,2]
         assert by['sp-nop']['counts']['0']==0
         assert all(by[k]['counts']['0']==100 and by[k]['res']['0'][0]==2 for k in ('sp-get','sp-put'))
         emit(work/'selftest_own.tsv',records)
@@ -464,7 +471,7 @@ def selftest(work):
         finally: del os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP']
         assert faulty['n']==1 and judge(faulty,known['base-cls3'])['pixels']=='differ'
         assert not list(tmp.glob('*.bin')) and not list(tmp.glob('shot.ppm')) and not list(tmp.glob('marks.txt'))
-    print('OK 自作ROM8腕×2走・未実装ERR2・100回エラー対照・VRAM故障注入・生写し消去',flush=True)
+    print('OK 自作ROM9腕×2走・切替後の2プローブ・未実装ERR2・100回エラー対照・VRAM故障注入・生写し消去',flush=True)
     return 0
 
 
