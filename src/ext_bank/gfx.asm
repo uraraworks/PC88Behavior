@@ -112,8 +112,10 @@ gx_stmt:
     CP 46
     JR Z,gx_point_stmt
     CP 47
-    JP NZ,gx_line               ; 48=LINE（line.asm）
-    JP gx_screen
+    JP Z,gx_screen
+    CP 50
+    JP Z,gx_paint               ; 50=PAINT の構文（paintp.asm。塗りの本体はバンク1 paint.asm）
+    JP gx_line                  ; 48=LINE（line.asm）
 
 ; PSET [STEP](x,y)[,色]。色の省略は前景（COLOR 第4引数。既定7）
 gx_pset:

@@ -97,6 +97,10 @@ REGIONS = (
     Region('GFX', 0xFFBC, 24, '保持/一時', 'グラフィック(l4-graphics.md): LP(x,y)・前景(xor 7)・背景・白黒とページ・座標とSCREENの作業値', 'normal'),
     Region('LINE_WORK', 0xEDB2, 84, '一時', 'LINE文の作業（箱の2点・元の線と転置・クリップ後の端点・線種・走査の状態・水平塗りの状態。l4-graphics.md 第9節）', 'normal'),
     Region('CIRCLE_WORK', 0xEE06, 72, '一時', 'CIRCLE文の作業（半径・点数・角・縦横比・中点法の状態・8点の組・点の列。l4-graphics.md 第10節）', 'normal'),
+    Region('PAINT_BITMAP_LOW', 0x8000, 1024, '一時', 'PAINT訪問ビット先頭。利用者領域8400の手前（1024B）', 'normal'),
+    Region('PAINT_BITMAP_TEMP', 0xE600, 2048, '一時', 'PAINT訪問ビット。引数評価完了後のみ使い、式評価・文字列・LINEの一時域を再利用', 'normal'),
+    Region('PAINT_WORK', 0xEE4E, 54, '一時', 'PAINT文の作業（境界色・塗り色の埋め値、タイルの長さと行数、開始点・区間・行頭、訪問ビットと反復走査の位置。l4-graphics.md 第11節）', 'normal'),
+    Region('PAINT_TILE', 0xEEB2, 256, '一時', 'PAINT文のタイル文字列の写し（最大255文字。バックグラウンドの文字列の評価で作業の文字列が上書きされるため）', 'normal'),
     Region('MEASURE_REGS', 0xFFBC, 38, '一時', 'M6IAレジスタ・バンク写し（通常ビルドでは使わない）', 'measure'),
     Region('MEASURE_HIGH', 0xFFE2, 6, '一時', 'M6IA/M6II/M6IK測定（通常ビルドでは使わない）', 'measure'),
     Region('INKEY_TEST', 0xFFE8, 3, '一時', 'INKEY頑健性ドライバ専用（通常ビルドでは使わない）', 'inkey-test'),
@@ -113,6 +117,11 @@ OVERLAPS = {
     frozenset(("GFX", "MEASURE_REGS")): "M6IAの測定専用ビルド（tools/build_m6ia_measure_rom.py）だけが使う域。測定ビルドは起動後の定常ループからだけ使い、BASICのグラフィック文を実行しないので重ならない。GFXは起動時（EXT_BANK_INIT）に0へ戻す。",
     frozenset(("CIRCLE_WORK", "SECTOR")): "CIRCLE文とディスク文は排他的。CIRCLE文の引数の式評価はディスク文を呼ばず、作業値は文の中だけで使い文の終了後に保持しない。",
     frozenset(("CIRCLE_WORK", "PU_WORK")): "CIRCLE文とPRINT USINGは別の文。CIRCLE文の引数の式評価はPRINT文を呼ばない。",
+    frozenset(("PAINT_WORK", "SECTOR")): "PAINT文とディスク文は排他的。PAINT文の引数の式評価はディスク文を呼ばず、作業値は文の中だけで使い文の終了後に保持しない。",
+    frozenset(("PAINT_WORK", "PU_WORK")): "PAINT文とPRINT USINGは別の文。PAINT文の引数の式評価はPRINT文を呼ばない。",
+    frozenset(("PAINT_TILE", "PU_FORMAT")): "PAINT文とPRINT USINGは別の文。PAINT文の引数の式評価はPRINT文を呼ばず、タイルの写しは文の中だけで使う。",
+    frozenset(("PAINT_TILE", "FILES_FAT")): "PAINT文とFILES/LOADは排他的。PAINT文の引数の式評価はFILES/LOADを呼ばない。",
+    frozenset(("PAINT_TILE", "SAVE_FAT")): "PAINT文とSAVE/KILLは排他的。PAINT文の引数の式評価はSAVE/KILLを呼ばない。",
     frozenset(("LINE_WORK", "SECTOR")): "LINE文とディスク文は排他的。LINE文の引数の式評価はディスク文を呼ばず、作業値は文の中だけで使い文の終了後に保持しない。",
     frozenset(("LINE_WORK", "ONWHILE_WORK")): "ON/WHILE/WEND/NEXT探索の作業はその文の中だけ。LINE文の引数の式評価はそれらを呼ばない。",
     frozenset(("LINE_WORK", "PU_WORK")): "LINE文とPRINT USINGは別の文。LINE文の引数の式評価はPRINT文を呼ばない。",
@@ -120,6 +129,12 @@ OVERLAPS = {
 }
 
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
+# PAINT本体では式評価・文字列処理・LINE・ディスク文を呼ばない。
+# 訪問ビットは引数を全てPAINT_WORK/TILEへ退避した後のみ置く。
+for _region in REGIONS:
+    if _region.name != 'PAINT_BITMAP_TEMP' and _region.profile == 'normal' and _region.base < 0xEE00 and _region.base + _region.size > 0xE600:
+        OVERLAPS[frozenset(('PAINT_BITMAP_TEMP', _region.name))] = 'PAINT本体の訪問ビットは引数評価完了後だけ使い、式評価・文字列・LINE・ディスク文の作業とは排他的。'
+
 FIELDS = {
     'MM_FN_CPU_BOTTOM': ('CPU_STACK', 0),
     'MM_FN_FRAME': ('DEFFN', 0),
@@ -843,6 +858,44 @@ FIELDS = {
     'MM_CI_N8F': ('CIRCLE_WORK', 26),
     'MM_CI_V': ('CIRCLE_WORK', 30),
     'MM_CI_BUF': ('CIRCLE_WORK', 38),
+    'MM_PA_BITMAP_LOW': ('PAINT_BITMAP_LOW', 0),
+    'MM_PA_BITMAP_TEMP': ('PAINT_BITMAP_TEMP', 0),
+    'MM_PA_BC': ('PAINT_WORK', 0),
+    'MM_PA_PF': ('PAINT_WORK', 3),
+    'MM_PA_TF': ('PAINT_WORK', 6),
+    'MM_PA_TL': ('PAINT_WORK', 7),
+    'MM_PA_NR': ('PAINT_WORK', 8),
+    'MM_PA_BDEF': ('PAINT_WORK', 9),
+    'MM_PA_PCOL': ('PAINT_WORK', 10),
+    'MM_PA_BCOL': ('PAINT_WORK', 11),
+    'MM_PA_BG': ('PAINT_WORK', 12),
+    'MM_PA_SL': ('PAINT_WORK', 13),
+    'MM_PA_Y': ('PAINT_WORK', 14),
+    'MM_PA_NY': ('PAINT_WORK', 15),
+    'MM_PA_RB': ('PAINT_WORK', 16),
+    'MM_PA_RE': ('PAINT_WORK', 18),
+    'MM_PA_XLA': ('PAINT_WORK', 20),
+    'MM_PA_XLQ': ('PAINT_WORK', 22),
+    'MM_PA_XRA': ('PAINT_WORK', 23),
+    'MM_PA_XRQ': ('PAINT_WORK', 25),
+    'MM_PA_CM': ('PAINT_WORK', 26),
+    'MM_PA_HM': ('PAINT_WORK', 27),
+    'MM_PA_E': ('PAINT_WORK', 28),
+    'MM_PA_OFF': ('PAINT_WORK', 30),
+    'MM_PA_BASE': ('PAINT_WORK', 32),
+    'MM_PA_LIM': ('PAINT_WORK', 34),
+    'MM_PA_GR': ('PAINT_WORK', 36),
+    'MM_PA_SA': ('PAINT_WORK', 40),
+    'MM_PA_SQ': ('PAINT_WORK', 42),
+    'MM_PA_DERR': ('PAINT_WORK', 43),
+    'MM_PA_MAP': ('PAINT_WORK', 44),
+    'MM_PA_SCAN': ('PAINT_WORK', 46),
+    'MM_PA_SCAN_END': ('PAINT_WORK', 48),
+    'MM_PA_CHANGED': ('PAINT_WORK', 50),
+    'MM_PA_DIR': ('PAINT_WORK', 51),
+    'MM_PA_YMIN': ('PAINT_WORK', 52),
+    'MM_PA_YMAX': ('PAINT_WORK', 53),
+    'MM_PA_TILE': ('PAINT_TILE', 0),
 }
 
 
@@ -893,6 +946,8 @@ ALIASES = {
 }
 
 CONSTANTS = {
+    "MM_PA_VIDEO_SECOND": 0xC400,
+    "MM_PA_VIDEO_HEAP": 0xCC00,
     "MM_USER_START": 0x8400,
     "MM_USER_LIMIT_DEFAULT": 0xE5FD,
     "MM_USER_LIMIT_MAX": 0xE5FF,

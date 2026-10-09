@@ -115,7 +115,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                    addr_overrides: dict = None) -> bytes:
     text = asm_path.read_text(encoding="utf-8")
     if asm_path.name == "bank0.asm":
-        # gfxhook.asm は 0x6A40（bank0.asm の末尾 0x6A33 と deffn.asm の先頭 0x6B00 の間の空き）。ORGは前へ戻せないのでこの順。
+        # gfxhook.asm は 0x6A34（bank0.asm の末尾 0x6A33 と deffn.asm の先頭 0x6B00 の間の空き）。ORGは前へ戻せないのでこの順。
         text += "\n" + (REPO / "src/l4_basic/gfxhook.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/deffn.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/tabspc.asm").read_text(encoding="utf-8")
@@ -124,6 +124,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
     if asm_path.name == "bank2.asm":
         text += "\n" + (REPO / "src/ext_bank/gfx.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/line.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/ext_bank/paintp.asm").read_text(encoding="utf-8")
     if asm_path.name == "bank3.asm":
         for rel in BANK3_EXTRA_SOURCES:
             text += "\n" + (REPO / rel).read_text(encoding="utf-8")
@@ -132,6 +133,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/circle.asm").read_text(encoding="utf-8")
+        text += "\n" + (REPO / "src/ext_bank/paint.asm").read_text(encoding="utf-8")
     # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
     # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
     has_org = "    ORG 0x6000\n" in text

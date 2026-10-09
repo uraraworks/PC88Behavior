@@ -94,6 +94,10 @@ def check_map(regions=memmap.REGIONS):
         elif r.name == "TEXT":
             if (r.base, r.size) != (0xF3C8, 3000):
                 errors.append("テキストVRAMの配置が変更された")
+        elif r.name == "PAINT_BITMAP_LOW":
+            # ROM直後から利用者本文8400の直前まで。移設・拡張は許さない。
+            if (r.base, r.size) != (0x8000, 1024):
+                errors.append("PAINT固定訪問ビットが8000–83FF外")
         elif not ((0xE600 <= r.base and r.base + r.size <= 0xF3C8) or
                   (0xFF80 <= r.base and r.base + r.size <= 0x10000)):
             errors.append(f"固定域が指定範囲外（利用者領域への残留を禁止）: {r.name}")
