@@ -82,8 +82,8 @@ def X(stmt, fn):
     return dict(op='X', stmt=stmt, fn=fn)
 
 
-def arm(aid, items, pix=None, group=None, wait=0, speed=False, prog=None, pre=None, sys_pre=None):
-    return dict(id=aid, items=items, pix=pix or [], group=group or aid.split('-')[0], wait=wait, speed=speed, prog=prog, pre=pre or [], sys_pre=sys_pre or [])
+def arm(aid, items, pix=None, group=None, wait=0, speed=False, prog=None, pre=None, sys_pre=None, guard=False):
+    return dict(id=aid, items=items, pix=pix or [], group=group or aid.split('-')[0], wait=wait, speed=speed, prog=prog, pre=pre or [], sys_pre=sys_pre or [], guard=guard)
 
 
 PRE = [lm.screen('0,0'), lm.cls(3)]
@@ -360,12 +360,12 @@ def arms():
         tcell(T_4, bg=b'a'),
         tcell(T_4, bg=T_4+T_4)]))
     # ---- 作業領域(ws): 櫛・点線格子・蛇行路。既定のスタック(512)と CLEAR ,,N の拡大
-    def ws(aid, shapes, probes, stack=None, wait=15000):
+    def ws(aid, shapes, probes, stack=None, wait=15000, guard=False):
         items = list(PRE)
         for sh_ in shapes:
             items += sh_
         items += probes
-        return arm(aid, items, wait=wait, sys_pre=[f'clear ,,{stack}'] if stack else [])
+        return arm(aid, items, wait=wait, sys_pre=[f'clear ,,{stack}'] if stack else [], guard=guard)
     combs = [(10, 2, 2), (20, 2, 66), (40, 2, 130)]
     out.append(ws('ws-1', [comb_items(n, 2, y) for n, x0, y in combs],
                   [P((3, y+3+50), 5, 7, probe=True, st='w', exp=dict(e=(0, 'w'))) for n, x0, y in combs]))
@@ -376,6 +376,16 @@ def arms():
     for tag, stack in (('3', None), ('3b', 8192)):
         out.append(ws(f'ws-{tag}', [dots_items(0, 0, 300, 80), maze_items(0, 100, 300, 40)],
                       [P((1, 1), 5, 7, probe=True, st='w'), P((1, 101), 6, 7, probe=True, st='w')], stack))
+    # ---- 追補2: 作業領域が足りなくなる条件を探す腕
+    def wsp(pts, errs):
+        return [P(c, 5, 7, probe=True, st='w', exp=dict(e=(e, 'w'))) for c, e in zip(pts, errs)]
+    cpts = [(3, y+3+50) for n, x0, y in combs]
+    for tag, stack, errs in (('6a', 16, (7, 7, 7)), ('6b', 64, (0, 0, 7)), ('6c', 128, (0, 0, 0)), ('6d', 256, (0, 0, 0))):
+        out.append(ws(f'ws-{tag}', [comb_items(n, 2, y) for n, x0, y in combs], wsp(cpts, errs), stack, guard=True))
+    out.append(ws('ws-6e', [dots_items(0, 0, 300, 80), maze_items(0, 100, 300, 40)], wsp([(1, 1), (1, 101)], (7, 7)), 64, guard=True))
+    lat = [dots_items(0, 0, 100, 40), dots_items(110, 0, 200, 80), dots_items(0, 100, 639, 99)]
+    for tag, stack, errs in (('4', None, (0, 0, 7)), ('4b', 4096, (0, 0, 0))):
+        out.append(ws(f'ws-{tag}', lat, wsp([(1, 1), (111, 1), (1, 101)], errs), stack, wait=30000, guard=True))
     # ---- 速さ(sp)。補助の腕
     out += speed_arms()
     return out
@@ -625,7 +635,7 @@ def program_lines(a):
         assert n < 900
     else:
         st, _ = steps(a)
-        lines = {}
+        lines = {2: 'on error goto 900'} if a.get('guard') else {}
         n0 = 3
         for s in a['sys_pre']:
             lines[n0] = s; n0 += 1
