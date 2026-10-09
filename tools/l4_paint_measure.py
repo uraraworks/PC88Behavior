@@ -1069,7 +1069,7 @@ def selftest(work=None):
     mf, _ = run(ring)
     mp, _ = run(ring, stopfill=True)
     assert (6, 6) in mf.pix and mf.pix[(6, 6)] == 5 and (6, 6) not in mp.pix and len(mf.pix) > len(mp.pix)
-    assert Model().draw_set((0, 0), (3, 0), 0xAAAA) == [(3, 0), (1, 0)] and Model().draw_set((3, 0), (0, 0), 0xAAAA) == [(3, 0), (1, 0)]   # 水平線のスタイルは第2座標から数える（逆向きに指定しても同じ）
+    assert Model().draw_set((0, 0), (3, 0), 0xAAAA) == [(3, 0), (1, 0)] and Model().draw_set((3, 0), (0, 0), 0xAAAA) == [(0, 0), (2, 0)]   # 水平線のスタイルは第2座標から数える（指定の向きを逆にすると位相が変わる）
     assert Model().draw_set((0, 0), (4, 1)) == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1)]       # 線の規則は「以上」（cm.LINE_RULE）。「超える」だと cn-1 の2腕が外れた
     # 白黒
     mm = Model(); mm.do_screen('1,0,0,7')
