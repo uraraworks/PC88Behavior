@@ -170,8 +170,10 @@ ln_bf:
     CALL ln_clampsort
     LD (MM_LN_HY),HL
     LD (MM_LN_HYE),DE
+    CALL gx_pt_begin            ; IX=色の行（行の塗りが使う）
+    CALL ln_hprep               ; 先頭行の番地とマスク。以降の行は番地を +80 するだけ
 ln_bf_l:
-    CALL ln_hspan
+    CALL ln_hrow
     LD HL,(MM_LN_HY)
     LD DE,(MM_LN_HYE)
     OR A
@@ -180,6 +182,13 @@ ln_bf_l:
     ADD HL,DE
     INC HL
     LD (MM_LN_HY),HL
+    LD DE,80
+    LD HL,(MM_LN_HA0)
+    ADD HL,DE
+    LD (MM_LN_HA0),HL
+    LD HL,(MM_LN_HA1)
+    ADD HL,DE
+    LD (MM_LN_HA1),HL
     JR ln_bf_l
 
 ; HL=a, DE=b を 0〜BC に切り詰め、HL=小さい方・DE=大きい方
@@ -332,6 +341,17 @@ ln_gset:
     SRL H
     RR L
     LD (MM_LN_SUM),HL           ; 和の初期値 = 主軸の差 ÷ 2（切り捨て）
+    CALL gx_pt_begin
+    LD HL,(MM_LN_STY)
+    INC HL
+    LD A,H
+    OR L
+    JR NZ,ln_loop               ; 線種のある線は点ごとの汎用ループ（下）
+    LD HL,(MM_LN_X)
+    LD DE,(MM_LN_Y)
+    CALL gx_addr
+    JR C,ln_loop                ; （起きないはず。起きても汎用ループが同じ画素を描く）
+    JR ln_fast
 ln_loop:
     CALL ln_pix
     LD HL,(MM_LN_CNT)
@@ -388,11 +408,141 @@ ln_pix:                         ; スタイルを1つ回し、ビットが立っ
     LD (MM_LN_STY),HL
     LD HL,(MM_LN_X)
     LD DE,(MM_LN_Y)
-    LD A,(MM_GFX_TC)
-    JP gx_plot
+    JP gx_plotxy
 ln_pix_n:
     LD (MM_LN_STY),HL
     RET
+
+; ---------------------------------------------------------------- 実線の速い走査（線種なし）
+; 線の画素は汎用ループ（上）と同じ。違いは画素ごとに (x,y) から番地を求め直さず、番地 HL とビットマスク B を進めること。
+;   x を1歩: B を回し、回りきったら HL を ±1。y を1歩: HL += 80。クリップ後の線は画面の長方形の中に収まるので範囲検査は要らない。
+;   和の判定: t = 和 - 主軸の差（負）で持ち、t += 副軸の差 のキャリー ⇔ 和+副軸の差 >= 主軸の差。キャリーで t += -主軸の差。
+;   レジスタ: HL=番地 B=マスク DE=副軸の差 IX=色の行 IY=t、裏レジスタ BC'=-主軸の差 HL'=残りの歩数（割り込みハンドラは裏レジスタを使わない）。
+;   窓（DI〜EI）は gx_pt の中だけ。入口 HL=始点の番地 B=マスク
+ln_fast:
+    LD DE,(MM_LN_S)             ; DE=副軸の差（ループの間ずっと）
+    EXX
+    LD HL,(MM_LN_M)
+    XOR A
+    SUB L
+    LD C,A
+    SBC A,A
+    SUB H
+    LD B,A                      ; BC'=-主軸の差
+    LD D,H
+    LD E,L
+    SRL D
+    RR E                        ; DE'=主軸の差 ÷ 2
+    LD IY,0
+    ADD IY,DE
+    ADD IY,BC                   ; t = (主軸の差 ÷ 2) - 主軸の差
+    LD HL,(MM_LN_CNT)           ; HL'=残りの歩数
+    EXX
+    LD A,(MM_LN_YMAJ)
+    OR A
+    JR Z,ln_fx
+    LD A,(MM_LN_XS+1)
+    OR A
+    JR NZ,ln_fy_m
+ln_fy_p:                        ; Y 主軸・x が増える
+    CALL gx_pt
+    EXX
+    LD A,H
+    OR L
+    JR Z,ln_f_end
+    DEC HL
+    EXX
+    LD A,L
+    ADD A,80
+    LD L,A
+    JR NC,ln_fyp_a
+    INC H
+ln_fyp_a:
+    ADD IY,DE
+    JR NC,ln_fy_p
+    EXX
+    ADD IY,BC
+    EXX
+    RRC B
+    JR NC,ln_fy_p
+    INC HL
+    JR ln_fy_p
+ln_fy_m:                        ; Y 主軸・x が減る
+    CALL gx_pt
+    EXX
+    LD A,H
+    OR L
+    JR Z,ln_f_end
+    DEC HL
+    EXX
+    LD A,L
+    ADD A,80
+    LD L,A
+    JR NC,ln_fym_a
+    INC H
+ln_fym_a:
+    ADD IY,DE
+    JR NC,ln_fy_m
+    EXX
+    ADD IY,BC
+    EXX
+    RLC B
+    JR NC,ln_fy_m
+    DEC HL
+    JR ln_fy_m
+ln_f_end:
+    EXX
+    RET
+ln_fx:                          ; X 主軸
+    LD A,(MM_LN_XS+1)
+    OR A
+    JR NZ,ln_fx_m
+ln_fx_p:                        ; x が増える
+    CALL gx_pt
+    EXX
+    LD A,H
+    OR L
+    JR Z,ln_f_end
+    DEC HL
+    EXX
+    RRC B
+    JR NC,ln_fxp_a
+    INC HL
+ln_fxp_a:
+    ADD IY,DE
+    JR NC,ln_fx_p
+    EXX
+    ADD IY,BC
+    EXX
+    LD A,L
+    ADD A,80
+    LD L,A
+    JR NC,ln_fx_p
+    INC H
+    JR ln_fx_p
+ln_fx_m:                        ; x が減る
+    CALL gx_pt
+    EXX
+    LD A,H
+    OR L
+    JR Z,ln_f_end
+    DEC HL
+    EXX
+    RLC B
+    JR NC,ln_fxm_a
+    DEC HL
+ln_fxm_a:
+    ADD IY,DE
+    JR NC,ln_fx_m
+    EXX
+    ADD IY,BC
+    EXX
+    LD A,L
+    ADD A,80
+    LD L,A
+    JR NC,ln_fx_m
+    INC H
+    JR ln_fx_m
 
 ; ---------------------------------------------------------------- クリップ
 ; IX=端点 → A=はみ出しの印（bit0 x<0, bit1 x>=640, bit2 y<0, bit3 y>=200）
@@ -646,7 +796,14 @@ ln_sa_pos:
 
 ; ---------------------------------------------------------------- 水平の帯（バイト単位）
 ; MM_LN_HX0..HX1 (0〜639, HX0<=HX1) の y=MM_LN_HY を MM_GFX_TC で塗る。カラーは3プレーン、白黒はアクティブページ。
+; 1行1プレーンを1つの窓（DI〜EI）で塗る: 端のバイトはマスク付き、間は PUSH DE の並びへ飛び込んで2バイトずつ書く
+; （スタックポインタをグラフィックVRAMの右端に置く。窓の中は割り込みが来ない）。
 ln_hspan:
+    CALL gx_pt_begin
+    CALL ln_hprep
+    JP ln_hrow
+; HX0,HX1,HY から 左端の番地 HA0・左端のマスク HLM・右端の番地 HA1・右端のマスク HRM・間隔 HNB を作る
+ln_hprep:
     LD HL,(MM_LN_HX0)
     LD DE,(MM_LN_HY)
     CALL gx_addr
@@ -667,90 +824,107 @@ ln_hspan:
     SBC HL,DE
     LD A,L
     LD (MM_LN_HNB),A            ; 右端のバイトと左端のバイトの間隔
+    RET
+; 準備済みの1行を塗る（IX=色の行）。間のバイトが2個以上あるときの飛び先 IY と奇数の印 HFV を作る
+ln_hrow:
+    LD A,(MM_LN_HNB)
+    OR A
+    JR Z,ln_hr_go
+    DEC A                       ; 間のバイト数 n = 間隔-1
+    LD B,A
+    AND 1
+    LD (MM_LN_HFV),A            ; 奇数なら左端の次の1バイトを別に書く
+    LD A,B
+    SRL A                       ; 2バイトずつの書き込みの回数 k
+    LD E,A
+    LD D,0
+    LD HL,ln_pend
+    OR A
+    SBC HL,DE
+    PUSH HL
+    POP IY                      ; ln_pend から k 個さかのぼった PUSH DE へ飛ぶ
+ln_hr_go:
     LD A,(MM_GFX_MONO)
     OR A
-    JR NZ,hs_mono
-    LD A,05Ch
-    LD (MM_LN_HPORT),A
-hs_l:
-    SUB 05Ch
-    LD B,A
-    INC B
-    LD A,(MM_GFX_TC)
-hs_s:
-    RRA
-    DJNZ hs_s
-    SBC A,A                     ; 色のそのプレーンのビットが立っていれば 0FFh
-    LD (MM_LN_HFV),A
+    JR NZ,ln_hr_mono
+    LD E,(IX+0)
+    LD C,05Ch
     CALL ln_hplane
-    LD A,(MM_LN_HPORT)
-    INC A
-    LD (MM_LN_HPORT),A
-    CP 05Fh
-    JR NZ,hs_l
-    RET
-hs_mono:
-    LD A,(MM_GFX_APAGE)
-    ADD A,05Ch
-    LD (MM_LN_HPORT),A
+    LD E,(IX+1)
+    LD C,05Dh
+    CALL ln_hplane
+    LD E,(IX+2)
+    LD C,05Eh
+    JR ln_hplane
+ln_hr_mono:
     LD A,(MM_GFX_TC)
     ADD A,0FFh
     SBC A,A
-    LD (MM_LN_HFV),A
-ln_hplane:
-    LD A,(MM_LN_HFV)
     LD E,A
-    LD A,(MM_LN_HPORT)
+    LD A,(MM_GFX_APAGE)
+    ADD A,05Ch
     LD C,A
+; C=プレーンのポート, E=埋める値(00/FF)。1行1プレーンを塗る
+ln_hplane:
     LD A,(MM_LN_HNB)
     OR A
-    JR NZ,hp_m
-    LD A,(MM_LN_HLM)            ; 1バイトだけ
-    LD D,A
-    LD A,(MM_LN_HRM)
-    AND D
-    LD D,A
-    LD HL,(MM_LN_HA0)
-    JR ln_rmw
-hp_m:
-    PUSH AF
-    LD A,(MM_LN_HLM)
-    LD D,A
-    LD HL,(MM_LN_HA0)
-    CALL ln_rmw
-    POP AF
-    DEC A
-    JR Z,hp_last
-    LD B,A
-    LD HL,(MM_LN_HA0)
-    INC HL
-    CALL ln_fill
-hp_last:
-    LD A,(MM_LN_HRM)
-    LD D,A
-    LD HL,(MM_LN_HA1)
-ln_rmw:                         ; HL=番地, C=プレーンのポート, D=マスク, E=埋める値(00/FF)
-    DI
-    OUT (C),A
-    LD A,D
-    CPL
-    AND (HL)
+    JR Z,ln_hp_one
+    LD (MM_LN_TA2),SP           ; 窓の中でSPを書き換えるので退避（窓の外のRAMに置く）
+    LD A,(MM_LN_HFV)
     LD B,A
     LD A,E
+    EXX
+    LD E,A                      ; E'=埋める値
+    LD HL,(MM_LN_HA1)
+    LD A,(MM_LN_HRM)
+    LD D,A                      ; D'=右端のマスク
+    EXX
+    LD HL,(MM_LN_HA0)
+    LD A,(MM_LN_HLM)
+    LD D,A                      ; D=左端のマスク
+    DI                          ; ここから EI まで、スタックにもRAMにも触れない
+    OUT (C),A
+    LD A,(HL)
+    XOR E
     AND D
-    OR B
-    LD (HL),A
-    OUT (05Fh),A
+    XOR (HL)
+    LD (HL),A                   ; 左端
+    BIT 0,B
+    JR Z,ln_hp_ev
+    INC HL
+    LD (HL),E                   ; 間のバイトが奇数個のとき、左端の次の1バイト
+ln_hp_ev:
+    EXX
+    LD A,(HL)
+    XOR E
+    AND D
+    XOR (HL)
+    LD (HL),A                   ; 右端
+    LD SP,HL                    ; 右端の番地から下へ2バイトずつ
+    LD D,E
+    JP (IY)
+ln_pushes:
+    DS 40,0D5h                  ; PUSH DE × 40（1行の間のバイトは最大78＝39組）
+ln_pend:
+    EXX
+    OUT (05Fh),A                ; メインRAMへ戻す
+    LD SP,(MM_LN_TA2)
     EI
     RET
-ln_fill:                        ; HL=番地, B=個数, C=プレーンのポート, E=埋める値
+ln_hp_one:                      ; 1バイトだけ（左端と右端が同じバイト）
+    LD A,(MM_LN_HLM)
+    LD D,A
+    LD A,(MM_LN_HRM)
+    AND D
+    LD D,A
+    LD HL,(MM_LN_HA0)
     DI
     OUT (C),A
-    LD A,E
-ln_fl:
+    LD A,(HL)
+    XOR E
+    AND D
+    XOR (HL)
     LD (HL),A
-    INC HL
-    DJNZ ln_fl
     OUT (05Fh),A
     EI
     RET

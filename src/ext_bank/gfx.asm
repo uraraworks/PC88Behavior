@@ -223,32 +223,37 @@ gx_step_tab:
 
 ; ---- 画面の番地と点
 ; HL=x, DE=y（符号付き16bit）→ CF=1 なら範囲外（x>=640・y>=200・負）。
-; CF=0 なら HL=グラフィックVRAMの番地（プレーンの先頭 + y*80 + x/8）、B=ビットマスク（x%8==0 が bit7）
+; CF=0 なら HL=グラフィックVRAMの番地（プレーンの先頭 + y*80 + x/8）、B=ビットマスク（x%8==0 が bit7）。A,C,DE を壊す。
+; （速さ: y*80 は (y*5)<<4 の加算、x/8 はシフト、マスクは表。高速化の前は y*80 と x%8 を毎回ループで求めていた）
 gx_addr:
-    PUSH HL
-    LD BC,640
+    LD A,H
+    CP 2
+    JR C,gx_a_xok               ; x の上位が 0/1 なら 0〜511（負は 0x80 以上なので入らない）
+    JR NZ,gx_a_out
+    LD A,L
+    CP 080h
+    JR NC,gx_a_out              ; 512〜639 だけ通す
+gx_a_xok:
+    LD A,D
     OR A
-    SBC HL,BC
-    POP HL
+    JR NZ,gx_a_out
+    LD A,E
+    CP 200
     JR NC,gx_a_out
-    EX DE,HL                    ; HL=y, DE=x
-    PUSH HL
-    LD BC,200
-    OR A
-    SBC HL,BC
-    POP HL
-    JR NC,gx_a_out
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL                   ; y*16
     LD B,H
-    LD C,L
+    LD C,L                      ; BC=x
+    LD H,D
+    LD L,E                      ; HL=y（D=0）
     ADD HL,HL
-    ADD HL,HL                   ; y*64
-    ADD HL,BC                   ; y*80
-    LD B,D
-    LD C,E
+    ADD HL,HL                   ; y*4
+    ADD HL,DE                   ; y*5
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL                   ; y*80
+    LD A,C
+    AND 7
+    LD E,A                      ; E=x%8
     SRL B
     RR C
     SRL B
@@ -258,76 +263,103 @@ gx_addr:
     ADD HL,BC
     LD BC,MM_GVRAM_BASE
     ADD HL,BC
-    LD A,E
-    AND 7
-    LD B,A
-    LD A,080h
+    LD BC,gx_masktab
+    LD A,C
+    ADD A,E
+    LD C,A
+    JR NC,gx_a_mt
     INC B
-gx_a_mask:
-    DEC B
-    JR Z,gx_a_done
-    SRL A
-    JR gx_a_mask
-gx_a_done:
+gx_a_mt:
+    LD A,(BC)
     LD B,A
     OR A                        ; CF=0
     RET
 gx_a_out:
     SCF
     RET
+gx_masktab:
+    DB 080h,040h,020h,010h,008h,004h,002h,001h
+; 色ごとの3プレーン分の埋め値（プレーン0=青・1=赤・2=緑。色のbit p が 1 なら 0FFh）
+gx_filltab:
+    DB 000h,000h,000h, 0FFh,000h,000h, 000h,0FFh,000h, 0FFh,0FFh,000h
+    DB 000h,000h,0FFh, 0FFh,000h,0FFh, 000h,0FFh,0FFh, 0FFh,0FFh,0FFh
 
-; 点を打つ。HL=x, DE=y, A=色(0〜7)。範囲外は何もしない。
-; カラー: 3プレーンそれぞれ、色のbitが1なら点を立て、0なら消す。白黒(screen 1): アクティブページのプレーンだけ、色が0以外なら立て、0なら消す。
-gx_plot:
-    LD (MM_GFX_TC),A
-    CALL gx_addr
-    RET C
-    LD A,B
-    CPL
-    LD E,A                      ; E=~マスク
+; ---- 点列を描く入口（LINE の線・CIRCLE・PAINT が使う）
+; 使い方: MM_GFX_TC に色を置き、gx_pt_begin を1回呼ぶ（IX が色の行を指す）。そのあとは
+;   gx_pt（HL=番地, B=マスク。番地とマスクは呼び手が進める）か gx_plotxy（HL=x, DE=y。範囲外は何もしない）を何度でも呼んでよい。
+;   その間 IX を壊さないこと。グラフィックVRAMの切替（OUT 5C〜5E → 5F）は点ごとに DI〜EI の窓の中で、窓の中はスタックにもRAMにも触れない。
+gx_pt_begin:                    ; A,BC,IX,F を壊す
+    LD A,(MM_GFX_TC)
+    LD C,A
+    ADD A,A
+    ADD A,C                     ; 色*3
+    LD C,A
+    LD B,0
+    LD IX,gx_filltab
+    ADD IX,BC
+    RET
+; 点を打つ（カラーは色の行で3プレーン、白黒はアクティブページ）。A,F 以外は壊さない
+gx_pt:
     LD A,(MM_GFX_MONO)
     OR A
-    JR NZ,gx_plot_mono
-    LD A,(MM_GFX_TC)
-    LD D,A                      ; D=色（下位bitから順にプレーン0,1,2）
-    LD C,05Ch
+    JR NZ,gx_pt_mono
     DI                          ; ここから EI まで、スタックとRAMに触れない
-gx_pc_loop:
-    OUT (C),A                   ; プレーン選択（5C=青 5D=赤 5E=緑。値は何でもよい）
+    OUT (05Ch),A                ; プレーン選択（5C=青 5D=赤 5E=緑。値は何でもよい）
     LD A,(HL)
-    AND E
-    SRL D
-    JR NC,gx_pc_w
-    OR B
-gx_pc_w:
+    XOR (IX+0)
+    AND B
+    XOR (HL)                    ; (HL) のマスク位置だけ埋め値に替わる
     LD (HL),A
-    INC C
-    LD A,C
-    CP 05Fh
-    JR NZ,gx_pc_loop
-    OUT (C),A                   ; 5F=メインRAMへ戻す
+    OUT (05Dh),A
+    LD A,(HL)
+    XOR (IX+1)
+    AND B
+    XOR (HL)
+    LD (HL),A
+    OUT (05Eh),A
+    LD A,(HL)
+    XOR (IX+2)
+    AND B
+    XOR (HL)
+    LD (HL),A
+    OUT (05Fh),A                ; 5F=メインRAMへ戻す
     EI
     RET
-gx_plot_mono:
+gx_pt_mono:                     ; 白黒: アクティブページのプレーンだけ、色が0以外なら立て、0なら消す
+    PUSH DE
+    PUSH BC
     LD A,(MM_GFX_TC)
-    LD D,B
-    OR A
-    JR NZ,gx_pm_set
-    LD D,0
-gx_pm_set:
+    ADD A,0FFh
+    SBC A,A
+    LD E,A                      ; 埋め値
     LD A,(MM_GFX_APAGE)
     ADD A,05Ch
     LD C,A
     DI
     OUT (C),A
     LD A,(HL)
-    AND E
-    OR D
+    XOR E
+    AND B
+    XOR (HL)
     LD (HL),A
     LD C,05Fh
     OUT (C),A
     EI
+    POP BC
+    POP DE
     RET
+; HL=x, DE=y に打つ（範囲外は何もしない）。gx_pt_begin のあとで使う
+gx_plotxy:
+    CALL gx_addr
+    RET C
+    JP gx_pt
+
+; 点を打つ。HL=x, DE=y, A=色(0〜7)。範囲外は何もしない。
+; カラー: 3プレーンそれぞれ、色のbitが1なら点を立て、0なら消す。白黒(screen 1): アクティブページのプレーンだけ、色が0以外なら立て、0なら消す。
+gx_plot:
+    LD (MM_GFX_TC),A
+    CALL gx_pt_begin
+    JR gx_plotxy
 
 ; 点を読む。HL=x, DE=y → A=色(0〜7)、範囲外は 0FFh（-1）。白黒はアクティブページの1/0
 gx_getpix:

@@ -120,3 +120,9 @@ RAM は GFX 領域 24B（0xFFBC〜、memmap.py。測定専用の M6IA 域と宣�
   全判定 243項目の agree 103・differ 140 は HEAD と同数、rows・z・err・ポート値は全腕で同一。colorattr は全82腕が HEAD でも関門失敗で、
   差は mix80-m2・mix40-m2 の cur の個数（1）だけ。
 - PSET の速さは 1 文あたり約 1 フレーム未満（BASIC の式評価が支配的）。
+
+## 5. 描画の高速化後の容量（2026-10-09、出力は不変）
+
+bank2 の空きは **893B → 540B**（点列の入口・実線の速い走査・間のバイトを PUSH で書く水平塗りで +353B）。main 126B・bank0 65B・bank1 1995B・bank3 27B は不変。
+CIRCLE（見積もり 850B）は bank2 に収まらないので、共通部の一部を bank1 へ移すか CIRCLE を bank1 に置く判断が先に要る。
+点列を描く入口は `gx_pt_begin`（色の行を IX に置く）→ `gx_pt`（HL=番地, B=マスク）または `gx_plotxy`（HL=x, DE=y。範囲外は何もしない）。
