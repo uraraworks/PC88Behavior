@@ -106,6 +106,8 @@ gl_s:
 gl_end:
     CALL gx_stmt_end            ; 構文が最後まで正しいときだけ描く
     RET NZ
+    LD HL,(MM_LN_STYLE)
+    LD (MM_LN_STY),HL           ; 線種の位相は文の頭で1回だけ置く（B の4辺をまたいで続く）
     LD A,(MM_LN_MODE)
     CP 2
     JP Z,ln_bf
@@ -118,7 +120,8 @@ gl_end:
     CALL ln_seg
     JP gx_ok
 
-; B: 上・右・下・左の4辺を順に線として引く（角は2回描かれる）
+; B: 下・上・右・左の4辺を順に線として引く（角は2回描かれる）。線種の位相は4辺をまたいで続く（l4-s9u の sy-b・lp-c・sy-n の全画素に一致する並び。
+; 水平の辺は第2座標側から数える）
 ln_box:
     LD HL,ln_edge_tab
     LD B,4
@@ -151,7 +154,7 @@ ln_bx_w:
     DJNZ ln_bx_e
     JP gx_ok
 ln_edge_tab:                    ; 各辺の (始点x, 始点y, 終点x, 終点y) の BX1 からのオフセット
-    DB 0,2,4,2, 4,2,4,6, 4,6,0,6, 0,6,0,2
+    DB 0,6,4,6, 0,2,4,2, 4,2,4,6, 0,6,0,2
 
 ; BF: 座標を画面の範囲へ切り詰め、行ごとに水平の帯を塗る
 ln_bf:
@@ -208,41 +211,32 @@ ln_cp_p:
 
 ; ---------------------------------------------------------------- 1本の線（OX=元の2点）
 ln_seg:
-    LD HL,(MM_LN_OX+2)          ; 転置した元の線 OT=(y1,x1,y2,x2)（上下の辺との交点用）
-    LD (MM_LN_OT),HL
-    LD HL,(MM_LN_OX)
-    LD (MM_LN_OT+2),HL
-    LD HL,(MM_LN_OX+6)
-    LD (MM_LN_OT+4),HL
-    LD HL,(MM_LN_OX+4)
-    LD (MM_LN_OT+6),HL
     LD HL,MM_LN_OX
     LD DE,MM_LN_C0X
     LD BC,8
     LDIR
-    LD IX,MM_LN_C0X
-    CALL ln_oc
-    LD B,A
-    LD IX,MM_LN_C1X
-    CALL ln_oc
-    LD C,A
-    AND B
-    RET NZ                      ; 両端が同じ側の外
-    LD A,B
-    OR C
+    LD HL,(MM_LN_OX+4)          ; X の差も Y の差も 65535 の線は何も描かない（第9.3節。自作は「両軸とも 65535」を最小の実装とした）
+    LD DE,(MM_LN_OX)
+    CALL ln_subabs
+    INC HL
+    LD A,H
+    OR L
+    JR NZ,ln_sg_ok
+    LD HL,(MM_LN_OX+6)
+    LD DE,(MM_LN_OX+2)
+    CALL ln_subabs
+    INC HL
+    LD A,H
+    OR L
+    RET Z
+ln_sg_ok:
+    CALL ln_ocs
+    LD A,(MM_LN_F0)
+    LD HL,MM_LN_F1
+    OR (HL)
     JR Z,ln_seg_in
-    LD IX,MM_LN_C0X
-    CALL ln_clip
-    LD IX,MM_LN_C1X
-    CALL ln_clip
-    LD IX,MM_LN_C0X
-    CALL ln_oc
-    OR A
-    RET NZ
-    LD IX,MM_LN_C1X
-    CALL ln_oc
-    OR A
-    RET NZ
+    CALL ln_clipall
+    RET C
 ln_seg_in:
     LD HL,(MM_LN_C0Y)           ; 始点＝Y の小さい端。等しければ第2点。ただし水平線で第2点が切られていたら第1点
     LD DE,(MM_LN_C1Y)
@@ -338,8 +332,6 @@ ln_gset:
     SRL H
     RR L
     LD (MM_LN_SUM),HL           ; 和の初期値 = 主軸の差 ÷ 2（切り捨て）
-    LD HL,(MM_LN_STYLE)
-    LD (MM_LN_STY),HL
 ln_loop:
     CALL ln_pix
     LD HL,(MM_LN_CNT)
@@ -409,14 +401,14 @@ ln_oc:
     LD H,(IX+1)
     LD DE,640
     CALL ln_oc1
-    LD C,A
+    LD B,A
     LD L,(IX+2)
     LD H,(IX+3)
     LD DE,200
     CALL ln_oc1
     ADD A,A
     ADD A,A
-    OR C
+    OR B
     RET
 ln_oc1:                         ; HL=値, DE=上限 → A=1 負 / 2 上限以上 / 0 範囲内
     BIT 7,H
@@ -431,20 +423,70 @@ ln_oc1a:
     LD A,2
     RET
 
-; IX=端点。左・右・上・下の順に、はみ出していれば元の線との交点へ置き換える
-ln_clip:
-    LD C,0
-ln_cl_l:
-    PUSH BC
-    CALL ln_oc
-    POP BC
-    LD B,C
+; 4辺を 左(x>=0)・右(x<=639)・上(y>=0)・下(y<=199) の順に1辺ずつ切る。各段で、はみ出している端点を「いまの線」とその辺の直線の
+; 交点（四捨五入して整数）に置き換え、次の辺へ進む（第3版の cp-8 の根拠）。両端がその辺の外なら棄却（CF=1）。
+ln_clipall:
+    XOR A
+    LD (MM_LN_K),A
+ln_ca_l:
+    CALL ln_ocs
+    LD A,(MM_LN_K)
+    LD B,A
     INC B
-ln_cl_r:
-    RRA
-    DJNZ ln_cl_r
-    JR NC,ln_cl_n
-    LD A,C
+    LD A,1
+ln_ca_m:
+    DEC B
+    JR Z,ln_ca_mm
+    ADD A,A
+    JR ln_ca_m
+ln_ca_mm:
+    LD D,A                      ; この辺の印
+    LD A,(MM_LN_F0)
+    AND D
+    LD E,A
+    LD A,(MM_LN_F1)
+    AND D
+    JR Z,ln_ca_one
+    LD A,E
+    OR A
+    JR NZ,ln_ca_rej
+ln_ca_one:
+    LD HL,(MM_LN_C0Y)           ; いまの線を転置した記録 (y0,x0,y1,x1)（上下の辺用）
+    LD (MM_LN_OT),HL
+    LD HL,(MM_LN_C0X)
+    LD (MM_LN_OT+2),HL
+    LD HL,(MM_LN_C1Y)
+    LD (MM_LN_OT+4),HL
+    LD HL,(MM_LN_C1X)
+    LD (MM_LN_OT+6),HL
+    LD A,E
+    OR A
+    JR Z,ln_ca_p1
+    LD IX,MM_LN_C0X
+    CALL ln_move
+    JR ln_ca_n
+ln_ca_p1:
+    LD A,(MM_LN_F1)
+    AND D
+    JR Z,ln_ca_n
+    LD IX,MM_LN_C1X
+    CALL ln_move
+ln_ca_n:
+    LD A,(MM_LN_K)
+    INC A
+    LD (MM_LN_K),A
+    CP 4
+    JR NZ,ln_ca_l
+    CALL ln_ocs                 ; 丸めで辺の外に残ったら棄却
+    LD A,(MM_LN_F0)
+    LD HL,MM_LN_F1
+    OR (HL)
+    RET Z
+ln_ca_rej:
+    SCF
+    RET
+ln_move:                        ; IX=端点。MM_LN_K の辺との交点へ置き換える
+    LD A,(MM_LN_K)
     ADD A,A
     LD E,A
     LD D,0
@@ -453,33 +495,36 @@ ln_cl_r:
     LD E,(HL)
     INC HL
     LD D,(HL)                   ; DE=辺の値（0/639/0/199）
-    LD HL,MM_LN_OX
-    BIT 1,C
-    JR Z,ln_cl_a
-    LD HL,MM_LN_OT              ; 上下の辺は x と y を入れ替えた元の線で解く
-ln_cl_a:
-    PUSH BC
+    LD HL,MM_LN_C0X
+    LD A,(MM_LN_K)
+    BIT 1,A
+    JR Z,ln_mv_a
+    LD HL,MM_LN_OT
+ln_mv_a:
     PUSH DE
     CALL ln_interp
     POP DE
-    POP BC
-    BIT 1,C
-    JR NZ,ln_cl_y
+    LD A,(MM_LN_K)
+    BIT 1,A
+    JR NZ,ln_mv_y
     LD (IX+0),E
     LD (IX+1),D
     LD (IX+2),L
     LD (IX+3),H
-    JR ln_cl_n
-ln_cl_y:
+    RET
+ln_mv_y:
     LD (IX+0),L
     LD (IX+1),H
     LD (IX+2),E
     LD (IX+3),D
-ln_cl_n:
-    INC C
-    LD A,C
-    CP 4
-    JR NZ,ln_cl_l
+    RET
+ln_ocs:                         ; 両端の印を MM_LN_F0・F1 へ
+    LD IX,MM_LN_C0X
+    CALL ln_oc
+    LD (MM_LN_F0),A
+    LD IX,MM_LN_C1X
+    CALL ln_oc
+    LD (MM_LN_F1),A
     RET
 ln_edge_e:
     DW 0,639,0,199

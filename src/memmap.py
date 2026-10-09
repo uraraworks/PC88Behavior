@@ -95,7 +95,7 @@ REGIONS = (
     Region('VSYNC_TEST', 0xFFAA, 13, '一時', 'vsync_regcheck（通常ビルドでは使わない）', 'vsync-test'),
     Region('MEASURE_LOW', 0xFFB7, 5, '一時', 'M6IB/M6IH測定（通常ビルドでは使わない）', 'measure'),
     Region('GFX', 0xFFBC, 24, '保持/一時', 'グラフィック(l4-graphics.md): LP(x,y)・前景(xor 7)・背景・白黒とページ・座標とSCREENの作業値', 'normal'),
-    Region('LINE_WORK', 0xEDB2, 80, '一時', 'LINE文の作業（箱の2点・元の線と転置・クリップ後の端点・線種・走査の状態・水平塗りの状態。l4-graphics.md 第9節）', 'normal'),
+    Region('LINE_WORK', 0xEDB2, 84, '一時', 'LINE文の作業（箱の2点・元の線と転置・クリップ後の端点・線種・走査の状態・水平塗りの状態。l4-graphics.md 第9節）', 'normal'),
     Region('MEASURE_REGS', 0xFFBC, 38, '一時', 'M6IAレジスタ・バンク写し（通常ビルドでは使わない）', 'measure'),
     Region('MEASURE_HIGH', 0xFFE2, 6, '一時', 'M6IA/M6II/M6IK測定（通常ビルドでは使わない）', 'measure'),
     Region('INKEY_TEST', 0xFFE8, 3, '一時', 'INKEY頑健性ドライバ専用（通常ビルドでは使わない）', 'inkey-test'),
@@ -818,6 +818,9 @@ FIELDS = {
     'MM_LN_HX1': ('LINE_WORK', 72),
     'MM_LN_HY': ('LINE_WORK', 74),
     'MM_LN_HYE': ('LINE_WORK', 76),
+    'MM_LN_F0': ('LINE_WORK', 78),
+    'MM_LN_F1': ('LINE_WORK', 79),
+    'MM_LN_K': ('LINE_WORK', 80),
 }
 
 
