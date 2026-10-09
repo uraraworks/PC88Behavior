@@ -73,20 +73,19 @@ def circle_offsets(r, half=1):
 
 def aspect_of(ratio, trunc=False):
     """(aspect整数, X を縮めるか)。ratio<=1 は Y を ratio 倍、>1 は X を 1/ratio 倍。負は None。"""
-    if ratio < 0:
-        return None
     f = math.floor if trunc else rnd
-    if ratio <= 1:
+    if ratio <= 1:                      # 負の比率もここへ来る（256 倍した負の整数のまま。scale が下位バイトと上位バイトで扱う）
         return f(f32(ratio)*256), False
     return f(f32(1/f32(ratio))*256), True
 
 
 def scale(v, a, add=128):
-    if a >= 256:
-        return v
-    if a == 0:
-        return 0
-    return (v*a+add) >> 8
+    """aspect 整数 a（256 倍した 16 ビット）による掛け算。下位バイトが 0 なら、上位バイトが 0 以外で素通し・0 で 0 倍、
+    それ以外は下位バイトだけで (v×下位+add)>>8。負の比率（-0.5 → 下位 0x80）が絶対値のように見えるのはこのため（観測 el-4）。"""
+    lo, hi = a & 0xFF, (a >> 8) & 0xFF
+    if lo == 0:
+        return v if hi else 0
+    return (v*lo+add) >> 8
 
 
 def ang_count(v, n):
@@ -110,9 +109,14 @@ def decide(c, sc, ec, plotf, lf):
     return 'plot' if plotf else None
 
 
+# 扇形の線は LINE と同じ規則。l4-s9u の観測（仕様 l4-graphics 第3版 9.2）で「和が主軸の差以上」と確定済み。
+# 事前登録時の器具は lm.PRIMARY（予測時の「超える」）をそのまま使っていて外れた（結果ノート参照）。
+LINE_RULE = dict(init='floor', cmp='>=', start='gw')
+
+
 def circle_points(cx, cy, r, ratio, start=None, end=None, half=1, add=128, trunc=False):
     """CIRCLE の予測画素列（画面外を含む）。start/end は角(ラジアン)か None。負の角は中心へ線。誤りなら ValueError(5)。
-    ratio が負なら None。"""
+    負の比率は 256 倍した負の整数のまま掛け算に渡る。"""
     asp = aspect_of(ratio, trunc)
     if asp is None:
         return None
@@ -156,9 +160,9 @@ def circle_points(cx, cy, r, ratio, start=None, end=None, half=1, add=128, trunc
     pts = list(out)
     for p, q in lines:
         if screen_has(p) and screen_has(q):
-            pts += lm.line_pts(p, q, **lm.PRIMARY)
+            pts += lm.line_pts(p, q, **LINE_RULE)
         else:
-            pts += lm.clip_recompute(p, q, lm.PRIMARY)
+            pts += lm.clip_recompute(p, q, LINE_RULE)
     return pts
 
 
@@ -325,14 +329,14 @@ def arms():
     return out
 
 
-SYN = {'circle': (2, 'm'), 'circle(100,100)': (2, 'm'), 'circle(100,100),': (2, 'w'), 'circle(100,100),10': (0, 'm'),
+SYN = {'circle': (2, 'm'), 'circle(100,100)': (2, 'm'), 'circle(100,100),': (22, 'w'), 'circle(100,100),10': (0, 'm'),
        'circle (100,100),10': (0, 'm'), 'circle(100,100),10,': (22, 'w'), 'circle(100,100),10,,': None, 'circle(100,100),10,7,,': None,
        'circle(100,100),10,7,0,': None, 'circle 100,100,10': (2, 'm'), 'circle(100),10': (2, 'm'), 'circle(100,100) 10': (2, 'm'),
        'circle(100,100);10': (2, 'm'), 'circle step(5,5),10': (0, 'm'), 'circle-(5,5),10': (2, 'm'),
        'circle(100,100),10,7,0,1,0.5,1': (2, 'm'), 'circle(100,100),10,7,0,1,0.5,': None, 'circle(100,100),10,,,,0.5': (0, 'w'),
        'circle(100,100),10,7,,,': None, 'circle(100,100),10,7,,1': (0, 'w'), 'circle(100,100),10,7,1': (0, 'm'),
        'circle(100,100),10,,1,2': (0, 'w'), 'circle(100,100),10,7,0,1,0.5': (0, 'm'), 'circle(100,100),10,,,,': None,
-       'circle(100,100),10;7': (2, 'm'), 'circle(100,100),10 7': (2, 'm'), 'circle(100,100),,7': None, 'circle(100,100),10,7,0,1,,': None}
+       'circle(100,100),10;7': (2, 'm'), 'circle(100,100),10 7': (0, 'w'), 'circle(100,100),,7': None, 'circle(100,100),10,7,0,1,,': None}
 SYN_A = ['circle', 'circle(100,100)', 'circle(100,100),', 'circle(100,100),10', 'circle (100,100),10', 'circle(100,100),10,',
          'circle(100,100),10,,', 'circle(100,100),10,7,,', 'circle(100,100),10,7,0,', 'circle 100,100,10', 'circle(100),10',
          'circle(100,100) 10', 'circle(100,100);10']
@@ -371,7 +375,7 @@ class Model(lm.Model):
         ex = it['exp']
         if it['raw'] is not None:
             return dict(e=ex.get('e'), lp=None, px=None, pts=[])
-        bad = lambda v: abs(rnd(v)) > 32767
+        bad = lambda v: not -32768 <= rnd(v) <= 32767
         x, y = it['ctr']
         if bad(x) or bad(y):
             return dict(e=(6, 'm'), lp=(self.lp, 'w'), px='m', pts=[])
@@ -383,12 +387,14 @@ class Model(lm.Model):
         err = lambda e, st: dict(e=(e, st), lp=lp_ok, px=st, pts=[])
         r = it['r']
         if r == '':
-            return err(22, 'w')
+            return err(2, 'w') if any(v is not None for v in (it['c'], it['s'], it['e'], it['ratio'])) else err(22, 'w')
+        if r == '"a"':
+            return err(13, 'm')
         if isinstance(r, str):
-            return err(13, 'm') if r == '"a"' else err(6, 'w')
+            r = float(r)
+        if r < 0:
+            return err(5, 'w')                  # 符号は丸める前に見る（観測: -0.4・-0.5 も ERR 5）
         rr = rnd(r)
-        if rr < 0:
-            return err(5, 'w')
         if rr > 32767:
             return err(6, 'w')
         c = it['c']
@@ -432,8 +438,6 @@ class Model(lm.Model):
                 return err(2, 'w')
         if dflt:
             ra = DEFAULT_RATIO
-        if ra < 0:
-            return dict(e=None, lp=lp_ok, px=None, pts=None)
         if abs(ra) > 1e38 or (0 < ra < 1e-37):
             return dict(e=None, lp=lp_ok, px=None, pts=None)
         pts = circle_points(a[0], a[1], rr, ra, angs[0], angs[1])
@@ -709,7 +713,7 @@ def judge(obs, a):
         got = {p: c for p, c in op.items() if in_box(p, bx)}
         put(f'c{i}_px', got, want, sst)
         inside = pred['pts'] and all(screen_has(q) for q in pred['pts'])
-        if pred['pts'] and inside and it['c'] not in (0, '0'):
+        if pred['pts'] and inside and not (it['c'] is not None and not isinstance(it['c'], str) and rnd(it['c']) == 0):
             put(f'c{i}_bbox', bbox(got), bbox(pred['pts']), 'm')
             if not pred['arc']:
                 put(f'c{i}_sym', sym_ok(set(got), pred['a']), True, 'm')
@@ -869,7 +873,7 @@ def selftest(work=None):
         assert all((-x, y) in ps and (x, -y) in ps and (y, x) in ps for x, y in ps) and (r, 0) in ps and (0, r) in ps
         assert max(x for x, y in ps) == r and max(y for x, y in ps) == r
     assert scale(10, 128) == 5 and scale(11, 128) == 6 and scale(10, 256) == 10 and scale(10, 0) == 0 and scale(3, 128) == 2
-    assert aspect_of(0.5) == (128, False) and aspect_of(2) == (128, True) and aspect_of(1) == (256, False) and aspect_of(-1) is None
+    assert aspect_of(0.5) == (128, False) and aspect_of(2) == (128, True) and aspect_of(1) == (256, False) and aspect_of(-1) == (-256, False) and aspect_of(-0.5) == (-128, False)
     ph = set(circle_points(0, 0, 40, 0.5))
     assert max(x for x, y in ph) == 40 and max(y for x, y in ph) == 20 and (0, 20) in ph and (40, 0) in ph
     pv = set(circle_points(0, 0, 40, 2))                     # >1: 半径は垂直方向、水平は半分
@@ -895,6 +899,9 @@ def selftest(work=None):
             circle_points(0, 0, 28, 1, *bad_); assert False
         except ValueError:
             pass
+    assert LINE_RULE['cmp'] == '>=' and lm.line_pts((0, 0), (4, 1), **LINE_RULE) == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1)]   # 扇形の線は「以上」
+    sec2 = set(circle_points(160, 96, 28, 1, -0.5, 1))                 # 公式の ar-2 の1セルで (184,84) が立ち (184,83) は立たない。「超える」の線だと逆になる
+    assert (184, 84) in sec2 and (184, 83) not in sec2
     print('OK 円の規則（手計算・対称・半径・比率・点数と角・円弧・逆順・扇形・角の誤り）', flush=True)
     # 文の組み立て
     assert stmt_of(C((1, 2), 3)) == 'circle(1,2),3' and stmt_of(C((1, 2), 3, 7)) == 'circle(1,2),3,7'
@@ -908,7 +915,8 @@ def selftest(work=None):
     p = m.circle(C((50, 50), 5, 9)); assert p['e'] == (5, 'm')
     p = m.circle(C((50, 50), 5, 7, 7)); assert p['e'] == (5, 'm')
     p = m.circle(C((32768, 5), 5, 7)); assert p['e'] == (6, 'm') and m.lp == (50, 50)
-    p = m.circle(C((0, 0), 5, 7, ratio=-1)); assert p['px'] is None and p['e'] is None
+    ca = set(circle_points(0, 0, 20, -0.5)); assert ca == set(circle_points(0, 0, 20, 0.5)) and set(circle_points(0, 0, 20, -2)) == set(circle_points(0, 0, 20, 1))     # 観測 el-4
+    assert set(circle_points(0, 0, 20, -0.001)) == set(circle_points(0, 0, 20, 0))
     m = Model(); m.lp = (100, 100)
     m.circle(C((-5, -5), 0, 7, s1=True)); assert m.lp == (95, 95) and m.pix == {(95, 95): 7}
     m = Model(); m.circle(C((10, 10), 5, 7, ratio=1)); m.circle(C((10, 10), 5, 0, ratio=1)); assert m.pix == {}
@@ -1019,6 +1027,32 @@ def selftest(work=None):
             del os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP']
         assert faulty['n'] == 1 and faulty['spans'] == [[1, 7, 7, 2]], faulty['spans']
         print('  自作の現状: sp-nop frames=' + str(mk['frames']) + ' lp-a 結果行=' + json.dumps(observed[2]['obs'][0]['res']), flush=True)
+    # 公式観測の期待値ファイル（コミット済み）との照合: 期待値の腕は器具の腕と一致し、期待値どおりの観測は全腕一致、
+    # 1画素ずらすと不一致、自作ROMの現測定（base-cls3）は期待値と一致する
+    expected = kw.REPO/'tests/conformance/expected_l4_circle.tsv'
+    if expected.exists():
+        with expected.open(encoding='utf-8', newline='') as stream:
+            want = {r['arm']: json.loads(r['observation']) for r in csv.DictReader(stream, delimiter='\t')}
+        assert set(want) == set(known), set(want) ^ set(known)
+        with tempfile.TemporaryDirectory(prefix='l4s9v-exp-', dir=work) as temp:
+            tdir = Path(temp)
+            full = [dict(w, arm=aid, stat=[], last={}, sent=1) for aid, w in sorted(want.items())]
+            lm.write_tsv(tdir/'echo.tsv', ['arm', 'repeat', 'plan', 'observation', 'gate', 'prediction_judgement', 'failed'],
+                         [(o['arm'], i+1, '[]', json.dumps(o), 'pass', '{}', 0) for o in full for i in range(2)])
+            ok_, bad_ = lm.check(expected, tdir/'echo.tsv')
+            assert len(ok_) == len(known) and not bad_, bad_
+            victim = next(aid for aid in sorted(want) if want[aid]['spans'])
+            moved = json.loads(json.dumps(want))
+            moved[victim]['spans'][0][1] += 1
+            moved[victim]['spans'][0][2] += 1
+            lm.write_tsv(tdir/'tamper.tsv', ['arm', 'observation'], [(k, json.dumps(v, separators=(',', ':'))) for k, v in sorted(moved.items())])
+            assert moved != want
+            ok_, bad_ = lm.check(tdir/'tamper.tsv', tdir/'echo.tsv')
+            assert victim in bad_ and len(bad_) == 1, (victim, list(bad_))
+            emit(tdir/'own.tsv', [dict(r, gate=r['gate']) for r in observed[:1]], strict=False)
+            ok_, bad_ = lm.check(expected, tdir/'own.tsv', only={'base-cls3'})
+            assert ok_ == ['base-cls3'] and not bad_, bad_
+        print('OK 期待値ファイル（公式観測）との照合: 全腕の一致・1画素ずらしの検出・自作ROMの空画面との一致', flush=True)
     print('OK 自作ROMの対照3腕×2走（グラフィックVRAM写しと印が採れる）・ハーネスの故障注入で写しが変わる', flush=True)
     return 0
 
