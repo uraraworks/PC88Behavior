@@ -38,6 +38,18 @@ VISIBLE = (401, 150)
 MARK_ADDR, MARK_HEX = cm.MARK_ADDR, cm.MARK_HEX
 rnd, screen_has, in_box, num, low = lm.rnd, lm.screen_has, lm.in_box, lm.num, lm.low
 csv.field_size_limit(1 << 30)     # 区間の多い腕の観測は 1 欄が 131072 字を超える
+EXPECT_SPAN_MAX = 8000   # 期待値ファイルには区間が 8000 を超える腕の区間を載せない（ハッシュと画素数で比べる。ファイルが 5MB を超えるため）
+_comparable = lm.comparable
+
+
+def comparable(obs):
+    o = _comparable(obs)
+    if o and o.get('spans') is not None and len(o['spans']) > EXPECT_SPAN_MAX:
+        o['spans'] = None
+    return o
+
+
+lm.comparable = comparable          # lm.make_expected / lm.check が使う比較用の値
 CAL_N = 110          # cal-vis: 10x11 の枠 38 画素 + 内部 8x9=72 画素（追補1で 16x11 から狭めた）
 
 
