@@ -864,7 +864,7 @@ def calibrated(records):
 def emit(path, records, strict=True):
     known = {a['id']: a for a in arms()}
     for r in records:
-        r['gate'] = (r['gate'] and r['arm'] == known.get(r['arm']['id']) and len(r['obs']) == 2
+        r['gate'] = (r['gate'] and r['arm']['id'] in known and plan(r['arm']) == plan(known[r['arm']['id']]) and len(r['obs']) == 2
                      and all(valid(o, r['arm']) for o in r['obs']) and r['obs'][0] == r['obs'][1])
     cal = calibrated(records) if strict else True
     rows = [(r['arm']['id'], i+1, json.dumps(plan(r['arm'])), json.dumps(r['obs'][i]),
