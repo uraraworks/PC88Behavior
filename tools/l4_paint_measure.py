@@ -37,7 +37,8 @@ SPAN_MAX = 24000
 VISIBLE = (401, 150)
 MARK_ADDR, MARK_HEX = cm.MARK_ADDR, cm.MARK_HEX
 rnd, screen_has, in_box, num, low = lm.rnd, lm.screen_has, lm.in_box, lm.num, lm.low
-CAL_N = 176          # cal-vis: 16x11 の枠 50 画素 + 内部 14x9=126 画素
+csv.field_size_limit(1 << 30)     # 区間の多い腕の観測は 1 欄が 131072 字を超える
+CAL_N = 110          # cal-vis: 10x11 の枠 38 画素 + 内部 8x9=72 画素（追補1で 16x11 から狭めた）
 
 
 # ---------------------------------------------------------------- タイル（色モード: 1行=3バイト 青・赤・緑、白黒: 1行=1バイト。横8ドット、MSBが左）
@@ -205,7 +206,7 @@ def maze_items(x0, y0, w, rows):
 
 def arms():
     out = [arm('base-cls3', [lm.cls(3)]),
-           arm('cal-vis', PRE + [lm.L((395, 145), (410, 155), 7, 'b'), P((401, 150), 4, 7)], pix=[VISIBLE])]
+           arm('cal-vis', PRE + [lm.L((395, 145), (404, 155), 7, 'b'), P((401, 150), 4, 7)], pix=[VISIBLE])]
     # ---- 形(sh): 枠の中の図形。f=5 b=7
     obstacle3 = bf_((30, 20), (40, 30), 3)
     obstacle5 = bf_((30, 20), (40, 30), 5)
