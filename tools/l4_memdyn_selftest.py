@@ -259,9 +259,12 @@ class Suite:
                      ('CLEAR',200),('PRINT "RECOVER";2+3',200)]
         _,text=self.run('page-oom',commands,disk_with_program(lines))
         assert 'out of memory' in text and re.search(r'pageoom\s*40',text) and re.search(r'recover\s*5',text),text
-        lines=[f'{(i+1)*10} DIM A{i}(31)' for i in range(84)]
+        # 型別配列では単精度32要素の論理消費は137B。旧84個では不足しない。
+        # 256個なら論理消費だけで35072Bとなり、既定CLEARの空き容量を超える。
+        array_count=256
+        lines=[f'{(i+1)*10} DIM A{i}(31)' for i in range(array_count)]
         commands=[('LOAD "1:seed"',50000),('RUN',20000)]
-        commands += [('CLS:PRINT "HEAPOOM";A0(0)',200),('DIM A84(31)',200),('CLEAR',200),('PRINT "RECOVER";7',200)]
+        commands += [('CLS:PRINT "HEAPOOM";A0(0)',200),(f'DIM A{array_count}(31)',200),('CLEAR',200),('PRINT "RECOVER";7',200)]
         _,text=self.run('heap-oom',commands,disk_with_program(lines))
         assert 'out of memory' in text and re.search(r'heapoom\s*0',text) and re.search(r'recover\s*7',text),text
         # 本文不足時の置換は旧本文を失わない。

@@ -24,6 +24,7 @@ class Region:
 
 
 REGIONS = (
+    Region('ARRAY_WORK', 0xE662, 96, '一時', '配列添字32個・確保/探索。評価中の添字はCPUスタックへ退避し、全式の整数化完了後だけ数値変換作業域を再利用', 'normal'),
     Region('SINGLE', 0xE600, 98, '一時', '単精度演算・PEEK/POKE値受渡し', 'normal'),
     Region('FIN', 0xE662, 46, '一時', '単精度文字列入力', 'normal'),
     Region('FOUT', 0xE690, 44, '一時', '単精度文字列出力', 'normal'),
@@ -135,7 +136,20 @@ for _region in REGIONS:
     if _region.name != 'PAINT_BITMAP_TEMP' and _region.profile == 'normal' and _region.base < 0xEE00 and _region.base + _region.size > 0xE600:
         OVERLAPS[frozenset(('PAINT_BITMAP_TEMP', _region.name))] = 'PAINT本体の訪問ビットは引数評価完了後だけ使い、式評価・文字列・LINE・ディスク文の作業とは排他的。'
 
+for _region in REGIONS:
+    if _region.name != 'ARRAY_WORK' and _region.profile == 'normal' and _region.base < 0xE6C2 and _region.base + _region.size > 0xE662:
+        OVERLAPS[frozenset(('ARRAY_WORK', _region.name))] = '添字の評価・整数化完了後に配列作業値を書く。再入中の名前と添字はCPUスタックに保持し、値の数値変換は要素解決後に行う。PAINT訪問ビットは引数評価後だけ使う。'
+
 FIELDS = {
+    'MM_AR_ARGS': ('ARRAY_WORK', 0),
+    'MM_AR_NDIM': ('ARRAY_WORK', 64),
+    'MM_AR_SIZE': ('ARRAY_WORK', 65),
+    'MM_AR_TOTAL': ('ARRAY_WORK', 66),
+    'MM_AR_REC': ('ARRAY_WORK', 68),
+    'MM_AR_OFFSET': ('ARRAY_WORK', 70),
+    'MM_AR_STRIDE': ('ARRAY_WORK', 72),
+    'MM_AR_LOGICAL': ('ARRAY_WORK', 74),
+
     'MM_FN_CPU_BOTTOM': ('CPU_STACK', 0),
     'MM_FN_FRAME': ('DEFFN', 0),
     'MM_FN_WORK': ('DEFFN', 2),
@@ -948,6 +962,7 @@ ALIASES = {
 CONSTANTS = {
     "MM_PA_VIDEO_SECOND": 0xC400,
     "MM_PA_VIDEO_HEAP": 0xCC00,
+    "MM_AR_CAPACITY_BASE": 34587,  # 配列容量: X-(34586+n)。上端ポインタはX+1。
     "MM_USER_START": 0x8400,
     "MM_USER_LIMIT_DEFAULT": 0xE5FD,
     "MM_USER_LIMIT_MAX": 0xE5FF,
@@ -967,10 +982,10 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": (
-        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=配列298B/3=DEF298B/4=FN枠298B。"
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
         "bit7は空き印、同種の空きを再利用。"
         "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
-        "編集/NEW/CLEAR/RUNでヒープと共に消す（未測定・自作判断）。"
+        "編集/NEW/CLEAR/RUNでヒープと共に消す（配列はl4-program第4.10.7の観測、FN枠は未測定・自作判断）。"
         "FN枠: +9=親,+11=DEF,+13/+15=呼出位置,+17=束縛数,+18=引数索引,"
         "+19=実引数枠2B×6,+31=変数2B×6,+43=旧値33B×6,+241=配列一時10B。"
         "実引数は通常形式42Bの非字句名で保存し全評価後に束縛。"

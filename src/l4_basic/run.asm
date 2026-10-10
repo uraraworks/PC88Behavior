@@ -165,17 +165,8 @@ RUN_ERROR_ACTIVE        EQU MM_RUN_ERROR_ACTIVE ; 1B、ハンドラ実行中
 RUN_LAST_ERR            EQU MM_RUN_LAST_ERR ; 1B、ERRが返す番号
 
 ; ---- 配列テーブル(第4.10節・6.5節) ----
-; レコード(298B): [NAME 8B][種別=2 1B][COUNT 1B][DATA(32要素*9B=288B)]
-;   要素は変数と同じ「型1+データ8」(VARREC_VALUEと同形式)。
-;   宣言なし配列は既定COUNT=11(添字0-10、D9-D11の観測から10が上限と
-;   推定、仕様書に無い判断・第8節11)。1配列最大32要素は維持。
-;   個数上限はなく、本文直後の混在ヒープへ追記する。
-ARRAY_REC_SIZE      EQU 298
-ARRAYREC_USED       EQU 8
-ARRAYREC_COUNT      EQU 9
-ARRAYREC_DATA       EQU 10
-ARRAY_MAX_ELEMS     EQU 32
-
+; 配列はbank2で可変長管理。整数2B・単精度4B・倍精度8B・文字列記述子3B。
+; 管理レコードは自作配置。利用者に見える消費は7+2×次元数+要素領域。
 ; ---- M7段階5c-2a: INPUT・文字列関数の作業領域 ----
 ; 固定作業域の番地はmemmap.pyの正典で配る。
 RUN_STR_ARG1_LEN    EQU MM_RUN_STR_ARG1_LEN ; 1B MID$/LEFT$/RIGHT$の元文字列を、数値
@@ -4321,150 +4312,102 @@ ARRAY_FIND:
     LD A,2
     JP HEAP_FIND_MAIN
 
-; ARRAY_ALLOC — A=要素数(COUNT)。IDENT_BUFの名前でヒープへ298B追記し
-;   初期登録する(USED=1,COUNT=A,DATA全0)。出力: A=1成功(HL=スロット)/
-;   0満杯。
+ARRAY_DIM:
+    LD HL,0x6650
+    JR ARRAY_BANK_CALL
+ARRAY_READ_STMT:
+    LD HL,0x66A8
+    JR ARRAY_BANK_CALL
+ARRAY_STRING_STORE:
+    LD HL,0x6B70
+    XOR A
+    JP EXT_BANK_CALL
 ARRAY_ALLOC:
-    LD (RUN_DIM_COUNT),A
-    LD A,2
-    CALL HEAP_ALLOC_MAIN
-    OR A
-    RET Z
-    PUSH HL
-    LD DE,IDENT_BUF
-    LD B,8
-_aa_copyname:
-    LD A,(DE)
-    LD (HL),A
-    INC HL
-    INC DE
-    DJNZ _aa_copyname
-    LD (HL),2
-    INC HL
-    LD A,(RUN_DIM_COUNT)
-    LD (HL),A
-    INC HL
-    LD BC,ARRAY_MAX_ELEMS*9
-_aa_clear:
-    LD (HL),0
-    INC HL
-    DEC BC
-    LD A,B
-    OR C
-    JR NZ,_aa_clear
-    POP HL
-    LD A,1
-    RET
-_aa_full:
-    XOR A
-    RET
-
-; ARRAY_GET_OR_CREATE_DEFAULT — IDENT_BUFの配列を確実に用意する
-;   (無ければCOUNT=11で新規作成、第4.10節の推定上限)。
-;   出力: A=1成功(HL=スロット)/0満杯。
+    LD HL,0x6660
+    JR ARRAY_BANK_CALL
 ARRAY_GET_OR_CREATE_DEFAULT:
-    CALL ARRAY_FIND
-    OR A
-    RET NZ
-    LD A,11
-    CALL ARRAY_ALLOC
-    RET
-
-; ARRAY_ELEM_ADDR — HL=配列レコード先頭(呼び出し前提)。RUN_ARRAY_IDXの
-;   添字から要素アドレスを求める。出力: HL'=要素アドレス(CF=0)/
-;   CF=1(範囲外、第9節Subscript out of range)。
+    LD HL,0x6668
+    JR ARRAY_BANK_CALL
 ARRAY_ELEM_ADDR:
-    PUSH HL
-    LD DE,ARRAYREC_COUNT
-    ADD HL,DE
-    LD A,(HL)
-    POP HL
-    LD B,A
-    LD DE,(RUN_ARRAY_IDX)
-    LD A,D
-    OR A
-    JR NZ,_aea_range
-    LD A,E
-    CP B
-    JR NC,_aea_range
-    PUSH HL
-    LD H,0
-    LD L,E
-    LD D,H
-    LD E,L
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,DE
-    LD DE,ARRAYREC_DATA
-    ADD HL,DE
-    POP DE
-    ADD HL,DE
-    OR A
-    RET
-_aea_range:
-    SCF
+    LD (MM_AR_REC),HL
+    LD HL,0x6670
+    JR ARRAY_BANK_CALL
+ARRAY_PARSE:
+    LD HL,0x7758
+    LD A,1
+    JP EXT_BANK_CALL
+ARRAY_RESOLVE:
+    LD HL,0x6680
+    JR ARRAY_BANK_CALL
+ARRAY_READ:
+    LD HL,0x6688
+    JR ARRAY_BANK_CALL
+ARRAY_FRE:
+    LD HL,0x6690
+    JR ARRAY_BANK_CALL
+ARRAY_TRIM:
+    LD HL,0x6698
+    JR ARRAY_BANK_CALL
+ARRAY_ERASE:
+    LD HL,0x66A0
+    JR ARRAY_BANK_CALL
+ARRAY_PAGE_FREE:
+    LD (MM_FN_WORK),DE
+    LD HL,0x61D0
+    JP S9_BANK_CALL
+ARRAY_BANK_CALL:
+    LD A,2
+    JP EXT_BANK_CALL
+ARRAY_SIZE:
+    LD A,(IDENT_BUF+7)
+    CP '%'
+    LD A,2
+    RET Z
+    LD A,(IDENT_BUF+7)
+    CP '#'
+    LD A,8
+    RET Z
+    LD A,(IDENT_BUF+7)
+    CP '$'
+    LD A,3
+    RET Z
+    LD A,4
     RET
 
-; ARRAY_READ — FACTORから、識別子(IDENT_BUF)の直後に'('を見た時点で
-;   呼ばれる(CUR_PTRは'('の位置)。出力: CUR_TYPE/CUR_DATA(読み出した
-;   値)、ERROR_FLAG/KIND。
-ARRAY_READ:
-    LD HL,IDENT_BUF
-    LD DE,RUN_ARRAY_NAME
-    LD BC,8
+ ; 単精度配列は整数のままを許す単純変数と異なり、常にMBF4Bで格納。
+ARRAY_SINGLE:
+    CALL VAL_LOAD_CUR_TO_OPA
+    LD HL,MBF_OPA
+    LD DE,CUR_DATA
+    LD BC,4
     LDIR
-    CALL ADV_PTR
-    CALL LOGIC_OR_EXPR
-    LD A,(ERROR_FLAG)
+    LD A,1
+    LD (CUR_TYPE),A
+    RET
+; HL=単純変数の型タグ。数値SWAP前に単精度の整数表現を正規化。
+ARRAY_NORMALIZE:
+    PUSH HL
+    PUSH DE
+    PUSH BC
+    CALL ARRAY_SIZE
+    CP 4
+    JR NZ,_an_done
+    LD A,(HL)
     OR A
-    RET NZ
-    CALL VAL_TO_INT16_CUR
-    JR C,_ar_ovfl
-    LD (RUN_ARRAY_IDX),DE
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ')'
-    JR NZ,_ar_syntax
-    CALL ADV_PTR
-    LD HL,RUN_ARRAY_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL ARRAY_GET_OR_CREATE_DEFAULT
-    OR A
-    JR Z,_ar_oom
-    CALL ARRAY_ELEM_ADDR
-    JR C,_ar_range
+    JR NZ,_an_done
+    PUSH HL
     LD DE,CUR_TYPE
-    LD BC,9
+    LD BC,3
     LDIR
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_ar_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-_ar_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,6
-    LD (ERROR_KIND),A
-    RET
-_ar_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,7
-    LD (ERROR_KIND),A
-    RET
-_ar_range:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,9
-    LD (ERROR_KIND),A
+    CALL ARRAY_SINGLE
+    POP DE
+    LD HL,CUR_TYPE
+    LD BC,5
+    LDIR
+_an_done:
+    POP BC
+    POP DE
+    POP HL
     RET
 
 ; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
@@ -4484,36 +4427,24 @@ _ar_range:
 ;   代入そのものの規則はASSIGN_STMTと同じ)。
 ARRAY_ASSIGN_STMT:
     LD HL,RUN_ASSIGN_NAME
-    LD DE,RUN_ARRAY_NAME
+    LD DE,IDENT_BUF
     LD BC,8
     LDIR
-    CALL ADV_PTR
-    CALL LOGIC_OR_EXPR
+    CALL ARRAY_PARSE
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
-    CALL VAL_TO_INT16_CUR
-    JR C,_aas_ovfl
-    LD (RUN_ARRAY_IDX),DE
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ')'
-    JR NZ,_aas_syntax
-    CALL ADV_PTR
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '='
     JR NZ,_aas_syntax
     CALL ADV_PTR
-    LD HL,RUN_ARRAY_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
+    ; 文法を確認してから確保・境界検査。未対応PUT等を配列代入と誤認しない。
     CALL ARRAY_GET_OR_CREATE_DEFAULT
     OR A
-    JR Z,_aas_oom
+    RET Z
     CALL ARRAY_ELEM_ADDR
-    JR C,_aas_range
+    RET C
     LD (RUN_ARRAY_ASSIGN_ADDR),HL
     LD A,(RUN_ASSIGN_KIND)
     CP 3
@@ -4524,9 +4455,21 @@ ARRAY_ASSIGN_STMT:
     RET NZ
     CALL ASSIGN_CONVERT_CUR      ; 第4.21節: 要素の型へ変換（整数は丸め・範囲外ERR 6）
     RET NZ
-    LD HL,CUR_TYPE
+    LD A,(RUN_ASSIGN_KIND)
+    CP 1
+    CALL Z,ARRAY_SINGLE
+    LD A,(CUR_TYPE)
+    LD C,2
+    OR A
+    JR Z,_aas_store
+    LD C,4
+    CP 1
+    JR Z,_aas_store
+    LD C,8
+_aas_store:
+    LD B,0
+    LD HL,CUR_DATA
     LD DE,(RUN_ARRAY_ASSIGN_ADDR)
-    LD BC,9
     LDIR
     XOR A
     LD (ERROR_FLAG),A

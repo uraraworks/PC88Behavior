@@ -26,6 +26,8 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     JP fn_array_string_assign
     ORG 0x6B60
     JP ts_print
+    ORG 0x6B70
+    JP fn_array_string_store
 
 ; 既存の大小不問照合へ語をRAM経由で渡す。窓復元中にバンク文字列を読まない。
 fn_match_stmt:
@@ -776,7 +778,7 @@ fn_release_string:
 
 ; SWAPの左辺解決。A=0は新設可、A=1は存在必須。
 ; 未測定・自作判断: 第2が存在しない配列の場合もERR 5で新設しない。
-; 数値要素9B、単純変数は種別+値の33Bを交換。文字列要素は別途9B形式。
+; 数値は型別2/4/8Bを交換。文字列配列は3B記述子、単純文字列は33B。
 fn_lvalue:
     PUSH AF
     CALL fn_skip
@@ -799,18 +801,9 @@ fn_lvalue_save_name:
     CALL fn_peek
     CP '('
     JR NZ,fn_lvalue_scalar
-    CALL fn_adv
-    CALL fn_expr
+    CALL fn_array_parse
     CALL fn_bad
     JP NZ,fn_lvalue_pop_error
-    CALL fn_to_int
-    JR C,fn_lvalue_pop_overflow
-    LD (MM_RUN_ARRAY_IDX),DE
-    CALL fn_skip
-    CALL fn_peek
-    CP ')'
-    JR NZ,fn_lvalue_pop_syntax
-    CALL fn_adv
     CALL fn_lvalue_restore_name
     POP AF
     PUSH AF
@@ -832,7 +825,12 @@ fn_lvalue_array_addr:
     PUSH HL
     CALL fn_name_kind
     POP HL
-    LD B,9
+    PUSH HL
+    PUSH AF
+    CALL fn_array_size
+    LD B,A
+    POP AF
+    POP HL
     LD C,1                    ; C=配列
     JP fn_lvalue_done
 fn_lvalue_scalar:
@@ -909,12 +907,14 @@ fn_swap:
     CP D
     JR NZ,fn_swap_pop_type
     POP DE                    ; D=第1サイズ、E=配列印
-    ; 数値なら単純変数のkindを飛ばし、全て9B形式で交換。
+    ; 数値なら単純変数のkindと型タグを飛ばし、型別の値だけを交換。
     CP 3
     JR Z,fn_swap_strings
     LD A,C
     OR A
     JR NZ,fn_swap_num_second
+    INC HL
+    CALL fn_array_normalize
     INC HL
 fn_swap_num_second:
     POP DE
@@ -941,8 +941,13 @@ fn_swap_numeric_fix:
     CP 33
     JR NZ,fn_swap_numeric_bytes
     INC DE
+    EX DE,HL
+    CALL fn_array_normalize
+    EX DE,HL
+    INC DE
 fn_swap_numeric_bytes:
-    LD B,9
+    CALL fn_array_size
+    LD B,A
 fn_swap_bytes:
     LD A,(DE)
     LD C,(HL)
@@ -1007,7 +1012,7 @@ fn_swap_string_page_ready:
     ; 配列の記述子をCUR_TYPE/DATAへ退避（文なので式の返り値はない）。
     EX DE,HL
     LD DE,MM_CUR_TYPE
-    LD BC,9
+    LD BC,3
     LDIR
     POP DE
     POP HL
@@ -1044,94 +1049,13 @@ fn_swap_string_oom:
     JP fn_memory
 
 fn_erase:
-fn_erase_one:
-    CALL fn_skip
-    CALL fn_ident
-    OR A
-    JP Z,fn_syntax
-    CALL fn_array_find
-    OR A
-    JP Z,fn_illegal
-    PUSH HL
-    LD DE,7
-    ADD HL,DE
-    LD A,(HL)
-    CP '$'
-    JR NZ,fn_erase_mark
-    INC HL
-    INC HL
-    LD B,(HL)
-    INC HL
-fn_erase_strings:
-    PUSH BC
-    PUSH HL
-    LD A,(HL)
-    OR A
-    JR Z,fn_erase_string_next
-    INC HL                    ; +0=長さ,+1/+2=ページ
-    LD E,(HL)
-    INC HL
-    LD D,(HL)
-    LD (MM_FN_WORK),DE
-    LD HL,FN_PAGE_FREE_ENTRY
-    CALL fn_bank3
-fn_erase_string_next:
-    POP HL
-    LD DE,9
-    ADD HL,DE
-    POP BC
-    DJNZ fn_erase_strings
-fn_erase_mark:
-    POP HL
-    LD DE,8
-    ADD HL,DE
-    LD (HL),082h
-    CALL fn_trim
-    CALL fn_skip
-    CALL fn_peek
-    CP ','
-    JP NZ,fn_ok
-    CALL fn_adv
-    JP fn_erase_one
-
+    LD IX,FN_ARRAY_ERASE_ADDR
+    JP FN_MAIN_CALL_ADDR
+FN_ARRAY_ERASE_ADDR EQU 0x1787
 fn_trim:
-    LD HL,(MM_HEAP_START)
-    LD B,H
-    LD C,L                    ; BC=最後の生きた枠の終わり
-fn_trim_loop:
-    LD DE,(MM_HEAP_END)
-    OR A
-    SBC HL,DE
-    ADD HL,DE
-    JR Z,fn_trim_end
-    PUSH HL
-    LD DE,8
-    ADD HL,DE
-    LD A,(HL)
-    POP HL
-    LD D,A
-    AND 07Fh
-    CP 1
-    LD DE,42
-    JR Z,fn_trim_size
-    LD DE,298
-fn_trim_size:
-    PUSH HL
-    ADD HL,DE
-    EX DE,HL
-    POP HL
-    PUSH DE
-    LD DE,8
-    ADD HL,DE
-    BIT 7,(HL)
-    POP HL
-    JR NZ,fn_trim_loop
-    LD B,H
-    LD C,L
-    JR fn_trim_loop
-fn_trim_end:
-    LD (MM_HEAP_END),BC
-    RET
+    LD IX,FN_ARRAY_TRIM_ADDR
+    JP FN_MAIN_CALL_ADDR
+FN_ARRAY_TRIM_ADDR EQU 0x1787
  ; 文字列配列: +0=長さ,+1/+2=ページ番地。空文字列はページを持たない。
 ; 未測定・自作判断: 非空の文字列要素は長さにかかわらず256Bページ。
 fn_array_string_read:
@@ -1159,6 +1083,7 @@ fn_array_string_assign:
     CALL fn_string
     CALL fn_bad
     RET NZ
+fn_array_string_store:
     LD HL,(MM_RUN_ARRAY_ASSIGN_ADDR)
     CALL fn_release_array_string
     LD A,(MM_RUN_STR_TMP_LEN)
@@ -1185,7 +1110,7 @@ fn_array_string_assign:
     JP fn_ok
 fn_array_store_empty:
     LD HL,(MM_RUN_ARRAY_ASSIGN_ADDR)
-    LD B,9
+    LD B,3
 fn_array_empty_loop:
     LD (HL),0
     INC HL
@@ -1377,3 +1302,17 @@ fn_array_read:
     LD IX,FN_ARRAY_READ_ADDR
     JP FN_MAIN_CALL_ADDR
 FN_ARRAY_READ_ADDR EQU 0x1787
+
+fn_array_parse:
+    LD IX,FN_ARRAY_PARSE_ADDR
+    JP FN_MAIN_CALL_ADDR
+FN_ARRAY_PARSE_ADDR EQU 0x1787
+fn_array_size:
+    LD IX,FN_ARRAY_SIZE_ADDR
+    JP FN_MAIN_CALL_ADDR
+FN_ARRAY_SIZE_ADDR EQU 0x1787
+
+fn_array_normalize:
+    LD IX,FN_ARRAY_NORMALIZE_ADDR
+    JP FN_MAIN_CALL_ADDR
+FN_ARRAY_NORMALIZE_ADDR EQU 0x1787

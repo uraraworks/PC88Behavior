@@ -925,7 +925,18 @@ B1_HEAP_SIZE:
     LD DE,42
     CP 1
     RET Z
+    CP 2
+    JR Z,b1_heap_array_size
     LD DE,298
+    RET
+b1_heap_array_size:
+    PUSH HL
+    LD DE,9
+    ADD HL,DE
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    POP HL
     RET
 B1_HEAP_ALLOC:
     ; 未測定・自作判断: 空き印付きの同サイズ枠を先に再利用。移動はしない。

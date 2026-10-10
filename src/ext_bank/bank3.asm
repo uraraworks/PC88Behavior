@@ -23,68 +23,9 @@ CUR_PTR EQU MM_CUR_PTR
 ; READ_STMT — 第6.1節。カンマ区切りで複数変数へ同時READできる
 ;   (%・#の丸めは適用せずそのまま代入する、仕様書に無い判断)。
 READ_STMT:
-_read_one:
-    CALL B3_SKIP_SPACES
-    CALL B3_LEX_IDENT_CONSUME
-    OR A
-    JR Z,_read_syntax
-    CP 3
-    JR Z,_read_string_target
-    LD (RUN_ASSIGN_KIND),A     ; 第4.21節: 読み先の型（DATA_READ_ONEが変換に使う）
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    XOR A
-    CALL B3_DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL B3_VAR_WRITE_NUMERIC
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    JR _read_next
-_read_string_target:
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    LD A,1
-    CALL B3_DATA_READ_ONE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD HL,RUN_ASSIGN_NAME
-    LD DE,IDENT_BUF
-    LD BC,8
-    LDIR
-    CALL B3_VAR_WRITE_STRING
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-_read_next:
-    CALL B3_SKIP_SPACES
-    CALL B3_PEEK_CHAR
-    CP ','
-    JR NZ,_read_done
-    CALL B3_ADV_PTR
-    JR _read_one
-_read_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_read_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-
+    LD IX,AR_READ_STMT_ADDR
+    JP B3_MAIN_CALL_ADDR
+AR_READ_STMT_ADDR EQU 0x1787
 
     ORG 0x6180
 S9D_GOSUB_PUSH:
@@ -345,10 +286,8 @@ s9d_fre_close:
     CALL S9_CLOSE
     CALL S9_BAD
     RET NZ
-    LD HL,(MM_FREE_TOP)
-    LD DE,(MM_HEAP_END)
-    OR A
-    SBC HL,DE
+    LD IX,AR_FRE_ADDR
+    CALL B3_MAIN_CALL_ADDR
     JP S9_SET_INT
 
 ; 初期化後に位置を再計算。CPUスタック/固定域には触れない。
@@ -466,3 +405,5 @@ _b3_capture_done:
     ORG 0x64A0
 B3_EDITOR_ERROR_ENTRY:
     JP LN_REPORT
+
+AR_FRE_ADDR EQU 0x1787
