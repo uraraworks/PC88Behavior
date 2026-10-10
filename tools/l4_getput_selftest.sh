@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 公式ROM・公式期待値を開かない。陰性対照と自作HEADのみ。
+# 公式ROMは使わない。固定期待値との照合・陰性対照・自作ROMで器具を検査。
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ "$#" -eq 0 ]; then

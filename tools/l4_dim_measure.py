@@ -43,8 +43,9 @@ def arms():
     for d, shape in [(1,'999'),(2,'9,99'),(3,'9,9,9')]:
         out.append(arm(f'mem-shape-{d}',[step(['b=fre(0)',f'dim a%({shape})','q=b-fre(0)']),
                                       step(['erase a%','q=fre(0)-b'])]))
-    # 長いDIMは行長制限との混同を防ぐため結果の採用に別関門が必要。
-    for d in (1,2,3,4,8,16,24,32,48,64,96,120,127,128,254,255,256):
+    # 第14.16版4.10.10: 打鍵到達を確認できなかった9腕は期待値から保留。
+    # 通常の測定/checkも、採用済み143腕に揃える。
+    for d in (1,2,3,4,8,16,24,32):
         shape=','.join(['0']*d)
         out.append(arm(f'dims-{d}',[step(f'dim a%({shape})',error=0 if d<=255 else None),
                      step(value=f'a%({shape})')]))

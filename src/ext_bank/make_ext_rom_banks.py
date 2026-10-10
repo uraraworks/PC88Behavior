@@ -122,7 +122,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/l4_basic/deftype.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/widthbeep.asm").read_text(encoding="utf-8")
     if asm_path.name == "bank2.asm":
-        text = text.replace("    ORG 0x7000", (REPO / "src/ext_bank/array.asm").read_text(encoding="utf-8") + "\n    ORG 0x7000", 1)
+        text = text.replace("    ORG 0x7000", (REPO / "src/ext_bank/array.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/ext_bank/getput.asm").read_text(encoding="utf-8") + "\n    ORG 0x7000", 1)
         text += "\n" + (REPO / "src/ext_bank/gfx.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/line.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/paintp.asm").read_text(encoding="utf-8")

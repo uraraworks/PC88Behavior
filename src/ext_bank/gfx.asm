@@ -102,9 +102,9 @@ gx_stmt_end:                    ; Z=ここで文が終わってよい（行末�
 
 ; ---- 文の入口
 gx_stmt:
-    LD A,2
-    LD (MM_ERROR_KIND),A
     LD A,(MM_RUN_STMT_KIND)
+    CP 51
+    JP NC,gput_stmt              ; 51=GET、52=PUT（getput.asm）
     CP 44
     JR Z,gx_pset
     CP 45

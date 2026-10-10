@@ -15,6 +15,9 @@ FN_PAGE_ALLOC_ENTRY EQU 0x61D8
     JP fn_match_stmt
     ORG 0x6B10
     JP gfx_try_num             ; POINT( を先に見てから ts_try へ（gfxhook.asm）
+; POINT照合語は固定入口の間の6B13〜6B18へ置く。
+gfx_w_point:
+    DB "POINT",0
     ORG 0x6B20
     LD A,1
     JP fn_try

@@ -66,6 +66,18 @@ def cases():
         step(value='point(17,13)', error=0, prediction=7),
         step(['a%(0)=0', 'while a%(0)<3', 'a%(0)=a%(0)+1', 'wend'], error=0),
         step(value='a%(0)', error=0, prediction=3)]))
+    # 半要素で終わる画像の未使用バイト保持と、既定XORを確認。
+    # 計測フロントエンドは@を打鍵できないため、測定腕と同じ省略形を使う。
+    result.append(arm('impl-getput-halfword', [
+        step(['dim g%(3)', 'g%(3)=23130', 'screen 0,0', 'cls 3',
+              'for u=0 to 7', 'pset(u,0),u', 'next u',
+              'get(0,0)-(7,0),g%'], error=0),
+        step(value='g%(0)', error=0, prediction=8),
+        step(value='g%(3)', error=0, prediction=23055),
+        step(['put(40,30),g%,pset'], error=0),
+        step(value='point(47,30)', error=0, prediction=7),
+        step(['put(40,30),g%', 'put(40,30),g%'], error=0),
+        step(value='point(47,30)', error=0, prediction=7)]))
     return result
 
 
