@@ -1,0 +1,22 @@
+diff --git a/src/LIBRETRO/file-op.c b/src/LIBRETRO/file-op.c
+index 9a828fe..68e5f5d 100644
+--- a/src/LIBRETRO/file-op.c
++++ b/src/LIBRETRO/file-op.c
+@@ -404,7 +404,7 @@ size_t osd_fread_diff(void *ptr, size_t size, OSD_FILE *stream)
+       diff_size = filestream_read(stream->sfp, diff, size);
+ 
+       /* Add difference of each byte to read buffer*/
+-      for (; diff_size != 0; diff_size--)
++      while (diff_size-- > 0)
+          ((uint8_t*)ptr)[diff_size] = ((uint8_t*)ptr)[diff_size] + diff[diff_size];
+ 
+       free(diff);
+@@ -420,7 +420,7 @@ size_t osd_fwrite_diff(const void *ptr, uint32_t size, OSD_FILE *stream)
+    size_t diff_size      = filestream_read(stream->fp, diff, size);
+ 
+    /* Write difference of each byte to file */
+-   for (; diff_size != 0; diff_size--)
++   while (diff_size-- > 0)
+       ((int8_t*)diff)[diff_size] = ((uint8_t*)ptr)[diff_size] - ((uint8_t*)diff)[diff_size];
+    filestream_seek(stream->sfp, diff_offset, SEEK_SET);
+    filestream_write(stream->sfp, diff, size);

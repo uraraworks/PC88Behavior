@@ -1,5 +1,7 @@
+# 2026-10-11: 0015-fix-diff-file-bounds.patch適用後の公式・混成各2走が一致。
+# 添字0の差分が反映される修正に伴い、件数不変の00FC署名だけを再固定。
 # ランダムアクセスファイル入口。値は置かず、件数とSHA-256だけを置く。
 # 128バイトのレコード1・2を別々にPUTし、再OPEN後のGET効果を確認する。
 # name<TAB>cpu<TAB>port<TAB>kind<TAB>count<TAB>sha256
 m7cu-random-main-fd	main	00FD	IN	5635	e26b22e7eec0d20725b25a34c00bc968820e1c7434c21cc45e0fb61939315ab7
-m7cu-random-main-fc	main	00FC	IN	9788	14e4362afa3c6025df38b578e6d181979cfde3cf607dbc36dffc9b1525836827
+m7cu-random-main-fc	main	00FC	IN	9788	b3b7cbcc5a569510d7b00b7337a79038b53a2167ea2ca080afcb43b01b9de5bb
