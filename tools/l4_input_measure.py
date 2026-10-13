@@ -8,6 +8,7 @@ import l4_dim_measure as dm
 import check_l3_screen_output as screen
 kw, lm = dm.kw, dm.lm
 ROOT=kw.REPO/'tmp/s9z-work'
+IMPL_ROOT=kw.REPO/'tmp/s9z-impl-work'
 WAIT=3000
 
 
@@ -613,7 +614,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
     args=p.parse_args()
     if hasattr(args,'work_dir'):
-        if not args.work_dir.is_absolute() or not args.work_dir.resolve().is_relative_to(ROOT.resolve()): p.error('作業先はtmp/s9z-work内の絶対パス必須')
+        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT)): p.error('作業先はtmp/s9z-workまたはtmp/s9z-impl-work内の絶対パス必須')
         args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print('- `'+a['id']+'`: `'+a['stmt']+'` 入力='+json.dumps(a['inputs'])+' 予測='+a['prediction'])

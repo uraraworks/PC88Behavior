@@ -169,6 +169,17 @@ FIELDS = {
     'MM_OW_ON_CHOSEN': ('ONWHILE_WORK', 21),
     'MM_OW_ON_TARGET': ('ONWHILE_WORK', 22),
 
+    # INPUTの文内だけの作業。PRINT USING/ディスク/描画文とは排他的。
+    'MM_INPUT_VARS': ('PU_WORK', 0),
+    'MM_INPUT_LINE': ('PU_WORK', 100),
+    'MM_INPUT_NOCR': ('PU_WORK', 101),
+    'MM_INPUT_QUESTION': ('PU_WORK', 102),
+    'MM_INPUT_COUNT': ('PU_WORK', 103),
+    'MM_INPUT_INDEX': ('PU_WORK', 104),
+    'MM_INPUT_MAIN_PTR': ('PU_WORK', 105),
+    'MM_INPUT_MAIN_END': ('PU_WORK', 107),
+    'MM_INPUT_ENTRY': ('PU_WORK', 109),
+    'MM_INPUT_RAW': ('PU_FORMAT', 0),
     'MM_PU_FORMAT': ('PU_FORMAT', 0),
     'MM_PU_PTR': ('PU_WORK', 0),
     'MM_PU_SEEN': ('PU_WORK', 2),
@@ -939,6 +950,8 @@ FIELDS = {
 
 # ソースの既存名 -> 正典名。番地のコピーを持たない別名。
 ALIASES = {
+    'IR_INTEGER': 'MM_RUN_INPUT_COUNT',
+    'IR_ZERO': 'MM_RUN_INPUT_VARS',
     'AEL_TRUNC_HADFRAC': 'MM_TRUNC_HADFRAC',
     'AEL_TRUNC_SIGN': 'MM_TRUNC_SIGN',
     'B1_ERROR_FLAG': 'MM_ERROR_FLAG',

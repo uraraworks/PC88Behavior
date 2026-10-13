@@ -100,6 +100,7 @@ def _generic_addr_subs(text: str, addr_overrides: dict) -> str:
 # この並びでバンク3を組み立て直すので、足すときはここだけを直す。
 BANK3_EXTRA_SOURCES = (
     "src/l4_basic/listnum.asm",
+    "src/l4_basic/input.asm",
     "src/ext_bank/inkey.asm",
     "src/l3_main/key_table_gen.asm",
     "src/l4_basic/strfunc.asm",
@@ -130,6 +131,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         for rel in BANK3_EXTRA_SOURCES:
             text += "\n" + (REPO / rel).read_text(encoding="utf-8")
     if asm_path.name == "bank1.asm":
+        text = text.replace("    ORG 0x6C00", (REPO / "src/l4_basic/input_token.asm").read_text(encoding="utf-8") + "\n    ORG 0x6C00", 1)
         text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")

@@ -179,11 +179,10 @@ RUN_ARG1            EQU MM_RUN_ARG1 ; 2B MID$の第2引数(開始位置)の退�
 PNFM_SAVE_PTR        EQU MM_PNFM_SAVE_PTR ; 2B PARSE_NUM_FROM_MEMのCUR_PTR退避
 PNFM_SAVE_END        EQU MM_PNFM_SAVE_END ; 2B 同LINE_END退避
 PNFM_NEG             EQU MM_PNFM_NEG ; 1B 同'-'符号
-RUN_INPUT_COUNT      EQU MM_RUN_INPUT_COUNT ; 1B INPUTの変数個数(0-4、仕様書に無い上限)
-RUN_INPUT_VARS       EQU MM_RUN_INPUT_VARS ; 4*(kind1B+name8B)=36B
+RUN_INPUT_COUNT      EQU MM_RUN_INPUT_COUNT ; 1B 旧INPUT領域（互換のため予約を維持）
+RUN_INPUT_VARS       EQU MM_RUN_INPUT_VARS ; 旧INPUT受け皿36B（本体はMM_INPUT_VARS）
 RUN_INPUT_RAW_LEN    EQU MM_RUN_INPUT_RAW_LEN ; 1B INPUT_READLINEが読み取った生の行の長さ
-RUN_INPUT_RAW_BUF    EQU MM_RUN_INPUT_RAW_BUF ; 40B(仕様書に無い上限、keyboard.asmの
-                                ; LINE_BUF80Bより短くした簡略化)
+RUN_INPUT_RAW_BUF    EQU MM_RUN_INPUT_RAW_BUF ; 旧INPUTバッファ40B（本体はMM_INPUT_RAW）
 ; 終端 = DE95+40 = DEBDh(まだ0xE800より十分手前)
 
 ; ---- M7段階5c-2b: 配列代入(ARRAY_ASSIGN_STMT)の左辺アドレス退避 ----
@@ -2158,184 +2157,192 @@ COLOR_STMT:
     RET
 
 ; =======================================================================
-; M7段階5c-2a: INPUT(第4.13節)。プロンプトを出し、打った1行を','で
-;   区切って変数へ入れる。プロンプトの記号("? ")は仕様書が記録していない
-;   ため仕様書に無い判断(禁止事項7、一般的なBASICの慣例を採用)。
-;   最大4変数(仕様書に無い上限、配列の最大個数と揃えた)。値が足りない
-;   変数は数値なら0、文字列なら空文字のまま(仕様書に無い判断、
-;   ?Redo from startはマニュアル自身がエラーメッセージでないと明記する
-;   特殊メッセージのため今回の範囲では実装しない)。
-; =======================================================================
+; 第14.17版 4.13/4.13a（測定0fc2cfc）。本体はbank3、項目切出しはbank1。
+; INPUT用の排他的作業域はPRINT USINGの文内作業と共用する。
 INPUT_STMT:
-    XOR A
-    LD (RUN_INPUT_COUNT),A
-_input_parse_loop:
+    LD HL,0x6AD0
+    LD A,3
+    JP EXT_BANK_CALL
+INPUT_TOKEN:
+    LD HL,0x6998
+    LD A,1
+    JP EXT_BANK_CALL
+
+; 受け皿を解析し、単純変数はHL=0、配列はHL=要素の番地を返す。
+INPUT_TARGET:
     CALL SKIP_SPACES
     CALL LEX_IDENT_CONSUME
     OR A
-    JP Z,_input_syntax
-    LD B,A
-    LD A,(RUN_INPUT_COUNT)
-    CP 4
-    JP NC,_input_syntax
-    LD HL,RUN_INPUT_VARS
-    LD D,0
-    LD E,A
-    ; エントリ9B毎: HL += count*9
-    PUSH AF
-    LD A,E
-    ADD A,A
-    ADD A,A
-    ADD A,A
-    ADD A,E
-    LD E,A
-    ADD HL,DE
-    POP AF
-    LD (HL),B
-    INC HL
-    PUSH HL
+    RET Z
+    LD (RUN_ASSIGN_KIND),A
     LD HL,IDENT_BUF
-    EX DE,HL
-    POP HL
-    LD B,8
-_input_copyname:
-    LD A,(DE)
-    LD (HL),A
-    INC HL
-    INC DE
-    DJNZ _input_copyname
-    LD A,(RUN_INPUT_COUNT)
-    INC A
-    LD (RUN_INPUT_COUNT),A
+    LD DE,RUN_ASSIGN_NAME
+    LD BC,8
+    LDIR
     CALL SKIP_SPACES
     CALL PEEK_CHAR
-    CP ','
-    JR NZ,_input_parse_done
-    CALL ADV_PTR
-    JR _input_parse_loop
-_input_parse_done:
-    LD A,(RUN_INPUT_COUNT)
+    CP '('
+    LD HL,0
+    RET NZ
+    CALL ARRAY_PARSE
+    LD A,(ERROR_FLAG)
     OR A
-    JP Z,_input_syntax
-    ; プロンプトを出す(仕様書に無い判断、"? "を選んだ。ヘッダコメント参照)
-    LD A,'?'
-    CALL PRINT_CHAR
-    LD A,' '
-    CALL PRINT_CHAR
-    CALL INPUT_READLINE
-    ; 生の行(RUN_INPUT_RAW_LEN/BUF)を','で区切り、変数の個数ぶんだけ
-    ; 順に代入する。CUR_PTR/LINE_ENDを生の行バッファへ一時的に差し替え、
-    ; 既存の字句解析(PARSE_NUM_FROM_MEM相当の手順・PARSE_STRING_RHS等)を
-    ; そのまま再利用する(DATA_READ_ONEと同じ手法)。
+    RET NZ
+    CALL ARRAY_GET_OR_CREATE_DEFAULT
+    OR A
+    RET Z
+    JP ARRAY_ELEM_ADDR
+
+; 数値は既存の式字句・型変換を用いる。空項目は0。
+; 自作判断: 未測定の任意式は、数値字で始まる式に限って受理する。
+INPUT_NUMBER:
     LD HL,(CUR_PTR)
-    LD (RUN_DATA_MAIN_SAVE_PTR),HL
+    PUSH HL
     LD HL,(LINE_END)
-    LD (RUN_DATA_MAIN_SAVE_END),HL
-    LD HL,RUN_INPUT_RAW_BUF
+    PUSH HL
+    LD HL,RUN_STR_TMP_BUF
     LD (CUR_PTR),HL
-    LD A,(RUN_INPUT_RAW_LEN)
-    LD D,0
+    LD A,(RUN_STR_TMP_LEN)
     LD E,A
+    LD D,0
     ADD HL,DE
     LD (LINE_END),HL
-    XOR A
-    LD (RUN_TMP_E),A          ; 変数インデックス(0..count-1)、1バイト間借り
-_input_field_loop:
-    LD A,(RUN_TMP_E)
-    LD HL,RUN_INPUT_VARS
-    LD B,A
-    ADD A,A
-    ADD A,A
-    ADD A,A
-    ADD A,B
-    LD D,0
-    LD E,A
-    ADD HL,DE                 ; HL=このエントリの[kind][name8]
-    LD A,(HL)
-    LD C,A                     ; C=kind
-    INC HL
-    LD DE,RUN_ASSIGN_NAME
-    PUSH HL
-    LD B,8
-_input_copy_assign_name:
-    LD A,(HL)
-    LD (DE),A
-    INC HL
-    INC DE
-    DJNZ _input_copy_assign_name
+    OR A
+    JR NZ,_in_number
+    LD HL,0
+    CALL VAL_SET_INT
+    CALL ASSIGN_CONVERT_CUR
+    JR _in_restore
+_in_number:
+    CALL INPUT_RANGE
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_in_restore
+    CALL PEEK_CHAR
+    CP '+'
+    JR Z,_in_eval
+    CP '-'
+    JR Z,_in_eval
+    CP '&'
+    JR Z,_in_eval
+    CP '.'
+    JR Z,_in_eval
+    CP '0'
+    JR C,_in_bad
+    CP '9'+1
+    JR NC,_in_bad
+_in_eval:
+    CALL PEEK_CHAR
+    CP '+'
+    CALL Z,ADV_PTR
+    CALL LOGIC_OR_EXPR
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_in_restore
+    CALL INPUT_FIX_LITERAL
+    CALL SKIP_SPACES
+    CALL AT_END
+    JR NZ,_in_bad
+    CALL ASSIGN_CONVERT_CUR
+    JR _in_restore
+_in_bad:
+    LD A,13
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_FLAG),A
+_in_restore:
     POP HL
-    LD A,C
-    LD (RUN_ASSIGN_KIND),A
-    CP 3
-    JR Z,_input_field_string
-    ; 数値項目: 現在位置(','または行末まで)をPARSE_NUM_FROM_MEM相当で
-    ; 読む。まずDATA_PARSE_RAW_TOKENと同じ生トークン切り出しを使い、
-    ; RUN_STR_TMP_LEN/BUFへ集めてからPARSE_NUM_FROM_MEMへ渡す
-    ; (','・行末で区切る点はDATA_PARSE_RAW_TOKENと同じ形を流用する)。
-    CALL DATA_PARSE_RAW_TOKEN
+    LD (LINE_END),HL
+    POP HL
+    LD (CUR_PTR),HL
+    RET
+
+; 式の整数リテラル器が単項マイナス用に許す32768を、INPUTでは
+; 符号つき字面で解釈する。正の十進32768を単精度へ昇格させ、
+; 整数受け皿の既存の範囲検査を通す。負数・基数・任意式は変更しない。
+INPUT_FIX_LITERAL:
+    LD A,(CUR_TYPE)
+    OR A
+    RET NZ
+    LD A,(CUR_DATA)
+    OR A
+    RET NZ
+    LD A,(CUR_DATA+1)
+    CP 0x80
+    RET NZ
     LD HL,RUN_STR_TMP_BUF
     LD A,(RUN_STR_TMP_LEN)
     LD B,A
-    CALL PARSE_NUM_FROM_MEM
-    CALL ASSIGN_NUMERIC_FROM_CUR
-    JR _input_field_after
-_input_field_string:
-    ; 文字列項目: ','または行末までの生の文字をそのまま代入する
-    ; (引用符は要らない、DATA_PARSE_RAW_TOKENと同じ簡略化)。
-    CALL DATA_PARSE_RAW_TOKEN
-    CALL ASSIGN_STRING_FROM_TMP
-_input_field_after:
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR NZ,_input_field_done
-    CALL ADV_PTR
-_input_field_done:
-    LD A,(RUN_TMP_E)
-    INC A
-    LD (RUN_TMP_E),A
-    LD B,A
-    LD A,(RUN_INPUT_COUNT)
-    CP B
-    JP NZ,_input_field_loop
-    LD HL,(RUN_DATA_MAIN_SAVE_END)
-    LD (LINE_END),HL
-    LD HL,(RUN_DATA_MAIN_SAVE_PTR)
-    LD (CUR_PTR),HL
-    CALL NEWLINE
-    XOR A
-    LD (ERROR_FLAG),A
-    LD (RUN_CTRL),A
-    RET
-_input_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
+    LD A,(HL)
+    CP '+'
+    JR NZ,_ifl_digits
+    INC HL
+    DEC B
+    RET Z
+_ifl_digits:
+    LD A,(HL)
+    CP '0'
+    RET C
+    CP '9'+1
+    RET NC
+    INC HL
+    DJNZ _ifl_digits
+    CALL VAL_LOAD_CUR_TO_OPA
+    CALL MBF_NEG
+    JP VAL_SET_SINGLE_FROM_RES
 
-; INPUT_READLINE — キーボードを直接ポーリングし(keyboard.asmのKEY_READ、
-;   VSYNC割り込み経由ではなく本ルーチンが自分で繰り返し呼ぶ)、RETURNまで
-;   の1行をRUN_INPUT_RAW_LEN/BUFへ集めながらエコーする(仕様書に無い判断:
-;   INPUTの打鍵はBackspace等の編集を扱わない最小実装、l3-main.mdの
-;   LINE_PUTCHAR/LINE_BUFとは別の領域を使い、実行中の"run"行の入力状態
-;   〔LINE_BUF/VAR_LINELEN、keyboard.asm〕と衝突しないようにする)。
+INPUT_RANGE:
+    LD HL,0x6A40
+    LD A,1
+    JP EXT_BANK_CALL
+
+; HL=配列の番地または0。INPUTで切り出した値を代入する。
+INPUT_STORE:
+    LD A,H
+    OR L
+    JR Z,_in_plain
+    LD (RUN_ARRAY_ASSIGN_ADDR),HL
+    LD A,(RUN_ASSIGN_KIND)
+    CP 3
+    JP Z,ARRAY_STRING_STORE
+    CP 1
+    CALL Z,ARRAY_SINGLE
+    LD A,(CUR_TYPE)
+    LD C,2
+    OR A
+    JR Z,_in_array
+    LD C,4
+    CP 1
+    JR Z,_in_array
+    LD C,8
+_in_array:
+    LD B,0
+    LD HL,CUR_DATA
+    LD DE,(RUN_ARRAY_ASSIGN_ADDR)
+    LDIR
+    RET
+_in_plain:
+    LD A,(RUN_ASSIGN_KIND)
+    CP 3
+    JP Z,ASSIGN_STRING_FROM_TMP
+    JP ASSIGN_NUMERIC_FROM_CUR
+
+; 254文字で格納・エコーを止める。編集キーは本段では未対応。
 INPUT_READLINE:
     XOR A
     LD (RUN_INPUT_RAW_LEN),A
 _irl_loop:
-    CALL CURSOR_INPUT           ; 入力待ちは毎フレーム、カーソル表示のコマンド 0x81＋位置（l4-program.md 5.6.5）
+    CALL CURSOR_INPUT
     CALL KEY_READ
     OR A
     JR Z,_irl_loop
     CP 2
-    JR Z,_irl_done
-    ; A=1(通常文字)、E=文字コード
+    RET Z
     PUSH DE
     LD A,(RUN_INPUT_RAW_LEN)
-    CP 40
-    JR NC,_irl_skip_store
-    LD HL,RUN_INPUT_RAW_BUF
+    CP 254
+    JR NC,_irl_skip
+    LD HL,MM_INPUT_RAW
     LD D,0
     LD E,A
     ADD HL,DE
@@ -2347,13 +2354,9 @@ _irl_loop:
     LD A,E
     CALL PRINT_CHAR
     JR _irl_loop
-_irl_skip_store:
+_irl_skip:
     POP DE
-    LD A,E
-    CALL PRINT_CHAR
     JR _irl_loop
-_irl_done:
-    RET
 
 ; =======================================================================
 ; エラー・停止の出力(RUNは常に1行、l4-program.md第4.5節)
@@ -2506,6 +2509,8 @@ RMSK_TABLE:
     DW TRY_MATCH_CLS
     DB 73,16
     DW TRY_MATCH_INPUT
+    DB 76,16
+    DW TRY_MATCH_LINE_INPUT
     DB 76,17
     DW TRY_MATCH_LOCATE
     DB 67,18
@@ -3557,7 +3562,22 @@ TRY_MATCH_CLS:
     LD (RUN_KW_LEN),A
     JP TRY_MATCH_KEYWORD_GENERIC
 
+TRY_MATCH_LINE_INPUT:
+    LD HL,STMT_LINE_INPUT_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,10
+    LD (RUN_KW_LEN),A
+    CALL TRY_MATCH_KEYWORD_GENERIC
+    OR A
+    RET Z
+    LD A,1
+    LD (MM_INPUT_LINE),A
+    RET
+STMT_LINE_INPUT_TEXT: DB "LINE INPUT"
+
 TRY_MATCH_INPUT:
+    XOR A
+    LD (MM_INPUT_LINE),A
     LD HL,STMT_INPUT_TEXT
     LD (RUN_KW_TEXT),HL
     LD A,STMT_INPUT_LEN
