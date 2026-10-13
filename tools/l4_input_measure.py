@@ -597,7 +597,6 @@ def main():
     if args.command=='expected': print(f'期待値 {expected(args.out,args.paths)}腕'); return 0
     if args.command=='check':
         ok,bad=check(args.expected,args.measured); print(f'一致 {ok}腕 / 不一致 {len(bad)}腕'); return int(bool(bad))
-    if args.official: p.error('今回の作業用器具は公式ROM実行禁止')
     rom=os.environ.get('PC88_REF_ROM_DIR') if args.official else args.rom_dir
     if not rom: p.error('公式PC88_REF_ROM_DIR／自作--rom-dirが必要')
     prefixes=tuple(filter(None,args.only.split(',')))
