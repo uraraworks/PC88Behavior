@@ -564,13 +564,13 @@ s2_write:
     JP s2_write_stream
 s2_skip:
     LD IX,BANK2_SKIP_SPACES_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP BANK2_SKIP_SPACES_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 s2_peek:
     LD IX,BANK2_PEEK_CHAR_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP BANK2_PEEK_CHAR_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 s2_adv:
     LD IX,BANK2_ADV_PTR_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP BANK2_ADV_PTR_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 s2_end:
     LD IX,BANK2_AT_END_ADDR
     JP BANK2_MAIN_CALL_ADDR

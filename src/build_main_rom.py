@@ -285,6 +285,8 @@ EXT_BANK_INTERRUPT_SAFE_LABELS = (
 # 設計規律であり、ここでは(a)(番地が窓の外にあること)だけを機械的に検査
 # する。
 EXT_BANK_CALLABLE_RESIDENT_LABELS = (
+    # 字句小ヘルパはRAM走査だけ。再入・バンク切替・窓内CALLを行わない。
+    "PEEK_CHAR", "SKIP_SPACES", "FOLD_UPPER", "ADV_PTR",
     "MBF_ADD", "MBF_SUB", "MBF_NEG", "MBF_CMP", "MBF_MUL", "MBF_DIV",
     "MBF_INT_TO_SINGLE", "MBF_UDWORD_TO_SINGLE", "MBF_FIN", "MBF_FOUT",
     "FIN_ACC_TO_SINGLE_AWAY",

@@ -797,14 +797,21 @@ _l4zp_pad_loop:
 ; (LEX_NUMBER)や式評価のループがこれらを多用するため、呼び出し元のHLを
 ; 保存しない実装は過去に不具合を出している(M7段階3b、当初HLを破壊する版で
 ; "PRINT1"が62768になる不具合を確認、PUSH/POPでHLを退避する形に修正した)。
+; BC/HLを保存、DE=LINE_END、A=文字(行末0)。
+; 全呼び出し元はAをCP/OR等で判定し、PEEKの比較フラグを使わない。
+; 差分を作らず一致だけを見るのでCUR_PTRの再読込みが不要。
 PEEK_CHAR:
     PUSH HL
     LD HL,(CUR_PTR)
     LD DE,(LINE_END)
-    OR A
-    SBC HL,DE
+_l4peek_compare:
+    LD A,L
+    CP E
+    JR NZ,_l4peek_load
+    LD A,H
+    CP D
     JR Z,_l4peek_end
-    LD HL,(CUR_PTR)
+_l4peek_load:
     LD A,(HL)
     POP HL
     RET
@@ -813,26 +820,13 @@ _l4peek_end:
     POP HL
     RET
 
-; PEEK_CHAR2 — CUR_PTR+1位置の文字を覗く(CUR_PTRは進めない)。
-;   数値定数が'.'で始まる場合(F2/S1等、l4-basic.md第5.3節)に、その直後が
-;   数字かどうかをFACTORが確かめるために使う。
+; PEEK_CHAR2 — CUR_PTR+1位置。同じ一致判定を使い、ポインタを消費しない。
 PEEK_CHAR2:
     PUSH HL
     LD HL,(CUR_PTR)
     INC HL
     LD DE,(LINE_END)
-    OR A
-    SBC HL,DE
-    JR Z,_l4peek2_end
-    LD HL,(CUR_PTR)
-    INC HL
-    LD A,(HL)
-    POP HL
-    RET
-_l4peek2_end:
-    XOR A
-    POP HL
-    RET
+    JR _l4peek_compare
 
 ADV_PTR:
     PUSH HL
@@ -850,12 +844,31 @@ AT_END:
     RET
 
 SKIP_SPACES:
+    ; PEEK/ADVの往復を融合。HL/BCを保存、DEは従来どおりLINE_END。
+    ; 復帰Aとフラグは最後のCP ' 'で従来と一致。行末は読まない。
+    PUSH HL
+    LD HL,(CUR_PTR)
+    LD DE,(LINE_END)
 _l4skip_loop:
-    CALL PEEK_CHAR
+    LD A,L
+    CP E
+    JR NZ,_l4skip_load
+    LD A,H
+    CP D
+    JR Z,_l4skip_end
+_l4skip_load:
+    LD A,(HL)
     CP ' '
-    RET NZ
-    CALL ADV_PTR
+    JR NZ,_l4skip_done
+    INC HL
+    LD (CUR_PTR),HL
     JR _l4skip_loop
+_l4skip_end:
+    XOR A
+    CP ' '
+_l4skip_done:
+    POP HL
+    RET
 
 ; FOLD_UPPER: Aの英小文字をAND大文字化する。他の文字はそのまま。
 FOLD_UPPER:

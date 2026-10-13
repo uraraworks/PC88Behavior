@@ -87,7 +87,13 @@ def make_rom(out, arm, fault):
         's2_write:\n    JP s2_write_stream': 's2_write:\n    JP T_WRITE',
     }
     for name, addr in (('skip','SKIP_SPACES'), ('peek','PEEK_CHAR'), ('adv','ADV_PTR'), ('end','AT_END')):
-        substitutions[f's2_{name}:\n    LD IX,BANK2_{addr}_ADDR\n    JP BANK2_MAIN_CALL_ADDR'] = f's2_{name}:\n    JP T_{name.upper()}'
+        # 常駐ヘルパの直接呼出し版も、同じ合成側ヘルパへ接続する。
+        # 期待値・陰性対照は変えず、置換点が一意である検査も維持する。
+        relay = f's2_{name}:\n    LD IX,BANK2_{addr}_ADDR\n    JP BANK2_MAIN_CALL_ADDR'
+        direct = (f's2_{name}:\n    LD IX,BANK2_{addr}_ADDR\n'
+                  f'    JP BANK2_{addr}_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)')
+        source = direct if direct in bank else relay
+        substitutions[source] = f's2_{name}:\n    JP T_{name.upper()}'
     if fault == 'release':
         substitutions['    CALL s2_release_chain\n    ; ERR53/61'] = '    NOP\n    ; ERR53/61'
     if fault == 'tail':

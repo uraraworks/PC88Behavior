@@ -809,7 +809,7 @@ _load_error_after_clear:
 BANK1_ADV_PTR_ADDR EQU 0x1787
 _b1_call_adv_ptr:
     LD IX,BANK1_ADV_PTR_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP BANK1_ADV_PTR_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 BANK1_AT_END_ADDR EQU 0x1787
 _b1_call_at_end:
     LD IX,BANK1_AT_END_ADDR
@@ -833,7 +833,7 @@ _b1_call_parse_linenum:
 BANK1_PEEK_CHAR_ADDR EQU 0x1787
 _b1_call_peek_char:
     LD IX,BANK1_PEEK_CHAR_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP BANK1_PEEK_CHAR_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 BANK1_PRINT_CHAR_ADDR EQU 0x1787
 _b1_call_print_char:
     LD IX,BANK1_PRINT_CHAR_ADDR
@@ -861,7 +861,7 @@ _b1_call_select_error_msg:
 BANK1_SKIP_SPACES_ADDR EQU 0x1787
 _b1_call_skip_spaces:
     LD IX,BANK1_SKIP_SPACES_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP BANK1_SKIP_SPACES_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 BANK1_ERR_BELL_ADDR EQU 0x1787
 _b1_call_err_bell:
     LD IX,BANK1_ERR_BELL_ADDR

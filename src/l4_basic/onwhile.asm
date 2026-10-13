@@ -525,17 +525,17 @@ ow_bad:
 
 ow_skip:
     LD IX,OW_SKIP_ADDR
-    JP OW_MAIN_CALL_ADDR
+    JP OW_SKIP_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 OW_SKIP_ADDR EQU 0x1787
 
 ow_peek:
     LD IX,OW_PEEK_ADDR
-    JP OW_MAIN_CALL_ADDR
+    JP OW_PEEK_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 OW_PEEK_ADDR EQU 0x1787
 
 ow_adv:
     LD IX,OW_ADV_ADDR
-    JP OW_MAIN_CALL_ADDR
+    JP OW_ADV_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 OW_ADV_ADDR EQU 0x1787
 
 ow_expr:

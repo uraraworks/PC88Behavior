@@ -103,17 +103,17 @@ ar_p_restore_loop:
 AP_SKIP_ADDR EQU 0x1787
 ar_skip:
     LD IX,AP_SKIP_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP AP_SKIP_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AP_PEEK_ADDR EQU 0x1787
 ar_peek:
     LD IX,AP_PEEK_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP AP_PEEK_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AP_ADV_ADDR EQU 0x1787
 ar_adv:
     LD IX,AP_ADV_ADDR
-    JP BANK1_MAIN_CALL_ADDR
+    JP AP_ADV_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AP_EXPR_ADDR EQU 0x1787
 ar_expr:

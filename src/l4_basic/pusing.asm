@@ -848,13 +848,13 @@ pu_print:
     RET
 pu_skip:
     LD IX,PU_SKIP_ADDR
-    JP PU_MAIN_CALL_ADDR
+    JP PU_SKIP_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 pu_peek:
     LD IX,PU_PEEK_ADDR
-    JP PU_MAIN_CALL_ADDR
+    JP PU_PEEK_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 pu_adv:
     LD IX,PU_ADV_ADDR
-    JP PU_MAIN_CALL_ADDR
+    JP PU_ADV_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 PU_MAIN_CALL_ADDR EQU 0x1787
 PU_SKIP_ADDR EQU 0x1787
 PU_PEEK_ADDR EQU 0x1787

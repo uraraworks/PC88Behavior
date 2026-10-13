@@ -1185,17 +1185,17 @@ fn_bad:
     RET
 fn_skip:
     LD IX,FN_SKIP_ADDR
-    JP FN_MAIN_CALL_ADDR
+    JP FN_SKIP_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 FN_SKIP_ADDR EQU 0x1787
 
 fn_peek:
     LD IX,FN_PEEK_ADDR
-    JP FN_MAIN_CALL_ADDR
+    JP FN_PEEK_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 FN_PEEK_ADDR EQU 0x1787
 
 fn_adv:
     LD IX,FN_ADV_ADDR
-    JP FN_MAIN_CALL_ADDR
+    JP FN_ADV_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 FN_ADV_ADDR EQU 0x1787
 
 fn_ident:
@@ -1210,7 +1210,7 @@ FN_IDENT_PEEK_ADDR EQU 0x1787
 
 fn_fold:
     LD IX,FN_FOLD_ADDR
-    JP FN_MAIN_CALL_ADDR
+    JP FN_FOLD_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 FN_FOLD_ADDR EQU 0x1787
 
 fn_match:

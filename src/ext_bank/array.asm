@@ -681,17 +681,17 @@ ar_rs_next:
 AR_SKIP_ADDR EQU 0x1787
 ar_skip:
     LD IX,AR_SKIP_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP AR_SKIP_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AR_PEEK_ADDR EQU 0x1787
 ar_peek:
     LD IX,AR_PEEK_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP AR_PEEK_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AR_ADV_ADDR EQU 0x1787
 ar_adv:
     LD IX,AR_ADV_ADDR
-    JP BANK2_MAIN_CALL_ADDR
+    JP AR_ADV_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
 
 AR_IDENT_ADDR EQU 0x1787
 ar_ident:
