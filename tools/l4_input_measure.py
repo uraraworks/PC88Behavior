@@ -42,6 +42,9 @@ def arms():
     for n in (79,80,81,127,128,129,254,255,256,260):
         for tag,stmt in [('input','input a$'),('line','line input a$')]:
             out.append(arm('length-'+tag+'-'+str(n),stmt,['x'*n],['a$'],prediction='上限255と弱く予測。LEN/先頭末尾ASC/文字コード和を取得、打鍵到達境界とは分離'))
+    for a in out:
+        if a['id']=='retry-short': a['inputs'].append('4,5')
+        if a['id'] in ('syntax-input-missing','syntax-input-variable'): a['inputs']=['0']
     return out
 
 
@@ -167,6 +170,9 @@ def candidate_rows(a,stage):
             for rt,msg in [('redo-q','?redo from start'),('redo','redo from start'),('extra','?extra ignored'),('redo-upper','?Redo from start'),('extra-upper','?Extra ignored')]:
                 out[tag+'-'+rt]=[prompt+data[0],msg,prompt+(data[1] if len(data)>1 else '')]
             out[tag+'-more']=[prompt+data[0],'?? '+(data[1] if len(data)>1 else '')]
+        if a['id']=='retry-short' and stage>=2:
+            for rt,msg in [('redo-q','?redo from start'),('redo','redo from start'),('extra','?extra ignored'),('redo-upper','?Redo from start'),('extra-upper','?Extra ignored')]:
+                out[tag+'-'+rt+'-twice']=[prompt+data[0],msg,prompt+data[1],msg,prompt+(data[2] if len(data)>2 else '')]
     # 未入力時の末尾空白は空セルと同じ。既知の等価組を除外。
     if stage==0:
         out.pop('q'); out.pop('none')
@@ -199,7 +205,7 @@ def run_arm(rom,official,a,work,cache=None):
             if not completed: raise ValueError('直接モード入力後診断未完了')
 
         sig=signature(raw); matches=[]; candidates={}
-        if a['inputs'] or a['id']=='line-numeric':
+        if (a['inputs'] and not a['id'].startswith('syntax-')) or a['id']=='line-numeric':
             programs={tag:candidate_program(rows,newline=not (stage and 'nonewline' in a['id']),completed=completed) for tag,rows in candidate_rows(a,stage).items()}
             missing=list(dict.fromkeys(tuple(cp) for cp in programs.values() if tuple(cp) not in cache))
             for start in range(0,len(missing),8):
@@ -220,7 +226,11 @@ def run_arm(rom,official,a,work,cache=None):
             o=dict(parse(raw,a),stages=stages,consumed=stage)
             o['screen']=screen_comparison(o,a)
             return o
-        if stage==len(a['inputs']) or not ready(pair,a): raise ValueError('要求/完了関門')
+        if stage==len(a['inputs']) or not ready(pair,a):
+            exc=ValueError('要求/完了関門')
+            exc.diagnostic=dict(arm=a['id'],failure='request-completion-gate',consumed=stage,stages=stages,
+                exhausted=stage==len(a['inputs']),request_ready=ready(pair,a))
+            raise exc
         # 別プロセスで前段を再現。確認した同じ予定・十分な待機の後でだけ入力する。
         commands.append(a['inputs'][stage])
     raise ValueError('完了なし')
@@ -233,7 +243,7 @@ def screen_comparison(o,a):
     # 事前除外を先に適用。観測に応じて等価候補を自動削除しない。
     if a['id'] in EMPTY_SCREEN_ARMS:
         return dict(state='excluded',reason='empty-input',equivalent=[['q-space','q'],['space','none']])
-    if not a['inputs'] and a['id']!='line-numeric':
+    if a['id'].startswith('syntax-') or (not a['inputs'] and a['id']!='line-numeric'):
         return dict(state='excluded',reason='no-screen-plan')
     ss=o.get('stages',[])
     def unavailable(reason): return dict(state='incomparable',reason=reason)
@@ -298,10 +308,10 @@ def measure(rom,official,selected,work):
     checkpoints=work/'checkpoints'; checkpoints.mkdir(exist_ok=True)
     import hashlib
     identity=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    rom_identity={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(rom).glob('*')) if p.is_file()}
+    rom_identity=None if official else {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(rom).glob('*')) if p.is_file()}
     def one(a):
         checkpoint=checkpoints/(a['id']+'.json')
-        if checkpoint.exists():
+        if not official and checkpoint.exists():
             saved=json.loads(checkpoint.read_text())
             r=saved.get('record',{})
             if saved.get('instrument')==identity and saved.get('rom')==rom_identity and r.get('arm')==a and r.get('gate') and len(r.get('obs',[]))==2 and all(valid(o,a) for o in r['obs']) and r['obs'][0]==r['obs'][1]:
@@ -314,7 +324,7 @@ def measure(rom,official,selected,work):
                 try: obs.append(run_arm(rom,official,a,Path(td),per_thread.cache))
                 except Exception as exc:
                     tb=traceback.extract_tb(exc.__traceback__)
-                    obs.append(dict(arm=a['id'],failure=type(exc).__name__,line=tb[-1].lineno))
+                    obs.append(getattr(exc,'diagnostic',dict(arm=a['id'],failure=type(exc).__name__,line=tb[-1].lineno)))
             gate=all(valid(o,a) for o in obs) and obs[0]==obs[1]
             print('進捗 '+a['id']+': '+('pass' if gate else 'gate_failed'),flush=True)
             record=dict(arm=a,obs=obs,gate=gate)
@@ -418,6 +428,7 @@ def safety_selftest(work):
     known=arms()
     for a in known: program(a)
     a=known[0]; o=synth(a); assert valid(o,a)
+    assert not valid(dict(arm=a['id'],failure='request-completion-gate',stages=o['stages'],consumed=0,exhausted=True,request_ready=True),a)
     raw=lm.synth_text(['s9zw;'])
     raw=bytearray(raw); raw[:80]=bytes(80); raw[14*120:14*120+5]=b's9zw;'
     assert ready([raw,raw],a)
@@ -529,6 +540,20 @@ def safety_selftest(work):
         ob=synth(next(x for x in known if x['id']==aid))
         assert screen_comparison(ob,next(x for x in known if x['id']==aid))['state']=='excluded'
     from unittest.mock import patch
+    # 固定入力列枯渇は安定要求でも拒否。本文は外へ出さない。
+    control=arm('syntax-control','input',inputs=[])
+    rr=bytearray(3000); rr[14*120:14*120+5]=b's9zw;'
+    with patch.dict(run_arm.__globals__,capture=lambda *args:[rr,rr]):
+        try: run_arm(Path('synthetic'),False,control,work)
+        except ValueError as exc:
+            assert exc.diagnostic['exhausted'] and exc.diagnostic['request_ready']
+            assert not valid(exc.diagnostic,control)
+        else: raise AssertionError('入力列枯渇を受理')
+    rr[15*120:15*120+5]=b's9zz;'
+    with patch.dict(run_arm.__globals__,capture=lambda *args:[rr,rr]):
+        try: run_arm(Path('synthetic'),False,control,work)
+        except ValueError: pass
+        else: raise AssertionError('値印なし完了を受理')
     with tempfile.TemporaryDirectory(prefix='capture-fixture-',dir=work) as td:
         td=Path(td)
         def fake(argv,**kwargs):
