@@ -9,7 +9,7 @@
 ;   TAB(・SPC(の直前の語が'('のとき（HEX$(TAB(…など）はPRINTの項目として扱わない。
 ;   数値比較は整数どうしだけ窓内で完結し、それ以外は既存の単精度比較、
 ;   どちらかが倍精度なら倍精度の比較（MBF_DCMP）へ回す。
-; 入口（main中継の固定番地）。deffn.asmの末尾（0x743B）より後ろ。
+; 入口（main中継の固定番地）。deffn.asmの末尾より後ろ。
     ORG 0x7450
     JP ts_logic
     ORG 0x7460
@@ -436,6 +436,9 @@ ts_arg:
 ; FN_TRY_NUM（バンク0の0x6B10）から。数値の項の先頭で呼ばれる。A=1で処理済み
 ; （CUR_TYPE/CUR_DATAに値、またはERROR_FLAG）。A=0は何もせず従来のFN判定へ。
 ts_try:
+    CALL ts_peek
+    CALL fn_kw_upper
+    LD B,A
     LD HL,(MM_CUR_PTR)
     PUSH HL
     LD HL,ts_names
@@ -445,6 +448,9 @@ ts_try_next:
     JR Z,ts_try_none
     LD C,A
     INC HL
+    LD A,(HL)
+    CP B
+    JR NZ,ts_try_skip
     PUSH HL
     PUSH BC
     CALL ts_kw
@@ -521,14 +527,6 @@ ts_try_back:
     LD (MM_CUR_PTR),HL
     XOR A
     JP fn_try
-
-ts_names:
-    DB 1,"CSNG",0
-    DB 2,"POS",0
-    DB 3,"TAB",0
-    DB 4,"SPC",0
-    DB 5,"CSRLIN",0
-    DB 0
 
 ; ===================== 数値の比較（VAL_COMPARE_CUR_RHSの本体） =====================
 ; 入口はmainのVAL_COMPARE_CUR_RHS。出力: A=0等しい/1 CUR>RHS/0xFF CUR<RHS。

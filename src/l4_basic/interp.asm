@@ -1193,6 +1193,9 @@ _ftnf_loop:
     JR Z,_ftnf_none
     LD C,A
     INC HL
+    LD A,(IDENT_BUF)
+    CP (HL)
+    JR NZ,_ftnf_skip
     PUSH HL
     LD DE,IDENT_BUF
     LD B,C
@@ -1243,6 +1246,7 @@ _ftnf_with_arg:
     RET
 _ftnf_fail:
     POP HL
+_ftnf_skip:
     LD B,0
     ADD HL,BC
     INC HL

@@ -332,6 +332,74 @@ SC_SINCN4:
 ; 入力: MBF_OPA=単精度x(呼び出し元がVAL_LOAD_CUR_TO_OPAで設定済み)。
 ; 出力: MBF_RES=単精度sin(x)/cos(x)/tan(x)。破壊: 全レジスタ。
 ; ---------------------------------------------------------------------
+; 0x6137〜0x6200の空隙。mainの汎用照合と同じ境界・残量判定。
+fn_kw_generic:
+    LD HL,(MM_LINE_END)
+    LD DE,(MM_CUR_PTR)
+    OR A
+    SBC HL,DE
+    LD A,L
+    LD HL,MM_RUN_KW_LEN
+    CP (HL)
+    JR C,fn_kw_fail
+    LD HL,(MM_CUR_PTR)
+    LD DE,(MM_RUN_KW_TEXT)
+    LD A,(MM_RUN_KW_LEN)
+    LD B,A
+fn_kw_cmp:
+    LD A,(HL)
+    CALL fn_kw_upper
+    LD C,A
+    LD A,(DE)
+    CP C
+    JR NZ,fn_kw_fail
+    INC HL
+    INC DE
+    DJNZ fn_kw_cmp
+    LD DE,(MM_LINE_END)
+    PUSH HL
+    OR A
+    SBC HL,DE
+    JR Z,fn_kw_boundary_ok
+    POP HL
+    LD A,(HL)
+    CALL fn_kw_upper
+    CP 'A'
+    JR C,fn_kw_boundary_ok2
+    CP 'Z'+1
+    JR NC,fn_kw_boundary_ok2
+    JR fn_kw_fail
+fn_kw_boundary_ok:
+    POP HL
+fn_kw_boundary_ok2:
+    LD HL,(MM_CUR_PTR)
+    LD A,(MM_RUN_KW_LEN)
+    LD E,A
+    LD D,0
+    ADD HL,DE
+    LD (MM_CUR_PTR),HL
+    LD A,1
+    RET
+fn_kw_fail:
+    XOR A
+    RET
+
+fn_kw_upper:
+    CP 'a'
+    RET C
+    CP 'z'+1
+    RET NC
+    SUB 32
+    RET
+
+ts_names:
+    DB 1,"CSNG",0
+    DB 2,"POS",0
+    DB 3,"TAB",0
+    DB 4,"SPC",0
+    DB 5,"CSRLIN",0
+    DB 0
+
     ORG 0x6200
 EXT_BANK0_SIN_ENTRY:
     CALL SC_SIN_IMPL

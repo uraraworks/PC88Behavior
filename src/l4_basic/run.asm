@@ -2387,161 +2387,33 @@ RUN_EMIT_STOP:
 RUN_MATCH_STMT_KEYWORD:
     XOR A
     LD (RUN_STMT_KIND),A
-    CALL TRY_MATCH_PRINT
-    OR A
-    RET NZ
-    CALL TRY_MATCH_GOTO
-    OR A
-    JR Z,_rmsk_try_gosub
-    LD A,1
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_gosub:
-    CALL TRY_MATCH_GOSUB
-    OR A
-    JR Z,_rmsk_try_return
-    LD A,2
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_return:
-    CALL TRY_MATCH_RETURN
-    OR A
-    JR Z,_rmsk_try_for
-    LD A,3
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_for:
-    CALL TRY_MATCH_FOR
-    OR A
-    JR Z,_rmsk_try_next
-    LD A,4
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_next:
-    CALL TRY_MATCH_NEXT
-    OR A
-    JR Z,_rmsk_try_end
-    LD A,5
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_end:
-    CALL TRY_MATCH_END
-    OR A
-    JR Z,_rmsk_try_stop
-    LD A,6
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_stop:
-    CALL TRY_MATCH_STOP
-    OR A
-    JR Z,_rmsk_try_if
-    LD A,7
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-; M7段階5c追記: IF/DIM/READ/RESTORE/REM('含む)を、代入へ落ちる前に
-;   照合する(第4.7節・4.10節・6.1〜6.2節・6.7節)。
-_rmsk_try_if:
-    CALL TRY_MATCH_IF
-    OR A
-    JR Z,_rmsk_try_dim
-    LD A,9
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_dim:
-    CALL TRY_MATCH_DIM
-    OR A
-    JR Z,_rmsk_try_read
-    LD A,10
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_read:
-    CALL TRY_MATCH_READ
-    OR A
-    JR Z,_rmsk_try_restore
-    LD A,11
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_restore:
-    CALL TRY_MATCH_RESTORE
-    OR A
-    JR Z,_rmsk_try_rem
-    LD A,12
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_rem:
-    CALL TRY_MATCH_REM_ANY
-    OR A
-    JR Z,_rmsk_try_cls
-    LD A,13
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-; M7段階5c-2a追記: CLS(第5.1節)・INPUT(第4.13節)も、代入へ落ちる前に照合する。
-_rmsk_try_cls:
-    CALL TRY_MATCH_CLS
-    OR A
-    JR Z,_rmsk_try_input
-    LD A,15
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_input:
-    CALL TRY_MATCH_INPUT
-    OR A
-    JR Z,_rmsk_try_locate
-    LD A,16
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-; M7段階5c-2b追記: LOCATE(第5.2節)・COLOR(第5.4節)も、代入へ落ちる前に照合する。
-_rmsk_try_locate:
-    CALL TRY_MATCH_LOCATE
-    OR A
-    JR Z,_rmsk_try_color
-    LD A,17
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_color:
-    CALL TRY_MATCH_COLOR
-    OR A
-    JR Z,_rmsk_try_on
-    LD A,18
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_on:
-    CALL TRY_MATCH_ON
-    OR A
-    JR Z,_rmsk_try_resume
-    LD A,19
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_resume:
-    CALL TRY_MATCH_RESUME
-    OR A
-    JR Z,_rmsk_try_error
-    LD A,20
-    LD (RUN_STMT_KIND),A
-    LD A,1
-    RET
-_rmsk_try_error:
-    CALL TRY_MATCH_ERROR
+    ; 先頭字で候補を除外する。語の順序と各照合の境界規則は変えない。
+    CALL PEEK_CHAR
+    CALL FOLD_UPPER
+    LD C,A
+    LD HL,RMSK_TABLE
+_rmsk_scan:
+    LD A,(HL)
     OR A
     JR Z,_rmsk_try_files
-    LD A,28
+    INC HL
+    LD B,(HL)                 ; 成功時の文種別
+    INC HL
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    INC HL
+    CP C
+    JR NZ,_rmsk_scan
+    PUSH HL
+    PUSH BC
+    EX DE,HL
+    CALL JUMP_HL
+    POP BC
+    POP HL
+    OR A
+    JR Z,_rmsk_scan
+    LD A,B
     LD (RUN_STMT_KIND),A
     LD A,1
     RET
@@ -2600,6 +2472,51 @@ _rmsk_array_assign:
 _rmsk_assign_fail:
     XOR A
     RET
+
+RMSK_TABLE:
+    DB 80,0
+    DW TRY_MATCH_PRINT
+    DB 71,1
+    DW TRY_MATCH_GOTO
+    DB 71,2
+    DW TRY_MATCH_GOSUB
+    DB 82,3
+    DW TRY_MATCH_RETURN
+    DB 70,4
+    DW TRY_MATCH_FOR
+    DB 78,5
+    DW TRY_MATCH_NEXT
+    DB 69,6
+    DW TRY_MATCH_END
+    DB 83,7
+    DW TRY_MATCH_STOP
+    DB 73,9
+    DW TRY_MATCH_IF
+    DB 68,10
+    DW TRY_MATCH_DIM
+    DB 82,11
+    DW TRY_MATCH_READ
+    DB 82,12
+    DW TRY_MATCH_RESTORE
+    DB 82,13
+    DW TRY_MATCH_REM_ANY
+    DB 39,13
+    DW TRY_MATCH_REM_ANY
+    DB 67,15
+    DW TRY_MATCH_CLS
+    DB 73,16
+    DW TRY_MATCH_INPUT
+    DB 76,17
+    DW TRY_MATCH_LOCATE
+    DB 67,18
+    DW TRY_MATCH_COLOR
+    DB 79,19
+    DW TRY_MATCH_ON
+    DB 82,20
+    DW TRY_MATCH_RESUME
+    DB 69,28
+    DW TRY_MATCH_ERROR
+    DB 0
 
 ; RUN_EXEC_ONE_STMT — CUR_PTR位置の文を1つだけ照合・実行する
 ;   (RUN_MATCH_STMT_KEYWORDの結果で分岐)。呼び出し前にSKIP_SPACESは

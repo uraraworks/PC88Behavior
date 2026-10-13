@@ -32,8 +32,11 @@ gfx_w_point:
     ORG 0x6B70
     JP fn_array_string_store
 
-; 既存の大小不問照合へ語をRAM経由で渡す。窓復元中にバンク文字列を読まない。
+; 窓内で照合を完結。先頭字で除外し、語のRAMコピーとmain中継を省く。
 fn_match_stmt:
+    CALL ts_peek
+    CALL fn_kw_upper
+    LD E,A
     LD HL,fn_words
     LD C,1
 fn_match_loop:
@@ -42,23 +45,27 @@ fn_match_loop:
     RET Z
     LD B,A
     INC HL
-    LD DE,MM_IDENT_BUF
-    PUSH BC
-    LD C,B
-    LD B,0
-    LDIR
-    POP BC
+    LD A,(HL)
+    CP E
+    JR NZ,fn_match_skip
     PUSH HL
     PUSH BC
+    PUSH DE
     LD A,B
     LD (MM_RUN_KW_LEN),A
-    LD HL,MM_IDENT_BUF
     LD (MM_RUN_KW_TEXT),HL
     CALL fn_match
+    POP DE
     POP BC
     POP HL
     OR A
     JR NZ,fn_match_yes
+fn_match_skip:
+    PUSH DE
+    LD E,B
+    LD D,0
+    ADD HL,DE
+    POP DE
     INC C
     JR fn_match_loop
 fn_match_yes:
@@ -1207,8 +1214,7 @@ fn_fold:
 FN_FOLD_ADDR EQU 0x1787
 
 fn_match:
-    LD IX,FN_MATCH_ADDR
-    JP FN_MAIN_CALL_ADDR
+    JP fn_kw_generic
 FN_MATCH_ADDR EQU 0x1787
 
 fn_expr:
@@ -1319,3 +1325,30 @@ fn_array_normalize:
     LD IX,FN_ARRAY_NORMALIZE_ADDR
     JP FN_MAIN_CALL_ADDR
 FN_ARRAY_NORMALIZE_ADDR EQU 0x1787
+
+; POINTの語頭分類を含む本体は固定入口間の空隙へ置く。
+gfx_try_num:
+    CALL ts_peek
+    CALL fn_kw_upper
+    CP 'P'
+    JP NZ,ts_try
+    LD HL,(MM_CUR_PTR)
+    PUSH HL
+    LD HL,gfx_w_point
+    CALL ts_kw
+    OR A
+    JR Z,gfx_tn_no
+    CALL ts_peek
+    CP '('
+    JR NZ,gfx_tn_no
+    CALL ts_adv
+    POP HL
+    LD HL,GFX_POINT_ENTRY
+    CALL gfx_fwd
+    LD A,1
+    RET
+gfx_tn_no:
+    POP HL
+    LD (MM_CUR_PTR),HL
+    XOR A
+    JP ts_try

@@ -760,6 +760,16 @@ k2_match_word:
     OR A
     RET Z
     LD (K2_MATCH_LEN),A
+    LD HL,(K2_CUR_PTR)
+    LD DE,(K2_LINE_END)
+    OR A
+    SBC HL,DE
+    JR NC,k2_match_next
+    ADD HL,DE
+    LD A,(HL)
+    CALL k2_upper
+    CP (IX+2)
+    JR NZ,k2_match_next
     LD A,(IX+1)
     LD (K2_MATCH_KIND),A
     LD HL,(K2_LINE_END)
