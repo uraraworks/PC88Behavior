@@ -403,13 +403,33 @@ def check(expected, measured):
         grouped = {}
         for r in actual:
             grouped.setdefault(r['arm'], []).append(r)
-        if not targets or set(targets) != set(grouped):
+        extra = sorted(set(grouped) - set(targets))
+        print(f'期待値にない腕 {len(extra)}腕' + (': ' + ','.join(extra) if extra else ''))
+        missing = sorted(set(targets) - set(grouped))
+        if missing:
+            print('NG 期待値にある腕の測定なし: ' + ','.join(missing))
+        if not targets or missing:
             return False
         cs = {aid for aid in targets if aid.startswith('control-')}
         if cs != {a['id'] for a in controls()}:
             return False
         if any(comparable(targets[aid], known[aid]) != comparable(prediction(known[aid]), known[aid]) for aid in cs):
             return False
+        # 比較先がない腕も採取失敗・破損を救済しない。予測との一致は要求しない。
+        for aid in extra:
+            if aid not in known:
+                return False
+            runs = grouped[aid]
+            if len(runs) != 2 or {r['repeat'] for r in runs} != {'1', '2'}:
+                return False
+            if comparable(json.loads(runs[0]['observation']), known[aid]) != comparable(json.loads(runs[1]['observation']), known[aid]):
+                return False
+            if any(json.loads(r['typed_lines']) != json.loads(json.dumps(program(known[aid])))
+                   or not valid_counts(json.loads(r['other_line_counts']))
+                   or r['G_GW'] not in ('agree', 'differ', 'unpredicted')
+                   or r['gate'] != 'pass' or r['typing_or_capture_failed'] != '0'
+                   or not valid(json.loads(r['observation']), known[aid]) for r in runs):
+                return False
         for aid, value in targets.items():
             runs = grouped[aid]
             if len(runs) != 2 or {r['repeat'] for r in runs} != {'1', '2'}:
@@ -445,7 +465,7 @@ def screen_of(rows, error=None, exact=True):
 
 
 
-def selftest(work=None):
+def selftest(work=None, check_only=False):
     if work is not None:
         work.mkdir(parents=True,exist_ok=True)
     known=controls()+arms()
@@ -536,6 +556,8 @@ def selftest(work=None):
         def freeze(chosen):
             write(expected,['arm','prediction'],[(a['id'],json.dumps(prediction(a))) for a in chosen])
         freeze(selected)
+        assert emit(measured,records) and check(expected,measured)
+        assert emit(measured,records[:-1]) and not check(expected,measured)
         assert emit(measured,records) and check(expected,measured)
         with measured.open() as stream:
             skip_rows=list(csv.DictReader(stream,delimiter='\t'))
@@ -681,6 +703,7 @@ def selftest(work=None):
         obs=prediction(by_id['on-goto-one'])
         unknown_record=dict(arm=unknown,obs=[obs,copy.deepcopy(obs)],others=[counts,counts],failed=[False,False],gate=True)
         assert emit(measured,records+[unknown_record])
+        assert check(expected,measured)  # 期待値にない予測なし腕は照合失敗にしない。
         freeze(selected+[unknown])
         assert not check(expected,measured)
         write(expected,['arm','observation'],[(a['id'],json.dumps(obs if a['id']==unknown['id'] else prediction(a))) for a in selected+[unknown]])
@@ -688,6 +711,9 @@ def selftest(work=None):
         with measured.open() as stream:
             assert all(r['G_GW']=='unpredicted' for r in csv.DictReader(stream,delimiter='\t') if r['arm']==unknown['id'])
         print('OK 固定予測・取り出し陽性陰性・本文非出力・exact除外・2走・破損拒否・予測なし拒否',flush=True)
+        if check_only:
+            print('OK check-only: 自作ROMのビルド・測定を省略')
+            return 0
         rom=root/'rom'
         built=subprocess.run([os.sys.executable,str(kw.REPO/'src/build_main_rom.py'),str(rom),
                               '--work-dir',str(root/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -723,9 +749,10 @@ def main():
     r = sub.add_parser('rejudge'); r.add_argument('--measured', type=Path, required=True)
     r.add_argument('--out', type=Path, required=True)
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
+    s.add_argument('--check-only', action='store_true', help='ROMをビルド・実行せず合成検査と照合だけ行う')
     args = parser.parse_args()
     if args.command == 'selftest':
-        return selftest(args.work_dir)
+        return selftest(args.work_dir, args.check_only)
     if args.command == 'check':
         ok = check(args.expected, args.measured)
         print('照合一致' if ok else '照合不一致'); return 0 if ok else 1

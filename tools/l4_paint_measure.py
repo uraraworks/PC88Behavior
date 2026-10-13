@@ -930,6 +930,73 @@ def emit(path, records, strict=True):
     return cal and bool(records) and all(r['gate'] for r in records)
 
 
+# 公式期待値は保存したまま、docs/spec/l4-graphics.md の自作判断だけを扱う。
+KNOWN_DIFFERENCES = {
+    aid: dict(kind=kind, reason=reason, section='docs/spec/l4-graphics.md §11.5')
+    for ids, kind, reason in (
+        (('ws-6c', 'ws-10a', 'ws-10b', 'ws-10c', 'ws-10d', 'ws-10e'),
+         'regular-fill', 'スタック96〜129で壁を塗る公式の異常は再現しない'),
+        (('ws-8a', 'ws-8e', 'ws-8f', 'ws-2c'),
+         'err7', '作業領域不足はERR 7でよい'),
+    ) for aid in ids
+}
+
+
+def known_difference_target(a, official):
+    """測定値を使わず、11.2のモデルと11.5の許容範囲から代替値を作る。
+
+    ERR 7は全PAINTで失敗し画素を変えない場合だけ許す。PAINT前のDIM等の
+    捕捉結果は公式と同じ。CLEARは結果印がないため単独の成否は検証できず、
+    後続結果・完了印・画素で整合性を確かめる。last/statは既存照合と同じく
+    比較対象外（ポート最終値・VRAM統計は実装依存）。
+    """
+    alternative = dict(a, items=[dict(it) for it in a['items']])
+    err7 = KNOWN_DIFFERENCES[a['id']]['kind'] == 'err7'
+    for it in alternative['items']:
+        if it['op'] == 'P':
+            it['exp'] = dict(e=(7, 'w')) if err7 else {}
+    st, model = steps(alternative)
+    res = dict(official['res'])
+    for it, stmt, probe, i, pred in st:
+        if it['op'] == 'P' and probe:
+            res[str(i)] = [7 if err7 else 0, *pred['lp'][0]]
+    spans = lm.to_spans(model.pix)
+    return dict(official, n=len(model.pix), hash=lm.pix_hash(model.pix), tail=0,
+                spans=spans if len(spans) <= EXPECT_SPAN_MAX else None, res=res)
+
+
+def check(expected, measured, only=None):
+    """戻り値は（一致腕、NG腕、KNOWN腕、KNOWN-NOW-MATCHES腕）。"""
+    ok, bad = lm.check(expected, measured, only)
+    with Path(expected).open(encoding='utf-8', newline='') as stream:
+        want = {r['arm']: json.loads(r['observation'])
+                for r in csv.DictReader(stream, delimiter='\t')}
+    runs = lm.read_runs(measured)
+    arms_by = {a['id']: a for a in arms()}
+    now_matches = [aid for aid in ok if aid in KNOWN_DIFFERENCES]
+    known = []
+    for aid in list(bad):
+        if aid not in KNOWN_DIFFERENCES:
+            continue
+        a = arms_by[aid]
+        rs = runs.get(aid, [])
+        # 許容差で欠測・関門落ち・2走不一致・採取失敗を救済しない。
+        if (len(rs) != 2 or {r['repeat'] for r in rs} != {'1', '2'}
+                or any(r['gate'] != 'pass' or r['failed'] != '0' for r in rs)):
+            continue
+        obs = [json.loads(r['observation']) for r in rs]
+        if (any(not valid(o, a) or json.loads(r['plan']) != json.loads(json.dumps(plan(a)))
+                for r, o in zip(rs, obs)) or obs[0] != obs[1]):
+            continue
+        target = known_difference_target(a, want[aid])
+        if all(comparable(o) == target for o in obs):
+            known.append(aid)
+            del bad[aid]
+        else:
+            bad[aid].append('既知の差の許容範囲外（画素・ERR・LP・PAINT前の結果）')
+    return [aid for aid in ok if aid not in now_matches], bad, known, now_matches
+
+
 def speed_report(measured):
     out = []
     with Path(measured).open(encoding='utf-8', newline='') as stream:
@@ -1005,7 +1072,7 @@ def describe():
 
 
 # ---------------------------------------------------------------- 自己検査
-def selftest(work=None):
+def selftest(work=None, check_only=False):
     if work is not None:
         work.mkdir(parents=True, exist_ok=True)
     known = {a['id']: a for a in arms()}
@@ -1168,27 +1235,55 @@ def selftest(work=None):
         wr(tdir/'miss.tsv', [o2]); assert 'cal-vis' in lm.check(tdir/'exp.tsv', tdir/'miss.tsv')[1]
         wr(tdir/'res.tsv', [o1, dict(o2, res={'1': [5, 0, 0]})]); assert 'base-cls3' in lm.check(tdir/'exp.tsv', tdir/'res.tsv')[1]
     print('OK 期待値の作成・照合（陽性、1画素ずれ・欠け・結果行違いの陰性）', flush=True)
-    # 自作ROMの対照
-    with tempfile.TemporaryDirectory(prefix='l4s9w-selftest-', dir=work) as temp:
+    with tempfile.TemporaryDirectory(prefix='l4s9w-known-', dir=work) as temp:
         root = Path(temp)
-        rom = root/'rom'
-        built = subprocess.run([sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom), '--work-dir', str(root/'asm')],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert built.returncode == 0, '自作ROM一時ビルド失敗'
-        observed = measure(rom, False, [known['base-cls3'], known['sp-nop'], known['lp-a']], root)
-        for r in observed:
-            assert r['obs'][0] and 'hash' in r['obs'][0] and not any(r['failed']), (r['arm']['id'], r['failed'], r['obs'][0])
-            assert r['obs'][0]['tail'] == 0
-        assert observed[0]['obs'][0]['n'] == 0
-        mk = observed[1]['obs'][0]['marks']
-        assert observed[1]['gate'] and mk['n1'] == 1 and mk['n2'] == 1 and 0 <= mk['frames'] < 200, mk
-        os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP'] = '1'
-        try:
-            faulty = run_arm(rom, False, known['base-cls3'], root)
-        finally:
-            del os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP']
-        assert faulty['n'] == 1 and faulty['spans'] == [[1, 7, 7, 2]], faulty['spans']
-        print('  自作の現状: sp-nop frames=' + str(mk['frames']) + ' lp-a 結果行=' + json.dumps(observed[2]['obs'][0]['res']), flush=True)
+        a = known['ws-8a']
+        official = dict(comparable(o_c), res={'2': [0, 0, 0]})
+        alternative = known_difference_target(a, official)
+        official = dict(alternative, hash='synthetic-official')
+        expected, measured = root/'expected.tsv', root/'measured.tsv'
+        lm.write_tsv(expected, ['arm', 'observation'],
+                     [('ws-8a', json.dumps(official)), ('base-cls3', json.dumps(comparable(o_c)))])
+        def save(value, base=o_c):
+            obs = dict(value, arm=a['id'], sent=1)
+            lm.write_tsv(measured, ['arm', 'repeat', 'plan', 'observation', 'gate',
+                                   'prediction_judgement', 'failed'],
+                         [(aid, i+1, json.dumps(plan(known[aid])), json.dumps(o), 'pass', '{}', 0)
+                          for aid, o in ((a['id'], obs), ('base-cls3', base)) for i in range(2)])
+        save(alternative)
+        assert check(expected, measured)[1:3] == ({}, ['ws-8a'])
+        save(alternative, dict(o_c, hash='broken'))
+        assert 'base-cls3' in check(expected, measured)[1]
+        wrong = json.loads(json.dumps(alternative))
+        key = next(str(i) for it, stmt, probe, i, pred in steps(a)[0] if it['op']=='P')
+        wrong['res'][key][0] = 5
+        save(wrong)
+        assert 'ws-8a' in check(expected, measured)[1]
+        save(official)
+        assert check(expected, measured)[3] == ['ws-8a']
+    print('OK 既知差の限定受理・未知腕の破損拒否・ERR 5拒否・KNOWN-NOW-MATCHES', flush=True)
+    if not check_only:
+        # 自作ROMの対照
+        with tempfile.TemporaryDirectory(prefix='l4s9w-selftest-', dir=work) as temp:
+            root = Path(temp)
+            rom = root/'rom'
+            built = subprocess.run([sys.executable, str(kw.REPO/'src/build_main_rom.py'), str(rom), '--work-dir', str(root/'asm')],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            assert built.returncode == 0, '自作ROM一時ビルド失敗'
+            observed = measure(rom, False, [known['base-cls3'], known['sp-nop'], known['lp-a']], root)
+            for r in observed:
+                assert r['obs'][0] and 'hash' in r['obs'][0] and not any(r['failed']), (r['arm']['id'], r['failed'], r['obs'][0])
+                assert r['obs'][0]['tail'] == 0
+            assert observed[0]['obs'][0]['n'] == 0
+            mk = observed[1]['obs'][0]['marks']
+            assert observed[1]['gate'] and mk['n1'] == 1 and mk['n2'] == 1 and 0 <= mk['frames'] < 200, mk
+            os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP'] = '1'
+            try:
+                faulty = run_arm(rom, False, known['base-cls3'], root)
+            finally:
+                del os.environ['Q88MEASURE_FAULT_CORRUPT_GVRAM_DUMP']
+            assert faulty['n'] == 1 and faulty['spans'] == [[1, 7, 7, 2]], faulty['spans']
+            print('  自作の現状: sp-nop frames=' + str(mk['frames']) + ' lp-a 結果行=' + json.dumps(observed[2]['obs'][0]['res']), flush=True)
     expected = kw.REPO/'tests/conformance/expected_l4_paint.tsv'
     if expected.exists():
         with expected.open(encoding='utf-8', newline='') as stream:
@@ -1209,11 +1304,14 @@ def selftest(work=None):
             assert moved != want
             ok_, bad_ = lm.check(tdir/'tamper.tsv', tdir/'echo.tsv')
             assert victim in bad_ and len(bad_) == 1, (victim, list(bad_))
-            emit(tdir/'own.tsv', [dict(r, gate=r['gate']) for r in observed[:1]], strict=False)
-            ok_, bad_ = lm.check(expected, tdir/'own.tsv', only={'base-cls3'})
-            assert ok_ == ['base-cls3'] and not bad_, bad_
-        print('OK 期待値ファイル（公式観測）との照合: 全腕の一致・1画素ずらしの検出・自作ROMの空画面との一致', flush=True)
-    print('OK 自作ROMの対照3腕×2走（グラフィックVRAM写しと印が採れる）・ハーネスの故障注入で写しが変わる', flush=True)
+            if not check_only:
+                emit(tdir/'own.tsv', [dict(r, gate=r['gate']) for r in observed[:1]], strict=False)
+                ok_, bad_ = lm.check(expected, tdir/'own.tsv', only={'base-cls3'})
+                assert ok_ == ['base-cls3'] and not bad_, bad_
+        print('OK 期待値ファイルとの照合: 全腕の一致・1画素ずらしの検出'
+              + ('・自作ROMの空画面との一致' if not check_only else ''), flush=True)
+    if not check_only:
+        print('OK 自作ROMの対照3腕×2走（グラフィックVRAM写しと印が採れる）・ハーネスの故障注入で写しが変わる', flush=True)
     return 0
 
 
@@ -1233,16 +1331,23 @@ def main():
     c = sub.add_parser('check'); c.add_argument('--expected', type=Path, required=True); c.add_argument('--measured', type=Path, required=True)
     c.add_argument('--only', default='', help='腕IDのカンマ区切り。空なら期待値の全腕')
     s = sub.add_parser('selftest'); s.add_argument('--work-dir', type=Path)
+    s.add_argument('--check-only', action='store_true', help='ROMをビルド・実行せず合成検査と照合だけ行う')
     args = parser.parse_args()
     if args.command == 'selftest':
-        return selftest(args.work_dir)
+        return selftest(args.work_dir, args.check_only)
     if args.command == 'expected':
         print(f'期待値 {lm.make_expected(args.out, *args.official)}腕'); return 0
     if args.command == 'check':
-        ok, bad = lm.check(args.expected, args.measured, set(x for x in args.only.split(',') if x))
+        ok, bad, known, now_matches = check(args.expected, args.measured,
+                                              set(x for x in args.only.split(',') if x))
+        for label, ids in (('KNOWN', known), ('KNOWN-NOW-MATCHES', now_matches)):
+            for aid in ids:
+                entry = KNOWN_DIFFERENCES[aid]
+                print(f"{label} {aid}: {entry['reason']} ({entry['section']})")
         for aid, d in bad.items():
-            print(f'DIFF {aid}: ' + ' / '.join(d))
-        print(f'一致 {len(ok)}腕 / 不一致 {len(bad)}腕')
+            print(f'NG {aid}: ' + ' / '.join(d))
+        print(f'一致 {len(ok)}腕 / KNOWN {len(known)}腕 / '
+              f'KNOWN-NOW-MATCHES {len(now_matches)}腕 / 不一致 {len(bad)}腕')
         return 0 if not bad else 1
     if args.command == 'describe':
         print(describe()); return 0
