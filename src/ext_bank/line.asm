@@ -418,6 +418,7 @@ ln_pix_n:
 ;   x を1歩: B を回し、回りきったら HL を ±1。y を1歩: HL += 80。クリップ後の線は画面の長方形の中に収まるので範囲検査は要らない。
 ;   和の判定: t = 和 - 主軸の差（負）で持ち、t += 副軸の差 のキャリー ⇔ 和+副軸の差 >= 主軸の差。キャリーで t += -主軸の差。
 ;   レジスタ: HL=番地 B=マスク DE=副軸の差 IX=色の行 IY=t、裏レジスタ BC'=-主軸の差 HL'=残りの歩数（割り込みハンドラは裏レジスタを使わない）。
+;   X 主軸は linefast.asm の ln_fx で同一バイトのマスクをまとめる。
 ;   窓（DI〜EI）は gx_pt の中だけ。入口 HL=始点の番地 B=マスク
 ln_fast:
     LD DE,(MM_LN_S)             ; DE=副軸の差（ループの間ずっと）
@@ -440,7 +441,7 @@ ln_fast:
     EXX
     LD A,(MM_LN_YMAJ)
     OR A
-    JR Z,ln_fx
+    JP Z,ln_fx
     LD A,(MM_LN_XS+1)
     OR A
     JR NZ,ln_fy_m
@@ -493,57 +494,6 @@ ln_fym_a:
 ln_f_end:
     EXX
     RET
-ln_fx:                          ; X 主軸
-    LD A,(MM_LN_XS+1)
-    OR A
-    JR NZ,ln_fx_m
-ln_fx_p:                        ; x が増える
-    CALL gx_pt
-    EXX
-    LD A,H
-    OR L
-    JR Z,ln_f_end
-    DEC HL
-    EXX
-    RRC B
-    JR NC,ln_fxp_a
-    INC HL
-ln_fxp_a:
-    ADD IY,DE
-    JR NC,ln_fx_p
-    EXX
-    ADD IY,BC
-    EXX
-    LD A,L
-    ADD A,80
-    LD L,A
-    JR NC,ln_fx_p
-    INC H
-    JR ln_fx_p
-ln_fx_m:                        ; x が減る
-    CALL gx_pt
-    EXX
-    LD A,H
-    OR L
-    JR Z,ln_f_end
-    DEC HL
-    EXX
-    RLC B
-    JR NC,ln_fxm_a
-    DEC HL
-ln_fxm_a:
-    ADD IY,DE
-    JR NC,ln_fx_m
-    EXX
-    ADD IY,BC
-    EXX
-    LD A,L
-    ADD A,80
-    LD L,A
-    JR NC,ln_fx_m
-    INC H
-    JR ln_fx_m
-
 ; ---------------------------------------------------------------- クリップ
 ; IX=端点 → A=はみ出しの印（bit0 x<0, bit1 x>=640, bit2 y<0, bit3 y>=200）
 ln_oc:
