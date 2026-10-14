@@ -1140,6 +1140,9 @@ PSR_DO_STR:
 ; 単精度専用)へ渡す(仕様書に無い判断: %への倍精度の丸めそのものは
 ; 測定されていないため、単精度を経由する二段丸めで代用する)。
 ASSIGN_STMT:
+    CALL T3_LHS
+    OR A
+    RET NZ
     LD A,(RUN_ASSIGN_KIND)
     CP 3
     JP Z,_as_string
@@ -4419,6 +4422,9 @@ _an_done:
 ;   をその退避アドレスへ直接書き込む(仕様書に無い判断: 実装上のバグ修正、
 ;   代入そのものの規則はASSIGN_STMTと同じ)。
 ARRAY_ASSIGN_STMT:
+    CALL T3_LHS
+    OR A
+    RET NZ
     LD HL,RUN_ASSIGN_NAME
     LD DE,IDENT_BUF
     LD BC,8
@@ -4536,10 +4542,16 @@ BEEP_BELL:
     XOR A
     JP EXT_BANK_CALL
 FN_TRY_NUM:
+    CALL T3_RHS
+    OR A
+    RET NZ
     LD HL,06B10h
     XOR A
     JP EXT_BANK_CALL
 FN_TRY_STR:
+    CALL T3_RHS
+    OR A
+    RET NZ
     LD HL,06B20h
     XOR A
     JP EXT_BANK_CALL
@@ -4931,6 +4943,15 @@ S9_DO_INSTR:
 S9_DO_ERROR:
     LD HL,074A0h
     JP S9_BANK_CALL
+T3_RHS:
+    LD HL,06008h
+    JR S9_BANK_CALL
+T3_LHS:
+    LD HL,06110h
+    JR S9_BANK_CALL
+T3_STMT:
+    LD HL,07BF0h
+    JR S9_BANK_CALL
 S9_BANK_CALL:
     LD A,3
     JP EXT_BANK_CALL

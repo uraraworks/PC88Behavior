@@ -38,6 +38,8 @@ fn_stmt_dispatch:
     JP Z,wb_width_stmt
     CP 43
     JP Z,wb_console_stmt
+    CP 54
+    JP NC,t3_stmt_fwd
     CP 44
     JP NC,gfx_stmt_fwd         ; 44以上はグラフィックの文（gfxhook.asm。語の表 fn_words もそちら）
     JP dt_stmt
@@ -287,3 +289,9 @@ dt_data_have:
     INC A
     LD (MM_LIT_LEN),A
     JP fn_ok
+
+; 第4.23節。OUT/WAITは常駐中継からバンク3へ。
+t3_stmt_fwd:
+    LD IX,T3_STMT_ADDR
+    JP FN_MAIN_CALL_ADDR
+T3_STMT_ADDR EQU 0x1787

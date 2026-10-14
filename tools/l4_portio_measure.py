@@ -8,6 +8,7 @@ sys.dont_write_bytecode=True
 import l4_listkw_measure as kw
 REPO=Path(__file__).resolve().parents[1]
 ROOT=REPO/'tmp/t3-work'
+IMPL_ROOT=REPO/'tmp/t3-impl-work'
 BASE=0xe780
 FIELDS=('begin','stage','ready','finish','ERROR_FLAG','count','first_err','first_stage','last_err','last_stage',
         's1_first','s1_last','s2_first','s2_last','s3_first','s3_last','cal','result','returned1','returned2','returned3')
@@ -332,8 +333,8 @@ def main():
     args=p.parse_args()
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
-        if path is not None and (not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve())): p.error('作業・結果はtmp/t3-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in args.paths): p.error('入力もtmp/t3-work内')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT))): p.error('作業・結果はtmp/t3-workまたはtmp/t3-impl-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t3-workまたはtmp/t3-impl-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))
