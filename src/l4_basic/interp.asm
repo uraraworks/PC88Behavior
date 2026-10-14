@@ -1896,148 +1896,19 @@ _pnfm_done:
 ;   単精度へ丸めてから同じ経路で書式化する(仕様書に無い判断:
 ;   ASSIGN_STMTの%代入と同じ考え方、STR$の倍精度書式は未測定のため)。
 ; ---------------------------------------------------------------------
+; c1: 本体はbank2 0x6F71。AF/BC/DE/HLは窓外中継で渡す。
 STR_FROM_CUR:
-    XOR A
-    LD (RUN_STR_TMP_LEN),A
-    LD A,(CUR_TYPE)
-    CP 2
-    JR NZ,_sfc_check_int
-    CALL VAL_LOAD_CUR_TO_OPA_D
-    CALL MBF_DTOS
-    CALL VAL_SET_SINGLE_FROM_RES
-_sfc_check_int:
-    LD A,(CUR_TYPE)
-    OR A
-    JR NZ,_sfc_single
-    LD HL,(CUR_DATA)
-    BIT 7,H
-    JR Z,_sfc_int_pos
-    XOR A
-    SUB L
-    LD L,A
-    LD A,0
-    SBC A,H
-    LD H,A
-    LD A,'-'
-    CALL STR_APPEND_CHAR
-    JR _sfc_int_digits
-_sfc_int_pos:
-    LD A,' '
-    CALL STR_APPEND_CHAR
-_sfc_int_digits:
-    JP STR_APPEND_UDEC
-_sfc_single:
-    CALL VAL_LOAD_CUR_TO_OPA
-    CALL MBF_FOUT
-    LD A,(UA_EXP)
-    OR A
-    JR Z,_sfc_s_zero_sign
-    LD A,(FOUT_SIGN)
-    OR A
-    JR NZ,_sfc_s_neg
-_sfc_s_zero_sign:
-    LD A,' '
-    CALL STR_APPEND_CHAR
-    JR _sfc_s_digits
-_sfc_s_neg:
-    LD A,'-'
-    CALL STR_APPEND_CHAR
-_sfc_s_digits:
-    LD A,(FOUT_LEN)
-    LD B,A
-    LD C,0
-_sfc_s_loop:
-    LD A,B
-    OR A
-    RET Z
-    PUSH BC
-    LD HL,FOUT_BUF
-    LD D,0
-    LD E,C
-    ADD HL,DE
-    LD A,(HL)
-    CALL STR_APPEND_CHAR
-    POP BC
-    INC C
-    DEC B
-    JR _sfc_s_loop
+    PUSH AF
+    LD A,2
+    LD IX,0x6F71
+    JP CAPACITY_BANK_CALL
 
 ; STR_APPEND_CHAR — A=文字。RUN_STR_TMP_BUF[RUN_STR_TMP_LEN]へ追記し
 ;   1増やす(255文字超は捨てる、既存のString too long上限と同じ考え方)。
-STR_APPEND_CHAR:
-    PUSH BC
-    LD B,A
-    LD A,(RUN_STR_TMP_LEN)
-    CP 255
-    JR NC,_sac_full
-    PUSH HL
-    PUSH DE
-    LD HL,RUN_STR_TMP_BUF
-    LD E,A
-    LD D,0
-    ADD HL,DE
-    LD (HL),B
-    POP DE
-    POP HL
-    LD A,(RUN_STR_TMP_LEN)
-    INC A
-    LD (RUN_STR_TMP_LEN),A
-_sac_full:
-    POP BC
-    RET
 
 ; STR_APPEND_UDEC — HL=符号なし16bit値。RUN_STR_TMP_LEN/BUFへ10進の桁を
 ;   前ゼロ抑制つきで追記する(PRINT_UDECと同じ算法、出力先を画面でなく
 ;   文字列バッファへ変えただけ)。
-STR_APPEND_UDEC:
-    LD (PUD_VALUE),HL
-    XOR A
-    LD (PUD_STARTED),A
-    LD IX,PUD_PLACES
-    LD B,5
-_sau_place_loop:
-    LD L,(IX+0)
-    LD H,(IX+1)
-    LD (PUD_PLACE),HL
-    XOR A
-    LD (PUD_DIGIT),A
-_sau_sub_loop:
-    LD HL,(PUD_VALUE)
-    LD DE,(PUD_PLACE)
-    OR A
-    SBC HL,DE
-    JR C,_sau_sub_done
-    LD (PUD_VALUE),HL
-    LD A,(PUD_DIGIT)
-    INC A
-    LD (PUD_DIGIT),A
-    JP _sau_sub_loop
-_sau_sub_done:
-    LD A,B
-    CP 1
-    JR NZ,_sau_not_last
-    LD A,(PUD_DIGIT)
-    ADD A,'0'
-    CALL STR_APPEND_CHAR
-    JR _sau_advance
-_sau_not_last:
-    LD A,(PUD_DIGIT)
-    OR A
-    JR NZ,_sau_show
-    LD A,(PUD_STARTED)
-    OR A
-    JR Z,_sau_advance
-_sau_show:
-    LD A,1
-    LD (PUD_STARTED),A
-    LD A,(PUD_DIGIT)
-    ADD A,'0'
-    CALL STR_APPEND_CHAR
-_sau_advance:
-    LD DE,2
-    ADD IX,DE
-    DJNZ _sau_place_loop
-    RET
 
 ; ---------------------------------------------------------------------
 ; LEX_NUMBER — CUR_PTRが数値定数の先頭(数字または'.'+数字)を指している

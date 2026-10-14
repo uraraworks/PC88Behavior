@@ -913,104 +913,24 @@ PSR_FUNC_TABLE:
     DB 0
 
 ; PSR_DO_MID — MID$(str,start,len)。'('消費済みから始まる。
+; c1: 本体はbank3 0x7C68。AF/BC/DE/HLは窓外中継で渡す。
 PSR_DO_MID:
-    CALL STRING_EXPR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,(RUN_STR_TMP_LEN)
-    LD (RUN_STR_ARG1_LEN),A
-    LD HL,RUN_STR_TMP_BUF
-    LD DE,RUN_STR_ARG1_BUF
-    LD B,A
-    CALL STR_COPY_BN
-    LD A,','
-    CALL EXPECT_CHAR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL PARSE_INT_ARG
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD (RUN_ARG1),DE
-    LD A,','
-    CALL EXPECT_CHAR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL PARSE_INT_ARG
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    PUSH DE
-    LD A,')'
-    CALL EXPECT_CHAR
-    POP DE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    JP MID_COMPUTE
+    PUSH AF
+    LD A,3
+    LD IX,0x7C68
+    JP CAPACITY_BANK_CALL
 
 ; MID_COMPUTE — RUN_STR_ARG1(元文字列)・RUN_ARG1(開始、1始まり)・
 ;   DE(長さ)からRUN_STR_TMP_LEN/BUFへ結果を作る。開始・長さは下位1
 ;   バイトだけを使う(仕様書に無い簡略化、8bit範囲=0-255文字を想定)。
 ;   開始が範囲外(0または元文字列長超え)は空文字列。長さは残り文字数で
 ;   打ち切る(仕様書に無い判断、一般的なBASICのMID$と同じ振る舞い)。
+; c1: 本体はbank0 0x73EE。AF/BC/DE/HLは窓外中継で渡す。
 MID_COMPUTE:
-    LD (RUN_TMP16),DE
-    LD A,(RUN_ARG1)
-    OR A
-    JR NZ,_mc_start_nz
-    LD A,1
-_mc_start_nz:
-    LD B,A
-    LD A,(RUN_STR_ARG1_LEN)
-    LD C,A
-    LD A,B
-    CP C
-    JR Z,_mc_have_start
-    JR C,_mc_have_start
-    XOR A
-    LD (RUN_STR_TMP_LEN),A
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_mc_have_start:
-    LD A,C
-    SUB B
-    INC A
-    LD D,A
-    LD A,(RUN_TMP16)
-    LD E,A
-    LD A,D
-    CP E
-    JR C,_mc_use_avail
-    LD A,E
-    JR _mc_have_copylen
-_mc_use_avail:
-    LD A,D
-_mc_have_copylen:
-    LD (RUN_STR_TMP_LEN),A
-    OR A
-    JR NZ,_mc_copy
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_mc_copy:
-    LD C,A
-    LD HL,RUN_STR_ARG1_BUF
-    LD D,0
-    LD A,B
-    DEC A
-    LD E,A
-    ADD HL,DE
-    LD DE,RUN_STR_TMP_BUF
-    LD B,C
-    CALL STR_COPY_BN
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
+    PUSH AF
+    LD A,0
+    LD IX,0x73EE
+    JP CAPACITY_BANK_CALL
 
 ; PSR_DO_LEFT — LEFT$(str,n)。先頭からmin(n,元の長さ)文字。
 PSR_DO_LEFT:
@@ -2181,29 +2101,12 @@ INPUT_TOKEN:
     JP EXT_BANK_CALL
 
 ; 受け皿を解析し、単純変数はHL=0、配列はHL=要素の番地を返す。
+; c1: 本体はbank3 0x6449。AF/BC/DE/HLは窓外中継で渡す。
 INPUT_TARGET:
-    CALL SKIP_SPACES
-    CALL LEX_IDENT_CONSUME
-    OR A
-    RET Z
-    LD (RUN_ASSIGN_KIND),A
-    LD HL,IDENT_BUF
-    LD DE,RUN_ASSIGN_NAME
-    LD BC,8
-    LDIR
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP '('
-    LD HL,0
-    RET NZ
-    CALL ARRAY_PARSE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL ARRAY_GET_OR_CREATE_DEFAULT
-    OR A
-    RET Z
-    JP ARRAY_ELEM_ADDR
+    PUSH AF
+    LD A,3
+    LD IX,0x6449
+    JP CAPACITY_BANK_CALL
 
 ; 数値は既存の式字句・型変換を用いる。空項目は0。
 ; 自作判断: 未測定の任意式は、数値字で始まる式に限って受理する。
@@ -2272,36 +2175,12 @@ _in_restore:
 ; 式の整数リテラル器が単項マイナス用に許す32768を、INPUTでは
 ; 符号つき字面で解釈する。正の十進32768を単精度へ昇格させ、
 ; 整数受け皿の既存の範囲検査を通す。負数・基数・任意式は変更しない。
+; c1: 本体はbank0 0x79FA。AF/BC/DE/HLは窓外中継で渡す。
 INPUT_FIX_LITERAL:
-    LD A,(CUR_TYPE)
-    OR A
-    RET NZ
-    LD A,(CUR_DATA)
-    OR A
-    RET NZ
-    LD A,(CUR_DATA+1)
-    CP 0x80
-    RET NZ
-    LD HL,RUN_STR_TMP_BUF
-    LD A,(RUN_STR_TMP_LEN)
-    LD B,A
-    LD A,(HL)
-    CP '+'
-    JR NZ,_ifl_digits
-    INC HL
-    DEC B
-    RET Z
-_ifl_digits:
-    LD A,(HL)
-    CP '0'
-    RET C
-    CP '9'+1
-    RET NC
-    INC HL
-    DJNZ _ifl_digits
-    CALL VAL_LOAD_CUR_TO_OPA
-    CALL MBF_NEG
-    JP VAL_SET_SINGLE_FROM_RES
+    PUSH AF
+    LD A,0
+    LD IX,0x79FA
+    JP CAPACITY_BANK_CALL
 
 INPUT_RANGE:
     LD HL,0x6A40
@@ -2309,35 +2188,12 @@ INPUT_RANGE:
     JP EXT_BANK_CALL
 
 ; HL=配列の番地または0。INPUTで切り出した値を代入する。
+; c1: 本体はbank2 0x708B。AF/BC/DE/HLは窓外中継で渡す。
 INPUT_STORE:
-    LD A,H
-    OR L
-    JR Z,_in_plain
-    LD (RUN_ARRAY_ASSIGN_ADDR),HL
-    LD A,(RUN_ASSIGN_KIND)
-    CP 3
-    JP Z,ARRAY_STRING_STORE
-    CP 1
-    CALL Z,ARRAY_SINGLE
-    LD A,(CUR_TYPE)
-    LD C,2
-    OR A
-    JR Z,_in_array
-    LD C,4
-    CP 1
-    JR Z,_in_array
-    LD C,8
-_in_array:
-    LD B,0
-    LD HL,CUR_DATA
-    LD DE,(RUN_ARRAY_ASSIGN_ADDR)
-    LDIR
-    RET
-_in_plain:
-    LD A,(RUN_ASSIGN_KIND)
-    CP 3
-    JP Z,ASSIGN_STRING_FROM_TMP
-    JP ASSIGN_NUMERIC_FROM_CUR
+    PUSH AF
+    LD A,2
+    LD IX,0x708B
+    JP CAPACITY_BANK_CALL
 
 ; 254文字で格納・エコーを止める。編集キーは本段では未対応。
 INPUT_READLINE:
@@ -4371,41 +4227,6 @@ ARRAY_SIZE:
     RET
 
  ; 単精度配列は整数のままを許す単純変数と異なり、常にMBF4Bで格納。
-ARRAY_SINGLE:
-    CALL VAL_LOAD_CUR_TO_OPA
-    LD HL,MBF_OPA
-    LD DE,CUR_DATA
-    LD BC,4
-    LDIR
-    LD A,1
-    LD (CUR_TYPE),A
-    RET
-; HL=単純変数の型タグ。数値SWAP前に単精度の整数表現を正規化。
-ARRAY_NORMALIZE:
-    PUSH HL
-    PUSH DE
-    PUSH BC
-    CALL ARRAY_SIZE
-    CP 4
-    JR NZ,_an_done
-    LD A,(HL)
-    OR A
-    JR NZ,_an_done
-    PUSH HL
-    LD DE,CUR_TYPE
-    LD BC,3
-    LDIR
-    CALL ARRAY_SINGLE
-    POP DE
-    LD HL,CUR_TYPE
-    LD BC,5
-    LDIR
-_an_done:
-    POP BC
-    POP DE
-    POP HL
-    RET
-
 ; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
 ;   RUN_MATCH_STMT_KEYWORDが設定済み、CUR_PTRは'('の位置。
 ;
@@ -4491,6 +4312,44 @@ _aas_err:
     LD (ERROR_KIND),A
     LD A,1
     LD (ERROR_FLAG),A
+    RET
+
+; c1: 予約セル直前に連続空きを置く。直前ルーチンはRETで終わる。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
+ARRAY_SINGLE:
+    CALL VAL_LOAD_CUR_TO_OPA
+    LD HL,MBF_OPA
+    LD DE,CUR_DATA
+    LD BC,4
+    LDIR
+    LD A,1
+    LD (CUR_TYPE),A
+    RET
+; HL=単純変数の型タグ。数値SWAP前に単精度の整数表現を正規化。
+ARRAY_NORMALIZE:
+    PUSH HL
+    PUSH DE
+    PUSH BC
+    CALL ARRAY_SIZE
+    CP 4
+    JR NZ,_an_done
+    LD A,(HL)
+    OR A
+    JR NZ,_an_done
+    PUSH HL
+    LD DE,CUR_TYPE
+    LD BC,3
+    LDIR
+    CALL ARRAY_SINGLE
+    POP DE
+    LD HL,CUR_TYPE
+    LD BC,5
+    LDIR
+_an_done:
+    POP BC
+    POP DE
+    POP HL
     RET
 
 ; =======================================================================
@@ -4582,9 +4441,6 @@ LOGIC_OR_EXPR:
     LD HL,07450h
     JR _fis_tail
 
-; (第4.21節: 0x79D7の埋め草は、mainの末尾の空きを測定ROM用に残すため、中継の後ろへ移した)
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 
 ; VAL_MODOP — CUR = CUR MOD RHS(剰余、第4.12節)。本体はバンク0（VAL_INTDIVと同じ手順で剰余を返す）。
 VAL_MODOP:
@@ -4596,184 +4452,48 @@ DIM_STMT:
     LD HL,07750h
     JP OW_BANK_CALL
 
+; c1: 本体はbank1 0x6CAE。AF/BC/DE/HLは窓外中継で渡す。
 DATA_ENTER_RECORD:
-    LD (RUN_DATA_REC),HL
-    INC HL
-    INC HL
-    LD A,(HL)
-    LD C,A
-    LD B,0
-    INC HL
-    LD (CUR_PTR),HL
-    ADD HL,BC
-    LD (LINE_END),HL
-    RET
-
-DATA_ADVANCE_RECORD:
-    LD HL,(RUN_DATA_REC)
-    LD DE,2
-    ADD HL,DE
-    LD A,(HL)
-    LD C,A
-    LD B,0
-    INC BC
-    INC BC
-    INC BC
-    LD HL,(RUN_DATA_REC)
-    ADD HL,BC
-    LD A,(HL)
-    LD B,A
-    PUSH HL
-    INC HL
-    LD A,(HL)
-    POP HL
-    CP 0FFh
-    JR NZ,_dar_have
-    LD A,B
-    CP 0FFh
-    JR NZ,_dar_have
-    XOR A
-    RET
-_dar_have:
-    CALL DATA_ENTER_RECORD
+    PUSH AF
     LD A,1
-    RET
+    LD IX,0x6CAE
+    JP CAPACITY_BANK_CALL
 
 ; DATA_SCAN — CUR_PTR/LINE_END/RUN_DATA_RECが指す位置から、文区切りを
 ;   数えながら次の"DATA"文を探す。見つかれば最初の値の直前まで
 ;   (空白を読み飛ばして)CUR_PTRを進める。出力: A=1見つかった/0尽きた。
-DATA_SCAN:
-_ds_stmt_loop:
-    CALL AT_END
-    JR Z,_ds_next_record
-    CALL SKIP_SPACES
-    CALL AT_END
-    JR Z,_ds_next_record
-    CALL TRY_MATCH_DATA_KW
-    OR A
-    JR NZ,_ds_found
-    CALL RUN_SKIP_REST_OF_STATEMENT
-    CALL AT_END
-    JR Z,_ds_next_record
-    CALL PEEK_CHAR
-    CP ':'
-    JR NZ,_ds_next_record
-    CALL ADV_PTR
-    JR _ds_stmt_loop
-_ds_next_record:
-    CALL DATA_ADVANCE_RECORD
-    OR A
-    JR Z,_ds_exhausted
-    JR _ds_stmt_loop
-_ds_found:
-    CALL SKIP_SPACES
+; c1: DATA_ADVANCE_RECORDもbank1へ移し、窓外中継で呼ぶ。
+DATA_ADVANCE_RECORD:
+    PUSH AF
     LD A,1
-    RET
-_ds_exhausted:
-    XOR A
-    RET
+    LD IX,0x6CC0
+    JP CAPACITY_BANK_CALL
+
+; c1: 本体はbank3 0x72BD。AF/BC/DE/HLは窓外中継で渡す。
+DATA_SCAN:
+    PUSH AF
+    LD A,3
+    LD IX,0x72BD
+    JP CAPACITY_BANK_CALL
 
 ; DATA_PARSE_NUMBER_LITERAL — FACTORの数値定数解釈(_l4factor_is_number
 ;   相当)を、DATA用にCUR_PTR位置へ直接適用する。先頭の'-'も許す
 ;   (仕様書に無い判断、DATAの負数リテラルは未測定)。
+; c1: 本体はbank3 0x6E6A。AF/BC/DE/HLは窓外中継で渡す。
 DATA_PARSE_NUMBER_LITERAL:
-    CALL PEEK_CHAR
-    CP '-'
-    JR NZ,_dpnl_noneg
-    CALL ADV_PTR
-    LD A,1
-    LD (RUN_DATA_NEG),A
-    JR _dpnl_afterneg
-_dpnl_noneg:
-    XOR A
-    LD (RUN_DATA_NEG),A
-_dpnl_afterneg:
-    CALL LEX_NUMBER
-    ; 第4.21節: 数字でないDATAの検査（hi→ERR 2）と、倍精度の読み先への'#'の補い。バンク0。
-    LD HL,07810h
-    XOR A
-    CALL EXT_BANK_CALL
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,(LIT_HASDOT)
-    OR A
-    JR NZ,_dpnl_general
-    LD A,(LIT_HASEXP)
-    OR A
-    JR NZ,_dpnl_general
-    LD A,(LIT_HASSUFFIX)
-    OR A
-    JR NZ,_dpnl_general
-    CALL LIT_TRY_INT16
-    JR NC,_dpnl_general
-    CALL VAL_SET_INT
-    JR _dpnl_applyneg
-_dpnl_general:
-    CALL LIT_COPY_TO_FINBUF
-    CALL MBF_FIN
-    LD A,(MBF_STATUS)
-    CP 3
-    JR Z,_dpnl_double
-    CP 1
-    JR Z,_dpnl_ovfl
-    CALL VAL_SET_SINGLE_FROM_RES
-    JR _dpnl_applyneg
-_dpnl_double:
-    CALL MBF_DFIN
-    LD A,(MBF_STATUS)
-    OR A
-    JR NZ,_dpnl_ovfl
-    CALL VAL_SET_DOUBLE_FROM_DRES
-    JR _dpnl_applyneg
-_dpnl_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,6
-    LD (ERROR_KIND),A
-    RET
-_dpnl_applyneg:
-    LD A,(RUN_DATA_NEG)
-    OR A
-    JR Z,_dpnl_done
-    CALL VAL_NEG
-_dpnl_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    JP ASSIGN_CONVERT_CUR       ; 第4.21節: 読み先の型へ変換（整数は丸め・範囲外ERR 6）
+    PUSH AF
+    LD A,3
+    LD IX,0x6E6A
+    JP CAPACITY_BANK_CALL
 
 ; DATA_PARSE_RAW_TOKEN — ','/':'/行末までの生の文字をRUN_STR_TMP_LEN/
 ;   BUFへ読む(255文字超は切り詰め、引用符の特別扱いはしない・第8節29)。
+; c1: 本体はbank3 0x62AC。AF/BC/DE/HLは窓外中継で渡す。
 DATA_PARSE_RAW_TOKEN:
-    XOR A
-    LD (RUN_STR_TMP_LEN),A
-_dprt_loop:
-    CALL AT_END
-    JR Z,_dprt_done
-    CALL PEEK_CHAR
-    CP ','
-    JR Z,_dprt_done
-    CP ':'
-    JR Z,_dprt_done
-    LD B,A
-    LD A,(RUN_STR_TMP_LEN)
-    CP 255
-    JR NC,_dprt_skip
-    LD HL,RUN_STR_TMP_BUF
-    LD D,0
-    LD E,A
-    ADD HL,DE
-    LD (HL),B
-    LD A,(RUN_STR_TMP_LEN)
-    INC A
-    LD (RUN_STR_TMP_LEN),A
-_dprt_skip:
-    CALL ADV_PTR
-    JR _dprt_loop
-_dprt_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
+    PUSH AF
+    LD A,3
+    LD IX,0x62AC
+    JP CAPACITY_BANK_CALL
 
 ; DATA_READ_ONE — A(in)=0数値/1文字列。出力: 数値ならCUR_TYPE/DATA、
 ;   文字列ならRUN_STR_TMP_LEN/BUF。DATA切れはOut of DATA(4、第6.3節)。
@@ -4944,7 +4664,7 @@ S9_DO_ERROR:
     LD HL,074A0h
     JP S9_BANK_CALL
 T3_RHS:
-    LD HL,06008h
+    LD HL,0789Dh
     JR S9_BANK_CALL
 T3_LHS:
     LD HL,06110h
@@ -5029,3 +4749,8 @@ S9C_INIT:
 S9C_TRY_INKEY:
     LD HL,06F00h
     JP S9_BANK_CALL
+
+CAP_DATA_LITERAL_HELPER:
+    LD HL,07810h
+    XOR A
+    JP EXT_BANK_CALL

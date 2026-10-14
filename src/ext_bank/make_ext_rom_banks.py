@@ -111,6 +111,34 @@ BANK3_EXTRA_SOURCES = (
 )
 
 
+def insert_capacity_sources(text: str, bank_name: str, addr_overrides: dict) -> str:
+    """c1断片を既存ORG区間の後へ挿入し、固定入口を動かさない。"""
+    import re
+    bank = int(bank_name[4])
+    parts = re.split(r"(?=^    ORG )", text, flags=re.M)
+    additions = []
+    for path in sorted(HERE.glob(f"capacity_{bank}_*.asm")):
+        extra = path.read_text(encoding="utf-8")
+        org = re.search(r"^    ORG 0x([0-9A-F]+)", extra, re.M)
+        if org is None:
+            raise SystemExit(f"{path.name}: ORGが無い")
+        additions.append((int(org[1], 16), extra))
+    chunks = [(int(re.search(r"^    ORG (?:0x)?([0-9A-F]+)", p, re.M)[1], 16), p)
+              for p in parts if p.startswith("    ORG ")]
+    prefix = "".join(p for p in parts if not p.startswith("    ORG "))
+    # RAM別名はmemmapの正典、main呼出先は実アセンブル番地から生成。
+    declared = set(re.findall(r"^([A-Za-z_]\w*)\s+EQU", text, re.M))
+    for name, expr in CAPACITY_RAM_ALIASES[bank].items():
+        if name not in declared:
+            prefix += f"{name} EQU {expr}\n"
+    for name in (addr_overrides or {}):
+        if name.startswith("CAP_") and name not in declared:
+            prefix += f"{name} EQU 0x1787\n"
+    return prefix + "\n".join(p for _, p in sorted(chunks + additions))
+
+CAPACITY_RAM_ALIASES = {0: {'CUR_DATA': 'MM_CUR_DATA', 'RUN_ARG1': 'MM_RUN_ARG1', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_STR_ARG1_BUF': 'MM_RUN_STR_ARG1_BUF', 'CUR_TYPE': 'MM_CUR_TYPE', 'RUN_STR_ARG1_LEN': 'MM_RUN_STR_ARG1_LEN', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'RUN_TMP16': 'MM_RUN_TMP16'}, 1: {'PROG_REND_PTR': 'MM_PROG_REND_PTR', 'ERROR_KIND': 'MM_ERROR_KIND', 'RUN_DATA_MAIN_SAVE_END': 'MM_RUN_DATA_MAIN_SAVE_END', 'PROG_REND_PREV': 'MM_PROG_REND_PREV', 'RUN_DATA_STATE': 'MM_RUN_DATA_STATE', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'PROGRAM_AREA': 'MM_PROGRAM_AREA', 'PROG_REND_LEN': 'MM_PROG_REND_LEN', 'PROG_REND_MODE': 'MM_PROG_REND_MODE', 'RUN_DATA_WANT_KIND': 'MM_RUN_DATA_WANT_KIND', 'RUN_DATA_END': 'MM_RUN_DATA_END', 'RUN_DATA_MAIN_SAVE_PTR': 'MM_RUN_DATA_MAIN_SAVE_PTR', 'CUR_PTR': 'MM_CUR_PTR', 'PROG_REND_INNAME': 'MM_PROG_REND_INNAME', 'RUN_DATA_REC': 'MM_RUN_DATA_REC', 'RUN_DATA_PTR': 'MM_RUN_DATA_PTR', 'LINE_END': 'MM_LINE_END'}, 2: {'FOUT_SIGN': 'MM_FOUT_SIGN', 'CUR_TYPE': 'MM_CUR_TYPE', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'PUD_DIGIT': 'MM_PUD_DIGIT', 'CUR_DATA': 'MM_CUR_DATA', 'UA_EXP': 'MM_UA_EXP', 'PUD_VALUE': 'MM_PUD_VALUE', 'PUD_PLACE': 'MM_PUD_PLACE', 'FOUT_LEN': 'MM_FOUT_LEN', 'PUD_STARTED': 'MM_PUD_STARTED', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_ARRAY_ASSIGN_ADDR': 'MM_RUN_ARRAY_ASSIGN_ADDR', 'FOUT_BUF': 'MM_FOUT_BUF', 'RUN_ASSIGN_KIND': 'MM_RUN_ASSIGN_KIND'}, 3: {'IDENT_BUF': 'MM_IDENT_BUF', 'ERROR_KIND': 'MM_ERROR_KIND', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'RUN_ARG1': 'MM_RUN_ARG1', 'RUN_STR_ARG1_LEN': 'MM_RUN_STR_ARG1_LEN', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'MBF_STATUS': 'MM_MBF_STATUS', 'RUN_ASSIGN_NAME': 'MM_RUN_ASSIGN_NAME', 'LIT_HASSUFFIX': 'MM_LIT_HASSUFFIX', 'LIT_HASDOT': 'MM_LIT_HASDOT', 'LIT_HASEXP': 'MM_LIT_HASEXP', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_STR_ARG1_BUF': 'MM_RUN_STR_ARG1_BUF', 'RUN_DATA_NEG': 'MM_RUN_DATA_NEG', 'RUN_ASSIGN_KIND': 'MM_RUN_ASSIGN_KIND'}}
+
+
 def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                    inject_no_org_fault: bool = False,
                    mbf_add_addr: int = None,
@@ -147,6 +175,8 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         text += "\n" + (REPO / "src/ext_bank/array_parse.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/circle.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/ext_bank/paint.asm").read_text(encoding="utf-8")
+    # c1: 既存の固定入口の間へ低頻度処理を置く。ORGは必ず昇順。
+    text = insert_capacity_sources(text, asm_path.name, addr_overrides)
     # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
     # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
     has_org = "    ORG 0x6000\n" in text

@@ -492,3 +492,56 @@ _ebst_loop_fail:
     XOR A
     LD (EXT_BANK_ST_LOOP_OK),A
     RET
+
+; c1: mainから呼ぶ低頻度処理用。スタック最上段に入力AF、A=bank、
+; IX=窓内入口。AF/BC/DE/HLを渡し、結果も保つ。IXと代替レジスタは破壊。
+; 呼出しはmainの窓が復元された状態に限る。階層ごとの窓/BUSYはスタック。
+CAPACITY_BANK_CALL:
+    PUSH BC
+    PUSH DE
+    PUSH HL
+    EX AF,AF'
+    IN A,(0x71)
+    LD D,A
+    IN A,(0x32)
+    LD E,A
+    LD A,(EXT_BANK_BUSY)
+    LD B,A
+    LD A,1
+    LD (EXT_BANK_BUSY),A
+    EX AF,AF'
+    LD C,A
+    LD A,E
+    AND 0xFC
+    OR C
+    OUT (0x32),A
+    LD A,D
+    AND 0xFE
+    OUT (0x71),A
+    EXX
+    POP HL
+    POP DE
+    POP BC
+    POP AF
+    EXX
+    PUSH DE
+    PUSH BC
+    EXX
+    CALL CAPACITY_JUMP_IX
+    PUSH AF
+    EXX
+    POP AF
+    POP BC
+    POP DE
+    PUSH AF
+    LD A,B
+    LD (EXT_BANK_BUSY),A
+    LD A,D
+    OUT (0x71),A
+    LD A,E
+    OUT (0x32),A
+    EXX
+    POP AF
+    RET
+CAPACITY_JUMP_IX:
+    JP (IX)
