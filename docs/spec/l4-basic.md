@@ -1,6 +1,6 @@
 # L4 BASIC — 直接モードの PRINT
 
-仕様書 第3.31版 / 2026-10-08
+仕様書 第3.32版 / 2026-10-14
 
 測定対象: エミュレータ QUASI88 libretro 版、コア既定 N88 V2、ディスク無し、公式ROM一式。
 
@@ -55,6 +55,7 @@
 | 第3.29版 | 2026-10-05 | 記録担当 | `l4-s9h`（[事前登録](../notes/l4-s9h-print-using-preregistration.md)・[結果](../notes/l4-s9h-results.md)）から第23節「観測 — PRINT USING」を新設した。136腕がU_N88と一致、U_GWは37腕で不一致（円記号・文字列欄）。繰り上がりはS_KEEP、空の書式・書式文字の無い書式はERR 5。空の書式の中身は汚染記録に従い書かない。期待値 `expected_l4_pusing.tsv`・`expected_l4_pusing_add2.tsv` |
 | 第3.30版 | 2026-10-05 | 記録担当 | `l4-s9i`（[事前登録](../notes/l4-s9i-print-wrap-preregistration.md)・[結果](../notes/l4-s9i-results.md)）から第4節に 4.1「行端の折り返し」を追加した。96腕が W_GW と一致（W_ITEM 91・W_FULL 67・W_75 21）。項目は収まらなければ前で改行、コンマは現在桁56以上で改行。期待値 `expected_l4_wrap.tsv`。第23節の折り返しの注記に参照を追加 |
 | 第3.31版 | 2026-10-08 | 記録担当 | `l4-s9q`（[結果](../notes/l4-s9q-results.md)（a524aea）・[事前登録](../notes/l4-s9q-clear-color-preregistration.md)（a97d0df）・[追補0](../notes/l4-s9q-addendum0-calibration.md)〜[追補3](../notes/l4-s9q-addendum3-error-fre-and-n10.md)、公式57腕×2走が関門通過）から、第20節に20.9を追加した。`clear ,a` の誤り5の境界は本文・変数・配列・第1引数に依らず固定の X<0x8719、誤り7の境界は X<34605+n（n=第3引数、既定512）、受理の `fre(0)=X−(34586+n)`（最小19）。20.1の格子（0x8400=誤り5・0x8800=誤り7・0x8C00=受理）と整合する。`clear 65535` は誤り6。自作は本文を 0x8400 から置く配置（段D）なのでこの差を20.9.5に整理した。第8節34項（l4-program.md）も更新 |
+| 第3.32版 | 2026-10-14 | 記録担当 | `l4-t1`（[結果](../notes/l4-t1-results.md)、事前登録2446278・器具912728e、公式16腕×独立2走）から14.1節に直接モードのGO TO/GO SUBの受理・境界・文中の分岐・存在しない行のERRを追記。RETURNの同一直接行継続とEND後の次直接行受付は[l4-program.md](l4-program.md)4.3・4.1節に記す。期待値 `expected_l4_directgoto.tsv`、公式checkは16腕一致。未測定の直接GO SUB境界・END後の同一行再開は未確定 |
 
 ---
 
@@ -1239,6 +1240,44 @@ LIST は、行番号の後ろの本文を次の規則で出す（行番号の直
 予約語180語それぞれについて、1語だけの行・括弧に包んだ行・識別子に埋め込んだ行（`x<語>y`）を測り、
 `GO TO` の詰めを除いてすべてこの規則（大文字になるだけ）に従った。語ごとの特別扱いが要るのは
 REM・DATA・`GO TO`/`GO SUB`・`?`・`'` だけである。
+
+### 14.1.1 直接モードの GO TO / GO SUB（l4-t1、観測）
+
+根拠: [l4-t1-results.md](../notes/l4-t1-results.md)（事前登録2446278・器具912728e、公式16腕×独立2走、全関門通過）。
+以下は小文字打鍵、NEW後、ON ERRORハンドラ設定下で発行した直接コマンドの規則。
+保存/LISTの表示だけでなく、実際の到達印・戻り印・公開ERRを観測した。内部の詰め方やトークン配置を意味しない。
+
+**直接モードでも `go to 30`・`go sub 30` の空白1個の形を受理する。**
+GO TOは測った名前境界に従い、空白2個・`to`直後の数字や英字は受理しない。
+GO SUBの空白2個も受理しないが、規則4のG_Hにある直後1文字消費の全境界を直接モードで測ったものではない。
+
+| 自分で指定した直接コマンド（後続印省略） | 腕ID | 観測された規則 |
+|---|---|---|
+| `goto 30` / `go to 30` | `goto-packed` / `goto-spaced` | 30行に到達、ERR0 |
+| `gosub 30` / `go sub 30` | `gosub-packed` / `gosub-spaced` | 30行に到達、RETURN後同じ直接行の後続文を実行（印77）、ERR0 |
+| `go  to 30` / `go  sub 30`（空白2個） | `goto-two-spaces` / `gosub-two-spaces` | 到達なし、段3でERR2が1回、戻り印0 |
+| `go to30` / `go tox` | `goto-adjacent` / `goto-name` | 到達なし、段3でERR2が1回 |
+| `a=1:go to 30` | `colon-spaced` | 先行代入a=1、30行に到達、ERR0 |
+| `if 1 then go to 30` / `on 1 go to 30` | `if-spaced` / `on-spaced` | 30行に到達、ERR0。測った文の途中でも受理 |
+| `go to 99` / `goto 99`（99行なし） | `goto-missing` / `goto-packed-missing` | 到達なし、段3でERR8が1回 |
+| `goto 10` | `goto-line10` | 10行に到達、ERR0 |
+
+段3は測る文・飛び先実行・RETURNを含み、同一行後続は段4、次直接行は段5、完了は段6。
+全腕で後続ERR0・次直接行印88。較正は `cal-poke`（cal=213、ERR0）と `cal-error`（ERR13@段3が1回）。
+RETURNの戻り先は [l4-program.md 第4.3節](l4-program.md#43-gosubreturn)、END後の次直接行受付と未確定の同一行再開は同書第4.1節参照。
+誤り発生腕のERLは範囲外印のため値不明。ハンドラなしの応答は未測定。
+`go sub10`等の直接モードでの飛び先、`go to.5`等の追加境界、大文字混在、RUN時の詰めは未確定。
+
+期待値は `tests/conformance/expected_l4_directgoto.tsv`（公式の全22値）。照合は次の方法を使う。
+各2走・固定plan・関門・較正・走間一致を確認してから、到達・戻り・ERR/段・ERL取得状態を含む全22値を腕単位で比較する。
+ERLが不明でも範囲外印は照合対象。画面本文は照合しない。
+
+```sh
+python3 tools/l4_directgoto_measure.py check --expected tests/conformance/expected_l4_directgoto.tsv --measured tmp/t1-work/ref.tsv
+```
+
+公式自身は16腕一致・不一致0、rc=0。第1回追加修正の自作測定は1腕一致・15腕不一致（rc=1）。
+自作の段3 ERR2とERLの取得状態の差は結果ノート参照。14.2節の自作実装記述は今回の公式規則への適合を保証しない。
 
 ### 14.2 実装（保存前のG_H・L_CとLIST整形）
 
