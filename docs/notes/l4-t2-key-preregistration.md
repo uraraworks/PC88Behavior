@@ -104,3 +104,7 @@ G0追加陰性対照：20行のハードウェア設定、行20〜24に非空白
 ### 追加修正後の自作再走記録
 
 全38腕×2走が関門通過、較正通過。cal-poke・bootはいずれも2走で表示20行・80桁、最下行19（0起点）・非空白0セル。行20〜24は非表示で個数・署名なし。旧報告の80セルは表示最下行の値として撤回した。C/ja_JP.UTF-8の追加陰性対照つき合成自己検査は双方通過。再走TSVを追加修正後の器具で検証し、自作専用expected/checkは38腕一致・不一致0。結果はtmp/t2-work/selfrun.md、TSVはtmp/t2-work/additional-final/selfrun.tsv、期待値はtmp/t2-work/additional-self-expected.tsv。再走の一時生画面・数値ログ・I/Oログ残存0。公式ROM未実行、公式の事前予測は変更していない。src変更・git commit・run_all実行なし。
+
+## 第2回の追補への参照
+
+公式測定開始後に決めた変更は[l4-t2-addendum1-run-prefix.md](l4-t2-addendum1-run-prefix.md)へ分離した。初回の公式予測は本登録のまま保持する。第2回の観測・予測照合は[l4-t2-results.md](l4-t2-results.md)へ記録する。
