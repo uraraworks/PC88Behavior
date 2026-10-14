@@ -16,6 +16,13 @@ FIELDS=('stage','ready','finish','ERROR_FLAG','count','first_err','first_stage',
 RANGE='E600-E60F'
 SECRET='synthetic-screen-secret'
 
+# 禁止事項6に基づく自作判断。bootのバナー2行だけは製品名が異なる。
+KNOWN_DIFFERENCES = {
+    'boot': dict(kind='banner-nonblank-rows-0-1',
+                 reason='禁止事項6に従い自作名・版を表示するためバナー2行の非空白数が異なる',
+                 section='docs/spec/l4-program.md §5.7')
+}
+
 
 class MeasurementFailure(ValueError):
     """器具自身が組み立てた数値/条件だけを外へ出す例外。"""
@@ -413,11 +420,55 @@ def check(exp,measured):
         if d['state']=='valid' and (not isinstance(d['matches'],dict) or set(d['matches'])!={'assigned','contrast'} or any(not isinstance(xs,list) or any(type(x) is not int or v['geometry']['columns'] is None or not 0<=x<=v['geometry']['columns']-5 for x in xs) or xs!=sorted(set(xs)) for xs in d['matches'].values())): raise ValueError('期待一致位置')
     try: got={r['arm']['id']:comparison(r['obs'][0]) for r in read_passed(measured)}
     except (ValueError,KeyError,TypeError): got={}
-    bad=[]
+    bad=[]; known=[]; now_matches=[]
     for aid,v in want.items():
         g=got.get(aid)
-        if g is None or g['values']!=v['values'] or g['nonblank']!=v['nonblank'] or any(g[k]!=v[k] for k in ('geometry','bottom_row','bottom_nonblank')) or (v['display']['state']=='valid' and g['display']!=v['display']): bad.append(aid)
-    return len(want)-len(bad),bad
+        if (g is not None and g['values']==v['values'] and g['nonblank']==v['nonblank']
+                and all(g[k]==v[k] for k in ('geometry','bottom_row','bottom_nonblank'))
+                and (v['display']['state']!='valid' or g['display']==v['display'])):
+            if aid in KNOWN_DIFFERENCES: now_matches.append(aid)
+            continue
+        # bootに限り、行0・1のnonblankのみを許す。他の全フィールドは公式値と同じ。
+        if aid in KNOWN_DIFFERENCES and g is not None:
+            strict=(g['values']==v['values'] and g['nonblank'][2:]==v['nonblank'][2:]
+                    and all(g[k]==v[k] for k in ('geometry','bottom_row','bottom_nonblank'))
+                    and (v['display']['state']!='valid' or g['display']==v['display']))
+            if strict:
+                known.append(aid); continue
+        bad.append(aid)
+    return len(want)-len(bad),bad,known,now_matches
+
+
+def check_selftest(work):
+    """合成TSVで許容範囲と3つの陰性対照を確認する。"""
+    work.mkdir(parents=True,exist_ok=True)
+    arms_by={a['id']:a for a in arms()}
+    rs=[dict(arm=a,obs=[synth(a),synth(a)],gate=True) for a in arms()]
+    with tempfile.TemporaryDirectory(dir=work,prefix='check-synthetic-') as td:
+        td=Path(td); exp=td/'expected.tsv'; measured=td/'measured.tsv'
+        assert emit(measured,rs) and expected(exp,[measured])==len(rs)
+        want=json.loads(next(r['expected'] for r in csv.DictReader(exp.open(),delimiter='\t') if r['arm']=='boot'))
+        boot_runs=next(r for r in rs if r['arm']['id']=='boot')['obs']
+        # バナー2行だけの変化がKNOWN。完全一致はKNOWN-NOW-MATCHES。
+        for boot in boot_runs:
+            boot['rows'][0]['nonblank']=0 if boot['rows'][0]['nonblank'] else 1
+            boot['rows'][1]['nonblank']=0 if boot['rows'][1]['nonblank'] else 1
+        assert emit(measured,rs) and check(exp,measured)==(len(rs),[],['boot'],[])
+        for boot in boot_runs:
+            boot['rows'][0]['nonblank']=want['nonblank'][0]; boot['rows'][1]['nonblank']=want['nonblank'][1]
+        assert emit(measured,rs) and check(exp,measured)==(len(rs),[],[],['boot'])
+        negatives=[]
+        for aid,mutate in (
+            ('boot',lambda o:o['rows'].__setitem__(2,dict(o['rows'][2],nonblank=(o['rows'][2]['nonblank']+1)%81))),
+            ('boot',lambda o:o.__setitem__('bottom_nonblank',(o['bottom_nonblank']+1)%81)),
+            ('width-80-25',lambda o:o['rows'].__setitem__(0,dict(o['rows'][0],nonblank=(o['rows'][0]['nonblank']+1)%81)))):
+            broken=copy.deepcopy(rs); target=next(r for r in broken if r['arm']['id']==aid)
+            mutate(target['obs'][0]); mutate(target['obs'][1])
+            assert emit(measured,broken)
+            result=check(exp,measured)
+            assert result[1], result
+            negatives.append(aid)
+    print('OK 合成check: boot許容・完全一致・行2/bottom/他腕行0の陰性対照',flush=True)
 
 
 def synth(a):
@@ -514,7 +565,7 @@ def safety_selftest(work):
     assert valid(unknown,known[0]) and unknown['bottom_nonblank'] is None
     with tempfile.TemporaryDirectory(dir=work,prefix='synthetic-') as td:
         td=Path(td); measured=td/'good.tsv'; exp=td/'expected.tsv'; badpath=td/'bad.tsv'
-        assert emit(measured,rs); assert expected(exp,[measured])==len(known); assert check(exp,measured)==(len(known),[])
+        assert emit(measured,rs); assert expected(exp,[measured])==len(known); assert check(exp,measured)==(len(known),[],[],['boot'])
         for mode in ('two-runs','calibration','gate','missing','plan','repeat','body'):
             broken=copy.deepcopy(rs)
             if mode=='two-runs': broken[2]['obs'][1]['rows'][0]['nonblank']=1
@@ -539,7 +590,7 @@ def safety_selftest(work):
         assert emit(measured,rs); expected(exp,[measured])
         for o in target['obs']: o['display']=same
         assert emit(badpath,rs); assert check(exp,badpath)[1]==[a['id']]
-        expected(exp,[badpath]); assert check(exp,badpath)==(len(known),[])
+        expected(exp,[badpath]); assert check(exp,badpath)==(len(known),[],[],['boot'])
         # 表示の関門だけ不通過でも数値の変化はNG。
         changed=copy.deepcopy(rs)
         target_numeric=changed[3]
@@ -641,7 +692,7 @@ def selftest(work):
         o=r['obs'][0] if r['gate'] else {}; v=(o.get('memory') or {}).get('values',{})
         g=lambda k:v.get(k,'不明')
         rows.append(f'| {r["arm"]["id"]} | {"pass" if r["gate"] else "gate_failed"} | {g("ERROR_FLAG")}/{g("count")} | '+ '/'.join(str(g(k)) for k in ('setup_err','statement_err','post_err','diagnostic_err'))+f' | {g("first_err")}@{g("first_stage")}/{g("last_err")}@{g("last_stage")} | {g("csrlin")}/{g("pos")} | {o.get("display",{}).get("state","不明")} | '+' | '.join(str(x) if x is not None else '不明' for x in ((o.get('geometry') or {}).get('rows'),(o.get('geometry') or {}).get('columns'),o.get('bottom_row'),o.get('bottom_nonblank')))+' |')
-    (ROOT/'selfrun.md').write_text('\n'.join(rows)+'\n')
+    ((work if work.resolve().is_relative_to((REPO/'tmp/t2-impl-work').resolve()) else ROOT)/'selfrun.md').write_text('\n'.join(rows)+'\n')
     print('自作試走: '+('pass' if passed else 'gate_failed'),flush=True); return int(not passed)
 
 
@@ -657,7 +708,7 @@ def main():
         path=getattr(args,name,None)
         conformance_path=((name=='out' and args.command=='expected') or (name=='expected' and args.command=='check'))
         if conformance_path and path is not None and path.is_absolute() and path.resolve()==REPO/'tests/conformance/expected_l4_key.tsv': continue
-        if path is not None and (not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve())): p.error('作業・結果先はtmp/t2-work内の絶対パス必須')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT, REPO/"tmp/t2-impl-work"))): p.error('作業・結果先はtmp/t2-workまたはtmp/t2-impl-work内の絶対パス必須')
     if hasattr(args,'paths') and any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in args.paths): p.error('入力もtmp/t2-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
@@ -665,9 +716,14 @@ def main():
         return 0
     if args.command=='expected': print(f'期待値{expected(args.out,args.paths)}腕'); return 0
     if args.command=='check':
-        ok,bad=check(args.expected,args.measured); print(f'一致{ok}腕、不一致{len(bad)}腕'); return int(bool(bad))
+        ok,bad,known,now_matches=check(args.expected,args.measured)
+        print(f'一致{ok-len(known)}腕、KNOWN {len(known)}腕、KNOWN-NOW-MATCHES {len(now_matches)}腕、不一致{len(bad)}腕')
+        for aid in known: print(f'KNOWN {aid}: {KNOWN_DIFFERENCES[aid]["reason"]}')
+        for aid in now_matches: print(f'KNOWN-NOW-MATCHES {aid}')
+        for aid in bad: print(f'NG {aid}')
+        return int(bool(bad))
     if args.command=='selftest':
-        if args.synthetic_only: safety_selftest(args.work_dir); return 0
+        if args.synthetic_only: safety_selftest(args.work_dir); check_selftest(args.work_dir); return 0
         return selftest(args.work_dir)
     rom=os.environ.get('PC88_REF_ROM_DIR') if args.official else args.rom_dir
     if not rom or (args.official and args.rom_dir): p.error('公式はPC88_REF_ROM_DIRのみ、自作は--rom-dir必須')
