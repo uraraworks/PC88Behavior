@@ -600,7 +600,7 @@ def selftest(work):
         lists=[[st.get('matches',[]) for st in o.get('stages',[])] for o in r['obs']]
         diag=[[o.get('probes',{}).get('0',[None,None])[1],o.get('errors'),o.get('consumed')] for o in r['obs']]
         summary.append('| '+r['arm']['id']+' | '+('pass' if r['gate'] and calibrated(rs) else 'gate_failed')+' | '+' / '.join(states[c['state']] for c in comparisons)+' | '+json.dumps(lists)+' | '+' / '.join(c['reason'] for c in comparisons)+' | '+json.dumps(diag)+' |')
-    (ROOT/'selfrun.md').write_text('\n'.join(summary)+'\n')
+    ((work if work.resolve().is_relative_to((kw.REPO/'tmp/t1-impl-work').resolve()) else ROOT)/'selfrun.md').write_text('\n'.join(summary)+'\n')
     print(f'自作ROM {len(rs)}腕×2走: '+('pass' if passed else 'gate_failed'))
     return int(not passed)
 
@@ -614,7 +614,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
     args=p.parse_args()
     if hasattr(args,'work_dir'):
-        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT)): p.error('作業先はtmp/s9z-workまたはtmp/s9z-impl-work内の絶対パス必須')
+        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,kw.REPO/'tmp/t1-impl-work')): p.error('作業先はtmp/s9z-work、tmp/s9z-impl-workまたはtmp/t1-impl-work内の絶対パス必須')
         args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print('- `'+a['id']+'`: `'+a['stmt']+'` 入力='+json.dumps(a['inputs'])+' 予測='+a['prediction'])

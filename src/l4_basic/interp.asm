@@ -155,6 +155,7 @@ ZONE_WIDTH EQU 14
 ; ---------------------------------------------------------------------
 BASIC_RUN_DIRECT:
     XOR A
+    LD (RUN_CTRL),A
     LD (VAL_SP),A               ; 起動時のRAM値・前回の誤り残りに依存しない
     LD (RUN_CMP_PRELEFT),A      ; 第4.22節: PRINTの左辺評価済みの印は行の始めに消す
     LD (ERROR_FLAG),A

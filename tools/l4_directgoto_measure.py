@@ -419,7 +419,7 @@ def selftest(work):
                     if i==4 and n!=0 and ws[k+1][0]==11]
             columns.append(', '.join(events) or 'なし')
         rows.append('| '+r['arm']['id']+' | '+' | '.join(columns)+' |')
-    (ROOT/'selfrun.md').write_text('\n'.join(rows)+'\n')
+    ((work if work.resolve().is_relative_to((REPO/'tmp/t1-impl-work').resolve()) else ROOT)/'selfrun.md').write_text('\n'.join(rows)+'\n')
     print(f'自作ROM試走: {len(rs)}腕×2走、'+('pass' if passed else 'gate_failed'))
     return int(not passed)
 
@@ -433,7 +433,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
     args=p.parse_args()
     if hasattr(args,'work_dir'):
-        if not args.work_dir.is_absolute() or not args.work_dir.resolve().is_relative_to(ROOT.resolve()): p.error('作業先はtmp/t1-work内の絶対パス必須')
+        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(r.resolve()) for r in (ROOT, REPO/'tmp/t1-impl-work')): p.error('作業先はtmp/t1-workまたはtmp/t1-impl-work内の絶対パス必須')
         args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(f'- `{a["id"]}`: `{a["stmt"]}` — {a["prediction"]}')

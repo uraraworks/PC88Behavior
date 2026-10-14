@@ -485,6 +485,15 @@ _vrn_erl:
     LD A,H
     OR L
     JP Z,VAL_SET_INT
+    LD DE,DIRECT_RECORD
+    OR A
+    SBC HL,DE
+    JR NZ,_vrn_erl_record
+    ; 仕様14.1.1の範囲外印。値そのものは未確定なので256を選ぶ。
+    LD HL,256
+    JP VAL_SET_INT
+_vrn_erl_record:
+    ADD HL,DE
     LD E,(HL)
     INC HL
     LD D,(HL)
@@ -2531,6 +2540,9 @@ RMSK_TABLE:
 ;   IF文(THEN/ELSEの単文実行、IF_STMT参照)から再利用できるようにした。
 ;   出力: ERROR_FLAG/ERROR_KIND・RUN_CTRL(呼び出し元が確認する)。
 RUN_EXEC_ONE_STMT:
+    ; 分岐の印は文ごとに消す。POKE等は通常続行を明示しない。
+    XOR A
+    LD (RUN_CTRL),A
     CALL RUN_MATCH_STMT_KEYWORD
     OR A
     JP Z,_reos_unmatched
@@ -2856,10 +2868,49 @@ _run_stmt_undef:
     LD (ERROR_KIND),A
     RET
 
+; l4-t1: 空白1個の語形だけを、文中の照合にも共用する。
+TRY_MATCH_GO_TO:
+    LD HL,STMT_GO_TO_TEXT
+    LD B,5
+    JR TRY_MATCH_GO_SPACED
+TRY_MATCH_GO_SUB:
+    LD HL,STMT_GO_SUB_TEXT
+    LD B,6
+TRY_MATCH_GO_SPACED:
+    LD (RUN_KW_TEXT),HL
+    LD A,B
+    LD (RUN_KW_LEN),A
+    CALL TRY_MATCH_KEYWORD_GENERIC
+    OR A
+    RET Z
+    ; 名前に接する形は不受理。失敗時は消費した語を戻す。
+    CALL PEEK_CHAR
+    CP '0'
+    JR C,_go_spaced_ok
+    CP '9'+1
+    JR NC,_go_spaced_ok
+    LD HL,(CUR_PTR)
+    LD A,(RUN_KW_LEN)
+    LD E,A
+    LD D,0
+    OR A
+    SBC HL,DE
+    LD (CUR_PTR),HL
+    XOR A
+    RET
+_go_spaced_ok:
+    LD A,1
+    RET
+STMT_GO_TO_TEXT: DB "GO TO"
+STMT_GO_SUB_TEXT: DB "GO SUB"
+
 ; TRY_MATCH_GOTO — 固定語形"GOTO"を大文字小文字を区別せず照合する
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_GOTO:
+    CALL TRY_MATCH_GO_TO
+    OR A
+    RET NZ
     LD HL,(LINE_END)
     LD DE,(CUR_PTR)
     OR A
@@ -2914,6 +2965,9 @@ STMT_GOTO_LEN EQU 4
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_GOSUB:
+    CALL TRY_MATCH_GO_SUB
+    OR A
+    RET NZ
     LD HL,(LINE_END)
     LD DE,(CUR_PTR)
     OR A
