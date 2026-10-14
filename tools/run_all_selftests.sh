@@ -337,6 +337,8 @@ SCRIPTS_EXPECTED=(
   "tools/l4_directgoto_selftest.sh:0"
   # l4-t2 KEY。合成自己検査と現行srcの自作ROMのみ。
   "tools/l4_key_selftest.sh:0"
+  # l4-t3: ポートI/Oと予約語、合成対照・自作ROMの独立2走。
+  "tools/l4_portio_selftest.sh:0"
   # 2026-09-20追記: 拡張ROMバンク0のSQR本体(EXT_BANK0_SQR_ENTRY、
   # docs/spec/l4-program.md 第4.16b節実装メモ)を実際にZ80として実行し、
   # 予測器tools/l4_mbf_oracle_v10_m9.pyとバイト単位で突き合わせる。
