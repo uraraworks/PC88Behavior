@@ -16,10 +16,12 @@ CIRCLE_ENTRY EQU 0x7840
 ; 文の語の表（照合順。DEFはDEFINT等より前でも、語の直後が英字なら一致しない）
 fn_words:
     DB 3,"LET",5,"WHILE",4,"WEND",3,"DEF",4,"SWAP",5,"ERASE",6,"DEFINT",6,"DEFSNG",6,"DEFDBL",6,"DEFSTR",3,"RUN",4,"BEEP",5,"WIDTH",7,"CONSOLE"
-    DB 4,"PSET",6,"PRESET",5,"POINT",6,"SCREEN",4,"LINE",6,"CIRCLE",5,"PAINT",3,"GET",3,"PUT",0
+    DB 4,"PSET",6,"PRESET",5,"POINT",6,"SCREEN",4,"LINE",6,"CIRCLE",5,"PAINT",3,"GET",3,"PUT",3,"KEY",0
 
 gfx_stmt_fwd:
     LD A,(MM_RUN_STMT_KIND)
+    CP 53
+    JR Z,key_stmt_fwd
     CP 49                       ; 49=CIRCLE はバンク1（src/ext_bank/circle.asm）
     LD HL,CIRCLE_ENTRY
     LD A,1
@@ -30,6 +32,10 @@ gfx_fwd:
 gfx_fwd_go:
     LD IX,GFX_BANKCALL_ADDR
     JP FN_MAIN_CALL_ADDR
+key_stmt_fwd:
+    LD HL,07A00h
+    LD A,3
+    JR gfx_fwd_go
 GFX_BANKCALL_ADDR EQU 0x1787
 
 ; FN_TRY_NUM（0x6B10）の入口。数値の項の先頭で呼ばれる。A=1で処理済み（CUR_TYPE/CUR_DATAに値、またはERROR_FLAG）。

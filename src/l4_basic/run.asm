@@ -2772,6 +2772,8 @@ RUN_RESET_STATE:
 ; CLEARは乱数状態を保持する（第16節の自作判断を維持）。
 RUN_CLEAR_STATE:
     XOR A
+    LD (MM_FKEY_PTR),A         ; CLEAR/RUN/NEWで割当のヒープ寿命が終わる
+    LD (MM_FKEY_PTR+1),A
     LD (MM_FN_FRAME),A
     LD (MM_FN_FRAME+1),A
     LD (MM_VAL_SP),A

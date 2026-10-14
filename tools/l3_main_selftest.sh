@@ -353,7 +353,7 @@ data = open(sys.argv[1], "rb").read()
 row2 = data[2*120:2*120+2]
 row3 = data[3*120:3*120+2]
 ok = row2 == b"  " and row3 == b"Ok"
-print(("OK" if ok else "NG") + f": RETURN row2={row2!r} row3={row3!r}（期待: row2は空白のまま、row3にOk）")
+print(("OK" if ok else "NG") + f": RETURN row2長={len(row2)} row3長={len(row3)}（本文非出力）")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "RETURNキーの検査"
@@ -370,7 +370,7 @@ import re, sys
 data = open(sys.argv[1], "rb").read()
 row2 = data[2*120:2*120+2]
 ok = row2 == b"ab"
-print(("OK" if ok else "NG") + f": エコー row2={row2!r}（期待 b'ab'）")
+print(("OK" if ok else "NG") + f": エコー row2長={len(row2)}（本文非出力）")
 if not ok:
     sys.exit(1)
 pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")

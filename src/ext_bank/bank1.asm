@@ -876,7 +876,7 @@ B1_HEAP_FIND_ENTRY:
     ORG 0x6C08
 B1_HEAP_ALLOC_ENTRY:
     JP B1_HEAP_ALLOC
-; USED欄(offset 8)は単純変数1、配列2、DEF 3、FN呼出枠4。bit7は空き印。
+; USED欄(offset 8)は単純変数1、配列2、DEF 3、FN呼出枠4、KEY割当5（同じ298B長）。bit7は空き印。
 ; 追記だけなので、評価途中のレコード/要素ポインタは変わらない。
 B1_HEAP_FIND:
     LD HL,(MM_HEAP_START)

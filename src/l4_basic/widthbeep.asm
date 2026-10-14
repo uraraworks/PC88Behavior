@@ -91,7 +91,8 @@ wb_locate:
     DEC A
 wb_lc_col:
     LD (MM_VAR_COL),A
-    CALL wb_limit
+    CALL wb_rows              ; 明示LOCATEは最下行にも書ける（5.7.2）
+    DEC A
     LD B,A
     LD A,(MM_FN_AUX+1)
     CP B
@@ -773,7 +774,14 @@ wb_wa_p5:
     LD (MM_VAR_COL),A
     LD HL,MM_TEXT_BASE
     LD (MM_VAR_ROWBASE),HL
+    CALL wb_keyrow
     JP fn_ok
+
+wb_keyrow:
+    LD HL,062A4h
+    LD A,1
+    LD IX,GFX_BANKCALL_ADDR
+    JP FN_MAIN_CALL_ADDR
 
 WB_CLEAR_ADDR EQU 0x1787
 
@@ -865,6 +873,7 @@ wb_cn_f:
 wb_cn_f_set:
     LD (MM_SCR_MODE),A
     CALL wb_win_calc
+    CALL wb_keyrow
 wb_cn_after:
     CALL ts_skip
     CALL ts_peek

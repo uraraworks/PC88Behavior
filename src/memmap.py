@@ -89,6 +89,7 @@ REGIONS = (
     Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別・画面モード', 'normal'),
     Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
     Region('CONSOLE', 0xF246, 2, '保持', 'CONSOLE: 窓の開始行（実効）・指定された行数（l4-program.md 5.4.6）', 'normal'),
+    Region('FKEY', 0xFFD4, 4, '保持', 'KEY: ヒープ内10組のポインタ・ON/OFF・番号作業', 'normal'),
     Region('CPU_STACK', 0xF248, 384, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
     Region('EXT_TEST_LOW', 0xFF9D, 8, '一時', 'EXT_BANK_ST_*・排他的なSAVE合成試験（通常ビルドでは使わない）', 'ext-test'),
@@ -109,6 +110,7 @@ REGIONS = (
 
 # 排他的なコマンド経路に限って共用する。割込みは画面・キー・INKEYのみ。
 OVERLAPS = {
+    frozenset(("FKEY", "MEASURE_REGS")): "M6IA専用測定は起動後の定常ループだけでKEY文を実行しない。KEY状態は起動時に初期化する。",
     frozenset(("ONWHILE_WORK", "SECTOR")): "ON/WHILE/WEND/NEXT探索とディスク文は排他的。条件の式評価はディスク文を呼ばない。",
     frozenset(("ONWHILE_WORK", "PU_WORK")): "ON/WHILE/WEND/NEXT探索とPRINT USINGは別の文。条件の式評価はPRINT文を呼ばない。",
     frozenset(("PU_WORK", "SECTOR")): "PRINT USINGとディスク文は排他的。式評価はディスク文を呼ばず、セクタ内容は各ディスク文が読み直す。",
@@ -141,6 +143,9 @@ for _region in REGIONS:
         OVERLAPS[frozenset(('ARRAY_WORK', _region.name))] = '添字の評価・整数化完了後に配列作業値を書く。再入中の名前と添字はCPUスタックに保持し、値の数値変換は要素解決後に行う。PAINT訪問ビットは引数評価後だけ使う。'
 
 FIELDS = {
+    "MM_FKEY_PTR": ("FKEY", 0),
+    "MM_FKEY_ON": ("FKEY", 2),
+    "MM_FKEY_INDEX": ("FKEY", 3),
     'MM_AR_ARGS': ('ARRAY_WORK', 0),
     'MM_AR_NDIM': ('ARRAY_WORK', 64),
     'MM_AR_SIZE': ('ARRAY_WORK', 65),
@@ -1019,7 +1024,7 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": (
-        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
         "bit7は空き印、同種の空きを再利用。"
         "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
         "編集/NEW/CLEAR/RUNでヒープと共に消す（配列はl4-program第4.10.7の観測、FN枠は未測定・自作判断）。"

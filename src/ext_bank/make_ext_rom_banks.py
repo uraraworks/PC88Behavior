@@ -104,6 +104,7 @@ BANK3_EXTRA_SOURCES = (
     "src/ext_bank/inkey.asm",
     "src/l3_main/key_table_gen.asm",
     "src/l4_basic/strfunc.asm",
+    "src/l4_basic/key.asm",
     "src/l4_basic/peekpoke.asm",
     "src/l4_basic/hexconst.asm",
     "src/l4_basic/forstack.asm",
@@ -131,6 +132,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         for rel in BANK3_EXTRA_SOURCES:
             text += "\n" + (REPO / rel).read_text(encoding="utf-8")
     if asm_path.name == "bank1.asm":
+        text = text.replace("    ORG 0x6400", (REPO / "src/l4_basic/keyrow.asm").read_text(encoding="utf-8") + "\n    ORG 0x6400", 1)
         text = text.replace("    ORG 0x6C00", (REPO / "src/l4_basic/input_token.asm").read_text(encoding="utf-8") + "\n    ORG 0x6C00", 1)
         text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
         text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")

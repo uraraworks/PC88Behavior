@@ -111,6 +111,7 @@ _ebi_gfx:
     INC HL
     DJNZ _ebi_gfx
     ; 第16節: RUNと同じ乱数初期状態。直接モードが使う変数/スタックも初期化。
+    CALL KEY_BOOT_ROW         ; 第5.7節。常駐コードからVRAMのみを書く
     JP RUN_RESET_STATE
 
 ; バンク側から main ROM の任意のルーチンを呼ぶ共通の窓外中継。

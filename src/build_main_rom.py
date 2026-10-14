@@ -422,6 +422,8 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    "KY_ALLOC_ADDR": "HEAP_ALLOC_MAIN",
+    "KY_BANKCALL_ADDR": "EXT_BANK_CALL",
     "IN_TARGET_ADDR": "INPUT_TARGET",
     "IN_TOKEN_ADDR": "INPUT_TOKEN",
     "IN_NUMBER_ADDR": "INPUT_NUMBER",
@@ -1370,6 +1372,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{save_path}"\n'
     )
     combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
+    combined += f'\nINCLUDE "{REPO / "src/l4_basic/keyboot.asm"}"\n'
     if enable_main_sub_read:
         main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")
         for enabled, old, new, name in (
