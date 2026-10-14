@@ -9,6 +9,7 @@ import l4_listkw_measure as kw
 REPO=Path(__file__).resolve().parents[1]
 ROOT=REPO/'tmp/t3-work'
 IMPL_ROOT=REPO/'tmp/t3-impl-work'
+T3B_IMPL_ROOT=REPO/'tmp/t3b-impl-work'
 BASE=0xe780
 FIELDS=('begin','stage','ready','finish','ERROR_FLAG','count','first_err','first_stage','last_err','last_stage',
         's1_first','s1_last','s2_first','s2_last','s3_first','s3_last','cal','result','returned1','returned2','returned3')
@@ -306,20 +307,20 @@ def measure(rom,official,work):
         rs.append(dict(arm=a,obs=obs,gate=gate)); print(a['id']+': '+('pass' if gate else 'gate_failed'),flush=True)
     return rs
 
-def summary(rs):
+def summary(rs,work=None):
     rows=['# l4-t3 自作試走','公式ROM未実行。src変更・commit・run_allなし。',f'{len(rs)}腕×2走、関門{sum(r["gate"] for r in rs)}/{len(rs)}、較正{calibrated(rs)}。値の仮説一致は関門にしない。',
           '|腕|関門|ERROR_FLAG/回数|最初ERR@段/最後ERR@段|段別最初/最後ERR（1,2,3）|cal|結果|復帰印|','|---|---|---|---|---|---|---|---|']
     for r in rs:
         v=r['obs'][0].get('values',{}); g=lambda k:v.get(k,'不明')
         rows.append(f'|{r["arm"]["id"]}|{r["gate"]}|{g("ERROR_FLAG")}/{g("count")}|{g("first_err")}@{g("first_stage")}/{g("last_err")}@{g("last_stage")}|'+','.join(f'{g("s"+str(j)+"_first")}/{g("s"+str(j)+"_last")}' for j in (1,2,3))+f'|{g("cal")}|{"未測定" if not any("&he791" in c for c in r["arm"]["commands"]) else "不明" if (r["arm"]["id"]=="inp-vrtc" and (g("s1_first")!=0 or g("s2_first")!=0)) or (r["arm"]["id"]=="inp-range" and g("s1_first")!=0) else g("result")}|'+','.join(str(g('returned'+str(j))) for j in (1,2,3))+'|')
-    (ROOT/'selfrun.md').write_text('\n'.join(rows)+'\n')
+    ((ROOT if work is None else work)/'selfrun.md').write_text('\n'.join(rows)+'\n')
 
 def selftest(work):
     safety_selftest(work); rom=work/'rom'
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
     if p.returncode: raise RuntimeError('自作ビルド失敗')
     rs=measure(rom,False,work); passed=emit(work/'selfrun.tsv',rs)
-    summary(rs)
+    summary(rs,work if work.resolve().is_relative_to(T3B_IMPL_ROOT.resolve()) else None)
     if passed: expected(work/'self-expected.tsv',[work/'selfrun.tsv']); assert check(work/'self-expected.tsv',work/'selfrun.tsv')==(len(rs),[])
     return int(not passed)
 
@@ -333,8 +334,8 @@ def main():
     args=p.parse_args()
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT))): p.error('作業・結果はtmp/t3-workまたはtmp/t3-impl-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t3-workまたはtmp/t3-impl-work内')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT))): p.error('作業・結果はtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))

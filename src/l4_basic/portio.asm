@@ -1,4 +1,4 @@
-; docs/spec/l4-program.md 4.23。未測定の正常OUTは検証だけで書き込まない。
+; docs/spec/l4-program.md 4.23.2追補1。整数化したポートへバイト値を1回出力。
 ; 自作判断: ポートは既存PEEK番地変換のaway丸めと下位8bit。
 ; WAITは整合した仮説の条件を実際にポーリングする。
     ORG 0x7BF0
@@ -58,7 +58,10 @@ t3_wait_loop:
     JR Z,t3_wait_loop
     JP S9_OK
 t3_out_done:
-    POP DE
+    LD A,E                      ; 検査済みの整数化した値
+    POP BC                      ; 整数化したポートの下位8bitをCへ
+    LD B,0                      ; 未確定の上位8bitは自作判断で0
+    OUT (C),A
     JP S9_OK
 t3_port_fail_two:
     POP DE

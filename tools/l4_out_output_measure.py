@@ -209,7 +209,7 @@ def main():
     args=p.parse_args()
     for name in ('work_dir','out','measured','expected'):
         path=getattr(args,name,None)
-        if path is not None and (not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve())): p.error('作業・測定・期待値はtmp/t3-work内の絶対パス')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,base.T3B_IMPL_ROOT))): p.error('作業・測定・期待値はtmp/t3-workまたはtmp/t3b-impl-work内の絶対パス')
     if args.command=='synthetic': synthetic(); return 0
     if args.command=='expected': expected(args.measured,args.out); print('期待値18腕'); return 0
     if args.command=='check': return int(check(args.expected,args.measured))
