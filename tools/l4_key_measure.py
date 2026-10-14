@@ -17,6 +17,10 @@ RANGE='E600-E60F'
 SECRET='synthetic-screen-secret'
 
 
+class MeasurementFailure(ValueError):
+    """器具自身が組み立てた数値/条件だけを外へ出す例外。"""
+
+
 def arm(aid,stmt=(),setup=(),post=(),width=80,height=25,prediction='',display=False,boot=False):
     return dict(id=aid,stmt=list(stmt),setup=list(setup),post=list(post),width=width,
                 height=height,prediction=prediction,display=display,boot=boot)
@@ -87,9 +91,10 @@ def valid_memory(o,a):
     v=o['values']; ws=o['writes']
     if not isinstance(v,dict) or set(v)!=set(FIELDS) or any(type(x) is not int or not 0<=x<=255 for x in v.values()): return False
     if not isinstance(ws,list) or any(not isinstance(x,list) or len(x)!=2 or type(x[0]) is not int or not 0<=x[0]<16 or type(x[1]) is not int or not 0<=x[1]<=255 for x in ws): return False
-    if ws[:18]!=[[i,0] for i in range(16)]+[[0,1],[1,151]]: return False
+    prefix=2 if ws[:2]==[[14,0],[15,0]] else 0
+    if ws[prefix:prefix+18]!=[[i,0] for i in range(16)]+[[0,1],[1,151]]: return False
     stages=[10+j for j in range(len(a['setup']))]+[40+j for j in range(len(a['stmt']))]+[60+j for j in range(len(a['post']))]+[80,81,90]
-    pos=18; stage=1; count=0; seen=[]
+    pos=prefix+18; stage=1; count=0; seen=[]
     while pos<len(ws):
         i,n=ws[pos]
         if i==3:
@@ -122,10 +127,14 @@ def parse_log(raw,start,finish,a):
             if k!=seq+1 or not BASE<=addr<BASE+16: raise ValueError('連番/番地')
             seq=k
             if t>=start: events.append((t,addr-BASE,val))
-    if seq!=int(total[1]) or not events or events[-1][0]>finish-300: raise ValueError('件数/安定')
+    detail=f'腕={a["id"]} start={start} finish={finish} total={int(total[1])} seq={seq} events={len(events)} last={events[-1][0] if events else "none"}'
+    if seq!=int(total[1]): raise MeasurementFailure('条件=件数不一致 '+detail)
+    if not events: raise MeasurementFailure('条件=イベント空 '+detail)
+    if events[-1][0]>finish-300: raise MeasurementFailure('条件=最終書込み不安定 '+detail)
     ws=[[i,v] for _,i,v in events]
     o=dict(values={FIELDS[i]:v for i,v in ws},writes=ws)
-    if not valid_memory(o,a): raise ValueError('論理印')
+    if not valid_memory(o,a):
+        raise MeasurementFailure('条件=論理印 '+detail+' indices='+json.dumps(ws,separators=(',',':')))
     return o
 
 
@@ -223,6 +232,12 @@ def capture(rom,official,a,work,commands=None):
         except OSError: gs=[geometry(),geometry()]
         if gs[0]!=gs[1]: raise ValueError('表示設定安定')
         return memory,raw[1],gs[1]
+    except MeasurementFailure:
+        raise
+    except ValueError as exc:
+        safe_conditions={'範囲','取りこぼし','記録形','連番/番地','画面長','画面安定','表示設定安定'}
+        condition=str(exc) if str(exc) in safe_conditions else '検証'
+        raise MeasurementFailure(f'条件={condition} 腕={a["id"]} start={start} finish={finish} captures={at},{at+300}') from None
     finally:
         mem.unlink(missing_ok=True); hardware.unlink(missing_ok=True)
         for x in paths:
@@ -431,6 +446,24 @@ def safety_selftest(work):
     assert all(valid(r['obs'][0],r['arm']) for r in rs) and calibrated(rs)
     good=rs[0]['obs'][0]
     assert parse_log(fake_log(good),100,1000,known[0])==good['memory']
+    prefixed=copy.deepcopy(good); prefixed['memory']['writes'][:0]=[[14,0],[15,0]]
+    assert valid(prefixed,known[0])
+    assert parse_log(fake_log(prefixed),100,1000,known[0])==prefixed['memory']
+    for raw,start,finish,condition in (
+        (f'range     : {RANGE}\n# 取りこぼし: 0件 / 総イベント数: 0件\n',100,1000,'イベント空'),
+        (fake_log(good),100,300,'最終書込み不安定'),
+        (fake_log(good).replace(f'総イベント数: {len(good["memory"]["writes"])}件','総イベント数: 999件'),100,1000,'件数不一致')):
+        try: parse_log(raw,start,finish,known[0])
+        except MeasurementFailure as exc:
+            assert condition in str(exc) and '腕=cal-poke' in str(exc) and 'finish=' in str(exc)
+        else: raise AssertionError('失敗条件を受理')
+    for prefix in ([[14,1],[15,0]],[[15,0],[14,0]],[[14,0]],[[15,0]]):
+        bad=copy.deepcopy(good); bad['memory']['writes'][:0]=prefix
+        assert not valid(bad,known[0])
+    bad=copy.deepcopy(prefixed); del bad['memory']['writes'][2]
+    assert not valid(bad,known[0])
+    bad=copy.deepcopy(good); bad['memory']['writes'][18:18]=[[14,0],[15,0]]
+    assert not valid(bad,known[0])
     for mutate in ('missing','finish','noninteger','wrongstage','errorflag','unstable'):
         bad=copy.deepcopy(rs[1]['obs'][0])
         if mutate=='missing': bad['memory']['values'].pop('count')
@@ -548,6 +581,12 @@ def safety_selftest(work):
             try: capture(Path('synthetic'),False,known[0],td)
             except RuntimeError: pass
             else: raise AssertionError('実行拒否受理')
+        def unsafe_exception(argv,**kwargs): raise ValueError(SECRET)
+        with patch.object(kw,'find_core',return_value=Path('synthetic')),patch.object(subprocess,'run',side_effect=unsafe_exception),redirect_stdout(sink),redirect_stderr(sink):
+            try: capture(Path('synthetic'),False,known[0],td)
+            except MeasurementFailure as exc:
+                assert SECRET not in str(exc) and '条件=検証' in str(exc) and '腕=cal-poke' in str(exc) and 'finish=' in str(exc)
+            else: raise AssertionError('秘密例外受理')
         assert not sink.getvalue()
     print('OK 合成自己検査: 陽性・陰性・本文非出力・TSV拒否・2走・候補相異・表示欄限定関門・非表示25行偽装拒否',flush=True)
 
@@ -577,7 +616,10 @@ def measure(rom,official,work):
         for repeat in (1,2):
             dest=work/(a['id']+'-'+str(repeat)); dest.mkdir(exist_ok=True)
             try: obs.append(run_arm(rom,official,a,dest,refs))
-            except Exception: obs.append(dict(failure='capture-gate'))
+            except Exception as exc:
+                if isinstance(exc,MeasurementFailure): print(str(exc),flush=True)
+                else: print(f'腕={a["id"]} repeat={repeat} 条件={type(exc).__name__}（本文非出力）',flush=True)
+                obs.append(dict(failure='capture-gate'))
         gate=all(valid(o,a) for o in obs) and obs[0]==obs[1]
         rs.append(dict(arm=a,obs=obs,gate=gate)); print(a['id']+': '+('pass' if gate else 'gate_failed'),flush=True)
     return rs
@@ -588,7 +630,7 @@ def selftest(work):
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
     if p.returncode: raise RuntimeError('自作ビルド拒否/失敗')
     rs=measure(rom,False,work); passed=emit(work/'selfrun.tsv',rs)
-    rows=['# l4-t2 自作ROM試走', '2026-10-14。公式ROM未実行。src変更・commit・run_allなし。',
+    rows=['# l4-t2 自作ROM試走', '2026-10-14。自作ROMの独立試走。src変更・commit・run_allなし。',
           f'{len(rs)}腕×2走、関門通過{sum(r["gate"] for r in rs)}/{len(rs)}、較正{calibrated(rs)}。候補2種も独立2走。',
           'ファンクションキー押下は現行APIでは文字打鍵と併用不可のため測らない。',
           '数値の仮説一致は関門にしない。表示比較不能はその欄だけ不明。生画面・生メモリログは削除。',
@@ -613,6 +655,8 @@ def main():
     args=p.parse_args()
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
+        conformance_path=((name=='out' and args.command=='expected') or (name=='expected' and args.command=='check'))
+        if conformance_path and path is not None and path.is_absolute() and path.resolve()==REPO/'tests/conformance/expected_l4_key.tsv': continue
         if path is not None and (not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve())): p.error('作業・結果先はtmp/t2-work内の絶対パス必須')
     if hasattr(args,'paths') and any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in args.paths): p.error('入力もtmp/t2-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
@@ -633,4 +677,5 @@ def main():
 if __name__=='__main__':
     try: raise SystemExit(main())
     except Exception as exc:
+        if isinstance(exc,MeasurementFailure): print(str(exc))
         tb=traceback.extract_tb(exc.__traceback__); print(f'NG 器具: {type(exc).__name__}、行{tb[-1].lineno}（本文非出力）'); raise SystemExit(1)
