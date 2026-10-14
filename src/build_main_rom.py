@@ -1435,6 +1435,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     )
     combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
     combined += f'\nINCLUDE "{REPO / "src/l4_basic/keyboot.asm"}"\n'
+    combined += f'\nINCLUDE "{REPO / "src/ext_bank/capacity_main.asm"}"\n'
     if enable_main_sub_read:
         main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")
         for enabled, old, new, name in (
@@ -1512,7 +1513,6 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
         else:
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
-    combined += f'\nINCLUDE "{REPO / "src/ext_bank/capacity_main.asm"}"\n'
     return memmap.asm_prelude() + combined
 
 

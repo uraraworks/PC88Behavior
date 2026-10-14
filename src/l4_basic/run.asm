@@ -2391,149 +2391,6 @@ RMSK_TABLE:
     DW TRY_MATCH_ERROR
     DB 0
 
-; RUN_EXEC_ONE_STMT — CUR_PTR位置の文を1つだけ照合・実行する
-;   (RUN_MATCH_STMT_KEYWORDの結果で分岐)。呼び出し前にSKIP_SPACESは
-;   呼び出し元の責任。誤り時もここではメッセージを出さない(呼び出し元の
-;   RUN_EXECが1行1回だけRUN_EMIT_ERRORする、第4.5節)。
-;   M7段階5c: 従来RUN_EXEC内に直書きしていたswitchをここへ切り出し、
-;   IF文(THEN/ELSEの単文実行、IF_STMT参照)から再利用できるようにした。
-;   出力: ERROR_FLAG/ERROR_KIND・RUN_CTRL(呼び出し元が確認する)。
-RUN_EXEC_ONE_STMT:
-    ; 分岐の印は文ごとに消す。POKE等は通常続行を明示しない。
-    XOR A
-    LD (RUN_CTRL),A
-    CALL RUN_MATCH_STMT_KEYWORD
-    OR A
-    JP Z,_reos_unmatched
-    LD A,(RUN_STMT_KIND)
-    CP 0
-    JP Z,_reos_print
-    CP 1
-    JP Z,_reos_goto
-    CP 2
-    JP Z,_reos_gosub
-    CP 3
-    JP Z,_reos_return
-    CP 4
-    JP Z,_reos_for
-    CP 5
-    JP Z,_reos_next
-    CP 6
-    JP Z,_reos_end
-    CP 7
-    JP Z,_reos_stop
-    CP 9
-    JP Z,_reos_if
-    CP 10
-    JP Z,_reos_dim
-    CP 11
-    JP Z,_reos_read
-    CP 12
-    JP Z,_reos_restore
-    CP 13
-    JP Z,_reos_rem
-    CP 14
-    JP Z,_reos_arrassign
-    CP 15
-    JP Z,_reos_cls
-    CP 16
-    JP Z,_reos_input
-    CP 17
-    JP Z,_reos_locate
-    CP 18
-    JP Z,_reos_color
-    CP 19
-    JP Z,_reos_on_error
-    CP 20
-    JP Z,_reos_resume
-    CP 21
-    JP Z,_reos_files
-    CP 22
-    JP Z,_reos_load
-    CP 23
-    JP Z,_reos_save
-    CP 24
-    JP Z,_reos_kill
-    CP 29
-    JP Z,S9B_DO_POKE
-    CP 30
-    JP Z,S9B_DO_CLEAR
-    CP 31
-    JP Z,OW_WHILE_STMT
-    CP 32
-    JP Z,OW_WEND_STMT
-    CP 33
-    JP NC,FN_EXEC_STMT
-    CP 28
-    JP Z,S9_DO_ERROR
-    CP 27
-    JP Z,RANDOMIZE_STMT
-    CP 25
-    JP Z,_reos_name
-    CALL ASSIGN_STMT
-    XOR A
-    LD (RUN_CTRL),A
-    RET
-_reos_print:
-    CALL PRINT_STMT
-    XOR A
-    LD (RUN_CTRL),A
-    RET
-_reos_goto:
-    JP GOTO_STMT
-_reos_gosub:
-    JP GOSUB_STMT
-_reos_return:
-    JP RETURN_STMT
-_reos_for:
-    JP FOR_STMT
-_reos_next:
-    JP NEXT_STMT
-_reos_end:
-    JP END_STMT
-_reos_stop:
-    JP STOP_STMT
-_reos_if:
-    JP IF_STMT
-_reos_dim:
-    JP DIM_STMT
-_reos_read:
-    JP READ_STMT
-_reos_restore:
-    JP RESTORE_STMT
-_reos_rem:
-    JP REM_STMT
-_reos_arrassign:
-    JP ARRAY_ASSIGN_STMT
-_reos_cls:
-    JP CLS_STMT
-_reos_input:
-    JP INPUT_STMT
-_reos_locate:
-    JP LOCATE_STMT
-_reos_color:
-    JP COLOR_STMT
-_reos_on_error:
-    JP ON_ERROR_STMT
-_reos_resume:
-    JP RESUME_STMT
-_reos_files:
-    JP FILES_STMT
-_reos_load:
-    JP LOAD_STMT
-_reos_save:
-    JP SAVE_STMT
-_reos_kill:
-    JP KILL_STMT
-_reos_name:
-    JP NAME_STMT
-_reos_unmatched:
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
-
 ; ONの共通入口。ON ERROR GOTOの捕捉/解除とON 式 GOTO/GOSUBを
 ; バンク1で振り分ける（第4.18節、onwhile.asm）。
 ON_ERROR_STMT:
@@ -4227,6 +4084,150 @@ ARRAY_SIZE:
     RET
 
  ; 単精度配列は整数のままを許す単純変数と異なり、常にMBF4Bで格納。
+; RUNの文実行部は窓内の後方にまとめる。
+; RUN_EXEC_ONE_STMT — CUR_PTR位置の文を1つだけ照合・実行する
+;   (RUN_MATCH_STMT_KEYWORDの結果で分岐)。呼び出し前にSKIP_SPACESは
+;   呼び出し元の責任。誤り時もここではメッセージを出さない(呼び出し元の
+;   RUN_EXECが1行1回だけRUN_EMIT_ERRORする、第4.5節)。
+;   M7段階5c: 従来RUN_EXEC内に直書きしていたswitchをここへ切り出し、
+;   IF文(THEN/ELSEの単文実行、IF_STMT参照)から再利用できるようにした。
+;   出力: ERROR_FLAG/ERROR_KIND・RUN_CTRL(呼び出し元が確認する)。
+RUN_EXEC_ONE_STMT:
+    ; 分岐の印は文ごとに消す。POKE等は通常続行を明示しない。
+    XOR A
+    LD (RUN_CTRL),A
+    CALL RUN_MATCH_STMT_KEYWORD
+    OR A
+    JP Z,_reos_unmatched
+    LD A,(RUN_STMT_KIND)
+    CP 0
+    JP Z,_reos_print
+    CP 1
+    JP Z,_reos_goto
+    CP 2
+    JP Z,_reos_gosub
+    CP 3
+    JP Z,_reos_return
+    CP 4
+    JP Z,_reos_for
+    CP 5
+    JP Z,_reos_next
+    CP 6
+    JP Z,_reos_end
+    CP 7
+    JP Z,_reos_stop
+    CP 9
+    JP Z,_reos_if
+    CP 10
+    JP Z,_reos_dim
+    CP 11
+    JP Z,_reos_read
+    CP 12
+    JP Z,_reos_restore
+    CP 13
+    JP Z,_reos_rem
+    CP 14
+    JP Z,_reos_arrassign
+    CP 15
+    JP Z,_reos_cls
+    CP 16
+    JP Z,_reos_input
+    CP 17
+    JP Z,_reos_locate
+    CP 18
+    JP Z,_reos_color
+    CP 19
+    JP Z,_reos_on_error
+    CP 20
+    JP Z,_reos_resume
+    CP 21
+    JP Z,_reos_files
+    CP 22
+    JP Z,_reos_load
+    CP 23
+    JP Z,_reos_save
+    CP 24
+    JP Z,_reos_kill
+    CP 29
+    JP Z,S9B_DO_POKE
+    CP 30
+    JP Z,S9B_DO_CLEAR
+    CP 31
+    JP Z,OW_WHILE_STMT
+    CP 32
+    JP Z,OW_WEND_STMT
+    CP 33
+    JP NC,FN_EXEC_STMT
+    CP 28
+    JP Z,S9_DO_ERROR
+    CP 27
+    JP Z,RANDOMIZE_STMT
+    CP 25
+    JP Z,_reos_name
+    CALL ASSIGN_STMT
+    XOR A
+    LD (RUN_CTRL),A
+    RET
+_reos_print:
+    CALL PRINT_STMT
+    XOR A
+    LD (RUN_CTRL),A
+    RET
+_reos_goto:
+    JP GOTO_STMT
+_reos_gosub:
+    JP GOSUB_STMT
+_reos_return:
+    JP RETURN_STMT
+_reos_for:
+    JP FOR_STMT
+_reos_next:
+    JP NEXT_STMT
+_reos_end:
+    JP END_STMT
+_reos_stop:
+    JP STOP_STMT
+_reos_if:
+    JP IF_STMT
+_reos_dim:
+    JP DIM_STMT
+_reos_read:
+    JP READ_STMT
+_reos_restore:
+    JP RESTORE_STMT
+_reos_rem:
+    JP REM_STMT
+_reos_arrassign:
+    JP ARRAY_ASSIGN_STMT
+_reos_cls:
+    JP CLS_STMT
+_reos_input:
+    JP INPUT_STMT
+_reos_locate:
+    JP LOCATE_STMT
+_reos_color:
+    JP COLOR_STMT
+_reos_on_error:
+    JP ON_ERROR_STMT
+_reos_resume:
+    JP RESUME_STMT
+_reos_files:
+    JP FILES_STMT
+_reos_load:
+    JP LOAD_STMT
+_reos_save:
+    JP SAVE_STMT
+_reos_kill:
+    JP KILL_STMT
+_reos_name:
+    JP NAME_STMT
+_reos_unmatched:
+    LD A,1
+    LD (ERROR_FLAG),A
+    LD A,2
+    LD (ERROR_KIND),A
+    RET
+
 ; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
 ;   RUN_MATCH_STMT_KEYWORDが設定済み、CUR_PTRは'('の位置。
 ;
@@ -4314,9 +4315,6 @@ _aas_err:
     LD (ERROR_FLAG),A
     RET
 
-; c1: 予約セル直前に連続空きを置く。直前ルーチンはRETで終わる。
-AEL_ROM_LAYOUT_PAD:
-    DS 079D8h-$
 ARRAY_SINGLE:
     CALL VAL_LOAD_CUR_TO_OPA
     LD HL,MBF_OPA
@@ -4441,6 +4439,10 @@ LOGIC_OR_EXPR:
     LD HL,07450h
     JR _fis_tail
 
+
+; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
+AEL_ROM_LAYOUT_PAD:
+    DS 079D8h-$
 
 ; VAL_MODOP — CUR = CUR MOD RHS(剰余、第4.12節)。本体はバンク0（VAL_INTDIVと同じ手順で剰余を返す）。
 VAL_MODOP:
