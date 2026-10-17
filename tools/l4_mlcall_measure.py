@@ -297,11 +297,37 @@ def addendum2_arms():
         code=list(descriptor_code()),prediction='A=03、記述子の最初番地とDE差0を仮説'))
     return out
 
+# 追補3は追補2と同じ走査・予約域・返却型採取を使う。
+ADDENDUM3_PLAN_SHA='21e7a8e12b589fff0589f72576208aee06e60f8bdd6cb6f36bef364a33fa33f0'
+ADDENDUM3_PROGRAM_SHA='27bf93e4a0c4cdfe5d2960b6724cd92bb12355bc7cc035e2143fe5bfee2a86a3'
+
+def addendum3_arms():
+    out=first_arms()[:2]
+    for mode,value,other,expr in [('expr25000',25000,23456,'24000+1000'),
+                                 ('expr23456',23456,25000,'23000+456'),
+                                 ('mutate',25000,23456,'24000+1000')]:
+        enc=[a2_encoding(value,2),a2_encoding(other,2)]
+        setup=[]
+        for k,data in enumerate(enc): setup+=put(A2_CAND+16*k,data)
+        setup+=put(A2_PROBE,bytes([0x32,(BASE+70)&255,(BASE+70)>>8,0xc9]))
+        post=[result(65,'y%=1234'),result(66,f'y%=({expr})')]
+        for k in (0,1):
+            off=33+9*k
+            post += [f'p=peek({BASE+off})+256*peek({BASE+off+1})',
+                     f'q=peek({BASE+26})+256*peek({BASE+27})',
+                     'd=p-q:if d<0 then d=d+65536',
+                     f'poke {BASE+52+2*k},d-256*int(d/256)',f'poke {BASE+53+2*k},int(d/256)']
+        out.append(dict(id=f'a3-int-{mode}',
+            commands=['def usr0=&hc000:def usr1=&hc2e0',f'y%=usr1(usr0({expr}))'],
+            setup=setup,post=post,code=list(scan_code(enc,mode=='mutate')),
+            prediction='入口A=02、主候補HL+0に1件・異値0件。書換でy%=1234・返却型02を仮説'))
+    return out
+
 def a2_write_allowed(i,n,stage):
     return (stage==2 and (32<=i<=49 or (i==31 and n==219) or (i==68 and n==1) or (i==70 and n in (2,3,4,8)))) or (stage==3 and 52<=i<=55)
 
 def a2_valid(o,a):
-    if not a['id'].startswith('a2-'): return True
+    if not a['id'].startswith(('a2-','a3-')): return True
     v=o['values']; ws=o['writes']; executed=v['p30']==213
     payload=[(i,n) for i,n in ws[97:] if i in {31,68,70}|set(range(32,50))|set(range(52,56))]
     if not executed: return not payload
@@ -430,7 +456,7 @@ def addendum2_selftest():
     for a in addendum2_arms():
         assert valid(synth(a),a)
         assert sum(len(c)+1 for c in program(a))+1<=8192
-        if not a['id'].startswith('a2-'): continue
+        if not a['id'].startswith(('a2-','a3-')): continue
         size=3 if 'string' in a['id'] else 2 if '-int-' in a['id'] else 4 if '-single-' in a['id'] else 8
         # 上で実生成命令を実行して得た型別0件の印を段2へ差し込む。
         ws=empty_writes[size]
@@ -442,12 +468,45 @@ def addendum2_selftest():
         bad['values']={FIELDS[i]:v for i,v in bad['writes']};assert not valid(bad,a),'番地判定の陰性'
     print('OK 追補2: 実生成Z80の全RAM走査・陽性/0件・255飽和・境界/予約域・単一一致介入・復元・関門陰性',flush=True)
 
-def arms(): return first_arms() if ROUND=='first' else addendum2_arms() if ROUND=='addendum2' else addendum_arms()
+def addendum3_selftest():
+    assert hashlib.sha256(json.dumps(addendum3_arms(),sort_keys=True,separators=(',',':')).encode()).hexdigest()==ADDENDUM3_PLAN_SHA
+    assert hashlib.sha256(json.dumps([program(a) for a in addendum3_arms()],separators=(',',':')).encode()).hexdigest()==ADDENDUM3_PROGRAM_SHA
+    data=a2_encoding(25000,2);cross=a2_encoding(23456,2)
+    assert data==bytes.fromhex('a8 61') and a2_encoding(1234,2)==bytes.fromhex('d2 04')
+    for a in addendum3_arms():
+        assert valid(synth(a),a)
+        assert sum(len(c)+1 for c in program(a))+1<=8192
+        if not a['id'].startswith('a3-'): continue
+        candidates=[cross,data] if a['id'].endswith('expr23456') else [data,cross]
+        target=candidates[0];mutate=a['id'].endswith('mutate')
+        # 腕そのもののZ80を実行。既知HL=9000の陽性と0/複数件の陰性。
+        for seed,count in [({0x9000:target},1),({},0),({0x9000:target,0x9100:target},2)]:
+            ram,ws,_=a2_execute(bytes(a['code']),candidates,seed)
+            assert ram[BASE+32]==count and ram[BASE+41]==0 and ram[BASE+31]==219
+            assert ram[BASE+68]==int(mutate and count==1)
+            if count:
+                assert int.from_bytes(ram[BASE+33:BASE+35],'little')==0x9000
+            for addr,original in seed.items():
+                assert ram[addr:addr+2]==(a2_encoding(1234,2) if mutate and count==1 else original)
+            good=synth(a);ix=good['writes'].index([1,2])+1
+            probe_ram,probe_ws,_=a2_execute(bytes([0x32,(BASE+70)&255,(BASE+70)>>8,0xc9]),[],{})
+            assert probe_ram[BASE+70]==2
+            good['writes'][ix:ix]=ws+probe_ws
+            good['values']={FIELDS[i]:v for i,v in good['writes']}
+            assert valid(good,a)
+            bad=copy.deepcopy(good);bad['writes'].remove([31,219])
+            bad['values']={FIELDS[i]:v for i,v in bad['writes']};assert not valid(bad,a)
+            bad=copy.deepcopy(good);ix=bad['writes'].index([31,219])
+            bad['writes'][ix:ix]=[[32,1],[33,0],[34,0]]
+            bad['values']={FIELDS[i]:v for i,v in bad['writes']};assert not valid(bad,a)
+    print('OK 追補3: 実生成Z80・25000/23456・HL+0単一一致・1234全長書換・0/複数件不介入・返却型・関門陰性',flush=True)
+
+def arms(): return first_arms() if ROUND=='first' else addendum3_arms() if ROUND=='addendum3' else addendum2_arms() if ROUND=='addendum2' else addendum_arms()
 
 def program(a):
     lines={1:'clear ,&hbfff',2:'poke &hc300,197',3:'for i=1 to 95:poke &hc300+i,0:next i',4:'on error goto 9000'}
     pokes=put(CODE,bytes(a['code']))
-    if a['id'].startswith('a2-'):
+    if a['id'].startswith(('a2-','a3-')):
         data=bytes(a['code'])
         for j in range(0,len(data),12): lines[5000+j]='data '+','.join(map(str,data[j:j+12]))
         pokes=[f'for i=0 to {len(data)-1}:read b:poke {CODE}+i,b:next i']
@@ -516,7 +575,7 @@ def memory_valid(o,a):
             if not err or ws[pos:pos+len(block)]!=block: return False
             count+=1; seen.add(stage); pos+=len(block); continue
         if i==1: stage=n; stages.append(n)
-        elif a['id'].startswith('a2-') and a2_write_allowed(i,n,stage): pass
+        elif a['id'].startswith(('a2-','a3-')) and a2_write_allowed(i,n,stage): pass
         elif 21<=i<=29 and stage in (1,2,3): pass # 保存レジスタ（許可された数値）
         elif i in (74,75) and stage==3: pass # 2変数の番地差だけ（16bit差）
         elif i==30 and n==213 and stage in (1,2,3): pass # 自作コードの実行印
@@ -574,7 +633,7 @@ def schedule(a,official):
     if official: typed.append((300,'\n'))
     for cmd in program(a):
         typed.append((at,cmd+'\n')); at+=(len(cmd)+1)*(12 if official else 8)+(360 if official else 120)
-    return typed,at+((36000 if official else 7200) if a['id'].startswith('a2-') else (18000 if official else 3600)) # 公式の初期化・誤り復帰と実行を待つ。
+    return typed,at+((36000 if official else 7200) if a['id'].startswith(('a2-','a3-')) else (18000 if official else 3600)) # 公式の初期化・誤り復帰と実行を待つ。
 
 def media_prepare(work,a): return [],lambda:None
 def media_observe(work,a): return None
@@ -1082,6 +1141,7 @@ def safety_selftest(work):
         assert sum(len(c)+1 for c in program(a))+1<=8192,'打鍵総数'
     add_pointer_selftest()
     addendum2_selftest()
+    addendum3_selftest()
 
 def add_pointer_selftest():
     # 生成BASICそのものを合成RAMで評価。境界・記述子・クロス対照。
@@ -1160,7 +1220,7 @@ def measure(rom,official,work):
     with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run_arm,arms()))
 
 def summary(rs,work=None):
-    path=ROOT/('selfrun-addendum2.md' if ROUND=='addendum2' else 'selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
+    path=ROOT/('selfrun-addendum3.md' if ROUND=='addendum3' else 'selfrun-addendum2.md' if ROUND=='addendum2' else 'selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
     rows=[f'## {MEASURE_NAME}: {len(rs)}腕×2独立走、関門{sum(r["gate"] for r in rs)}/{len(rs)}',
           '公式ROM未実行。未実装のERRは値一致と区別。画面比較は採らない。',
           '|腕|関門|最初ERR@段|最後ERR@段|','|---|---|---|---|']
@@ -1189,7 +1249,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,nargs='+',required=True)
 
     for parser in (e,c): parser.add_argument('--results',action='store_true')
-    for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1','addendum2'),default='addendum1')
+    for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1','addendum2','addendum3'),default='addendum1')
     args=p.parse_args()
     ROUND=getattr(args,'round','addendum1')
     OFFICIAL=getattr(args,'official',False)
