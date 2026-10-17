@@ -387,6 +387,184 @@ def check(exp,measured):
         else: bad.append(k)
     return len(want)-len(bad),bad
 
+
+# 結果ノート用の限定除外。通常の全欄自己照合と混ぜず、明示 --results で使う。
+RESULT_ARM_EXCLUSIONS={
+    'usr-mutate-int':'HL介入位置未確定。追補2で再測定',
+    'usr-mutate-single':'HL介入位置未確定。追補2で再測定',
+    'usr-mutate-double':'HL介入位置未確定。追補2で再測定',
+    'usr-mutate-string':'HL介入位置未確定。追補2で再測定',
+    'a1-call-minus1':'完了関門不成立。時間切れは不明であり期待値にしない',
+    'a1-call-65535':'完了関門不成立。時間切れは不明であり期待値にしない',
+    'a1-call-undefined':'完了関門不成立。時間切れは不明であり期待値にしない',
+}
+
+def result_exclusions(round_name,aid):
+    rules={'values.p'+str(i):'入口BC/DE/HL/SPの生番地は公式配置に依存' for i in range(22,30)}
+    if MEASURE_NAME=='mlcall' and round_name=='first' and (aid.startswith('usr-') or aid.startswith('def-')):
+        rules.update({'values.p'+str(i):'引数1の候補照合は偶然一致。識別値の追補1で判定' for i in range(32,65)})
+    if MEASURE_NAME=='bsave':
+        rules.update({f'media.{part}.sha256':'末尾以後のバッファ由来バイトを再現対象にしない' for part in ('header','payload')})
+        if aid=='a1-cal-disk': rules['media.payload.matches']='0x00候補は空き領域にも一致する弱いパターン'
+    return rules
+
+def result_project(value,rules):
+    value=copy.deepcopy(value)
+    for path in rules:
+        node=value
+        parts=path.split('.')
+        for part in parts[:-1]:
+            if not isinstance(node,dict) or part not in node: break
+            node=node[part]
+        else:
+            if isinstance(node,dict): node.pop(parts[-1],None)
+    return value
+
+def result_definitions():
+    global ROUND
+    selected=ROUND
+    try:
+        out={}
+        for rnd in ('first','addendum1'):
+            ROUND=rnd;out[rnd]={a['id']:a for a in arms()}
+        return out
+    finally: ROUND=selected
+
+def result_read(paths,official=False):
+    global ROUND,OFFICIAL
+    definitions=result_definitions(); combined={}; rounds=set()
+    for path in paths:
+        with path.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+        groups={}
+        for row in rows: groups.setdefault(row['arm'],[]).append(row)
+        candidates=[rnd for rnd,aa in definitions.items() if set(groups)==set(aa)]
+        if len(candidates)!=1: raise ValueError('結果TSV全腕集合')
+        rnd=candidates[0]
+        if rnd in rounds: raise ValueError('結果TSVラウンド重複')
+        rounds.add(rnd)
+        if MEASURE_NAME=='bsave' and rnd=='first':
+            print('EXCLUDE first/*: 第1回BSAVE全腕は媒体構成誤りで無効')
+            raise ValueError('第1回BSAVEは期待値に使えない')
+        rs=[]; selected=ROUND; selected_official=OFFICIAL
+        try:
+            ROUND=rnd; OFFICIAL=official
+            for aid,rr in groups.items():
+                a=definitions[rnd][aid]
+                if len(rr)!=2 or {r['repeat'] for r in rr}!={'1','2'}: raise ValueError('結果反復')
+                if any(json.loads(r['plan'])!=program(a) for r in rr): raise ValueError('結果予定')
+                if MEASURE_NAME=='mlcall' and aid in RESULT_ARM_EXCLUSIONS:
+                    print(f'EXCLUDE {rnd}/{aid}: {RESULT_ARM_EXCLUSIONS[aid]}')
+                    continue
+                obs=[json.loads(r['observation']) for r in rr]
+                if any(r['gate']!='pass' for r in rr) or not all(valid(o,a) for o in obs) or obs[0]!=obs[1]: raise ValueError('結果関門/観測/2走')
+                rs.append(dict(arm=a,obs=obs,gate=True))
+                value=dict(values=obs[0]['values'],media=obs[0].get('media'))
+                rules=result_exclusions(rnd,aid)
+                item=dict(round=rnd,values=result_project(value,rules),exclusions=rules)
+                if aid in combined:
+                    # 較正のみ共通。両ラウンドの厳密一致を確認し、第1回へ一本化。
+                    if not aid.startswith('cal-') or combined[aid]['values']!=item['values']: raise ValueError('結果重複')
+                    if rnd=='first': combined[aid]=item
+                    continue
+                combined[aid]=item
+            if not calibrated(rs): raise ValueError('結果較正/媒体関門')
+        finally: ROUND=selected; OFFICIAL=selected_official
+    required={'addendum1'} if MEASURE_NAME=='bsave' else {'first','addendum1'}
+    if rounds!=required: raise ValueError('結果ラウンド不足')
+    return combined
+
+def results_expected(out,paths):
+    got=result_read(paths,official=True)
+    write_tsv(out,['arm','round','values','exclusions'],[[k,v['round'],json.dumps(v['values']),json.dumps(v['exclusions'],ensure_ascii=False)] for k,v in sorted(got.items())])
+    return len(got)
+
+def results_check(exp,paths):
+    definitions=result_definitions()
+    with exp.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+    want={r['arm']:dict(round=r['round'],values=json.loads(r['values']),exclusions=json.loads(r['exclusions'])) for r in rows}
+    required={aid for rnd,aa in definitions.items() for aid in aa if (MEASURE_NAME!='bsave' or rnd=='addendum1') and (MEASURE_NAME!='mlcall' or aid not in RESULT_ARM_EXCLUSIONS)}
+    if len(rows)!=len(want) or set(want)!=required: raise ValueError('結果期待値全腕')
+    for aid,item in want.items():
+        rnd=item['round']
+        if rnd not in definitions or aid not in definitions[rnd] or (aid.startswith('cal-') and rnd!=('addendum1' if MEASURE_NAME=='bsave' else 'first')): raise ValueError('結果期待値ラウンド')
+        rules=result_exclusions(rnd,aid)
+        if item['exclusions']!=rules: raise ValueError('結果除外の改変')
+        value=item['values']
+        # 除外欄以外の欠落・追加は許さない。媒体値は元の形へ戻して検証。
+        restored=copy.deepcopy(value)
+        if type(restored) is not dict or set(restored)!={'values','media'}: raise ValueError('結果期待値形')
+        for i in range(22,30): restored['values']['p'+str(i)]=0
+        if MEASURE_NAME=='mlcall' and rnd=='first' and (aid.startswith('usr-') or aid.startswith('def-')):
+            for i in range(32,65): restored['values']['p'+str(i)]=0
+        media=restored['media']
+        if isinstance(media,dict) and media.get('found'):
+            for part in ('header','payload'): media[part]['sha256']='0'*64
+            if aid=='a1-cal-disk': media['payload']['matches']=[]
+        if result_project(restored,rules)!=value or not expected_shape(restored,definitions[rnd][aid]): raise ValueError('結果期待値欄')
+        if aid.startswith('cal-') and restored!=dict(values=synth(definitions[rnd][aid])['values'],media=None): raise ValueError('結果期待値較正')
+    try: got=result_read(paths)
+    except (ValueError,KeyError,TypeError): got={}
+    bad=[k for k,v in want.items() if got.get(k)!=v]
+    for k in bad: print(f'DIFF {k}')
+    return len(want)-len(bad),bad
+
+def results_safety_selftest(work):
+    # 除外による弱体化を検査。入力の順序、除外改変、対象欄の差、関門落ち。
+    global ROUND,OFFICIAL
+    selected=ROUND; selected_official=OFFICIAL
+    try:
+        with tempfile.TemporaryDirectory(dir=work,prefix='results-') as td:
+            td=Path(td); paths=[]
+            for rnd in (('addendum1',) if MEASURE_NAME=='bsave' else ('first','addendum1')):
+                ROUND=rnd; OFFICIAL=False
+                rs=[dict(arm=a,obs=[synth(a),synth(a)],gate=True) for a in arms()]
+                if MEASURE_NAME=='bsave':
+                    # ディスク較正は陽性、他腕に一つ誤りを置いて非一様にする。
+                    for o in rs[2]['obs']:
+                        o['media']=dict(found=True,drive='synthetic',name_match=True,type01=True,
+                            header=dict(matches=[],length=16,sha256='0'*64),
+                            payload=dict(matches=[],length=256,sha256='0'*64))
+                    for o in rs[-1]['obs']:
+                        ix=o['writes'].index([1,1])+1
+                        o['writes'][ix:ix]=error_block(2,1,0,set())
+                        o['values']={FIELDS[i]:v for i,v in o['writes']}
+                path=td/(rnd+'.tsv'); emit(path,rs); paths.append(path)
+            exp=td/'expected.tsv'
+            with redirect_stdout(io.StringIO()):
+                count=results_expected(exp,paths)
+                assert results_check(exp,paths)==(count,[])
+                if len(paths)==2:
+                    assert results_expected(td/'reverse.tsv',paths[::-1])==count
+                    assert exp.read_bytes()==(td/'reverse.tsv').read_bytes()
+                rows=list(csv.DictReader(exp.open(),delimiter='\t'))
+                original=exp.read_text()
+                rules=json.loads(rows[0]['exclusions']); rules['values.first_err']='偽の除外'
+                rows[0]['exclusions']=json.dumps(rules)
+                write_tsv(exp,rows[0].keys(),[r.values() for r in rows])
+                try: results_check(exp,paths)
+                except ValueError: pass
+                else: raise AssertionError('除外範囲拡大')
+                exp.write_text(original)
+                # 非較正の実行印だけ変えると一腕不一致。番地だけなら一致。
+                path=paths[-1]; original=path.read_text()
+                rows=list(csv.DictReader(path.open(),delimiter='\t')); aid=rows[4]['arm']
+                for slot,value in ((22,123),(30,213)):
+                    changed=copy.deepcopy(rows)
+                    for row in changed[4:6]:
+                        o=json.loads(row['observation']); ix=o['writes'].index([1,1])+1
+                        o['writes'].insert(ix,[slot,value]); o['values']['p'+str(slot)]=value
+                        row['observation']=json.dumps(o)
+                    write_tsv(path,changed[0].keys(),[r.values() for r in changed])
+                    ok,bad=results_check(exp,paths)
+                    assert (ok,bad)==((count,[]) if slot==22 else (count-1,[aid]))
+                path.write_text(original)
+                rows[4]['gate']='gate_failed'
+                write_tsv(path,rows[0].keys(),[r.values() for r in rows])
+                assert results_check(exp,paths)[1]
+    finally: ROUND=selected; OFFICIAL=selected_official
+    print('OK 結果除外: 理由固定・番地のみ許容・実行印差/関門失敗を拒否',flush=True)
+
+
 def fake_log(o,prefix=()):
     ws=list(prefix)+o['writes']
     return f'range     : {RANGE}\n'+''.join(f'{j+1} {100+j} 0000 {BASE+i:04X} {v:02X}\n' for j,(i,v) in enumerate(ws))+f'# 取りこぼし: 0件 / 総イベント数: {len(ws)}件\n'
@@ -711,6 +889,7 @@ def summary(rs,work=None):
     with path.open('a') as f: f.write('\n'.join(rows)+'\n')
 
 def selftest(work):
+    results_safety_selftest(work)
     safety_selftest(work); rom=work/'rom'
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
     if p.returncode: raise RuntimeError('自作ビルド失敗')
@@ -726,23 +905,28 @@ def main():
     s=sub.add_parser('selftest'); s.add_argument('--work-dir',type=Path,default=ROOT/'selftest'); s.add_argument('--synthetic-only',action='store_true')
     sub.add_parser('describe')
     e=sub.add_parser('expected'); e.add_argument('--out',type=Path,required=True); e.add_argument('paths',type=Path,nargs='+')
-    c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
+    c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,nargs='+',required=True)
 
+    for parser in (e,c): parser.add_argument('--results',action='store_true')
     for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1'),default='addendum1')
     args=p.parse_args()
     ROUND=getattr(args,'round','addendum1')
     OFFICIAL=getattr(args,'official',False)
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
+        if isinstance(path,list):
+            if any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in path): p.error('入力もtmp/t4-work内')
+            continue
         if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT))): p.error('作業・結果はtmp/t4-work内の絶対パス必須')
     if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t4-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))
         return 0
-    if args.command=='expected': print(f'期待値{expected(args.out,args.paths)}腕'); return 0
+    if args.command=='expected': print(f'期待値{(results_expected if args.results else expected)(args.out,args.paths)}腕'); return 0
     if args.command=='check':
-        ok,bad=check(args.expected,args.measured); print(f'一致{ok}腕、不一致{len(bad)}腕'); return int(bool(bad))
+        if not args.results and len(args.measured)!=1: p.error('通常照合の入力は一つ')
+        ok,bad=results_check(args.expected,args.measured) if args.results else check(args.expected,args.measured[0]); print(f'一致{ok}腕、不一致{len(bad)}腕'); return int(bool(bad))
     if args.command=='selftest':
         if args.synthetic_only: safety_selftest(args.work_dir); return 0
         return selftest(args.work_dir)
