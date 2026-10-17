@@ -61,7 +61,7 @@ def pointer_body(slot,data,first):
             f'z=z and (peek(q+{i})={b})' for i,b in enumerate(data)]+[
             'if z<>0 then m=d+9', 'return']
 
-def arms():
+def first_arms():
     out=[]
     def add(i,commands,prediction='受理/復帰またはERR番号（未確定）',setup=None,post=None,code=None):
         out.append(dict(id=i,commands=commands,prediction=prediction,setup=setup or [],post=post or [],code=list(code or (ENTRY+MARK+b'\xc9'))))
@@ -110,6 +110,68 @@ def arms():
     for tag,cmd in [('call-extra','call &hc000,1'),('usr-noparen','x=usr0 1'),('usr-extra','x=usr0(1,2)'),('def-string','def usr0="a"'),('varptr-bare','p=varptr x'),('varptr-extra','p=varptr(x,y)')]: add('syntax-'+tag,[cmd],'構文ERR2/22または型ERR13')
     return out
 
+# 第1回の腕・入力署名を保ち、追補は別集合として選ぶ。
+ROUND='addendum1'
+OFFICIAL=False
+ADDENDUM_PLAN_SHA='706c17284c27f430831de0271ba0eae9fbd41373c35c23701933db3a079a1be1'
+ADDENDUM_PROGRAM_SHA='10899cafb6fd0404ed967e0a34bb45934ff2bc862562b295722973cdf7bc3bc0'
+
+def mbf_integer(value,size):
+    """正の整数をMBFに符号化（隠れた先頭1、末尾に指数+129）。"""
+    assert value>0 and size in (4,8)
+    exponent=value.bit_length()-1
+    fraction=(value-(1<<exponent)) << (8*(size-1)-1-exponent)
+    return fraction.to_bytes(size-1,'little')+bytes([exponent+129])
+
+ADD_ENC={'int12345':(12345).to_bytes(2,'little'),
+         'single12345':mbf_integer(12345,4),'double12345':mbf_integer(12345,8),
+         'text':b't4own','int23456':(23456).to_bytes(2,'little'), 'descriptor':b''}
+ADD_SLOTS=set(range(32,50))
+
+def add_pointer_checks():
+    out=[]
+    for r,off in enumerate((26,24,22)): # HL, DE, BC
+        out.append(f'p=peek({BASE+off})+256*peek({BASE+off+1})')
+        for j,data in enumerate(ADD_ENC.values()):
+            out.append(f'@scan1({32+6*r+j}|{data.hex()})')
+    return out
+
+def add_pointer_body(slot,data,first):
+    target=str(BASE+slot) if isinstance(slot,int) else f'{BASE}+{slot}'
+    descriptor=not data
+    size=3 if descriptor else len(data)
+    body=[f'if p<32768 or p>65535 then poke {target},255:return',
+          'm=0','for d=-32 to 32','q=p+d',
+          f'if q>=32768 and q<={65536-size} then gosub {first+8}',
+          'next d',f'poke {target},m','return','if m<>0 then return']
+    if descriptor:
+        body+=['if peek(q)<>5 then return','t=peek(q+1)+256*peek(q+2)',
+               'if t<32768 or t>65531 then return','z=1']
+        body += [f'z=z and (peek(t+{i})={b})' for i,b in enumerate(b't4own')]
+    else:
+        body+=['z=1']+[f'z=z and (peek(q+{i})={b})' for i,b in enumerate(data)]
+    return body+['if z<>0 then m=d+33','return']
+
+def addendum_arms():
+    out=first_arms()[:2]
+    def add(tag,commands,setup=None,code=None,prediction='ERR/入口/復帰を未確定として測る'):
+        out.append(dict(id='a1-'+tag,commands=commands,setup=setup or [],
+            post=add_pointer_checks(),code=list(code or ENTRY+MARK+b'\xc9'),prediction=prediction))
+    add('call-variable',['call q'],['q=&hc000'],prediction='実行印213・正常復帰を再確認')
+    add('call-clobber',['call q'],['q=&hc000'],ENTRY+MARK+CLOBBER+b'\xc9',prediction='レジスタ破壊後も正常復帰の仮説')
+    add('call-args-one',['call q(x)'],['q=&hc000:x=12345!'])
+    add('call-args-mixed',['call q(x%,y$)'],['q=&hc000:x%=12345:y$="t4own"'])
+    for tag,value in [('minus1','-1'),('65535','65535'),('65536','65536'),('fraction','49152.4')]:
+        add('call-'+tag,['call q'],['q='+value],prediction='範囲/丸め未確定。-1/65535の時間切れは不明')
+    add('call-string',['call q$'],['q$="a"'],prediction='型ERR13を仮説')
+    add('call-undefined',['call q'],prediction='未定義ERR5を仮説')
+    for tag,var,value in [('int','x%','12345'),('single','x!','12345!'),('double','x#','12345#'),('string','x$','"t4own"'),('cross23456','x%','23456')]:
+        add('usr-'+tag,['def usr0=&hc000',f'y{var[-1]}=usr0({var})'],[f'{var}={value}'],
+            prediction='A型値02/04/08/03、候補位置は未確定。異値整数候補は不一致の仮説')
+    return out
+
+def arms(): return first_arms() if ROUND=='first' else addendum_arms()
+
 def program(a):
     lines={1:'clear ,&hbfff',2:'poke &hc300,197',3:'for i=1 to 95:poke &hc300+i,0:next i',4:'on error goto 9000'}
     pokes=put(CODE,bytes(a['code']))
@@ -129,7 +191,7 @@ def program(a):
         9005:'poke &hc308,e:poke &hc309,s',9006:'if peek(&hc300+8+s*2)<>0 then 9008',
         9007:'poke &hc300+8+s*2,e',9008:'poke &hc300+9+s*2,e',9009:'poke &hc305,peek(&hc305)+1',
         9010:'if s=1 then resume 1102',9011:'if s=2 then resume 1202',9012:'if f=0 then resume 1302',9013:'resume 1800'})
-    sublines={}; subno=3000
+    sublines={}; subno=3000; shared_scans={}
     for n,cmd in list(lines.items()):
         def expand(x):
             nonlocal subno
@@ -142,6 +204,14 @@ def program(a):
             first=subno; body=pointer_body(int(x[1]),bytes.fromhex(x[2]),first)
             for statement in body: sublines[subno]=statement;subno+=1
             return f'gosub {first}'
+        def expand_scan1(x):
+            nonlocal subno
+            if x[2] not in shared_scans:
+                first=subno; body=add_pointer_body('w',bytes.fromhex(x[2]),first)
+                shared_scans[x[2]]=first
+                for statement in body: sublines[subno]=statement; subno+=1
+            return f'w={int(x[1])}:gosub {shared_scans[x[2]]}'
+        cmd=re.sub(r'@scan1\((\d+)\|([0-9a-f]*)\)',expand_scan1,cmd)
         cmd=re.sub(r'@scan\((\d+)\|([0-9a-f]+)\)',expand_scan,cmd)
         lines[n]=re.sub(r'@cmp\((\d+)\|([^|]+)\|([0-9a-f]+)\)',expand,cmd)
     assert subno<9000
@@ -173,7 +243,7 @@ def memory_valid(o,a):
         elif 21<=i<=29 and stage in (1,2,3): pass # 保存レジスタ（許可された数値）
         elif i in (74,75) and stage==3: pass # 2変数の番地差だけ（16bit差）
         elif i==30 and n==213 and stage in (1,2,3): pass # 自作コードの実行印
-        elif i in set(range(32,36))|set(range(48,52)) and n in (*range(18),255) and stage==3:
+        elif i in (ADD_SLOTS if a['id'].startswith('a1-') else set(range(32,36))|set(range(48,52))) and n in (*range(66 if a['id'].startswith('a1-') else 18),255) and stage==3:
             if i in pointers: return False
             pointers.add(i)
         elif i in set(range(65,74)) and n in (0,1) and stage in (1,2,3): pass
@@ -238,7 +308,7 @@ def capture(rom,official,a,work):
     extra,cleanup=media_prepare(work,a)
     argv+=extra
     try:
-        p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,M6FH_LONG_TYPING='1'))
+        p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,M6FH_LONG_TYPING='1'),timeout=180)
         if p.returncode or b'untypable' in p.stderr.lower(): raise RuntimeError('実行/打鍵拒否')
         o=parse_log(path.read_text(),start,finish,a)
         media=media_observe(work,a)
@@ -427,7 +497,7 @@ def pointer_selftest():
         # 複数一致でも最初のずれだけ。
         seed={0xc100+d+i:b for d in (-8,3) for i,b in enumerate(data)}
         assert execute(0xc100,data,seed)[0]==[(BASE+32,1)]
-    a=arms()[2]
+    a=first_arms()[2]
     for slot in (32,48):
         for n in (*range(18),255,18,254):
             o=synth(a); o['writes'].insert(-2,[slot,n])
@@ -440,7 +510,7 @@ def pointer_selftest():
         o['values']={FIELDS[i]:v for i,v in o['writes']}; assert not valid(o,a)
     print('OK pointer: C000以上・負ずれ・境界・範囲外255・不一致0・最初一致・印の陰性',flush=True)
 
-def safety_selftest(work):
+def first_safety_selftest(work):
     work.mkdir(parents=True,exist_ok=True)
     assert hashlib.sha256(json.dumps(arms(),sort_keys=True,separators=(',',':')).encode()).hexdigest()==PLAN_SHA,'事前登録の腕定義'
     assert hashlib.sha256(json.dumps([program(a) for a in arms()],separators=(',',':')).encode()).hexdigest()==PROGRAM_SHA,'事前登録の全入力'
@@ -540,7 +610,77 @@ def safety_selftest(work):
     else: raise AssertionError('取りこぼし陰性')
     print('OK 合成: 開始前分離・印順・ERR段・較正・2走・plan・陰性対照',flush=True)
 
+def safety_selftest(work):
+    global ROUND
+    selected=ROUND
+    try:
+        ROUND='first'
+        first_safety_selftest(work)
+    finally: ROUND=selected
+    assert hashlib.sha256(json.dumps(addendum_arms(),sort_keys=True,separators=(',',':')).encode()).hexdigest()==ADDENDUM_PLAN_SHA,'追補腕署名'
+    assert hashlib.sha256(json.dumps([program(a) for a in addendum_arms()],separators=(',',':')).encode()).hexdigest()==ADDENDUM_PROGRAM_SHA,'追補入力署名'
+    for a in addendum_arms():
+        assert valid(synth(a),a)
+        assert sum(len(c)+1 for c in program(a))+1<=8192,'打鍵総数'
+    add_pointer_selftest()
+
+def add_pointer_selftest():
+    # 生成BASICそのものを合成RAMで評価。境界・記述子・クロス対照。
+    def execute(p,data,seed):
+        body=add_pointer_body('w',data,3000); v={'p':p,'w':32}; reads=[]; writes=[]
+        pc=0; stack=[]; loop=0
+        def peek(addr):
+            assert 32768<=addr<=65535
+            reads.append(addr); return seed.get(addr,255)
+        def expr(s):
+            s=s.replace('<>','!=');s=re.sub(r'(?<![<>!])=(?!=)','==',s)
+            return int(eval(s,{'__builtins__':{},'peek':peek},v))
+        for _ in range(10000):
+            statement=body[pc];pc+=1
+            if statement.startswith('if '):
+                cond,statement=statement[3:].split(' then ')
+                if not expr(cond): continue
+            for c in statement.split(':'):
+                if c.startswith('for '): v['d']=-32;loop=pc
+                elif c=='next d':
+                    v['d']+=1
+                    if v['d']<=32: pc=loop
+                elif c.startswith('gosub '): stack.append(pc);pc=int(c[6:])-3000
+                elif c=='return':
+                    if not stack: return writes,reads
+                    pc=stack.pop()
+                elif c.startswith('poke '):
+                    addr,value=c[5:].split(',');writes.append((expr(addr),expr(value)))
+                else:
+                    name,value=c.split('=',1);v[name]=expr(value)
+        raise AssertionError('追補照合未復帰')
+    assert mbf_integer(1,4)==ENC['single1'] and mbf_integer(1,8)==ENC['double1']
+    assert ADD_ENC['single12345'].hex()=='00e4408e'
+    for data in list(ADD_ENC.values())[:-1]:
+        for p,d in ((0xe610,-32),(0xc100,32),(0x8000,0),(0xffff,1-len(data))):
+            seed={p+d+i:b for i,b in enumerate(data)}
+            assert execute(p,data,seed)[0]==[(BASE+32,d+33)]
+            seed[p+d]=254; assert execute(p,data,seed)[0]==[(BASE+32,0)]
+        for p in (0x7fff,65536): assert execute(p,data,{})==([(BASE+32,255)],[])
+        seed={0xc100+d+i:b for d in (-32,16) for i,b in enumerate(data)}
+        assert execute(0xc100,data,seed)[0]==[(BASE+32,1)]
+    for x,y in ((12345,23456),(23456,12345)):
+        assert execute(0xc100,x.to_bytes(2,'little'),dict(enumerate(y.to_bytes(2,'little'),0xc100)))[0]==[(BASE+32,0)]
+    seed={0xc100:5,0xc101:0,0xc102:0xe6,**dict(enumerate(b't4own',0xe600))}
+    assert execute(0xc100,b'',seed)[0]==[(BASE+32,33)]
+    for addr in (0x7fff,65532):
+        bad=dict(seed);bad[0xc101]=addr&255;bad[0xc102]=addr>>8
+        assert execute(0xc100,b'',bad)[0]==[(BASE+32,0)]
+    bad=dict(seed);bad[0xe600]=254;assert execute(0xc100,b'',bad)[0]==[(BASE+32,0)]
+    a=dict(first_arms()[0],id='a1-synthetic')
+    for n in (0,1,65,255,66,254):
+        o=synth(a);o['writes'].insert(-2,[49,n]);o['values']={FIELDS[i]:v for i,v in o['writes']}
+        assert valid(o,a)==(n in (0,1,65,255))
+    print('OK 追補照合: ±32・3レジスタ・MBF・クロス・記述子・RAM境界・陰性',flush=True)
+
 def measure(rom,official,work):
+    global OFFICIAL
+    OFFICIAL=official
     safety_selftest(work)
     def run_arm(a):
         obs=[]
@@ -561,7 +701,7 @@ def measure(rom,official,work):
     with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run_arm,arms()))
 
 def summary(rs,work=None):
-    path=ROOT/'selfrun.md'
+    path=ROOT/('selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
     rows=[f'## {MEASURE_NAME}: {len(rs)}腕×2独立走、関門{sum(r["gate"] for r in rs)}/{len(rs)}',
           '公式ROM未実行。未実装のERRは値一致と区別。画面比較は採らない。',
           '|腕|関門|最初ERR@段|最後ERR@段|','|---|---|---|---|']
@@ -580,13 +720,18 @@ def selftest(work):
     return int(not passed)
 
 def main():
+    global ROUND,OFFICIAL
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest='command',required=True)
     m=sub.add_parser('measure'); m.add_argument('--official',action='store_true'); m.add_argument('--rom-dir',type=Path); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True)
     s=sub.add_parser('selftest'); s.add_argument('--work-dir',type=Path,default=ROOT/'selftest'); s.add_argument('--synthetic-only',action='store_true')
     sub.add_parser('describe')
     e=sub.add_parser('expected'); e.add_argument('--out',type=Path,required=True); e.add_argument('paths',type=Path,nargs='+')
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
+
+    for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1'),default='addendum1')
     args=p.parse_args()
+    ROUND=getattr(args,'round','addendum1')
+    OFFICIAL=getattr(args,'official',False)
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
         if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT))): p.error('作業・結果はtmp/t4-work内の絶対パス必須')
