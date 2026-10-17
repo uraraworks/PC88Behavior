@@ -170,11 +170,287 @@ def addendum_arms():
             prediction='A型値02/04/08/03、候補位置は未確定。異値整数候補は不一致の仮説')
     return out
 
-def arms(): return first_arms() if ROUND=='first' else addendum_arms()
+# 追補2専用。コード・候補・印はすべて自作予約域内。
+ADDENDUM2_PLAN_SHA='c6d300c6b49ec54d5debf4e562b20a304da16b5a9747d9a9012dc76ae549c15a'
+ADDENDUM2_PROGRAM_SHA='a0b3c495d8875647d8711c7d3154a11545ce5c55612904ab0fee30c67e22b914'
+A2_CAND=0xc280
+A2_PTR=0xc2a0
+A2_PROBE=0xc2e0
+
+def scan_code(candidates, mutate=False):
+    """候補ごとにRAMを入口で走査。全レジスタを復元し、単一一致だけ介入。"""
+    code=bytearray(ENTRY+MARK+bytes.fromhex('f5 c5 d5 e5'))
+    labels={}; fix=[]
+    def emit(*bs): code.extend(bs)
+    def word(op,n): emit(op,n&255,n>>8)
+    def label(n): labels[n]=len(code)
+    def jump(op,n): emit(op,0,0); fix.append((len(code)-2,n))
+    for k,data in enumerate(candidates):
+        prefix=str(k); count=BASE+32+9*k; addresses=count+1
+        word(0x21,addresses); emit(0x22,A2_PTR&255,A2_PTR>>8)
+        word(0x21,0x8000)
+        label(prefix+'loop')
+        # 候補全体が予約域に重なる最初の位置からC35Fまで飛ばす。
+        emit(0x7c,0xfe,0xbf); jump(0xc2,prefix+'c0')
+        emit(0x7d,0xfe,257-len(data)); jump(0xd2,prefix+'skip')
+        label(prefix+'c0'); emit(0x7c,0xfe,0xc0); jump(0xc2,prefix+'compare')
+        label(prefix+'skip'); word(0x21,0xc360)
+        label(prefix+'compare')
+        emit(0xe5); word(0x11,A2_CAND+16*k); emit(0x06,len(data) or 3)
+        label(prefix+'bytes')
+        emit(0x1a,0xbe); jump(0xc2,prefix+'miss')
+        emit(0x23,0x13,0x05); jump(0xc2,prefix+'bytes')
+        emit(0xe1)
+        word(0x3a,count); emit(0xfe,255); jump(0xca,prefix+'next')
+        emit(0x3c); word(0x32,count); emit(0xfe,5); jump(0xd2,prefix+'next')
+        emit(0xed,0x5b,A2_PTR&255,A2_PTR>>8,0x7d,0x12,0x13,0x7c,0x12,0x13,
+             0xed,0x53,A2_PTR&255,A2_PTR>>8)
+        jump(0xc3,prefix+'next')
+        label(prefix+'miss'); emit(0xe1)
+        label(prefix+'next')
+        # 最後の開始番地を処理したら終了（FFFF跨ぎを読まない）。
+        last=65536-len(data)
+        emit(0x7c,0xfe,last>>8); jump(0xc2,prefix+'inc')
+        emit(0x7d,0xfe,last&255); jump(0xca,prefix+'end')
+        label(prefix+'inc'); emit(0x23); jump(0xc3,prefix+'loop')
+        label(prefix+'end')
+    if mutate:
+        word(0x3a,BASE+32); emit(0xfe,1); jump(0xc2,'restore')
+        emit(0x2a,(BASE+33)&255,(BASE+33)>>8)
+        for b in a2_encoding(1234,len(candidates[0])): emit(0x36,b,0x23)
+        emit(0x3e,1); word(0x32,BASE+68)
+    label('restore'); emit(0x3e,219); word(0x32,BASE+31); emit(0xe1,0xd1,0xc1,0xf1,0xc9)
+    for at,name in fix:
+        dest=CODE+labels[name]; code[at:at+2]=dest.to_bytes(2,'little')
+    assert CODE+len(code)<A2_CAND
+    return bytes(code)
+
+def a2_encoding(value,size):
+    return value.to_bytes(2,'little') if size==2 else mbf_integer(value,size)
+
+def descriptor_code():
+    # 共通走査の比較部分を、動的ポインタ付き記述子照合に差し替える。
+    # ラベル再配置を避けるため、記述子専用の別生成器を用いる。
+    return a2_descriptor_scan()
+
+def a2_descriptor_scan():
+    c=bytearray(ENTRY+MARK+bytes.fromhex('f5 c5 d5 e5'))
+    labels={}; fix=[]
+    def e(*b): c.extend(b)
+    def w(op,n): e(op,n&255,n>>8)
+    def lab(n): labels[n]=len(c)
+    def j(op,n): e(op,0,0);fix.append((len(c)-2,n))
+    w(0x21,BASE+33);w(0x22,A2_PTR);w(0x21,0x8000)
+    lab('loop');e(0x7c,0xfe,0xbf);j(0xc2,'c0');e(0x7d,0xfe,254);j(0xd2,'skip')
+    lab('c0');e(0x7c,0xfe,0xc0);j(0xc2,'cmp')
+    lab('skip');w(0x21,0xc360)
+    lab('cmp');e(0xe5,0x7e,0xfe,5);j(0xc2,'miss')
+    e(0x23,0x5e,0x23,0x56,0xeb,0x7c,0xfe,0x80);j(0xda,'miss')
+    # ポインタの全5BがRAM内、かつ予約域と重ならない。
+    e(0x7c,0xfe,0xff);j(0xc2,'reserved');e(0x7d,0xfe,0xfc);j(0xd2,'miss')
+    lab('reserved');e(0x7c,0xfe,0xbf);j(0xda,'text')
+    e(0x7c,0xfe,0xc4);j(0xd2,'text')
+    # BFxx末尾とC3xx先頭も候補全体の重なりを除外。
+    e(0x7c,0xfe,0xbf);j(0xc2,'c3');e(0x7d,0xfe,0xfc);j(0xda,'text');j(0xc3,'miss')
+    lab('c3');e(0x7c,0xfe,0xc3);j(0xc2,'miss');e(0x7d,0xfe,0x60);j(0xda,'miss')
+    lab('text')
+    for b in b't4own': e(0x7e,0xfe,b);j(0xc2,'miss');e(0x23)
+    e(0xe1);w(0x3a,BASE+32);e(0xfe,255);j(0xca,'next')
+    e(0x3c);w(0x32,BASE+32);e(0xfe,5);j(0xd2,'next')
+    e(0xed,0x5b,A2_PTR&255,A2_PTR>>8,0x7d,0x12,0x13,0x7c,0x12,0x13,
+      0xed,0x53,A2_PTR&255,A2_PTR>>8);j(0xc3,'next')
+    lab('miss');e(0xe1)
+    lab('next');e(0x7c,0xfe,255);j(0xc2,'inc');e(0x7d,0xfe,253);j(0xca,'end')
+    lab('inc');e(0x23);j(0xc3,'loop')
+    lab('end');e(0x3e,219);w(0x32,BASE+31);e(0xe1,0xd1,0xc1,0xf1,0xc9)
+    for at,name in fix: c[at:at+2]=(CODE+labels[name]).to_bytes(2,'little')
+    assert CODE+len(c)<A2_CAND
+    return bytes(c)
+
+def addendum2_arms():
+    out=first_arms()[:2]
+    for tag,size,suffix in [('int',2,''),('single',4,'!'),('double',8,'#')]:
+        for mode,value in [('expr12345',12345),('expr23456',23456),('variable',12345),('mutate',12345)]:
+            other=23456 if value==12345 else 12345
+            enc=[a2_encoding(value,size),a2_encoding(other,size)]
+            expr=f'{12000 if value==12345 else 23000}{suffix}+{345 if value==12345 else 456}{suffix}'
+            var='x'+('%' if size==2 else suffix)
+            setup=[]
+            if mode=='variable': setup=[f'{var}=12345{suffix}'];expr=var
+            for k,data in enumerate(enc): setup+=put(A2_CAND+16*k,data)
+            setup+=put(A2_PROBE,bytes([0x32,(BASE+70)&255,(BASE+70)>>8,0xc9]))
+            post=[result(65,'y=1234'),result(66,f'y=({expr})')]
+            # first-HLとfirst-DEを16bitの差として保存。生バイトは読まない。
+            for k in (0,1):
+                off=33+9*k
+                post += [f'p=peek({BASE+off})+256*peek({BASE+off+1})',
+                         f'q=peek({BASE+26})+256*peek({BASE+27})',
+                         'd=p-q:if d<0 then d=d+65536',
+                         f'poke {BASE+52+2*k},d-256*int(d/256)',f'poke {BASE+53+2*k},int(d/256)']
+            out.append(dict(id=f'a2-{tag}-{mode}',commands=['def usr0=&hc000:def usr1=&hc2e0',f'y=usr1(usr0({expr}))'],
+                setup=setup,post=post,code=list(scan_code(enc,mode=='mutate')),
+                prediction='A=02/04/08、異値0件、値対照で共通番地。単一一致書換で1234・型維持を仮説'))
+    out.append(dict(id='a2-string-expr',commands=['def usr0=&hc000','y$=usr0("t4"+"own")'],
+        setup=[],post=[f'p=peek({BASE+33})+256*peek({BASE+34})',
+        f'q=peek({BASE+24})+256*peek({BASE+25})','d=p-q:if d<0 then d=d+65536',
+        f'poke {BASE+52},d-256*int(d/256)',f'poke {BASE+53},int(d/256)'],
+        code=list(descriptor_code()),prediction='A=03、記述子の最初番地とDE差0を仮説'))
+    return out
+
+def a2_write_allowed(i,n,stage):
+    return (stage==2 and (32<=i<=49 or (i==31 and n==219) or (i==68 and n==1) or (i==70 and n in (2,3,4,8)))) or (stage==3 and 52<=i<=55)
+
+def a2_valid(o,a):
+    if not a['id'].startswith('a2-'): return True
+    v=o['values']; ws=o['writes']; executed=v['p30']==213
+    payload=[(i,n) for i,n in ws[97:] if i in {31,68,70}|set(range(32,50))|set(range(52,56))]
+    if not executed: return not payload
+    active=0
+    for i,n in ws[97:]:
+        if i==1: active=n
+        if i in {31,68,70}|set(range(32,50))|set(range(52,56)) and not a2_write_allowed(i,n,active): return False
+    if 'string' in a['id'] and any(41<=i<=49 or i in (54,55,68,70) for i,n in payload): return False
+    if v['p31']!=219 or sum(i==31 for i,n in payload)!=1: return False
+    if v['s2_first']!=0: return True # 呼出途中のERRは残し、成功とは解釈しない。
+    for k in range(1 if 'string' in a['id'] else 2):
+        count=v['p'+str(32+9*k)]
+        for j in range(4):
+            lo=33+9*k+2*j; addr=v['p'+str(lo)]+256*v['p'+str(lo+1)]
+            if j<min(count,4):
+                if not 0x8000<=addr<=0xffff or 0xc000<=addr<0xc360: return False
+            elif addr: return False
+        # 件数は1から単調増加し255で飽和。全番地は一度だけ書かれる。
+        changes=[n for i,n in payload if i==32+9*k]
+        if changes!=list(range(1,count+1)): return False
+        for j in range(8):
+            if sum(i==33+9*k+j for i,n in payload)!=(1 if j<2*min(count,4) else 0): return False
+    if v['p68'] and ('mutate' not in a['id'] or v['p32']!=1): return False
+    return True
+
+def a2_execute(code,candidates,seed):
+    """生成したZ80バイトを実行する合成器。公式ROMもsrcも入力にしない。"""
+    ram=bytearray(65536)
+    ram[CODE:CODE+len(code)]=code
+    for k,data in enumerate(candidates): ram[A2_CAND+16*k:A2_CAND+16*k+len(data)]=data
+    for addr,data in seed.items(): ram[addr:addr+len(data)]=data
+    r=dict(a=2,f=0x41,b=0x12,c=0x34,d=0x91,e=0,h=0x90,l=0,sp=0xdf00)
+    original=dict(r);pc=CODE; writes=[];steps=0
+    def pair(name): return r[name[0]]*256+r[name[1]]
+    def setpair(name,v): r[name[0]]=v>>8;r[name[1]]=v&255
+    def read(addr):
+        assert 0x8000<=addr<=0xffff,'合成Z80のROM読出し'
+        return ram[addr]
+    def store(addr,v):
+        ram[addr]=v&255
+        if BASE<=addr<BASE+96: writes.append([addr-BASE,v&255])
+    def pop():
+        v=read(r['sp'])+256*read(r['sp']+1);r['sp']+=2;return v
+    def push(v):
+        r['sp']-=2;store(r['sp'],v);store(r['sp']+1,v>>8)
+    def fetch():
+        nonlocal pc
+        v=ram[pc];pc+=1;return v
+    def word(): return fetch()+256*fetch()
+    for steps in range(12000000):
+        op=fetch()
+        if op==0xc9:
+            assert r==original,'レジスタ/フラグ/スタック復元'
+            return ram,writes,steps
+        if op==0x32: store(word(),r['a'])
+        elif op==0x3a: r['a']=read(word())
+        elif op in (0x21,0x11): setpair('hl' if op==0x21 else 'de',word())
+        elif op==0x22:
+            addr=word();store(addr,r['l']);store(addr+1,r['h'])
+        elif op==0x2a:
+            addr=word();setpair('hl',read(addr)+256*read(addr+1))
+        elif op==0xed:
+            sub=fetch();addr=word()
+            if sub==0x5b: setpair('de',read(addr)+256*read(addr+1))
+            else:
+                v=r['sp'] if sub==0x73 else pair({0x43:'bc',0x53:'de'}[sub])
+                store(addr,v);store(addr+1,v>>8)
+        elif op in (0xf5,0xc5,0xd5,0xe5): push(pair({0xf5:'af',0xc5:'bc',0xd5:'de',0xe5:'hl'}[op]))
+        elif op in (0xf1,0xc1,0xd1,0xe1): setpair({0xf1:'af',0xc1:'bc',0xd1:'de',0xe1:'hl'}[op],pop())
+        elif op==0x3e: r['a']=fetch()
+        elif op==0x06: r['b']=fetch()
+        elif op in (0x7c,0x7d): r['a']=r['h' if op==0x7c else 'l']
+        elif op==0x7e: r['a']=read(pair('hl'))
+        elif op==0x1a: r['a']=read(pair('de'))
+        elif op in (0x5e,0x56): r['e' if op==0x5e else 'd']=read(pair('hl'))
+        elif op in (0xfe,0xbe):
+            v=fetch() if op==0xfe else read(pair('hl'))
+            r['f']=(0x40 if r['a']==v else 0)|(1 if r['a']<v else 0)
+        elif op in (0x3c,0x05):
+            key='a' if op==0x3c else 'b';r[key]=(r[key]+(1 if key=='a' else -1))&255
+            r['f']=(r['f']&1)|(0x40 if r[key]==0 else 0)
+        elif op in (0x23,0x13):
+            key='hl' if op==0x23 else 'de';setpair(key,(pair(key)+1)&65535)
+        elif op==0x12: store(pair('de'),r['a'])
+        elif op==0x36: store(pair('hl'),fetch())
+        elif op==0xeb:
+            de=pair('de');setpair('de',pair('hl'));setpair('hl',de)
+        elif op in (0xc3,0xc2,0xca,0xd2,0xda):
+            addr=word()
+            if op==0xc3 or (op==0xc2 and not r['f']&0x40) or (op==0xca and r['f']&0x40) or (op==0xd2 and not r['f']&1) or (op==0xda and r['f']&1): pc=addr
+        else: raise AssertionError(f'合成Z80未定義命令 {op:02x}')
+    raise AssertionError('走査ステップ上限')
+
+def addendum2_selftest():
+    assert hashlib.sha256(json.dumps(addendum2_arms(),sort_keys=True,separators=(',',':')).encode()).hexdigest()==ADDENDUM2_PLAN_SHA
+    assert hashlib.sha256(json.dumps([program(a) for a in addendum2_arms()],separators=(',',':')).encode()).hexdigest()==ADDENDUM2_PROGRAM_SHA
+    empty_writes={}
+    for size in (2,4,8):
+        data=a2_encoding(12345,size);cross=a2_encoding(23456,size)
+        code=scan_code([data,cross])
+        for seed,expected_count in [({},0),({0x9003:data,0xfff8:data},2),
+              ({0x9000+size*i:data for i in range(270)},255)]:
+            ram,ws,steps=a2_execute(code,[data,cross],seed)
+            if not seed: empty_writes[size]=ws
+            assert ram[BASE+32]==expected_count and ram[BASE+41]==0 and ram[BASE+31]==219
+            if expected_count:
+                assert [int.from_bytes(ram[BASE+33+2*j:BASE+35+2*j],'little') for j in range(min(expected_count,4))]==sorted(seed)[:4]
+        ram,_,_=a2_execute(scan_code([data,cross],True),[data,cross],{0x9876:data})
+        assert ram[0x9876:0x9876+size]==a2_encoding(1234,size) and ram[BASE+68]==1
+        for seed in ({},{0x9000:data,0x9100:data}):
+            ram,_,_=a2_execute(scan_code([data,cross],True),[data,cross],seed)
+            assert ram[BASE+68]==0
+        # 予約域を跨ぐ候補も除外。末尾ちょうどの候補は採る。
+        ram,_,_=a2_execute(code,[data,cross],{0xc360-size+1:data,0x10000-size:data})
+        assert ram[BASE+32]==1 and int.from_bytes(ram[BASE+33:BASE+35],'little')==0x10000-size
+    ram,_,_=a2_execute(bytes([0x32,(BASE+70)&255,(BASE+70)>>8,0xc9]),[],{})
+    assert ram[BASE+70]==2
+    code=descriptor_code()
+    for seed,want in [({},0),({0x9000:bytes([5,0,0x98]),0x9800:b't4own'},1),
+                      ({0x9000:bytes([5,0xff,0x7f])},0),
+                      ({0x9000:bytes([5,0xfc,0xff])},0),
+                      ({0x9000:bytes([5,0,0x98]),0x9800:b't4owx'},0),
+                      ({0x9000:bytes([5,0x80,0xc2]),0xc280:b't4own'},0)]:
+        ram,ws,_=a2_execute(code,[],seed);assert ram[BASE+32]==want
+        if not seed: empty_writes[3]=ws
+    for a in addendum2_arms():
+        assert valid(synth(a),a)
+        assert sum(len(c)+1 for c in program(a))+1<=8192
+        if not a['id'].startswith('a2-'): continue
+        size=3 if 'string' in a['id'] else 2 if '-int-' in a['id'] else 4 if '-single-' in a['id'] else 8
+        # 上で実生成命令を実行して得た型別0件の印を段2へ差し込む。
+        ws=empty_writes[size]
+        good=synth(a);ix=good['writes'].index([1,2])+1;good['writes'][ix:ix]=ws
+        good['values']={FIELDS[i]:v for i,v in good['writes']};assert valid(good,a)
+        bad=copy.deepcopy(good);bad['writes'].remove([31,219]);bad['values']={FIELDS[i]:v for i,v in bad['writes']}
+        assert memory_valid(good,a) and not memory_valid(bad,a),'完了印判定の陰性'
+        bad=copy.deepcopy(good);ix=bad['writes'].index([31,219]);bad['writes'][ix:ix]=[[32,1],[33,0],[34,0]]
+        bad['values']={FIELDS[i]:v for i,v in bad['writes']};assert not valid(bad,a),'番地判定の陰性'
+    print('OK 追補2: 実生成Z80の全RAM走査・陽性/0件・255飽和・境界/予約域・単一一致介入・復元・関門陰性',flush=True)
+
+def arms(): return first_arms() if ROUND=='first' else addendum2_arms() if ROUND=='addendum2' else addendum_arms()
 
 def program(a):
     lines={1:'clear ,&hbfff',2:'poke &hc300,197',3:'for i=1 to 95:poke &hc300+i,0:next i',4:'on error goto 9000'}
     pokes=put(CODE,bytes(a['code']))
+    if a['id'].startswith('a2-'):
+        data=bytes(a['code'])
+        for j in range(0,len(data),12): lines[5000+j]='data '+','.join(map(str,data[j:j+12]))
+        pokes=[f'for i=0 to {len(data)-1}:read b:poke {CODE}+i,b:next i']
     setup=[':'.join(pokes[j:j+3]) for j in range(0,len(pokes),3)]+a['setup']
     for j,c in enumerate(setup): lines[200+j]=c
     lines[500]='poke &hc302,151:goto 1100'
@@ -240,6 +516,7 @@ def memory_valid(o,a):
             if not err or ws[pos:pos+len(block)]!=block: return False
             count+=1; seen.add(stage); pos+=len(block); continue
         if i==1: stage=n; stages.append(n)
+        elif a['id'].startswith('a2-') and a2_write_allowed(i,n,stage): pass
         elif 21<=i<=29 and stage in (1,2,3): pass # 保存レジスタ（許可された数値）
         elif i in (74,75) and stage==3: pass # 2変数の番地差だけ（16bit差）
         elif i==30 and n==213 and stage in (1,2,3): pass # 自作コードの実行印
@@ -258,9 +535,11 @@ def memory_valid(o,a):
         pos+=1
     required={1} if a['id']=='cal-poke' and 1 not in seen else set()
     if results!=required: return False
-    return stages==list(range(1,len(a['commands'])+1))+[3,90] and returned==set(range(1,len(a['commands'])+1)) and ws[-1]==[3,163] and sum(x==[3,163] for x in ws)==1 and {FIELDS[i]:n for i,n in ws}==v
+    return stages==list(range(1,len(a['commands'])+1))+[3,90] and returned==set(range(1,len(a['commands'])+1)) and ws[-1]==[3,163] and sum(x==[3,163] for x in ws)==1 and {FIELDS[i]:n for i,n in ws}==v and a2_valid(o,a)
 
 def valid(o,a): return memory_valid(o,a)
+
+class ExecutionDenied(RuntimeError): pass
 
 class GateError(ValueError):
     def __init__(self,condition,events):
@@ -295,7 +574,7 @@ def schedule(a,official):
     if official: typed.append((300,'\n'))
     for cmd in program(a):
         typed.append((at,cmd+'\n')); at+=(len(cmd)+1)*(12 if official else 8)+(360 if official else 120)
-    return typed,at+(18000 if official else 3600) # 公式の初期化・誤り復帰と実行を待つ。
+    return typed,at+((36000 if official else 7200) if a['id'].startswith('a2-') else (18000 if official else 3600)) # 公式の初期化・誤り復帰と実行を待つ。
 
 def media_prepare(work,a): return [],lambda:None
 def media_observe(work,a): return None
@@ -309,7 +588,8 @@ def capture(rom,official,a,work):
     argv+=extra
     try:
         p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,M6FH_LONG_TYPING='1'),timeout=180)
-        if p.returncode or b'untypable' in p.stderr.lower(): raise RuntimeError('実行/打鍵拒否')
+        if p.returncode: raise ExecutionDenied('実行拒否')
+        if b'untypable' in p.stderr.lower(): raise RuntimeError('打鍵拒否')
         o=parse_log(path.read_text(),start,finish,a)
         media=media_observe(work,a)
         if media is not None: o['media']=media
@@ -801,6 +1081,7 @@ def safety_selftest(work):
         assert valid(synth(a),a)
         assert sum(len(c)+1 for c in program(a))+1<=8192,'打鍵総数'
     add_pointer_selftest()
+    addendum2_selftest()
 
 def add_pointer_selftest():
     # 生成BASICそのものを合成RAMで評価。境界・記述子・クロス対照。
@@ -865,7 +1146,7 @@ def measure(rom,official,work):
         for repeat in (1,2):
             dest=work/(a['id']+'-'+str(repeat)); dest.mkdir(exist_ok=True)
             try: obs.append(capture(rom,official,a,dest))
-            except PermissionError:
+            except (PermissionError,ExecutionDenied):
                 raise # 本筋の書込み・実行拒否は継続しない
             except Exception as exc:
                 print(f'腕={a["id"]} 走={repeat} 条件={type(exc).__name__}（本文非出力）',flush=True)
@@ -879,7 +1160,7 @@ def measure(rom,official,work):
     with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run_arm,arms()))
 
 def summary(rs,work=None):
-    path=ROOT/('selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
+    path=ROOT/('selfrun-addendum2.md' if ROUND=='addendum2' else 'selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
     rows=[f'## {MEASURE_NAME}: {len(rs)}腕×2独立走、関門{sum(r["gate"] for r in rs)}/{len(rs)}',
           '公式ROM未実行。未実装のERRは値一致と区別。画面比較は採らない。',
           '|腕|関門|最初ERR@段|最後ERR@段|','|---|---|---|---|']
@@ -908,7 +1189,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,nargs='+',required=True)
 
     for parser in (e,c): parser.add_argument('--results',action='store_true')
-    for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1'),default='addendum1')
+    for parser in (m,s): parser.add_argument('--round',choices=('first','addendum1','addendum2'),default='addendum1')
     args=p.parse_args()
     ROUND=getattr(args,'round','addendum1')
     OFFICIAL=getattr(args,'official',False)
