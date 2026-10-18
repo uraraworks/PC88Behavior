@@ -25,10 +25,9 @@ T3_RHS_ENTRY:
     JP Z,t3_empty
     JP t3_rhs_error
 t3_rhs_call:
-    INC HL
-    LD A,(HL)
-    PUSH AF
-    CALL B3_ADV_PTR
+    JP ml3_rhs_dispatch
+    DB 0,0,0
+t3_rhs_args:
     CALL B3_SKIP_SPACES
     CALL B3_PEEK_CHAR
     CP ')'

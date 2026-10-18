@@ -59,7 +59,8 @@ s9b_poke_fail:
 ; 正の[32768,65536)だけ先に65536を減算し、away丸め。
 ; HEX$/OCT$と同じ単精度経由（未測定の倍精度境界は同じ自作判断）。
 S9B_ADDRESS_CUR:
-    LD A,(S9_CUR_TYPE)
+    JP ml3_address_dispatch
+s9b_address_slow_tail:
     OR A
     JR Z,s9b_address_round
     CALL S9_LOAD_OPA

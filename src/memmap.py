@@ -90,6 +90,7 @@ REGIONS = (
     Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
     Region('CONSOLE', 0xF246, 2, '保持', 'CONSOLE: 窓の開始行（実効）・指定された行数（l4-program.md 5.4.6）', 'normal'),
     Region('FKEY', 0xFFD4, 4, '保持', 'KEY: ヒープ内10組のポインタ・ON/OFF・番号作業', 'normal'),
+    Region('USR_STRING_DESC', 0xFFD8, 3, '保持（次の文字列USRまで）', 'USR文字列引数の3B記述子。RET後も保持', 'normal'),
     Region('CPU_STACK', 0xF248, 384, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
     Region('EXT_TEST_LOW', 0xFF9D, 8, '一時', 'EXT_BANK_ST_*・排他的なSAVE合成試験（通常ビルドでは使わない）', 'ext-test'),
@@ -110,6 +111,7 @@ REGIONS = (
 
 # 排他的なコマンド経路に限って共用する。割込みは画面・キー・INKEYのみ。
 OVERLAPS = {
+    frozenset(("USR_STRING_DESC", "MEASURE_REGS")): "M6IA専用測定は定常ループだけを使い、USRを実行しない。",
     frozenset(("FKEY", "MEASURE_REGS")): "M6IA専用測定は起動後の定常ループだけでKEY文を実行しない。KEY状態は起動時に初期化する。",
     frozenset(("ONWHILE_WORK", "SECTOR")): "ON/WHILE/WEND/NEXT探索とディスク文は排他的。条件の式評価はディスク文を呼ばない。",
     frozenset(("ONWHILE_WORK", "PU_WORK")): "ON/WHILE/WEND/NEXT探索とPRINT USINGは別の文。条件の式評価はPRINT文を呼ばない。",
@@ -143,6 +145,7 @@ for _region in REGIONS:
         OVERLAPS[frozenset(('ARRAY_WORK', _region.name))] = '添字の評価・整数化完了後に配列作業値を書く。再入中の名前と添字はCPUスタックに保持し、値の数値変換は要素解決後に行う。PAINT訪問ビットは引数評価後だけ使う。'
 
 FIELDS = {
+    "MM_USR_STRING_DESC": ("USR_STRING_DESC", 0),
     "MM_FKEY_PTR": ("FKEY", 0),
     "MM_FKEY_ON": ("FKEY", 2),
     "MM_FKEY_INDEX": ("FKEY", 3),

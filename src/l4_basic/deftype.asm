@@ -25,7 +25,7 @@
 fn_stmt_dispatch:
     LD A,(MM_RUN_STMT_KIND)
     CP 33
-    JP Z,fn_def
+    JP Z,ml0_def_fwd
     CP 34
     JP Z,fn_swap
     CP 35

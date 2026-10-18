@@ -4399,19 +4399,11 @@ BEEP_BELL:
     XOR A
     JP EXT_BANK_CALL
 FN_TRY_NUM:
-    CALL T3_RHS
-    OR A
-    RET NZ
-    LD HL,06B10h
-    XOR A
-    JP EXT_BANK_CALL
+    JP ML_TRY_NUM
+    DB 0,0,0,0,0,0,0,0,0
 FN_TRY_STR:
-    CALL T3_RHS
-    OR A
-    RET NZ
-    LD HL,06B20h
-    XOR A
-    JP EXT_BANK_CALL
+    JP ML_TRY_STR
+    DB 0,0,0,0,0,0,0,0,0
 
 FN_READ_STRING:
     LD HL,06B40h
@@ -4441,6 +4433,7 @@ LOGIC_OR_EXPR:
 
 
 ; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
+; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 
@@ -4666,13 +4659,13 @@ S9_DO_ERROR:
     LD HL,074A0h
     JP S9_BANK_CALL
 T3_RHS:
-    LD HL,0789Dh
-    JR S9_BANK_CALL
+    JP ML_TRY
+    DB 0,0
 T3_LHS:
     LD HL,06110h
     JR S9_BANK_CALL
 T3_STMT:
-    LD HL,07BF0h
+    LD HL,ML3_STMT_ENTRY
     JR S9_BANK_CALL
 S9_BANK_CALL:
     LD A,3

@@ -448,6 +448,14 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_ML_ADDRESS_FAST": "ML_ADDRESS_FAST",
+    "CAP_ADDR_ML_LVALUE": "ML_LVALUE",
+    "CAP_ADDR_ML_TABLE": "ML_TABLE",
+    "CAP_ADDR_ML_CALL_USER": "ML_CALL_USER",
+    "CAP_ADDR_ML_INVOKE": "ML_INVOKE",
+    "CAP_ADDR_ML_VARPTR": "ML_VARPTR",
+    "CAP_ADDR_VAR_READ_NUMERIC": "VAR_READ_NUMERIC",
+
     # c1: 窓を復元してmain入口へ戻る中継。
     "CAP_ADDR_DATA_LITERAL_HELPER": "CAP_DATA_LITERAL_HELPER",
     "CAP_ADDR_ADV_PTR": "ADV_PTR",
@@ -558,6 +566,12 @@ EXT_BANK0_SINCOS_ADDR_LABELS = {
 # 常駐ラベル→bank0.asm側EQU名の対応。EXT_BANK0_SINCOS_ADDR_LABELSと同じ手法。
 # 第4.19節のDEF FN/SWAP/ERASE本体が窓外中継で呼ぶmain番地。
 EXT_BANK0_DEFFN_ADDR_LABELS = {
+    "CAP_ADDR_ML_DEF": "ML_DEF",
+    "CAP_ADDR_ML_ADDRESS": "ML_ADDRESS",
+    "CAP_ADDR_ML_TABLE": "ML_TABLE",
+    "CAP_ADDR_STR_COPY_BN": "STR_COPY_BN",
+    "CAP_ADDR_EXPECT_CHAR": "EXPECT_CHAR",
+
     # c1: 窓を復元してmain入口へ戻る中継。
     "CAP_ADDR_MBF_NEG": "MBF_NEG",
     "CAP_ADDR_VAL_LOAD_CUR_TO_OPA": "VAL_LOAD_CUR_TO_OPA",
@@ -1353,6 +1367,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
     run_path = work / "l4_run_gen.asm"
     run_text = L4_RUN_ASM.read_text(encoding="utf-8")
+    run_text = run_text.replace("; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）",
+                                (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8"))
     run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"
