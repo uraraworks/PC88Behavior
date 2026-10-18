@@ -1344,7 +1344,7 @@ def measure(rom,official,work):
     with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run_arm,arms()))
 
 def summary(rs,work=None):
-    path=ROOT/('selfrun-addendum3.md' if ROUND=='addendum3' else 'selfrun-addendum2.md' if ROUND=='addendum2' else 'selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
+    path=(ROOT if work is None else work)/('selfrun-addendum3.md' if ROUND=='addendum3' else 'selfrun-addendum2.md' if ROUND=='addendum2' else 'selfrun-addendum1.md' if ROUND=='addendum1' else 'selfrun.md')
     rows=[f'## {MEASURE_NAME}: {len(rs)}腕×2独立走、関門{sum(r["gate"] for r in rs)}/{len(rs)}',
           '公式ROM未実行。未実装のERRは値一致と区別。画面比較は採らない。',
           '|腕|関門|最初ERR@段|最後ERR@段|','|---|---|---|---|']
@@ -1359,7 +1359,7 @@ def selftest(work):
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
     if p.returncode: raise RuntimeError('自作ビルド失敗')
     rs=measure(rom,False,work); passed=emit(work/'selfrun.tsv',rs)
-    summary(rs,work if work.resolve().is_relative_to(T3B_IMPL_ROOT.resolve()) else None)
+    summary(rs,work if any(work.resolve().is_relative_to(root.resolve()) for root in (T3B_IMPL_ROOT,REPO/'tmp/c2-work')) else None)
     if passed: expected(work/'self-expected.tsv',[work/'selfrun.tsv']); assert check(work/'self-expected.tsv',work/'selfrun.tsv')==(len(rs),[])
     return int(not passed)
 
@@ -1382,8 +1382,8 @@ def main():
         if isinstance(path,list):
             if any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in path): p.error('入力もtmp/t4-work内')
             continue
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT))): p.error('作業・結果はtmp/t4-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t4-work内')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work'))): p.error('作業・結果はtmp/t4-workまたはtmp/c2-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work')) for x in args.paths): p.error('入力もtmp/t4-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))

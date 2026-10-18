@@ -33,6 +33,7 @@ z80textはORGで前方へ飛ぶと、その分を0で埋めたバイト列を返
 """
 
 import argparse
+import json
 import pathlib
 import sys
 
@@ -102,7 +103,6 @@ BANK3_EXTRA_SOURCES = (
     "src/l4_basic/listnum.asm",
     "src/l4_basic/input.asm",
     "src/ext_bank/inkey.asm",
-    "src/l3_main/key_table_gen.asm",
     "src/l4_basic/strfunc.asm",
     "src/l4_basic/key.asm",
     "src/l4_basic/peekpoke.asm",
@@ -195,7 +195,8 @@ def compose_bank_text(asm_path: pathlib.Path, addr_overrides: dict = None,
 def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
                    inject_no_org_fault: bool = False,
                    mbf_add_addr: int = None,
-                   addr_overrides: dict = None) -> bytes:
+                   addr_overrides: dict = None,
+                   emitted_ranges: list = None) -> bytes:
     text = compose_bank_text(asm_path, addr_overrides, mbf_add_addr)
     # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
     # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
@@ -212,7 +213,7 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
 
     # mainの実ラベルから渡したEQUが、バンクの呼び先にも反映されたか検査。
     for name, addr in (addr_overrides or {}).items():
-        if name in asm.labels and asm.labels[name] != addr:
+        if name in asm.symtab and asm.symtab[name] != addr:
             raise SystemExit(f"error: {asm_path.name}: {name} の呼び先番地が不一致")
 
     # ORGによる先頭の詰め物(baseバイト)を切り落として、ファイル先頭
@@ -229,12 +230,29 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
             f"{asm_path.name}: バンク(8KB)に収まらない: {len(code)} > {BANK_SIZE}")
     rom = bytearray([FILL] * BANK_SIZE)
     rom[: len(code)] = code
+    # listingには命令・DB/DW/DSだけが載り、ORGの詰め物は含まれない。
+    # 連続する出力を半開区間へまとめる。先頭の空きもcapacity断片に使える。
+    ranges = []
+    for addr, chunk, *_ in asm.listing:
+        if not chunk:
+            continue
+        start, end = BANK_ORG + addr - base, BANK_ORG + addr - base + len(chunk)
+        if not BANK_ORG <= start < end <= BANK_ORG + BANK_SIZE:
+            raise SystemExit(f"{asm_path.name}: 出力範囲がバンク外")
+        if ranges and ranges[-1][1] == start:
+            ranges[-1][1] = end
+        else:
+            ranges.append([start, end])
+    if emitted_ranges is not None:
+        emitted_ranges.extend(ranges)
     if inject_no_org_fault and asm_path.name == "bank0.asm":
         # 0x6030以降は常駐MBF呼出し試験と機能本体。そこは通常ビルドと同一。
         boundary = "    ORG 0x6030\n"
         if text.count(boundary) != 1:
             raise SystemExit("bank0.asm: ORG故障注入の終端が一意でない")
-        fault_text = text.split(boundary, 1)[0]
+        # capacity断片が先頭の空きに置かれても注入対象へ巻き込まない。
+        fault_text = compose_bank_text(asm_path, addr_overrides, mbf_add_addr,
+                                       include_extensions=False).split(boundary, 1)[0]
         for old, new in NO_ORG_FAULT_SUBS:
             if fault_text.count(old) != 1:
                 raise SystemExit(f"bank0.asm: 故障注入の置換対象が一意でない: {old!r}")
@@ -250,7 +268,9 @@ def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
         test_end = asm.labels["EXT_BANK0_ABS_TABLE"] + 1 - base
         if len(fault_code) != test_end or test_end > 0x30:
             raise SystemExit("bank0.asm: ORG故障注入が絶対番地試験の範囲を超えた")
-        rom[:test_end] = fault_code
+        # ORGの詰め物を上書きせず、故障注入で出力された命令・表だけを戻す。
+        for addr, chunk, *_ in fault_asm.listing:
+            rom[addr:addr + len(chunk)] = chunk
     return bytes(rom)
 
 
@@ -258,12 +278,18 @@ def build_banks(outdir: pathlib.Path, inject_no_org_fault: bool = False,
                  mbf_add_addr: int = None, addr_overrides: dict = None):
     import tempfile
     outdir.mkdir(parents=True, exist_ok=True)
+    layout_dir = outdir / "ext_bank_layout"
+    layout_dir.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pc88_extbank_") as work_s:
         work = pathlib.Path(work_s)
         for rom_name, asm_name in BANK_FILES:
+            ranges = []
             rom = assemble_bank(rom_name, HERE / asm_name, work, inject_no_org_fault,
-                                 mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
+                                 mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides,
+                                 emitted_ranges=ranges)
             (outdir / rom_name).write_bytes(rom)
+            (layout_dir / f"{rom_name}.json").write_text(
+                json.dumps(ranges) + "\n", encoding="utf-8")
 
 
 def main():

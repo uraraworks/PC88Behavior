@@ -692,7 +692,7 @@ def selftest(work):
         o=r['obs'][0] if r['gate'] else {}; v=(o.get('memory') or {}).get('values',{})
         g=lambda k:v.get(k,'不明')
         rows.append(f'| {r["arm"]["id"]} | {"pass" if r["gate"] else "gate_failed"} | {g("ERROR_FLAG")}/{g("count")} | '+ '/'.join(str(g(k)) for k in ('setup_err','statement_err','post_err','diagnostic_err'))+f' | {g("first_err")}@{g("first_stage")}/{g("last_err")}@{g("last_stage")} | {g("csrlin")}/{g("pos")} | {o.get("display",{}).get("state","不明")} | '+' | '.join(str(x) if x is not None else '不明' for x in ((o.get('geometry') or {}).get('rows'),(o.get('geometry') or {}).get('columns'),o.get('bottom_row'),o.get('bottom_nonblank')))+' |')
-    ((work if work.resolve().is_relative_to((REPO/'tmp/t2-impl-work').resolve()) else ROOT)/'selfrun.md').write_text('\n'.join(rows)+'\n')
+    ((work if any(work.resolve().is_relative_to(root.resolve()) for root in (REPO/'tmp/t2-impl-work', REPO/'tmp/c2-work')) else ROOT)/'selfrun.md').write_text('\n'.join(rows)+'\n')
     print('自作試走: '+('pass' if passed else 'gate_failed'),flush=True); return int(not passed)
 
 
@@ -708,7 +708,7 @@ def main():
         path=getattr(args,name,None)
         conformance_path=((name=='out' and args.command=='expected') or (name=='expected' and args.command=='check'))
         if conformance_path and path is not None and path.is_absolute() and path.resolve()==REPO/'tests/conformance/expected_l4_key.tsv': continue
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT, REPO/"tmp/t2-impl-work"))): p.error('作業・結果先はtmp/t2-workまたはtmp/t2-impl-work内の絶対パス必須')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT, REPO/"tmp/t2-impl-work", REPO/"tmp/c2-work"))): p.error('作業・結果先はtmp/t2-work、tmp/t2-impl-workまたはtmp/c2-work内の絶対パス必須')
     if hasattr(args,'paths') and any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in args.paths): p.error('入力もtmp/t2-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':

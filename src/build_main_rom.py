@@ -458,6 +458,13 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    # INKEY$は窓外のmainキー表を共有し、bank3に複製しない。
+    "BASE_CODE_TAB": "BASE_CODE_TAB",
+    "KANA_CODE_TAB": "KANA_CODE_TAB",
+    "GRPH_CODE_TAB": "GRPH_CODE_TAB",
+    "CTRL_CODE_TAB": "CTRL_CODE_TAB",
+    "CAPS_CODE_TAB": "CAPS_CODE_TAB",
+    "SHIFT_CODE_TAB": "SHIFT_CODE_TAB",
     "CAP_ADDR_ML_ADDRESS_FAST": "ML_ADDRESS_FAST",
     "CAP_ADDR_ML_LVALUE": "ML_LVALUE",
     "CAP_ADDR_ML_TABLE": "ML_TABLE",
@@ -1587,6 +1594,11 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
                 f"{link_size} > {MAIN_SUB_LINK_MAX_SIZE}")
     check_ext_bank_relay_below_window(asm)
     check_ext_bank_callable_labels_below_window(asm)
+    # INKEY$がバンクを選んだまま読む6表は、全96Bが窓の外に必要。
+    for name in ("BASE", "KANA", "GRPH", "CTRL", "CAPS", "SHIFT"):
+        label = f"{name}_CODE_TAB"
+        if not 0 <= asm.labels[label] <= EXT_BANK_WINDOW_START - 96:
+            raise SystemExit(f"拡張ROMバンク: 共有キー表{label}が窓の外に収まらない")
     return bytes(rom), asm
 
 

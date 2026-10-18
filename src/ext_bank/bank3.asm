@@ -74,7 +74,7 @@ _rgp_oom:
     RET
 
 ; FN/ERASEの長文字列中継。窓切替がDEを使うのでRAM経由。
-; GOSUB_PUSHとRESTOREの間の空きを使い、0x6003-0x60FFは埋め草を保つ。
+; GOSUB_PUSHとRESTOREの間の空きを使う。先頭の空きはcapacity断片にも使える。
 ; 呼び先はdeffn.asmのFN_PAGE_FREE_ENTRY/FN_PAGE_ALLOC_ENTRYと合わせる。
     ORG 0x61D0
 B3_FN_PAGE_FREE_ENTRY:

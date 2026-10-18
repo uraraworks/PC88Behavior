@@ -320,7 +320,7 @@ def selftest(work):
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
     if p.returncode: raise RuntimeError('自作ビルド失敗')
     rs=measure(rom,False,work); passed=emit(work/'selfrun.tsv',rs)
-    summary(rs,work if work.resolve().is_relative_to(T3B_IMPL_ROOT.resolve()) else None)
+    summary(rs,work if any(work.resolve().is_relative_to(root.resolve()) for root in (T3B_IMPL_ROOT,REPO/'tmp/c2-work')) else None)
     if passed: expected(work/'self-expected.tsv',[work/'selfrun.tsv']); assert check(work/'self-expected.tsv',work/'selfrun.tsv')==(len(rs),[])
     return int(not passed)
 
@@ -334,8 +334,8 @@ def main():
     args=p.parse_args()
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT))): p.error('作業・結果はtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT)) for x in args.paths): p.error('入力もtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-work内')
+        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work'))): p.error('作業・結果はtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-workまたはtmp/c2-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work')) for x in args.paths): p.error('入力もtmp/t3-work、tmp/t3-impl-workまたはtmp/t3b-impl-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))

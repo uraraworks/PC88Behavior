@@ -7,7 +7,7 @@
 # 検査:
 #   1. 通常ビルド（--enable-ext-bank-selftestを付けない）が壊れないこと、
 #      N88_0.ROM〜N88_3.ROM(各8KB)が生成されること、各バンクの中身が
-#      土台どおり(試験エントリ1つ+FILL埋め)であること。
+#      試験入口が想定どおりで、アセンブラ出力範囲外がFILLであること。
 #   2. 自己検査ビルド（--enable-ext-bank-selftest）: 常駐部からEXT_BANK_CALL
 #      経由でバンク0-3を呼び、それぞれ期待値(0xB0-0xB3)が返ること
 #      （常駐部からの呼び出し）。窓の中(run.asm相当)に置いたプローブ経由の
@@ -83,44 +83,28 @@ for i in 0 1 2 3; do
   size="$(wc -c < "$f" | tr -d ' ')"
   if [ "$size" != "8192" ]; then fail "N88_${i}.ROM のサイズが8192でない($size)"; fi
 done
-python3 - "$NORMAL_ROM" << 'PYEOF' || FAILED=1
-import pathlib, sys
+python3 "$REPO/tools/check_ext_bank_layout.py" "$NORMAL_ROM" || FAILED=1
+# 範囲外への混入と試験入口破壊が、どちらも確実にNGになること。
+python3 - "$NORMAL_ROM" "$REPO/tools" <<'PYEOF' || FAILED=1
+import json, pathlib, sys
+sys.path.insert(0, sys.argv[2])
+from check_ext_bank_layout import check_bank
 outdir = pathlib.Path(sys.argv[1])
-ok = True
-for i in range(4):
-    data = (outdir / f"N88_{i}.ROM").read_bytes()
-    expect_head = bytes([0x3E, 0xB0 + i, 0xC9])  # LD A,0xB0+i / RET
-    if data[:3] != expect_head:
-        print(f"NG: N88_{i}.ROM の先頭3バイトが想定と違う: {data[:3].hex()} != {expect_head.hex()}")
-        ok = False
-    if i == 0:
-        # bank0だけ0x10-0x1Cに絶対番地試験ルーチン(EXT_BANK0_ABS_TEST_ENTRY)、
-        # 0x30-0x6Fに常駐MBF_ADD呼び出し試験ルーチン(EXT_BANK0_MBF_TEST_ENTRY、
-        # いずれもsrc/ext_bank/bank0.asm)、0x80以降にSQR本体
-        # (EXT_BANK0_SQR_ENTRY、2026-09-20追記、第4.16b節)があるため、
-        # そこだけ除外してFILLを確認する。ルーチンの中身そのものは
-        # tools/ext_bank_selftest.sh 2節(実行結果)・tools/l4_sqr_bank_conform.py
-        # (バイト照合)で検査する。
-        rest = data[3:0x10] + data[0x1D:0x30] + data[0x70:0x80]
-    elif i == 1:
-        # bank1は0x110以降にFILES・LOAD本体を持つ（LOAD実装で本体が伸び、
-        # 固定の上限0x300は外した）。試験入口からFILES入口までがFILLのままで
-        # あることを確認する。本体の中身はl4_files_z80_selftest.sh・
-        # l4_load_z80_selftest.sh・conform_files.sh・conform_load.shで検査する。
-        rest = data[3:0x110]
-    elif i == 2:
-        # SAVE入口は0x80、本体は0x100以降。試験入口との間だけをFILL検査する。
-        rest = data[3:0x80]
-    else:
-        # bank3のREAD/RESTORE/CONT・捕捉本体は0x100以降。
-        rest = data[3:0x100]
-    if any(b != 0x00 for b in rest):
-        print(f"NG: N88_{i}.ROM の埋め草(0x00)以外の余剰バイトがある")
-        ok = False
-if ok:
-    print("OK: N88_0.ROM〜N88_3.ROM は各8192バイト、先頭が試験エントリ、"
-          "機能領域外はFILL(0x00)")
-sys.exit(0 if ok else 1)
+for bank in range(4):
+    path = outdir / f'N88_{bank}.ROM'
+    data = path.read_bytes()
+    ranges = json.loads((outdir / 'ext_bank_layout' / f'{path.name}.json').read_text())
+    covered = {addr for start, end in ranges for addr in range(start, end)}
+    gap = next(addr for addr in range(0x6003, 0x8000) if addr not in covered)
+    for offset in (0, gap - 0x6000):
+        fault = bytearray(data)
+        fault[offset] ^= 0xFF
+        try:
+            check_bank(fault, ranges, bank)
+        except ValueError:
+            continue
+        raise SystemExit(f'NG: bank{bank}の配置陰性対照を検出できない')
+print('OK(検出力): 全バンクで入口破壊・出力範囲外の混入を検出')
 PYEOF
 
 # -----------------------------------------------------------------------
