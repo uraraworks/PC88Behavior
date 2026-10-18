@@ -19,14 +19,17 @@ repo,out,fault=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),sys.argv[3]
 sys.path.insert(0,str(repo/'tools'/'asm'))
 sys.path.insert(0, str(repo / "src"))
 import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK1_MAIN_ADDR_LABELS
 import z80text
-bank=(repo/'src/ext_bank/bank1.asm').read_text(encoding='utf-8')
+bank=compose_bank_text(repo / 'src/ext_bank/bank1.asm',
+    dict.fromkeys(EXT_BANK1_MAIN_ADDR_LABELS, 0x1787)).removeprefix(memmap.asm_prelude())
 # この検査の小型ROMでは、mainの試験関数を窓外に直接置く。
 # 実ビルドでの汎用中継経路はconform_load.shが検査する。
 for name in ('PARSE_LINENUM','PROGRAM_STORE_LINE','SELECT_ERROR_MSG',
              'PRINT_STR','NEWLINE','ERR_BELL'):
     old=f'_b1_call_{name.lower()}:\n    LD IX,BANK1_{name}_ADDR\n    JP BANK1_MAIN_CALL_ADDR'
-    new=f'_b1_call_{name.lower()}:\n    JP {name}'
+    new=f'_b1_call_{name.lower()}:\n    JP TEST_{name}'
     assert bank.count(old)==1
     bank=bank.replace(old,new)
 head,line_part=bank.split('_load_line:\n',1)
@@ -177,7 +180,7 @@ TEST_START:
 HALT_OK:
     JR HALT_OK
 
-PARSE_LINENUM:
+TEST_PARSE_LINENUM:
     LD A,(LOAD_LINE_BUF)
     CP '0'
     JR C,PARSE_FAIL
@@ -190,7 +193,7 @@ PARSE_LINENUM:
 PARSE_FAIL:
     SCF
     RET
-PROGRAM_STORE_LINE:
+TEST_PROGRAM_STORE_LINE:
     LD A,(0E302h)
     OR A
     JR Z,STORE_FIRST
@@ -218,14 +221,14 @@ STORE_COUNT:
     INC A
     LD (0E302h),A
     RET
-SELECT_ERROR_MSG:
+TEST_SELECT_ERROR_MSG:
     LD HL,0
     RET
-PRINT_STR:
+TEST_PRINT_STR:
     RET
-NEWLINE:
+TEST_NEWLINE:
     RET
-ERR_BELL:
+TEST_ERR_BELL:
     RET
 _test_load_dispatch:
     RET
@@ -260,6 +263,10 @@ FAIL:
 HALT_FAIL:
     JR HALT_FAIL
 '''
+sys.path.insert(0, str(repo / 'tools'))
+from l4_bank_dup_equ import strip_dup_equ
+# capacityのRAM別名を使い、ハーネスの同名同値EQUだけを除く。
+harness=strip_dup_equ(bank, harness)
 src=harness+'\n'+gap+'\n'+bank
 asm_path=out/'test.asm';asm_path.write_text(memmap.asm_prelude() + src,encoding='utf-8')
 code=z80text.Assembler().assemble(asm_path)

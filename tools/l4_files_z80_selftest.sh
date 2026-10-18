@@ -27,9 +27,12 @@ fault = sys.argv[3]
 sys.path.insert(0, str(repo / "tools" / "asm"))
 sys.path.insert(0, str(repo / "src"))
 import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK1_MAIN_ADDR_LABELS
 import z80text
 
-bank = (repo / "src" / "ext_bank" / "bank1.asm").read_text(encoding="utf-8")
+bank = compose_bank_text(repo / 'src/ext_bank/bank1.asm',
+    dict.fromkeys(EXT_BANK1_MAIN_ADDR_LABELS, 0x1787)).removeprefix(memmap.asm_prelude())
 if fault == "chain_fault":
     old = "    CP 160\n    JP C,_fb_chain_loop"
     new = "    CP 194\n    JP C,_fb_chain_loop"

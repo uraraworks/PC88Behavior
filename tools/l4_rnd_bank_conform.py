@@ -27,7 +27,8 @@ def check_batch(kind, cases, work):
     single = harness.MBF_SINGLE_ASM.read_text()
     double = harness.MBF_DOUBLE_ASM.read_text()
     resident = single + '\n' + double
-    bank = l4_bank_dup_equ.strip_dup_equ(resident, harness.BANK0_ASM.read_text())
+    bank = l4_bank_dup_equ.strip_dup_equ(resident, harness.compose_bank_text(
+        harness.BANK0_ASM, include_extensions=False).removeprefix(harness.memmap.asm_prelude()))
     if kind == 'mul':
         load = 'LD DE,MBF_OPA\n    LD BC,8\n    LDIR'
         entry = 'MBF_MUL'

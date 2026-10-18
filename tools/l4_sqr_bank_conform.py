@@ -40,6 +40,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
 sys.path.insert(0, str(REPO / "tools"))
 
 import l4_bank_dup_equ as bank_dup_equ  # noqa: E402
@@ -220,7 +221,7 @@ FAULTS = {
 
 
 def load_bank0_src(fault: str | None, mbf_src: str) -> str:
-    text = BANK0_ASM.read_text()
+    text = compose_bank_text(BANK0_ASM, include_extensions=False).removeprefix(memmap.asm_prelude())
     # EQU重複除去はtools/l4_bank_dup_equ.pyへ集約した(2026-09-20、
     # 経緯は同モジュールのdocstring参照。以前は3照合器へ手書きリストを
     # 複製していたのが退行の原因だった)。

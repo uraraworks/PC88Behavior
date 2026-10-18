@@ -23,8 +23,11 @@ repo,out,fault=Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3]
 sys.path.insert(0,str(repo/'tools'/'asm'))
 sys.path.insert(0, str(repo / "src"))
 import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK2_MAIN_ADDR_LABELS
 import z80text
-bank=(repo/'src/ext_bank/bank2.asm').read_text(encoding='utf-8')
+bank=compose_bank_text(repo / 'src/ext_bank/bank2.asm',
+    dict.fromkeys(EXT_BANK2_MAIN_ADDR_LABELS, 0x1787)).removeprefix(memmap.asm_prelude())
 for name in ('read','write','list'):
     prefix='    LD A,(S2_DRIVE)\n' if name=='read' else ''
     old=('s2_write:\n    JP s2_write_stream' if name=='write' else

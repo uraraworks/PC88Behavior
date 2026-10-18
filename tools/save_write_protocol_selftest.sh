@@ -16,11 +16,13 @@ sys.path.insert(0, str(repo / 'tools' / 'asm'))
 import z80text
 import tempfile
 sys.path.insert(0, str(repo / "src"))
-import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK2_MAIN_ADDR_LABELS
 asm = z80text.Assembler()
 with tempfile.TemporaryDirectory() as tmp:
     source = Path(tmp) / 'bank2.asm'
-    source.write_text(memmap.asm_prelude() + (repo / 'src/ext_bank/bank2.asm').read_text())
+    source.write_text(compose_bank_text(repo / 'src/ext_bank/bank2.asm',
+        dict.fromkeys(EXT_BANK2_MAIN_ADDR_LABELS, 0x1787)))
     asm.assemble(source)
 offset = asm.labels['s2_ws_request'] - 0x6000 + 7
 rom = bytearray(path.read_bytes())
@@ -49,11 +51,13 @@ sys.path.insert(0, str(repo / 'tools' / 'asm'))
 import z80text
 import tempfile
 sys.path.insert(0, str(repo / "src"))
-import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK2_MAIN_ADDR_LABELS
 asm = z80text.Assembler()
 with tempfile.TemporaryDirectory() as tmp:
     source = Path(tmp) / 'bank2.asm'
-    source.write_text(memmap.asm_prelude() + (repo / 'src/ext_bank/bank2.asm').read_text())
+    source.write_text(compose_bank_text(repo / 'src/ext_bank/bank2.asm',
+        dict.fromkeys(EXT_BANK2_MAIN_ADDR_LABELS, 0x1787)))
     asm.assemble(source)
 offset = asm.labels['s2_ws_later'] - 0x6000 + 1
 rom = bytearray(path.read_bytes())

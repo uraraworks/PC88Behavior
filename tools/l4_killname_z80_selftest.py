@@ -7,6 +7,8 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import memmap
+from ext_bank.make_ext_rom_banks import compose_bank_text
+from build_main_rom import EXT_BANK2_MAIN_ADDR_LABELS
 sys.path.insert(0, str(ROOT / 'tools/asm'))
 import z80text
 
@@ -81,7 +83,8 @@ def scenario(arm):
 
 def make_rom(out, arm, fault):
     image, expected, command, error, writes, drive, is_name = scenario(arm)
-    bank = (ROOT/'src/ext_bank/bank2.asm').read_text(encoding='utf-8')
+    bank = compose_bank_text(ROOT / 'src/ext_bank/bank2.asm',
+        dict.fromkeys(EXT_BANK2_MAIN_ADDR_LABELS, 0x1787)).removeprefix(memmap.asm_prelude())
     substitutions = {
         's2_read:\n    LD A,(S2_DRIVE)\n    LD IX,BANK2_READ_CHR_ADDR\n    JP BANK2_MAIN_CALL_ADDR': 's2_read:\n    JP T_READ',
         's2_write:\n    JP s2_write_stream': 's2_write:\n    JP T_WRITE',
@@ -97,9 +100,10 @@ def make_rom(out, arm, fault):
     if fault == 'release':
         substitutions['    CALL s2_release_chain\n    ; ERR53/61'] = '    NOP\n    ; ERR53/61'
     if fault == 'tail':
-        substitutions['k2_write_old:\n'] = 'k2_write_old:\n    LD A,0\n    LD (S2_BUF+11),A\n'
+        # 固定ORG間の容量を変えず、窓外の故障処理へ迂回する。
+        substitutions['k2_write_old:\n    LD HL,S2_BUF'] = 'k2_write_old:\n    CALL T_TAIL_FAULT'
     if fault == 'protect':
-        substitutions['k2_name:\n'] = 'k2_name:\n    JP s2_protected\n'
+        substitutions['k2_name:\n    CALL s2_filename'] = 'k2_name:\n    JP s2_protected'
     for old, new in substitutions.items():
         if bank.count(old) != 1:
             raise ValueError('置換点不一致')
@@ -282,6 +286,8 @@ T_BEFORE:
         direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
     harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_BAD4\n    LD A,1\n    LD (T_PASS),A')
     harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU MM_S2_DONE\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
+    harness=harness.replace('    ORG 01800h',
+        'T_TAIL_FAULT:\n    XOR A\n    LD (S2_BUF+11),A\n    LD HL,S2_BUF\n    RET\n    ORG 01800h')
     source = harness + data(image) + '    ORG 04000h\nT_EXPECTED:\n' + data(expected) + bank
     out.mkdir()
     asm = out/'killname_test.asm'

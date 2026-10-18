@@ -96,8 +96,8 @@ def _generic_addr_subs(text: str, addr_overrides: dict) -> str:
     return text
 
 
-# bank3.asm の後ろへこの順に連結する。器具（tools/l4_s5j_measure.py の故障注入）も
-# この並びでバンク3を組み立て直すので、足すときはここだけを直す。
+# bank3.asm の後ろへこの順に連結する。ビルド・器具とも compose_bank_text()
+# を使い、差し込み・capacity断片を含むソース合成を一元化する。
 BANK3_EXTRA_SOURCES = (
     "src/l4_basic/listnum.asm",
     "src/l4_basic/input.asm",
@@ -139,54 +139,68 @@ def insert_capacity_sources(text: str, bank_name: str, addr_overrides: dict) -> 
 CAPACITY_RAM_ALIASES = {0: {'CUR_DATA': 'MM_CUR_DATA', 'RUN_ARG1': 'MM_RUN_ARG1', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_STR_ARG1_BUF': 'MM_RUN_STR_ARG1_BUF', 'CUR_TYPE': 'MM_CUR_TYPE', 'RUN_STR_ARG1_LEN': 'MM_RUN_STR_ARG1_LEN', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'RUN_TMP16': 'MM_RUN_TMP16'}, 1: {'PROG_REND_PTR': 'MM_PROG_REND_PTR', 'ERROR_KIND': 'MM_ERROR_KIND', 'RUN_DATA_MAIN_SAVE_END': 'MM_RUN_DATA_MAIN_SAVE_END', 'PROG_REND_PREV': 'MM_PROG_REND_PREV', 'RUN_DATA_STATE': 'MM_RUN_DATA_STATE', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'PROGRAM_AREA': 'MM_PROGRAM_AREA', 'PROG_REND_LEN': 'MM_PROG_REND_LEN', 'PROG_REND_MODE': 'MM_PROG_REND_MODE', 'RUN_DATA_WANT_KIND': 'MM_RUN_DATA_WANT_KIND', 'RUN_DATA_END': 'MM_RUN_DATA_END', 'RUN_DATA_MAIN_SAVE_PTR': 'MM_RUN_DATA_MAIN_SAVE_PTR', 'CUR_PTR': 'MM_CUR_PTR', 'PROG_REND_INNAME': 'MM_PROG_REND_INNAME', 'RUN_DATA_REC': 'MM_RUN_DATA_REC', 'RUN_DATA_PTR': 'MM_RUN_DATA_PTR', 'LINE_END': 'MM_LINE_END'}, 2: {'FOUT_SIGN': 'MM_FOUT_SIGN', 'CUR_TYPE': 'MM_CUR_TYPE', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'PUD_DIGIT': 'MM_PUD_DIGIT', 'CUR_DATA': 'MM_CUR_DATA', 'UA_EXP': 'MM_UA_EXP', 'PUD_VALUE': 'MM_PUD_VALUE', 'PUD_PLACE': 'MM_PUD_PLACE', 'FOUT_LEN': 'MM_FOUT_LEN', 'PUD_STARTED': 'MM_PUD_STARTED', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_ARRAY_ASSIGN_ADDR': 'MM_RUN_ARRAY_ASSIGN_ADDR', 'FOUT_BUF': 'MM_FOUT_BUF', 'RUN_ASSIGN_KIND': 'MM_RUN_ASSIGN_KIND'}, 3: {'IDENT_BUF': 'MM_IDENT_BUF', 'ERROR_KIND': 'MM_ERROR_KIND', 'RUN_STR_TMP_BUF': 'MM_RUN_STR_TMP_BUF', 'RUN_ARG1': 'MM_RUN_ARG1', 'RUN_STR_ARG1_LEN': 'MM_RUN_STR_ARG1_LEN', 'ERROR_FLAG': 'MM_ERROR_FLAG', 'MBF_STATUS': 'MM_MBF_STATUS', 'RUN_ASSIGN_NAME': 'MM_RUN_ASSIGN_NAME', 'LIT_HASSUFFIX': 'MM_LIT_HASSUFFIX', 'LIT_HASDOT': 'MM_LIT_HASDOT', 'LIT_HASEXP': 'MM_LIT_HASEXP', 'RUN_STR_TMP_LEN': 'MM_RUN_STR_TMP_LEN', 'RUN_STR_ARG1_BUF': 'MM_RUN_STR_ARG1_BUF', 'RUN_DATA_NEG': 'MM_RUN_DATA_NEG', 'RUN_ASSIGN_KIND': 'MM_RUN_ASSIGN_KIND'}}
 
 
-def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
-                   inject_no_org_fault: bool = False,
-                   mbf_add_addr: int = None,
-                   addr_overrides: dict = None) -> bytes:
+def compose_bank_text(asm_path: pathlib.Path, addr_overrides: dict = None,
+                      mbf_add_addr: int = None, *,
+                      include_extensions: bool = True) -> str:
+    """RAM宣言と呼出先置換済みのソースをビルド・器具で共有する。
+
+    通常は差し込み・追加ソース・capacity断片をすべて含める。
+    演算単体の照合器は、追加領域を試験ベクトル表に使うため
+    include_extensions=Falseで本体だけをハーネスに連結する。
+    """
     text = asm_path.read_text(encoding="utf-8")
-    if asm_path.name == "bank0.asm":
-        # gfxhook.asm は 0x6A34（bank0.asm の末尾 0x6A33 と deffn.asm の先頭 0x6B00 の間の空き）。ORGは前へ戻せないのでこの順。
-        text += "\n" + (REPO / "src/l4_basic/gfxhook.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/deffn.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/tabspc.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/deftype.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/widthbeep.asm").read_text(encoding="utf-8")
-    if asm_path.name == "bank2.asm":
-        text = text.replace("    ORG 0x7000", (REPO / "src/ext_bank/array.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/ext_bank/getput.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/ext_bank/linefast.asm").read_text(encoding="utf-8") + "\n    ORG 0x7000", 1)
-        text += "\n" + (REPO / "src/ext_bank/gfx.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/line.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/paintp.asm").read_text(encoding="utf-8")
-    if asm_path.name == "bank3.asm":
-        text = text.replace("    ORG 0x6100", (REPO / "src/l4_basic/portio_reserved.asm").read_text(encoding="utf-8") + "\n    ORG 0x6100", 1)
-        text = text.replace("    ORG 0x6180", (REPO / "src/l4_basic/portio_lhs.asm").read_text(encoding="utf-8") + "\n    ORG 0x6180", 1)
-        for rel in BANK3_EXTRA_SOURCES:
-            extra = (REPO / rel).read_text(encoding="utf-8")
-            if rel.endswith("inkey.asm"):
-                extra = (REPO / "src/l4_basic/portio_words.asm").read_text(encoding="utf-8") + "\n" + extra
-            if rel.endswith("peekpoke.asm"):
-                extra = (REPO / "src/l4_basic/portio.asm").read_text(encoding="utf-8") + "\n" + extra
-            text += "\n" + extra
-    if asm_path.name == "bank1.asm":
-        text = text.replace("    ORG 0x6400", (REPO / "src/l4_basic/keyrow.asm").read_text(encoding="utf-8") + "\n    ORG 0x6400", 1)
-        text = text.replace("    ORG 0x6C00", (REPO / "src/l4_basic/input_token.asm").read_text(encoding="utf-8") + "\n    ORG 0x6C00", 1)
-        text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/array_parse.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/circle.asm").read_text(encoding="utf-8")
-        text += "\n" + (REPO / "src/ext_bank/paint.asm").read_text(encoding="utf-8")
-    # c1: 既存の固定入口の間へ低頻度処理を置く。ORGは必ず昇順。
-    text = insert_capacity_sources(text, asm_path.name, addr_overrides)
-    # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
-    # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
-    has_org = "    ORG 0x6000\n" in text
-    base = BANK_ORG if has_org else 0
+    if include_extensions:
+        if asm_path.name == "bank0.asm":
+            # gfxhook.asm は 0x6A34（bank0.asm の末尾 0x6A33 と deffn.asm の先頭 0x6B00 の間の空き）。ORGは前へ戻せないのでこの順。
+            text += "\n" + (REPO / "src/l4_basic/gfxhook.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/l4_basic/deffn.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/l4_basic/tabspc.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/l4_basic/deftype.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/l4_basic/widthbeep.asm").read_text(encoding="utf-8")
+        if asm_path.name == "bank2.asm":
+            text = text.replace("    ORG 0x7000", (REPO / "src/ext_bank/array.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/ext_bank/getput.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/ext_bank/linefast.asm").read_text(encoding="utf-8") + "\n    ORG 0x7000", 1)
+            text += "\n" + (REPO / "src/ext_bank/gfx.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/line.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/paintp.asm").read_text(encoding="utf-8")
+        if asm_path.name == "bank3.asm":
+            text = text.replace("    ORG 0x6100", (REPO / "src/l4_basic/portio_reserved.asm").read_text(encoding="utf-8") + "\n    ORG 0x6100", 1)
+            text = text.replace("    ORG 0x6180", (REPO / "src/l4_basic/portio_lhs.asm").read_text(encoding="utf-8") + "\n    ORG 0x6180", 1)
+            for rel in BANK3_EXTRA_SOURCES:
+                extra = (REPO / rel).read_text(encoding="utf-8")
+                if rel.endswith("inkey.asm"):
+                    extra = (REPO / "src/l4_basic/portio_words.asm").read_text(encoding="utf-8") + "\n" + extra
+                if rel.endswith("peekpoke.asm"):
+                    extra = (REPO / "src/l4_basic/portio.asm").read_text(encoding="utf-8") + "\n" + extra
+                text += "\n" + extra
+        if asm_path.name == "bank1.asm":
+            text = text.replace("    ORG 0x6400", (REPO / "src/l4_basic/keyrow.asm").read_text(encoding="utf-8") + "\n    ORG 0x6400", 1)
+            text = text.replace("    ORG 0x6C00", (REPO / "src/l4_basic/input_token.asm").read_text(encoding="utf-8") + "\n    ORG 0x6C00", 1)
+            text += "\n" + (REPO / "src/l4_basic/pusing.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/l4_basic/onwhile.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/dim.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/array_parse.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/circle.asm").read_text(encoding="utf-8")
+            text += "\n" + (REPO / "src/ext_bank/paint.asm").read_text(encoding="utf-8")
+        # c1: 既存の固定入口の間へ低頻度処理を置く。ORGは必ず昇順。
+        text = insert_capacity_sources(text, asm_path.name, addr_overrides)
     if mbf_add_addr is not None and MBF_ADD_ADDR_OLD in text:
         if text.count(MBF_ADD_ADDR_OLD) != 1:
             raise SystemExit(f"{asm_path.name}: MBF_ADD_ADDRの置換対象が一意でない")
         text = text.replace(MBF_ADD_ADDR_OLD, f"MBF_ADD_ADDR EQU 0x{mbf_add_addr:04X}")
     # RAMの正典はROM呼び先の実測置換と独立。アセンブル単位ごとに一度配る。
     text = memmap.asm_prelude() + _generic_addr_subs(text, addr_overrides)
+    return text
+
+
+def assemble_bank(rom_name: str, asm_path: pathlib.Path, work: pathlib.Path,
+                   inject_no_org_fault: bool = False,
+                   mbf_add_addr: int = None,
+                   addr_overrides: dict = None) -> bytes:
+    text = compose_bank_text(asm_path, addr_overrides, mbf_add_addr)
+    # 明示的に「ORG 0x6000」で始まるファイルは、先頭の詰め物を切り落とす。
+    # ORGを使わない構成ならPC 0始まりなのでbase=0でよい。
+    has_org = "    ORG 0x6000\n" in text
+    base = BANK_ORG if has_org else 0
     src_path = work / f"{asm_path.stem}_gen.asm"
     src_path.write_text(text, encoding="utf-8")
 
