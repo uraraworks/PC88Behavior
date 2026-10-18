@@ -147,6 +147,28 @@ BSAVEは名前・種別0x01が一致。通常64B保存と実行用6B保存の媒
 
 これは誤り番号や機能差を既知差として免除する処理ではない。KNOWN_DIFFERENCESは空のまま。bsave自作専用の既存関門免除（ディスク較正と一様ERR2）も機能一致には数えない。関門落ち・本文キー・予定改変などは除外の対象外である。追加の合成自己検査で、理由改変拒否、入力順序不変、生番地だけの差の許容、実行印の差と非除外腕の関門失敗の検出を確認する。
 
+### 追記（2026-10-18、変数領域の配置差を要求から除外）
+
+上記は当初の記録として残す。今回、変数領域の配置に依存する次の欄だけを追加除外した。要求は指す先の形式と、HLが第1引数・DEが第2引数を指す関係であり、公式の変数の並び方ではない。
+
+- 第1回 `varptr-difference` は差6のp74/75だけを除外する。同腕の誤り番号・符号p66・上位範囲p67・形式一致p68等は引き続き比較する。
+- 追補1 `a1-call-args-mixed` は隣接配置に由来するHL+6の記述子p37・DE−6の整数p38だけを除外する。HL+0の第1引数p32・DE+0の第2引数p43、A・実行/復帰印・誤り番号は比較する。第1回 `call-args-mixed` は対象外。
+- 追補2の変数経由USRの最初候補差も配置依存として除外する。詳細・追補用期待値は[追補2・3結果の追記](l4-t4-addendum2-3-results.md)に記す。
+
+再現手順の `expected --results` で記録済み公式TSVから作り直し、作業域の生成物を `tests/conformance/expected_l4_mlcall.tsv` にコピーした。SHA-256は `12b060723f840c05cc05e440cce928412b44146180782ac8c00963ac11bb8564`。公式ROMは起動していない。
+
+今回のcheckは公式自身が一致61腕、不一致0腕（終了0）、現行HEAD `921f476` から独立ビルドした自作が一致19腕、不一致42腕（終了1）。一腕の非除外欄すべてによる照合であり、機能差の免除はない。各ラウンドの `tools/l4_mlcall_selftest.sh` は終了0、全腕が2独立走で関門通過し、通常モードの全欄自己照合も全一致した。追加の合成検査は配置差のみの許容と、非除外の形式・引数参照関係・件数真偽・A・印・誤りの差の検出を確認した。
+
+今回の自作再現コマンド（上記の期待値生成・公式checkの後）：
+
+```sh
+bash tools/l4_mlcall_selftest.sh --round first --work-dir "$PWD/tmp/t4-work/layout-first"
+bash tools/l4_mlcall_selftest.sh --round addendum1 --work-dir "$PWD/tmp/t4-work/layout-addendum1"
+python3 tools/l4_mlcall_measure.py check --results --expected "$PWD/tmp/t4-work/expected_l4_mlcall.tsv" --measured "$PWD/tmp/t4-work/layout-first/selfrun.tsv" "$PWD/tmp/t4-work/layout-addendum1/selfrun.tsv"
+```
+
+今回のログは `tmp/t4-work/layout-{first,addendum1}-selftest.log` と `layout-legacy-{official,self}-check.log`。期待値の変更は指定した差欄の除外だけで、他の比較値と既存理由は同一である。src/の閲覧・変更、資料参照、公式ROM実行、run_all、git commitは行っていない。
+
 ## 再現手順と証拠
 
 作業先制約のためexpectedはtmp/t4-work内へ生成し、同一内容をtests/conformanceへコピーする。以下の公式自身のcheckは記録済みTSVを読むだけで、公式ROMを実行しない。

@@ -73,6 +73,26 @@
 
 変数腕の「最初」のHL差は親の比較方針に従い残すため、変数領域の配置による差は不一致として検出する。整数12345系を除く介入印・値真偽・返却型の差、機能の未実装や誤り番号を既知差として免除しない。KNOWN_DIFFERENCESは空のまま。
 
+### 追記（2026-10-18、変数領域の配置差を要求から除外）
+
+上記の「変数腕の最初のHL差は残す」という当初の方針を今回変更した。変数領域の配置に依存するため、`a2-single-variable`・`a2-double-variable` の最初候補とHLの差p52/53だけを追加除外する。差−25877は観測として残し、要求にしない。要求は指す先の形式と引数を指す関係であり、変数領域と作業域の距離ではない。件数の真偽p32/41・入口A・誤り番号・実行/完了/復帰印・介入/値/返却型の欄は従来どおり比較する。`a2-int-variable` の同じ差欄は既存の整数12345偶然一致規則で除外済みであり、既存理由と範囲を維持する。他の式腕・介入腕の主候補差は追加除外しない。
+
+第1回のVARPTR差p74/75と追補1混合CALLの隣接位置p37/38も同じ理由で限定除外した。詳細・従来用期待値は[第1回・追補1結果の追記](l4-t4-results.md)に記す。
+
+再現手順の `expected --results` で記録済み公式TSVから作り直し、作業域の生成物を `tests/conformance/expected_l4_mlcall_usrarg.tsv` にコピーした。SHA-256は `83294164b2eff49a02f421229e545f52d4ba3525b18daa86fa456a154069aa01`。当初の「既存期待値は無変更」は当時の記録として残し、今回の従来用期待値の変更は前記追記を参照する。公式ROMは起動していない。
+
+今回のcheckは公式自身が一致18腕、不一致0腕（終了0）、現行HEAD `921f476` から独立ビルドした自作が一致2腕、不一致16腕（終了1）。一腕の非除外欄すべてによる照合であり、機能差の免除はない。各ラウンドの `tools/l4_mlcall_selftest.sh` は終了0、全腕が2独立走で関門通過し、通常モードの全欄自己照合も全一致した。追加の合成検査は配置差のみの許容と、非除外の形式・引数参照関係・件数真偽・A・印・誤りの差の検出を確認した。
+
+今回の自作再現コマンド（上記の期待値生成・公式checkの後）：
+
+```sh
+bash tools/l4_mlcall_selftest.sh --round addendum2 --work-dir "$PWD/tmp/t4-work/layout-addendum2"
+bash tools/l4_mlcall_selftest.sh --round addendum3 --work-dir "$PWD/tmp/t4-work/layout-addendum3"
+python3 tools/l4_mlcall_measure.py check --results --expected "$PWD/tmp/t4-work/expected_l4_mlcall_usrarg.tsv" --measured "$PWD/tmp/t4-work/layout-addendum2/selfrun.tsv" "$PWD/tmp/t4-work/layout-addendum3/selfrun.tsv"
+```
+
+今回のログは `tmp/t4-work/layout-{addendum2,addendum3}-selftest.log` と `layout-usrarg-{official,self}-check.log`。期待値の変更は指定した差欄の除外だけで、他の比較値と既存理由は同一である。src/の閲覧・変更、資料参照、公式ROM実行、run_all、git commitは行っていない。
+
 ## 未解決
 
 - 整数12345そのものは多重一致のため、単一候補への介入を未実施。追補3で整数型の書換は解決したが、12345腕を遡って成功扱いにはしない。

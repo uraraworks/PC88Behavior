@@ -747,6 +747,15 @@ def result_exclusions(round_name,aid):
         rules.update({'values.p'+str(i):'異値候補は0件か否かのみ比較。初期番地由来の差や偶然一致位置は比較しない' for i in (54,55)})
         if aid in ('a2-int-expr12345','a2-int-variable','a2-int-mutate'):
             rules.update({'values.p'+str(i):'整数12345はASCIIとの偶然一致により場所・件数・介入有無・値判定が不定。型・誤り・完了印・戻り型のみ採る' for i in (32,41,52,53,65,66,68)})
+    if MEASURE_NAME=='mlcall':
+        if round_name=='first' and aid=='varptr-difference':
+            rules.update({'values.p'+str(i):'変数領域の配置に依存する番地差。要求はVARPTRの指す先の形式であり変数間隔ではない' for i in (74,75)})
+        if round_name=='addendum1' and aid=='a1-call-args-mixed':
+            rules.update({'values.p'+str(i):'変数領域の配置に依存する隣接変数の候補位置。要求はHL+0が第1引数・DE+0が第2引数を指す関係' for i in (37,38)})
+        if round_name=='addendum2' and aid in ('a2-int-variable','a2-single-variable','a2-double-variable'):
+            # 整数12345の既存の偶然一致除外は保持し、未除外の差欄だけ追加する。
+            for i in (52,53):
+                rules.setdefault('values.p'+str(i),'変数領域の配置に依存する最初候補とHLの差。要求は引数を指す関係と指す先の形式であり変数領域と作業域の距離ではない')
     if MEASURE_NAME=='bsave':
         rules.update({f'media.{part}.sha256':'末尾以後のバッファ由来バイトを再現対象にしない' for part in ('header','payload')})
         if aid=='a1-cal-disk': rules['media.payload.matches']='0x00候補は空き領域にも一致する弱いパターン'
@@ -927,6 +936,26 @@ def results_safety_selftest(work,rounds=None):
     print('OK 結果除外: 理由固定・番地のみ許容・実行印差/関門失敗を拒否',flush=True)
 
     if MEASURE_NAME=='mlcall' and rounds is None:
+        # 配置差だけを許し、各腕の形式・参照関係・印の差は検出する。
+        cases=[('first','varptr-difference',(74,75),(21,30,66,67,68)),
+               ('addendum1','a1-call-args-mixed',(37,38),(21,30,32,43)),
+               ('addendum2','a2-single-variable',(52,53),(21,30,31,32,41,65,66,68,70)),
+               ('addendum2','a2-double-variable',(52,53),(21,30,31,32,41,65,66,68,70)),
+               ('addendum2','a2-int-variable',(52,53),(21,30,31,70))]
+        definitions=result_definitions()
+        for rnd,aid,excluded,retained in cases:
+            rules=result_exclusions(rnd,aid)
+            value=dict(values=synth(definitions[rnd][aid])['values'],media=None)
+            base=result_project(result_normalize(value,rnd,aid),rules)
+            for slot in (*excluded,*retained):
+                changed=copy.deepcopy(value)
+                changed['values']['p'+str(slot)]^=1
+                projected=result_project(result_normalize(changed,rnd,aid),rules)
+                assert (projected==base)==(slot in excluded),(aid,slot)
+            changed=copy.deepcopy(value)
+            changed['values']['first_err']^=1
+            assert result_project(result_normalize(changed,rnd,aid),rules)!=base
+        print('OK 配置除外: 差欄のみ許容・形式/引数参照/件数真偽/A/印/誤りの差を検出',flush=True)
         results_safety_selftest(work,('addendum2','addendum3'))
         def projected(aid,count,cross=0,**changes):
             value=dict(values=dict(synth(addendum2_arms()[2])['values'],p32=count,p41=cross,**changes),media=None)
@@ -936,9 +965,9 @@ def results_safety_selftest(work,rounds=None):
         assert projected(aid,1)!=projected(aid,2)
         assert projected(aid,2,1)==projected(aid,2,18)
         assert projected(aid,2,0)!=projected(aid,2,1)
-        for slot in ('p33','p42','p54'):
+        for slot in ('p33','p42','p54','p52','p53'):
             assert projected(aid,2)==projected(aid,2,**{slot:123})
-        for slot in ('p21','p30','p31','p52','p65','p66','p68','p70'):
+        for slot in ('p21','p30','p31','p65','p66','p68','p70'):
             assert projected(aid,2)!=projected(aid,2,**{slot:1})
         aid='a2-int-mutate'
         assert projected(aid,19)==projected(aid,1,18,p52=123,p65=1,p66=1,p68=1)
