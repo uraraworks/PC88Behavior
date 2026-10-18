@@ -131,7 +131,7 @@ BSAVEは名前・種別0x01が一致。通常64B保存と実行用6B保存の媒
 
 - 数値USR引数12345の置き場は上記窓内に見つからない。追補2で測る。usr-mutate-*の戻り値一致は0で、候補不一致のため介入なし。引数書換の効否を断定せず、全4腕を期待値から除いて追補2で測り直す。
   解決先：[追補2・3結果](l4-t4-addendum2-3-results.md)（入口での数値引数位置、3型の書換・返却型を確認。文字列書換等は未解決）。
-- VARPTR配列a(3)は負の番地を返すが単1の既知符号化に不一致。setupにDIMとa(3)=1はある。代入漏れと決めつけず、理由未確定として残す。
+- VARPTR配列a(3)は負の番地を返すが単1の既知符号化に不一致。setupにDIMとa(3)=1はある。代入漏れと決めつけず、理由未確定として残す。期待値から外した。原因は追補で測る。
 - BSAVE 65530番地・長さ10は受理され、ファイルと種別は一致するが登録したヘッダ候補は不一致。器具のヘッダ候補は通常DATAとpattern長に固定されており、この腕の実開始/実終端を直接分類していない。折り返し・実際の保存番地・長さの規則は未確定。受理の観測を、予測したヘッダや単純な16bit折り返しの成立へ読み替えない。
 - CALLの不明3腕は上記の扱いを維持。一般のUSR戻り値規則、他の引数個数・型、BSAVEの広い境界は未測定。
 
@@ -146,6 +146,20 @@ BSAVEは名前・種別0x01が一致。通常64B保存と実行用6B保存の媒
 - 媒体のheader/payloadのsha256は除外。header先頭16Bにも本体や末尾由来部分が含まれ、ハッシュを残すと同じ問題を再導入するため両方を除く。種別、ヘッダ一致位置、本体自作パターン一致位置、長さ等は比較する。ただしa1-cal-diskのpayload.matchesだけは0x00の弱さを理由に除外する。
 
 これは誤り番号や機能差を既知差として免除する処理ではない。KNOWN_DIFFERENCESは空のまま。bsave自作専用の既存関門免除（ディスク較正と一様ERR2）も機能一致には数えない。関門落ち・本文キー・予定改変などは除外の対象外である。追加の合成自己検査で、理由改変拒否、入力順序不変、生番地だけの差の許容、実行印の差と非除外腕の関門失敗の検出を確認する。
+
+### 追記（2026-10-18、BC照合・文字列件数・配列形式の限定除外）
+
+親の判断により、次の観測を要求から外した。以前の記述とSHA-256は当時の記録として残す。
+
+- `a1-usr-string` のBCからの候補照合p44〜p49だけを除外する。公式のBC+30での記述子一致はBCの指す作業域の並びに依存し、仕様はBCの関係を要求していない。DE+0の記述子p43・A・誤り番号・実行/復帰印は比較する。
+- `a2-string-expr` の件数真偽p32・文字列のp41だけを除外する。公式の記述子の写し2つ（ead0・eaee）は文字列一時領域の作り方に依存する。最初一致とDEの差p52/53・A・印・誤り番号は比較する。詳細は[追補2・3結果](l4-t4-addendum2-3-results.md)に追記した。
+- `varptr-array` の格納形式一致p68だけを除外する。a(3)=1に対する単精度1符号化の不一致は原因未解決であり、公式の不一致を要求にしない。符号p66・範囲p67・誤り番号は比較する。
+
+記録済みの第1回・追補1公式TSVから `expected --results` で再生成した `tests/conformance/expected_l4_mlcall.tsv` のSHA-256は `2d10798176c9821e30e7937e83af94d72247191487529b7b6cedb3f0b112615c`。公式自身の `check --results` は61腕一致・0腕不一致（終了0）。作業生成物は `tmp/t4-work/expectation-exclusions/`。公式ROMは起動していない。
+
+追加除外の合成検査は通過し、指定欄だけの差を許容する一方、DE+0記述子・配列の符号/範囲・A・印・誤りの差は検出した。既定対象の追補2と追補3のselftestは終了0（[追補結果の検証記録](l4-t4-addendum2-3-results.md)）。追加で `nice -n 10 bash tools/l4_mlcall_selftest.sh --round addendum1 --work-dir "$PWD/tmp/t4-work/expectation-exclusions/selftest-addendum1"` を実行したところ、現在の作業ツリーでは7/17腕通過、10腕が捕捉関門失敗で終了1。失敗腕はa1-call-variable・clobber・args-one・args-mixed・fractionとa1-usr-int・single・double・string・cross23456。この関門失敗は除外で免除しない。原因の断定やsrc/の閲覧・修正は行わず、本文を出さないログ `tmp/t4-work/expectation-exclusions/selftest-addendum1.log` に記録した。器具は `nice -n 10` 付きで起動したが、環境側が優先度変更を拒否する警告を出した。
+
+同じ形で `--round first --work-dir "$PWD/tmp/t4-work/expectation-exclusions/selftest-first"` を指定した第1回selftestは終了0、53腕すべてが各2走で関門通過し、通常の自己照合も全一致した。ログは同作業域の `selftest-first.log`。期待値の差分は指定欄の削除と理由追加だけで、既存の比較値・除外理由は同一。変更した6ファイルへの `git diff --check` も通過した。公式ROM実行・画面本文出力・src/の閲覧/変更・資料参照・run_all・git commitは行っていない。
 
 ### 追記（2026-10-18、変数領域の配置差を要求から除外）
 
@@ -168,6 +182,10 @@ python3 tools/l4_mlcall_measure.py check --results --expected "$PWD/tmp/t4-work/
 ```
 
 今回のログは `tmp/t4-work/layout-{first,addendum1}-selftest.log` と `layout-legacy-{official,self}-check.log`。期待値の変更は指定した差欄の除外だけで、他の比較値と既存理由は同一である。src/の閲覧・変更、資料参照、公式ROM実行、run_all、git commitは行っていない。
+
+自作は公式より遅いので、自作の追補1（a1-*）の走だけ終了待ちを12000フレーム延ばす（3600から15600フレーム、較正2腕は従来どおり）。BASICでの±32×3レジスタ×6候補の照合を完了させるためであり、経過時間は要求ではない。q88measure 1回の実時間timeoutも60fpsでの追加分200秒を加え、180秒から380秒に延ばす。公式の待ち・凍結済み記録・期待値・関門の式は変更しない。合成自己検査は全ラウンドの打鍵と従来待ちを照合し、自作追補1だけフレーム数と実際の起動引数のtimeoutが延長されることを確認する。
+
+待ち延長後の確認（2026-10-18）：`nice -n 10 bash tools/l4_mlcall_selftest.sh --round addendum1 --work-dir "$PWD/tmp/t4-work/wait-a1"`、続いて同じコマンドの `--round first --work-dir "$PWD/tmp/t4-work/wait-first"` を実行し、いずれも終了0、17/17腕・53/53腕が各2走で関門通過した。合成のみの自己検査も終了0。`tests/conformance/expected_l4_mlcall.tsv` を内容変更せず `tmp/t4-work/wait-review/expected_l4_mlcall.tsv` にコピーし、`nice -n 10 python3 tools/l4_mlcall_measure.py check --results --expected "$PWD/tmp/t4-work/wait-review/expected_l4_mlcall.tsv" --measured "$PWD/tmp/t4-work/wait-first/selfrun.tsv" "$PWD/tmp/t4-work/wait-a1/selfrun.tsv"` は一致61腕・不一致0腕（終了0）。`DIFF varptr-undefined` を含むDIFF行は出なかった。結果射影後の期待値集合と測定集合はいずれも61腕で、片側だけの腕も比較欄の差もない。既存の除外7腕と両回の較正一本化は従来どおりで、全70腕の関門通過と61腕の機能照合は別の集計である。本文を含まないログは `tmp/t4-work/wait-review/{synthetic,addendum1,first,check}.log`、欄単位診断は同域の `field-differences.json`。終了後も期待値コピーと元ファイルの同一性、変更2ファイルの `git diff --check` を確認した。すべての器具起動に `nice -n 10` を付けたが、環境側は優先度変更を拒否する警告を出した。公式ROM実行、src/の閲覧・変更、資料参照、run_all、git commitは行っていない。
 
 ## 再現手順と証拠
 

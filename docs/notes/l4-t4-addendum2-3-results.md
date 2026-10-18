@@ -73,6 +73,16 @@
 
 変数腕の「最初」のHL差は親の比較方針に従い残すため、変数領域の配置による差は不一致として検出する。整数12345系を除く介入印・値真偽・返却型の差、機能の未実装や誤り番号を既知差として免除しない。KNOWN_DIFFERENCESは空のまま。
 
+### 追記（2026-10-18、文字列記述子の件数を要求から除外）
+
+親の判断により `a2-string-expr` の主候補が単一かの真偽p32と、文字列のp41だけを追加除外した。公式の記述子の写し2つ（ead0・eaee）は文字列一時領域の作り方に依存し、写しの数は要求ではない。p41は未走査であり、その固定真偽も要求しない。最初の一致とDEの差p52/53・入口A・誤り番号・実行/走査完了/復帰印は比較する。他の腕の件数真偽の規則は変えない。以前の比較方針とSHA-256は当時の記録として残す。
+
+追補1 `a1-usr-string` のBC照合p44〜p49（作業域の並びに依存）と、第1回 `varptr-array` の形式一致p68（不一致の原因未解決）も限定除外した。DE+0の記述子、配列の符号・範囲、各腕のA・誤り番号・印は比較する。詳細は[第1回・追補1結果の追記](l4-t4-results.md)を参照。
+
+記録済みの追補2・3公式TSVから `expected --results` で再生成した `tests/conformance/expected_l4_mlcall_usrarg.tsv` のSHA-256は `ef2f32b887386479a7a7b270e7f54e4f4dc4562f055d03d26865e2c6a3bd6282`。公式自身の `check --results` は18腕一致・0腕不一致（終了0）。従来用期待値も再生成し61腕一致・0腕不一致。作業生成物は `tmp/t4-work/expectation-exclusions/`。公式ROMは起動していない。
+
+`nice -n 10 bash tools/l4_mlcall_selftest.sh --round addendum2 --work-dir "$PWD/tmp/t4-work/expectation-exclusions/selftest-addendum2"` と、同じ形のaddendum3はともに終了0。追補2は15腕、追補3は5腕が各2走で関門通過し、通常の自己照合も全一致した。追加した合成検査で、今回の指定欄だけの差を許容し、DE関係・A・印・誤り等の非除外欄の差を検出した。ログは同作業域の `selftest-addendum{2,3}.log`。器具起動はすべて `nice -n 10` 付きだが、環境側が優先度変更を拒否する警告を出した。期待値は指定欄の削除と理由追加だけで、既存の比較値・除外理由は同一と確認した。
+
 ### 追記（2026-10-18、変数領域の配置差を要求から除外）
 
 上記の「変数腕の最初のHL差は残す」という当初の方針を今回変更した。変数領域の配置に依存するため、`a2-single-variable`・`a2-double-variable` の最初候補とHLの差p52/53だけを追加除外する。差−25877は観測として残し、要求にしない。要求は指す先の形式と引数を指す関係であり、変数領域と作業域の距離ではない。件数の真偽p32/41・入口A・誤り番号・実行/完了/復帰印・介入/値/返却型の欄は従来どおり比較する。`a2-int-variable` の同じ差欄は既存の整数12345偶然一致規則で除外済みであり、既存理由と範囲を維持する。他の式腕・介入腕の主候補差は追加除外しない。
@@ -137,3 +147,5 @@ python3 tools/l4_mlcall_measure.py check --results --expected "$PWD/tmp/t4-work/
 - `tmp/t4-work/results-usrarg-a2/selfrun.tsv`: `078a61e080dee03b76221abe3626e5c6ebd1402b6193100e4f4f920dd7e401d7`
 
 - `tmp/t4-work/results-usrarg-a3/selfrun.tsv`: `5da1c9e5c53aebbde9a6c2385821e49c78b86a8f9394cc7adcd1cb279fb595ec`
+
+2026-10-18（l4-t4、BSAVE自己検査修正）: 原因は、BSAVE器具が差し替えた synth() が非較正腕に media 欄を加える一方、追補2の合成検査がその観測をメモリ専用の memory_valid() に直接渡し、陽性対照まで拒否されたこと。ROUND の全4値と OFFICIAL の真偽では変わらず、media 欄を除けば通るため、これらや較正・要約の差し替えは直接原因ではない。git show で取り出した過去版の BSAVE 合成安全検査は 2a84b81・7387dcd で成功、追補2追加の 2c30907 で同じ完了印判定（当時行440）から失敗し、d10543f でも行466で再現した。追補2・3の合成検査を、差し替え前のメモリ生成器とメモリ判定に固定し、各 ROUND と OFFICIAL=False を patch で局所設定・終了時復元するよう修正。BSAVEの測定・関門・期待値、およびMLCALLの測定・結果処理は変更していない。BSAVE差し替え下の ROUND=first・OFFICIAL=True から両検査が成功し、呼出元の状態・差し替えが復元されることも確認した。nice -n 10 bash tools/l4_bsave_selftest.sh と nice -n 10 bash tools/l4_mlcall_selftest.sh（いずれも既定）は終了0。環境は nice の優先度変更を拒否したが、指定したコマンドは継続・成功した。作業記録は tmp/t4-work/bsave-fix-audit/。公式ROM・資料・他のtmpは開かず、src/の直接閲覧・編集、run_all、git commit は行っていない。
