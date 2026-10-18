@@ -1,3 +1,7 @@
+CAP_ADDR_ML_CALL_USER EQU 0x1787
+CAP_ADDR_BINARY_TAKE EQU 0x1787
+CAP_ADDR_BINARY_FILL EQU 0x1787
+CAP_ADDR_BINARY_ARG EQU 0x1787
 ; src/ext_bank/bank1.asm — 拡張ROMバンク1(N88_1.ROM)。
 ;
 ; 0x6000の試験入口は既存の拡張バンク自己検査用。0x6110からは
@@ -10,6 +14,10 @@
 EXT_BANK1_TEST_ENTRY:
     LD A,0xB1
     RET
+
+
+
+
 
     ORG 0x6110
 
@@ -273,7 +281,29 @@ _fb_done:
 
 ; LOAD状態機械。1=READ要求、2=名前発見(常駐側でNEW)、3=行登録、
 ; 4=名前なし、5=種別不適、6=READ失敗、0=正常終了。
-; FILESと同じDF00受信/E100 FAT写しを使い、main側の関数は呼ばない。
+; FILESと同じ受信/FAT写しを使う。ASCII処理はRAMで完結し、
+; バイナリ転送だけ汎用中継でmain窓を復元する。
+
+
+
+
+    ORG 0x63E0
+binary1_63e0:
+bl_filename:
+; 通常LOADは旧構文の明示ドライブのみ。BLOADは省略をドライブ1とする。
+    LD A,(MM_K2_MATCH_LEN)
+    SUB 4
+    LD (MM_BINARY_MODE),A
+    XOR A
+    LD (MM_BINARY_FLAGS),A
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    CP '"'
+    JP NZ,bl_no_filename
+    CALL _b1_call_adv_ptr
+    XOR A
+    JP binary1_65c3
+
     ORG 0x6400
 LOAD_PHASE       EQU MM_LOAD_PHASE
 LOAD_NAME        EQU MM_LOAD_NAME
@@ -300,7 +330,7 @@ EXT_BANK1_LOAD_ENTRY:
     JP Z,_lb_scan
     CP 3
     JP Z,_lb_schedule
-    JP _lb_consume
+    JP bl_consume_mode
 
 _lb_init:
     LD A,1
@@ -379,8 +409,8 @@ _lb_cmp_name:
     INC HL
     INC DE
     DJNZ _lb_cmp_name
-    LD A,(IX+9)
-    OR A
+    LD A,(MM_BINARY_MODE)
+    CP (IX+9)
     JP NZ,_lb_wrong_type
     LD A,(IX+10)
     LD (LOAD_UNIT),A
@@ -393,8 +423,7 @@ _lb_cmp_name:
     LD (LOAD_CHAIN_GUARD),A
     LD A,3
     LD (LOAD_PHASE),A
-    LD A,2
-    RET
+    JP bl_found_action
 _lb_next_entry:
     LD A,(LOAD_ENTRY_INDEX)
     INC A
@@ -544,6 +573,40 @@ B1_RUN_ERROR_HANDLER_LINE EQU MM_RUN_ERROR_HANDLER_LINE
 B1_RUN_ERROR_ACTIVE EQU MM_RUN_ERROR_ACTIVE
 LOAD_BANK_ENTRY EQU 06400h
 
+
+
+
+
+    ORG 0x65C3
+binary1_65c3:
+    LD (LOAD_DRIVE),A
+    LD HL,(MM_CUR_PTR)
+    INC HL
+    LD A,(HL)
+    CP ':'
+    JP NZ,bl_default_drive
+    CALL _b1_call_peek_char
+    SUB '1'
+    CP 2
+    JP NC,bl_bad_drive
+    LD (LOAD_DRIVE),A
+    CALL _b1_call_adv_ptr
+    JP _b1_call_adv_ptr
+bl_default_drive:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    RET NZ
+    JP _load_syntax
+bl_suffix:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    RET Z
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    CP ','
+    JP NZ,bl_end
+    JP binary1_67b0
+
     ORG 0x6600
 EXT_BANK1_FILES_COMMAND:
     CALL _b1_call_skip_spaces
@@ -645,29 +708,49 @@ _files_drive_error:
     LD (B1_ERROR_KIND),A
     RET
 
-    ORG 0x6800
-EXT_BANK1_LOAD_COMMAND:
+
+
+
+
+    ORG 0x67B0
+binary1_67b0:
+    CALL _b1_call_adv_ptr
     CALL _b1_call_skip_spaces
     CALL _b1_call_peek_char
-    CP '"'
-    JP NZ,_load_syntax
-    CALL _b1_call_adv_ptr
-    CALL _b1_call_peek_char
-    CP '1'
-    JR Z,_load_drive1
-    CP '2'
-    JP NZ,_load_syntax
+    AND 0DFh
+    CP 'R'
+    JP Z,bl_run
+    LD IX,CAP_ADDR_BINARY_ARG
+    CALL BANK1_MAIN_CALL_ADDR
+    LD A,(B1_ERROR_FLAG)
+    OR A
+    RET NZ
+    LD (MM_BINARY_TARGET),DE
     LD A,1
-    JR _load_drive_set
-_load_drive1:
-    XOR A
-_load_drive_set:
-    LD (LOAD_DRIVE),A
-    CALL _b1_call_adv_ptr
+    LD (MM_BINARY_FLAGS),A
+    CALL _b1_call_skip_spaces
     CALL _b1_call_peek_char
-    CP ':'
-    JP NZ,_load_syntax
+    CP ','
+    JP NZ,bl_end
     CALL _b1_call_adv_ptr
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    AND 0DFh
+    CP 'R'
+    JP NZ,_load_syntax
+bl_run:
+    LD A,(MM_BINARY_FLAGS)
+    OR 2
+    LD (MM_BINARY_FLAGS),A
+    CALL _b1_call_adv_ptr
+    JP binary1_6ba5
+
+    ORG 0x6800
+EXT_BANK1_LOAD_COMMAND:
+    CALL bl_filename
+    LD A,(B1_ERROR_FLAG)
+    OR A
+    RET NZ
     LD HL,LOAD_NAME
     LD B,9
     LD A,' '
@@ -706,6 +789,10 @@ _load_name_end:
     OR A
     JP Z,_load_syntax
     CALL _b1_call_adv_ptr
+    CALL bl_suffix
+    LD A,(B1_ERROR_FLAG)
+    OR A
+    RET NZ
     XOR A
     LD (LOAD_PHASE),A
     LD (LOAD_READ_OK),A
@@ -723,6 +810,9 @@ _load_dispatch:
     JP Z,_load_wrong_type
     CP 6
     JP Z,_load_disk_error
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP NZ,bl_done
     ; 通常完了。LINE_FINISH側の通常のOkに先立ち、LOAD自身のOkを出す。
     LD HL,BANK1_OK_TXT_ADDR
     CALL _b1_call_print_str
@@ -870,9 +960,60 @@ BANK1_MAIN_CALL_ADDR EQU 0x1787
 BANK1_OK_TXT_ADDR EQU 0x1787
 
 ; 段D/Eの記号ヒープ。ディスク文との同時実行はない。
+
+
+
+
+    ORG 0x6BA5
+binary1_6ba5:
+bl_end:
+    CALL _b1_call_skip_spaces
+    CALL _b1_call_peek_char
+    OR A
+    RET Z
+    CP ':'
+    RET Z
+    JP _load_syntax
+bl_found_action:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    LD A,2
+    RET Z
+    JP _lb_schedule
+bl_consume_mode:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP Z,_lb_consume
+    LD A,(LOAD_READ_OK)
+    OR A
+    JP Z,_lb_io_error
+    LD HL,MAIN_SUB_SECTOR_BUF
+    LD BC,256
+    LD A,(MM_BINARY_FLAGS)
+    BIT 2,A
+    JP NZ,bl_transfer
+    OR 4
+    LD (MM_BINARY_FLAGS),A
+    LD DE,(MAIN_SUB_SECTOR_BUF)
+    LD HL,(MAIN_SUB_SECTOR_BUF+2)
+    OR A
+    SBC HL,DE
+    LD (MM_BINARY_LEFT),HL
+    LD A,(MM_BINARY_FLAGS)
+    BIT 0,A
+    JP Z,bl_destination
+    LD DE,(MM_BINARY_TARGET)
+bl_destination:
+    LD (MM_BINARY_PTR),DE
+    JP binary1_6ce9
+
     ORG 0x6C00
 B1_HEAP_FIND_ENTRY:
     JP B1_HEAP_FIND
+
+
+
+
     ORG 0x6C08
 B1_HEAP_ALLOC_ENTRY:
     JP B1_HEAP_ALLOC
@@ -988,3 +1129,48 @@ b1_heap_full:
     POP HL
     XOR A
     RET
+
+
+
+
+    ORG 0x6CE9
+binary1_6ce9:
+    LD (MM_BINARY_TARGET),DE
+    LD HL,MAIN_SUB_SECTOR_BUF+4
+    LD BC,252
+bl_transfer:
+    LD IX,CAP_ADDR_BINARY_TAKE
+    CALL BANK1_MAIN_CALL_ADDR
+    LD HL,(MM_BINARY_LEFT)
+    JP binary1_72c2
+
+    ORG 0x72C2
+binary1_72c2:
+    LD A,H
+    OR L
+    JP Z,_lb_done
+    LD A,(LOAD_UNIT_SECTOR)
+    INC A
+    LD (LOAD_UNIT_SECTOR),A
+    JP _lb_schedule
+bl_done:
+    XOR A
+    LD (B1_ERROR_FLAG),A
+    LD A,(MM_BINARY_FLAGS)
+    BIT 1,A
+    RET Z
+    LD BC,(MM_BINARY_TARGET)
+    LD IX,CAP_ADDR_ML_CALL_USER
+    JP BANK1_MAIN_CALL_ADDR
+
+bl_no_filename:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP Z,_load_syntax
+    LD A,22
+    JP _load_error_before_clear
+bl_bad_drive:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP Z,_load_syntax
+    JP _files_drive_error

@@ -310,6 +310,11 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
 # バンク1のFILES/LOAD/PRINT USING/ON/WHILE/DIMが窓外中継で呼ぶmain側ルーチン。
 # バンクROMを別に組み立てるため、実ビルドのラベル番地を渡す。
 EXT_BANK1_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_BINARY_ARG": "BINARY_ARG",
+    "CAP_ADDR_BINARY_FILL": "BINARY_FILL",
+    "CAP_ADDR_BINARY_TAKE": "BINARY_TAKE",
+    "CAP_ADDR_ML_CALL_USER": "ML_CALL_USER",
+
     # c1: 窓を復元してmain入口へ戻る中継。
     "CAP_ADDR_ADV_PTR": "ADV_PTR",
     "CAP_ADDR_AT_END": "AT_END",
@@ -399,6 +404,11 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK2_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_BINARY_ARG": "BINARY_ARG",
+    "CAP_ADDR_BINARY_FILL": "BINARY_FILL",
+    "CAP_ADDR_BINARY_TAKE": "BINARY_TAKE",
+    "CAP_ADDR_ML_CALL_USER": "ML_CALL_USER",
+
     # c1: 窓を復元してmain入口へ戻る中継。
     "CAP_ADDR_ARRAY_SINGLE": "ARRAY_SINGLE",
     "CAP_ADDR_ARRAY_STRING_STORE": "ARRAY_STRING_STORE",
@@ -1368,7 +1378,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     run_path = work / "l4_run_gen.asm"
     run_text = L4_RUN_ASM.read_text(encoding="utf-8")
     run_text = run_text.replace("; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）",
-                                (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8"))
+                                (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/binary.asm").read_text(encoding="utf-8"))
     run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"

@@ -1,0 +1,60 @@
+; §4.25。媒体文の実行時だけ使用。既存SAVEの10Bとセクタバッファを共用。
+BINARY_ARG:
+    CALL FN_IS_STRING
+    OR A
+    LD A,13
+    JP NZ,ML_ERROR
+    CALL LOGIC_OR_EXPR
+    CALL ML_BAD
+    RET NZ
+    JP ML_ADDRESS
+BINARY_FILL:
+; DE=T/Rは呼出側が保存。末尾は必ず0埋め。開始/長さは16bit折返し。
+    LD HL,MM_MAIN_SUB_SECTOR_BUF
+    LD DE,MM_MAIN_SUB_SECTOR_BUF+1
+    LD BC,255
+    LD (HL),0
+    LDIR
+    LD DE,MM_MAIN_SUB_SECTOR_BUF
+    LD BC,256
+    LD A,(MM_S2_INDEX)
+    OR A
+    JR NZ,BINARY_FILL_BODY
+    LD HL,(MM_BINARY_START)
+    LD (MM_MAIN_SUB_SECTOR_BUF),HL
+    LD BC,(MM_BINARY_LEFT)
+    ADD HL,BC
+    LD (MM_MAIN_SUB_SECTOR_BUF+2),HL
+    LD DE,MM_MAIN_SUB_SECTOR_BUF+4
+    LD BC,252
+BINARY_FILL_BODY:
+    LD HL,(MM_BINARY_PTR)
+    CALL BINARY_COPY
+    LD (MM_BINARY_PTR),HL
+    LD HL,MM_MAIN_SUB_SECTOR_BUF
+    RET
+BINARY_TAKE:
+; HL=セクタ内の本文、BC=このセクタの残り。状態はセクタごとに更新。
+    LD DE,(MM_BINARY_PTR)
+    CALL BINARY_COPY
+    LD (MM_BINARY_PTR),DE
+    RET
+BINARY_COPY:
+; BC=min(残量,セクタ残り)。未使用領域へは読み書きしない。
+    PUSH HL
+    LD HL,(MM_BINARY_LEFT)
+    OR A
+    SBC HL,BC
+    JR NC,BINARY_COPY_COUNT
+    ADD HL,BC
+    LD B,H
+    LD C,L
+    LD HL,0
+BINARY_COPY_COUNT:
+    LD (MM_BINARY_LEFT),HL
+    POP HL
+    LD A,B
+    OR C
+    RET Z
+    LDIR
+    RET

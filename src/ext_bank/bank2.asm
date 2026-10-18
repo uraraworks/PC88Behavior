@@ -1,8 +1,16 @@
-; SAVE ,A の本体を置くバンク。
+CAP_ADDR_ML_CALL_USER EQU 0x1787
+CAP_ADDR_BINARY_TAKE EQU 0x1787
+CAP_ADDR_BINARY_FILL EQU 0x1787
+CAP_ADDR_BINARY_ARG EQU 0x1787
+; SAVE ,A / BSAVE の媒体処理を置くバンク。
     ORG 0x6000
 EXT_BANK2_TEST_ENTRY:
     LD A,0xB2
     RET
+
+
+
+
 
     ORG 0x6080
 EXT_BANK2_SAVE_ENTRY:
@@ -11,7 +19,7 @@ EXT_BANK2_SAVE_ENTRY:
     LD (S2_WRITE_COUNT),A
     LD A,64
     LD (S2_ERROR_KIND),A
-    CALL EXT_BANK2_SAVE_COMMAND
+    CALL bs_command
     LD A,(S2_ERROR_FLAG)
     OR A
     RET NZ
@@ -23,6 +31,16 @@ EXT_BANK2_SAVE_ENTRY:
     LD A,1
     LD (S2_ERROR_FLAG),A
     RET
+
+
+
+
+
+    ORG 0x60ED
+binary2_60ed:
+bs_words:
+    DB 5,9,"BLOAD",5,10,"BSAVE",0
+    JP binary2_6653
 
     ORG 0x6100
 ; 共有RAM。表示本文は媒体へ書くまで 9000h 以降にだけ置く。
@@ -262,6 +280,9 @@ s2_save_dir_done:
     LD A,(S2_CHOSEN)
     OR A
     JP Z,s2_full
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP NZ,bs_size
     ; LISTの既存ルーチンを文字出力だけ捕捉して使用する。
     LD HL,(MM_FREE_TOP)
     LD (MM_CAPTURE_END),HL
@@ -289,6 +310,7 @@ s2_capture_cleared:
     OR A
     RET NZ
     LD HL,(S2_CAPTURE_LEN)
+s2_size_hl:
     LD A,L
     OR A
     LD A,H
@@ -428,6 +450,10 @@ s2_body_loop:
     ADD A,E
     INC A
     LD E,A
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JP NZ,bs_body
+bs_ascii_body:
     LD A,(S2_INDEX)
     LD H,A
     LD L,0
@@ -508,7 +534,7 @@ s2_entry_name:
     INC DE
     INC HL
     DJNZ s2_entry_name
-    XOR A
+    LD A,(MM_BINARY_MODE)
     LD (HL),A
     INC HL
     LD A,(S2_ALLOC)
@@ -663,19 +689,6 @@ s2_ws_data:
     LD (S2_WRITE_COUNT),A
     OR A
     RET
-s2_send:
-    LD IX,BANK2_SEND_ADDR
-    JP BANK2_MAIN_CALL_ADDR
-s2_send_cont:
-    LD IX,BANK2_SEND_CONT_ADDR
-    JP BANK2_MAIN_CALL_ADDR
-s2_send_pair:
-    LD IX,BANK2_SEND_PAIR_ADDR
-    JP BANK2_MAIN_CALL_ADDR
-s2_recv:
-    LD IX,BANK2_RECV_ADDR
-    JP BANK2_MAIN_CALL_ADDR
-
 ; l3-disk-format 2.5節の2単位取得・2単位飛ばし順。
 s2_order:
     DB 72,73,68,69,64,65,60,61,56,57,52,53,48,49,44,45
@@ -748,13 +761,53 @@ s2_flush_error:
 ; 文字列で保存する処理系なので tokens.tsv の KILL=D8/NAME=F4 に対応する
 ; 文キーワードをここで大小を区別せず照合する。名前欄は折り畳まない。
 ; RANDOMIZE・POKE・CLEARも同じ表で照合し、実行本体へはmainから中継する。
+
+
+
+
+    ORG 0x6653
+binary2_6653:
+bs_command:
+    LD A,(MM_K2_MATCH_LEN)
+    SUB 4
+    LD (MM_BINARY_MODE),A
+    JP binary2_6eea
+
+    ORG 0x6EEA
+binary2_6eea:
+    JP Z,EXT_BANK2_SAVE_COMMAND
+    CALL s2_filename
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL bs_arg
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    JP binary2_6fe0
+
+    ORG 0x6FE0
+binary2_6fe0:
+    LD (MM_BINARY_START),DE
+    LD (MM_BINARY_PTR),DE
+    CALL bs_arg
+    LD A,(S2_ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,D
+    OR E
+    LD A,5
+    JP Z,s2_error
+    LD (MM_BINARY_LEFT),DE
+    JP binary2_70de
+
     ORG 0x7000
 EXT_BANK2_DISK_MATCH:
 K2_CUR_PTR EQU MM_CUR_PTR
 K2_LINE_END EQU MM_LINE_END
 K2_MATCH_KIND EQU MM_K2_MATCH_KIND
 K2_MATCH_LEN EQU MM_K2_MATCH_LEN
-    LD IX,k2_words
+    JP bs_match
 k2_match_word:
     LD A,(IX+0)
     OR A
@@ -833,10 +886,42 @@ k2_upper:
     SUB 32
     RET
 
+
+
+
+
+    ORG 0x70DE
+binary2_70de:
+    CALL k2_end_statement
+    RET C
+    JP s2_parse_done
+bs_arg:
+    CALL s2_skip
+    CALL s2_peek
+    CP ','
+    JP NZ,s2_syntax
+    CALL s2_adv
+    LD IX,CAP_ADDR_BINARY_ARG
+    JP BANK2_MAIN_CALL_ADDR
+bs_size:
+    LD HL,(MM_BINARY_LEFT)
+    JP binary2_7106
+
     ORG 0x7100
 EXT_BANK2_KILL_ENTRY:
     CALL k2_init
     JP k2_kill
+
+
+
+
+    ORG 0x7106
+binary2_7106:
+    LD DE,4
+    ADD HL,DE
+    JP C,s2_full
+    JP binary2_72d7
+
     ORG 0x7110
 EXT_BANK2_NAME_ENTRY:
     CALL k2_init
@@ -1037,3 +1122,54 @@ k2_drive_error:
 
 k2_words:
     DB 5,8,"FILES",4,9,"LOAD",4,10,"SAVE",4,11,"KILL",4,12,"NAME",9,14,"RANDOMIZE",4,16,"POKE",5,17,"CLEAR",0
+
+
+
+
+    ORG 0x72D7
+binary2_72d7:
+    ; 既存の12単位の割当て表に収まる最大24572Bまで。
+    LD DE,24577
+    OR A
+    SBC HL,DE
+    JP NC,s2_full
+    ADD HL,DE
+    JP s2_size_hl
+bs_body:
+    PUSH DE
+    LD IX,CAP_ADDR_BINARY_FILL
+    CALL BANK2_MAIN_CALL_ADDR
+    POP DE
+    JP s2_body_write
+bs_match:
+    LD IX,bs_words
+    CALL k2_match_word
+    OR A
+    RET NZ
+    LD IX,k2_words
+    JP k2_match_word
+
+    ORG 0x7303
+binary2_7303:
+
+s2_send:
+    LD IX,BANK2_SEND_ADDR
+    JP BANK2_MAIN_CALL_ADDR
+
+    ORG 0x7313
+binary2_7313:
+s2_send_cont:
+    LD IX,BANK2_SEND_CONT_ADDR
+    JP BANK2_MAIN_CALL_ADDR
+
+    ORG 0x7323
+binary2_7323:
+s2_send_pair:
+    LD IX,BANK2_SEND_PAIR_ADDR
+    JP BANK2_MAIN_CALL_ADDR
+
+    ORG 0x7FF8
+binary2_7ff8:
+s2_recv:
+    LD IX,BANK2_RECV_ADDR
+    JP BANK2_MAIN_CALL_ADDR
