@@ -742,6 +742,11 @@ def result_exclusions(round_name,aid):
     rules={'values.p'+str(i):'入口BC/DE/HL/SPの生番地は公式配置に依存' for i in range(22,30)}
     if MEASURE_NAME=='mlcall' and round_name=='first' and (aid.startswith('usr-') or aid.startswith('def-')):
         rules.update({'values.p'+str(i):'引数1の候補照合は偶然一致。識別値の追補1で判定' for i in range(32,65)})
+    if MEASURE_NAME=='mlcall' and round_name in ('addendum2','addendum3') and aid.startswith(('a2-','a3-')):
+        rules.update({'values.p'+str(i):'一致番地の生値は公式メモリ配置に依存' for i in (*range(33,41),*range(42,50))})
+        rules.update({'values.p'+str(i):'異値候補は0件か否かのみ比較。初期番地由来の差や偶然一致位置は比較しない' for i in (54,55)})
+        if aid in ('a2-int-expr12345','a2-int-variable','a2-int-mutate'):
+            rules.update({'values.p'+str(i):'整数12345はASCIIとの偶然一致により場所・件数・介入有無・値判定が不定。型・誤り・完了印・戻り型のみ採る' for i in (32,41,52,53,65,66,68)})
     if MEASURE_NAME=='bsave':
         rules.update({f'media.{part}.sha256':'末尾以後のバッファ由来バイトを再現対象にしない' for part in ('header','payload')})
         if aid=='a1-cal-disk': rules['media.payload.matches']='0x00候補は空き領域にも一致する弱いパターン'
@@ -759,12 +764,27 @@ def result_project(value,rules):
             if isinstance(node,dict): node.pop(parts[-1],None)
     return value
 
+def result_normalize(value,rnd,aid):
+    value=copy.deepcopy(value)
+    if MEASURE_NAME=='mlcall' and rnd in ('addendum2','addendum3') and aid.startswith(('a2-','a3-')):
+        value['values']['p32']=int(value['values']['p32']==1) # 主候補がちょうど1件
+        value['values']['p41']=int(value['values']['p41']==0) # クロス候補が0件
+    return value
+
+def result_rounds(rounds):
+    if MEASURE_NAME=='bsave' and rounds=={'addendum1'}: return 'addendum1'
+    if MEASURE_NAME=='mlcall':
+        if rounds=={'first','addendum1'}: return 'first'
+        if rounds=={'addendum2','addendum3'}: return 'addendum2'
+    raise ValueError('結果ラウンド不足/混在')
+
+
 def result_definitions():
     global ROUND
     selected=ROUND
     try:
         out={}
-        for rnd in ('first','addendum1'):
+        for rnd in (('first','addendum1') if MEASURE_NAME=='bsave' else ('first','addendum1','addendum2','addendum3')):
             ROUND=rnd;out[rnd]={a['id']:a for a in arms()}
         return out
     finally: ROUND=selected
@@ -799,17 +819,16 @@ def result_read(paths,official=False):
                 rs.append(dict(arm=a,obs=obs,gate=True))
                 value=dict(values=obs[0]['values'],media=obs[0].get('media'))
                 rules=result_exclusions(rnd,aid)
-                item=dict(round=rnd,values=result_project(value,rules),exclusions=rules)
+                item=dict(round=rnd,values=result_project(result_normalize(value,rnd,aid),rules),exclusions=rules)
                 if aid in combined:
-                    # 較正のみ共通。両ラウンドの厳密一致を確認し、第1回へ一本化。
+                    # 較正のみ共通。両ラウンドの厳密一致を確認し、先行回へ一本化。
                     if not aid.startswith('cal-') or combined[aid]['values']!=item['values']: raise ValueError('結果重複')
-                    if rnd=='first': combined[aid]=item
+                    if rnd in ('first','addendum2'): combined[aid]=item
                     continue
                 combined[aid]=item
             if not calibrated(rs): raise ValueError('結果較正/媒体関門')
         finally: ROUND=selected; OFFICIAL=selected_official
-    required={'addendum1'} if MEASURE_NAME=='bsave' else {'first','addendum1'}
-    if rounds!=required: raise ValueError('結果ラウンド不足')
+    result_rounds(rounds)
     return combined
 
 def results_expected(out,paths):
@@ -821,24 +840,28 @@ def results_check(exp,paths):
     definitions=result_definitions()
     with exp.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
     want={r['arm']:dict(round=r['round'],values=json.loads(r['values']),exclusions=json.loads(r['exclusions'])) for r in rows}
-    required={aid for rnd,aa in definitions.items() for aid in aa if (MEASURE_NAME!='bsave' or rnd=='addendum1') and (MEASURE_NAME!='mlcall' or aid not in RESULT_ARM_EXCLUSIONS)}
+    selected_rounds={item['round'] for item in want.values()}
+    calibration_round=result_rounds(selected_rounds)
+    required={aid for rnd,aa in definitions.items() if rnd in selected_rounds for aid in aa if (MEASURE_NAME!='bsave' or rnd=='addendum1') and (MEASURE_NAME!='mlcall' or aid not in RESULT_ARM_EXCLUSIONS)}
     if len(rows)!=len(want) or set(want)!=required: raise ValueError('結果期待値全腕')
     for aid,item in want.items():
         rnd=item['round']
-        if rnd not in definitions or aid not in definitions[rnd] or (aid.startswith('cal-') and rnd!=('addendum1' if MEASURE_NAME=='bsave' else 'first')): raise ValueError('結果期待値ラウンド')
+        if rnd not in definitions or aid not in definitions[rnd] or (aid.startswith('cal-') and rnd!=calibration_round): raise ValueError('結果期待値ラウンド')
         rules=result_exclusions(rnd,aid)
         if item['exclusions']!=rules: raise ValueError('結果除外の改変')
         value=item['values']
         # 除外欄以外の欠落・追加は許さない。媒体値は元の形へ戻して検証。
         restored=copy.deepcopy(value)
         if type(restored) is not dict or set(restored)!={'values','media'}: raise ValueError('結果期待値形')
-        for i in range(22,30): restored['values']['p'+str(i)]=0
+        for path in rules:
+            if path.startswith('values.'): restored['values'][path.split('.')[1]]=0
         if MEASURE_NAME=='mlcall' and rnd=='first' and (aid.startswith('usr-') or aid.startswith('def-')):
             for i in range(32,65): restored['values']['p'+str(i)]=0
         media=restored['media']
         if isinstance(media,dict) and media.get('found'):
             for part in ('header','payload'): media[part]['sha256']='0'*64
             if aid=='a1-cal-disk': media['payload']['matches']=[]
+        if rnd in ('addendum2','addendum3') and aid.startswith(('a2-','a3-')) and any(value['values'].get('p'+str(i),0) not in (0,1) for i in (32,41)): raise ValueError('結果期待値の件数真偽')
         if result_project(restored,rules)!=value or not expected_shape(restored,definitions[rnd][aid]): raise ValueError('結果期待値欄')
         if aid.startswith('cal-') and restored!=dict(values=synth(definitions[rnd][aid])['values'],media=None): raise ValueError('結果期待値較正')
     try: got=result_read(paths)
@@ -847,14 +870,14 @@ def results_check(exp,paths):
     for k in bad: print(f'DIFF {k}')
     return len(want)-len(bad),bad
 
-def results_safety_selftest(work):
+def results_safety_selftest(work,rounds=None):
     # 除外による弱体化を検査。入力の順序、除外改変、対象欄の差、関門落ち。
     global ROUND,OFFICIAL
     selected=ROUND; selected_official=OFFICIAL
     try:
         with tempfile.TemporaryDirectory(dir=work,prefix='results-') as td:
             td=Path(td); paths=[]
-            for rnd in (('addendum1',) if MEASURE_NAME=='bsave' else ('first','addendum1')):
+            for rnd in (rounds or (('addendum1',) if MEASURE_NAME=='bsave' else ('first','addendum1'))):
                 ROUND=rnd; OFFICIAL=False
                 rs=[dict(arm=a,obs=[synth(a),synth(a)],gate=True) for a in arms()]
                 if MEASURE_NAME=='bsave':
@@ -884,10 +907,10 @@ def results_safety_selftest(work):
                 except ValueError: pass
                 else: raise AssertionError('除外範囲拡大')
                 exp.write_text(original)
-                # 非較正の実行印だけ変えると一腕不一致。番地だけなら一致。
+                # 非較正の実行印（追補は入口A）の差は一腕不一致。生番地だけなら一致。
                 path=paths[-1]; original=path.read_text()
                 rows=list(csv.DictReader(path.open(),delimiter='\t')); aid=rows[4]['arm']
-                for slot,value in ((22,123),(30,213)):
+                for slot,value in ((22,123),((21,4) if rounds else (30,213))):
                     changed=copy.deepcopy(rows)
                     for row in changed[4:6]:
                         o=json.loads(row['observation']); ix=o['writes'].index([1,1])+1
@@ -902,6 +925,25 @@ def results_safety_selftest(work):
                 assert results_check(exp,paths)[1]
     finally: ROUND=selected; OFFICIAL=selected_official
     print('OK 結果除外: 理由固定・番地のみ許容・実行印差/関門失敗を拒否',flush=True)
+
+    if MEASURE_NAME=='mlcall' and rounds is None:
+        results_safety_selftest(work,('addendum2','addendum3'))
+        def projected(aid,count,cross=0,**changes):
+            value=dict(values=dict(synth(addendum2_arms()[2])['values'],p32=count,p41=cross,**changes),media=None)
+            return result_project(result_normalize(value,'addendum2',aid),result_exclusions('addendum2',aid))
+        aid='a2-single-variable'
+        assert projected(aid,2)==projected(aid,19)
+        assert projected(aid,1)!=projected(aid,2)
+        assert projected(aid,2,1)==projected(aid,2,18)
+        assert projected(aid,2,0)!=projected(aid,2,1)
+        for slot in ('p33','p42','p54'):
+            assert projected(aid,2)==projected(aid,2,**{slot:123})
+        for slot in ('p21','p30','p31','p52','p65','p66','p68','p70'):
+            assert projected(aid,2)!=projected(aid,2,**{slot:1})
+        aid='a2-int-mutate'
+        assert projected(aid,19)==projected(aid,1,18,p52=123,p65=1,p66=1,p68=1)
+        assert projected(aid,19)!=projected(aid,19,p70=2)
+        print('OK 追補結果除外: 件数真偽・ASCII衝突・比較対象の差を検出',flush=True)
 
 
 def fake_log(o,prefix=()):
