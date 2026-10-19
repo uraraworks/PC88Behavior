@@ -288,7 +288,7 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
     # 字句小ヘルパはRAM走査だけ。再入・バンク切替・窓内CALLを行わない。
     "PEEK_CHAR", "SKIP_SPACES", "FOLD_UPPER", "ADV_PTR",
     "MBF_ADD", "MBF_SUB", "MBF_NEG", "MBF_CMP", "MBF_MUL", "MBF_DIV",
-    "MBF_INT_TO_SINGLE", "MBF_UDWORD_TO_SINGLE", "MBF_FIN", "MBF_FOUT",
+    "MBF_INT_TO_SINGLE", "MBF_FIN", "MBF_FOUT",
     "FIN_ACC_TO_SINGLE_AWAY",
     # 2026-09-20追記(SQR、第4.16b節): mbf_double.asmの倍精度ルーチン。
     # bank0.asm EXT_BANK0_SQR_ENTRYがニュートン法(倍精度)で使う。
@@ -1340,22 +1340,25 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
     # M7段階3b: BASIC核(直接モードPRINT)。tokens.asm/print_dispatch.asm/
     # errors.asmは生成物(手で編集しない)、lexer.asm/interp.asmは新規実装。
-    tokens_text = L4_TOKENS_ASM.read_text(encoding="utf-8")
-    if inject_l4_token_fault:
-        if tokens_text.count(L4_TOKEN_FAULT_OLD) != 1:
-            raise SystemExit("トークン表の故障注入の対象行が一意に見つからない（tokens.asmが変わった？）")
-        tokens_text = tokens_text.replace(L4_TOKEN_FAULT_OLD, L4_TOKEN_FAULT_NEW)
+    if inject_l4_token_fault and not enable_l4_selftest:
+        raise SystemExit("--inject-l4-token-fault には --enable-l4-selftest が必要")
+    # 表と汎用照合は自己検査専用。共通RAM別名(state.asm)は常時連結する。
     tokens_path = work / "l4_tokens_gen.asm"
-    tokens_path.write_text(tokens_text, encoding="utf-8")
+    lexer_path = work / "l4_lexer_gen.asm"
+    if enable_l4_selftest:
+        tokens_text = L4_TOKENS_ASM.read_text(encoding="utf-8")
+        if inject_l4_token_fault:
+            if tokens_text.count(L4_TOKEN_FAULT_OLD) != 1:
+                raise SystemExit("トークン表の故障注入の対象行が一意に見つからない（tokens.asmが変わった？）")
+            tokens_text = tokens_text.replace(L4_TOKEN_FAULT_OLD, L4_TOKEN_FAULT_NEW)
+        tokens_path.write_text(tokens_text, encoding="utf-8")
+        lexer_path.write_text(L4_LEXER_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     print_dispatch_path = work / "l4_print_dispatch_gen.asm"
     print_dispatch_path.write_text(L4_PRINT_DISPATCH_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     errors_path = work / "l4_errors_gen.asm"
     errors_path.write_text(L4_ERRORS_ASM.read_text(encoding="utf-8"), encoding="utf-8")
-
-    lexer_path = work / "l4_lexer_gen.asm"
-    lexer_path.write_text(L4_LEXER_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     mbf_path = work / "l4_mbf_gen.asm"
     mbf_path.write_text(L4_MBF_ASM.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1453,10 +1456,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{keyboard_path}"\n'
         + f'\nINCLUDE "{key_table_path}"\n'
         + f'\nINCLUDE "{vsync_regcheck_path}"\n'
-        + f'\nINCLUDE "{tokens_path}"\n'
+        + f'\nINCLUDE "{REPO / "src/l4_basic/state.asm"}"\n'
+        + (f'\nINCLUDE "{tokens_path}"\n' if enable_l4_selftest else "")
         + f'\nINCLUDE "{print_dispatch_path}"\n'
         + f'\nINCLUDE "{errors_path}"\n'
-        + f'\nINCLUDE "{lexer_path}"\n'
+        + (f'\nINCLUDE "{lexer_path}"\n' if enable_l4_selftest else "")
         + f'\nINCLUDE "{mbf_path}"\n'
         + f'\nINCLUDE "{mbf_double_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
@@ -1721,7 +1725,7 @@ def main():
     ap.add_argument("--inject-l4-zone-width-fault", action="store_true",
                      help="故障注入: PRINTのゾーン幅を14から10へ変える（自己検査の陰性対照専用）")
     ap.add_argument("--inject-l4-token-fault", action="store_true",
-                     help="故障注入: L4_TOKEN_TABLE(ABS)のトークン値を1つずらす（自己検査の陰性対照専用）")
+                     help="故障注入: L4_TOKEN_TABLE(ABS)の語長を壊す（--enable-l4-selftest必須）")
     ap.add_argument("--inject-l3-space-fault", action="store_true",
                      help="故障注入: SPACE(09H:6)のエコー前進を無効化し、段階3bまでの"
                           "「書かない」変種へ戻す（自己検査の陰性対照専用）")
@@ -1735,7 +1739,7 @@ def main():
                      help="故障注入: 第4.2版第8節キーリピートの遅延を255フレームへ"
                           "引き伸ばし実質無効化する（自己検査の陰性対照専用）")
     ap.add_argument("--enable-l4-selftest", action="store_true",
-                     help="ブート時にLEX_SELFTESTを呼ぶ（l3_main_selftest.shのL1タイミング検査を"
+                     help="予約語表と汎用照合を組み込み、ブート時にLEX_SELFTESTを呼ぶ（L1タイミング検査を"
                           "壊すため既定offにしてある。tools/l4_basic_selftest.sh専用）")
     ap.add_argument("--enable-ext-bank-selftest", action="store_true",
                      help="ブート時にEXT_BANK_SELFTEST/EXT_BANK_LOOP_TESTを呼ぶ"

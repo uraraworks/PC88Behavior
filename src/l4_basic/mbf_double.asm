@@ -1197,7 +1197,7 @@ _dcmp_lt:
 ; M7段階4b-2追記: MBF_DMUL_AWAY（半分は絶対値の大きい側。倍精度FIN
 ; DREP10Aの×10適用で使う）は同じ本体へWK_DROUND_MODE=1のまま合流する
 ; (MBF_DADD_AWAYと同じ設計)。
-; DBL_DMUL_UNPACKED/_AWAY — MBF_DMUL/MBF_DMUL_AWAYと同じ本体だが、
+; DBL_DMUL_UNPACKED — MBF_DMULと同じ本体だが、
 ; DA_*/DB_*が既に展開済み(DBL_UNPACK_A/BやDBL_TABLE_LOOKUP等で直接
 ; 埋めた)前提で計算する。M7段階4b-2追記: MBF_DFOUTの桁合わせ(元の値に
 ; 10^kを掛ける)専用に追加した——当初はmbf_single.asm DBL_MUL(FOUT/FIN
@@ -1210,11 +1210,6 @@ DBL_DMUL_UNPACKED:
     XOR A
     LD (WK_DROUND_MODE),A
     JP _dmul_core_start
-DBL_DMUL_UNPACKED_AWAY:
-    LD A,1
-    LD (WK_DROUND_MODE),A
-    JP _dmul_core_start
-
 MBF_DMUL_AWAY:
     LD A,1
     LD (WK_DROUND_MODE),A

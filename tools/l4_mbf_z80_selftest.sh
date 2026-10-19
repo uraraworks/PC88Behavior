@@ -34,17 +34,19 @@ make -s -C "$REPO/tools/harness/frontend" || { echo "NG: q88measureのビルド�
 [ -x "$FRONTEND" ] || { echo "NG: $FRONTEND が無い" >&2; exit 1; }
 
 overall=0
+CASE_LOG="$(mktemp)"
+trap 'rm -f "$CASE_LOG"' EXIT
 
 run_case() {
   local desc="$1"; shift
-  if python3 "$CONFORM" "$@" >/tmp/l4mbf_z80_selftest.$$ 2>&1; then
+  if python3 "$CONFORM" "$@" >"$CASE_LOG" 2>&1; then
     ok "$desc"
   else
     ng "$desc"
-    cat /tmp/l4mbf_z80_selftest.$$ >&2
+    cat "$CASE_LOG" >&2
     overall=1
   fi
-  rm -f /tmp/l4mbf_z80_selftest.$$
+  rm -f "$CASE_LOG"
 }
 
 echo "==> 正常系（境界値＋乱数、演算ごと）"

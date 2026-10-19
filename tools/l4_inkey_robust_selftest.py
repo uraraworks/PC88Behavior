@@ -21,13 +21,13 @@ import memmap
 def fast_rom(rom, asm_dir, work):
     """BASIC解析の重さを除いた、実ルーチンの短周期ドライバ。
 
-    自作ROMの通常起動後、未使用のLEX自己検査領域に置いたドライバへ移る。
+    自作ROMの通常起動後、レイアウト用のゼロ埋め領域に置いたドライバへ移る。
     生産コードのS9C_POLL/INIT/TRYとバンクはそのまま使う。
     """
     assembler = z80text.Assembler()
     assembler.assemble(asm_dir / 'n88_main_gen.asm')
     labels = assembler.labels
-    start = labels['LEX_SELFTEST']
+    start = labels['AEL_ROM_LAYOUT_PAD']
     source = memmap.asm_prelude() + f'''
     ORG {start}
     DI
@@ -101,11 +101,13 @@ fast_done:
     path = work / 'fast.asm'
     path.write_text(source)
     driver = z80text.Assembler().assemble(path)[start:]
-    # ドライバが使う通常ルーチン・バンク中継の領域を上書きしない。
-    assert start + len(driver) < labels['MBF_ADD'] < 0x6000
+    # 通常コードを上書きせず、0x79D7とその直前の予約ゼロも残す。
+    # このドライバはmainへ戻ってから呼ぶのでバンク窓内に置ける。
+    assert start + len(driver) <= 0x79D6
     target = work / 'fast-rom'
     shutil.copytree(rom, target)
     image = bytearray((target / 'N88.ROM').read_bytes())
+    assert image[start:start+len(driver)] == bytes(len(driver))
     image[start:start+len(driver)] = driver
     entry = labels['STEADY_WAIT']
     image[entry:entry+3] = bytes((0xC3, start & 255, start >> 8))

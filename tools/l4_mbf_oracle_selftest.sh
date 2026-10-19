@@ -63,7 +63,7 @@ fi
 ARMS="$REPO_ROOT/docs/notes/l4-s4a-gwbasic-predictions.tsv"
 if [ -f "$ARMS" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions.py) > "$TMP" 2>/tmp/l4_oracle_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$ARMS") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4a-gwbasic-predictions.tsv の再生成がデータ行一致(見出しのshaは比較対象外)"
   else

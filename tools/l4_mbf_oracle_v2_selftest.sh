@@ -82,7 +82,7 @@ fi
 ARMS="$REPO_ROOT/docs/notes/l4-s4a-gwbasic-predictions-v2.tsv"
 if [ -f "$ARMS" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions_v2.py) > "$TMP" 2>/tmp/l4_oracle_v2_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4a_predictions_v2.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_v2_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$ARMS") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4a-gwbasic-predictions-v2.tsv の再生成がデータ行一致(見出しのshaは比較対象外)"
   else
@@ -167,7 +167,7 @@ do
   TARGET="$REPO_ROOT/$OUT"
   if [ -f "$TARGET" ]; then
     TMP="$(mktemp)"
-    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>/tmp/l4_oracle_h6_gen.err
+    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_h6_gen.err"
     if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$TARGET") >/dev/null 2>&1; then
       pass "$OUT の再生成がデータ行一致(見出しのshaは比較対象外)"
     else
@@ -338,7 +338,7 @@ fi
 S4C="$REPO_ROOT/docs/notes/l4-s4c-candidate-predictions.tsv"
 if [ -f "$S4C" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4c_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_s4c_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4C") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4c-candidate-predictions.tsv の再生成がデータ行一致"
   else
@@ -451,7 +451,7 @@ fi
 # --- 15. l4-s4c v2予測表の再生成がデータ行一致すること --------------------
 if [ -f "$S4C_V2" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions_v2.py) > "$TMP" 2>/tmp/l4_oracle_s4c_v2_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4c_candidate_predictions_v2.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_s4c_v2_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4C_V2") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4c-candidate-predictions-v2.tsv の再生成がデータ行一致"
   else
@@ -546,7 +546,7 @@ fi
 S4D="$REPO_ROOT/docs/notes/l4-s4d-double-candidate-predictions.tsv"
 if [ -f "$S4D" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4d_double_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4d_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4d_double_candidate_predictions.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_s4d_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4D") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4d-double-candidate-predictions.tsv の再生成がデータ行一致"
   else
@@ -710,7 +710,7 @@ do
   TARGET="$REPO_ROOT/$OUT"
   if [ -f "$TARGET" ]; then
     TMP="$(mktemp)"
-    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>/tmp/l4_oracle_s4e_gen.err
+    (cd "$REPO_ROOT" && PY "$GEN") > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_s4e_gen.err"
     if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$TARGET") >/dev/null 2>&1; then
       pass "$OUT の再生成がデータ行一致"
     else
@@ -803,7 +803,7 @@ fi
 S4F="$REPO_ROOT/docs/notes/l4-s4f-double-large-candidate-predictions.tsv"
 if [ -f "$S4F" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_s4f_double_large_candidate_predictions.py) > "$TMP" 2>/tmp/l4_oracle_s4f_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_s4f_double_large_candidate_predictions.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_s4f_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$S4F") >/dev/null 2>&1; then
     pass "docs/notes/l4-s4f-double-large-candidate-predictions.tsv の再生成がデータ行一致"
   else
@@ -1023,7 +1023,7 @@ fi
 FOUT_CAND="$REPO_ROOT/docs/notes/l4-fout-exact-vs-gw-candidates.tsv"
 if [ -f "$FOUT_CAND" ]; then
   TMP="$(mktemp)"
-  (cd "$REPO_ROOT" && PY tools/gen_l4_fout_exact_vs_gw_candidates.py) > "$TMP" 2>/tmp/l4_oracle_fout_cand_gen.err
+  (cd "$REPO_ROOT" && PY tools/gen_l4_fout_exact_vs_gw_candidates.py) > "$TMP" 2>"${TMPDIR:-/tmp}/l4_oracle_fout_cand_gen.err"
   if diff -q <(grep -v '^#' "$TMP") <(grep -v '^#' "$FOUT_CAND") >/dev/null 2>&1; then
     pass "docs/notes/l4-fout-exact-vs-gw-candidates.tsv の再生成がデータ行一致"
   else

@@ -180,7 +180,7 @@ def calibrated(rs):
 base_summary=m.summary
 def summary(rs,work=None):
     base_summary(rs,work)
-    with (m.ROOT/'selfrun-addendum1.md').open('a') as f:
+    with ((m.ROOT if work is None else work)/'selfrun-addendum1.md').open('a') as f:
         f.write('\nディスクBASIC関門: '+m.json.dumps(disk_gates(rs,False),ensure_ascii=False)+'\n')
         f.write('自作はBSAVE/BLOAD未実装のため陽性対照・一様ERRを既知扱い。公式では両条件を必須とする。\n')
 

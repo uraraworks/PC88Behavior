@@ -89,7 +89,7 @@
 ;   - PRINT以外の語（未実装の命令）は、この段階では字句解析を試みず、
 ;     直ちに構文の誤りとして扱う（設計項目5）。
 ;
-; RAM変数は lexer.asm 側にまとめて宣言してある(ERROR_FLAG, LINE_END,
+; RAM変数は state.asm 側にまとめて宣言してある(ERROR_FLAG, LINE_END,
 ; CUR_PTR, SUPPRESS_NL 等)。ここでは追加で以下を使う。
 PUD_VALUE   EQU MM_PUD_VALUE   ; 2バイト
 PUD_PLACE   EQU MM_PUD_PLACE   ; 2バイト

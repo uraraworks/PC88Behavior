@@ -1277,7 +1277,7 @@ _mul_halfup_tiebreak:
     ; だけを見て「半分は絶対値の大きい側」(tools/l4_mbf_oracle_v2.py
     ; _round_half_away_mag)で丸める。オペランドは常に非負(FIN_MUL10ADD
     ; で積み上げた整数・10.0・単精度0.1の掛け算はすべて符号なし、
-    ; 符号はMBF_UDWORD_TO_SINGLEで最初に付けたFIN_SIGNがXORでそのまま
+    ; 符号はFIN_ACC_TO_SINGLE_AWAYで最初に付けたFIN_SIGNがXORでそのまま
     ; 通り抜けるだけ)なので「絶対値の大きい側」は常に切り上げになる。
     ; guardバイトの下位ビットは判定に無関係(2進小数としてguard bit7が
     ; 1なら真値は必ずkeep側の0.5以上、0なら必ず0.5未満と確定するため、
@@ -1702,87 +1702,10 @@ _pkok_setb2:
     RET
 
 ; =======================================================================
-; MBF_UDWORD_TO_SINGLE — FIN_ACC3:ACC2:ACC1:ACC0(32bit符号なし整数)と
-; FIN_SIGNから単精度MBFを作る。24bitに収まらない場合はADDと同じ
-; guard+sticky・偶数丸めで正しく丸める(16bit専用のMBF_INT_TO_SINGLEとは
-; 別物。MBF_FIN専用に組んだので入出力はFIN_*を直接読み書きする
-; =仕様書に無い判断、汎用ルーチンとして独立させていない)。
-;
-; 正規化: 32bit値V(非0)をbit31が立つまで左シフト(s回)すると、
-; V=candidate24*2^(8-s)(近似、下参照)になるので final_exp=160-s。
-; (V=1のときs=31,final_exp=129={1.0の単精度指数}で検算済み)。
-;
-; 2026-09-15追記(M7・REP01): MBF_FINからはもう呼ばれない。偶数丸めが
-; docs/spec/l4-basic.md 5.1.1節REP01の丸め方(半分は絶対値の大きい側)と
-; 違うため(`!`強制単精度でFIN_ACC>=1,000,000のケースで乱数照合により
-; 発覚。詳細は下のFIN_ACC_TO_SINGLE_AWAYヘッダコメント参照)、MBF_FINは
-; 丸め方だけ違う同型のFIN_ACC_TO_SINGLE_AWAYを使う。このルーチン自体は
-; 他のどこからも呼ばれておらず未使用のまま残置(ROM使用量には数十バイト
-; 計上されるが実行経路には影響しない)。
-; =======================================================================
-MBF_UDWORD_TO_SINGLE:
-    XOR A
-    LD (MBF_STATUS),A
-    LD (WK_STICKY),A
-    LD (WK_BORROW),A
-    LD A,(FIN_ACC3)
-    OR A
-    JR NZ,_udw_nz
-    LD A,(FIN_ACC2)
-    OR A
-    JR NZ,_udw_nz
-    LD A,(FIN_ACC1)
-    OR A
-    JR NZ,_udw_nz
-    LD A,(FIN_ACC0)
-    OR A
-    JR NZ,_udw_nz
-    XOR A
-    LD (RES_SIGN),A
-    LD (RES_EXP),A
-    JP MBF_PACK_RES
-_udw_nz:
-    LD A,(FIN_SIGN)
-    LD (RES_SIGN),A
-    LD C,0                     ; C = シフト回数
-_udw_norm:
-    LD A,(FIN_ACC3)
-    BIT 7,A
-    JR NZ,_udw_normed
-    XOR A
-    LD A,(FIN_ACC0)
-    SLA A
-    LD (FIN_ACC0),A
-    LD A,(FIN_ACC1)
-    RLA
-    LD (FIN_ACC1),A
-    LD A,(FIN_ACC2)
-    RLA
-    LD (FIN_ACC2),A
-    LD A,(FIN_ACC3)
-    RLA
-    LD (FIN_ACC3),A
-    INC C
-    JR _udw_norm
-_udw_normed:
-    LD A,160
-    SUB C
-    LD (RES_EXP),A
-    LD A,(FIN_ACC3)
-    LD (BIG_M2),A
-    LD A,(FIN_ACC2)
-    LD (BIG_M1),A
-    LD A,(FIN_ACC1)
-    LD (BIG_M0),A
-    LD A,(FIN_ACC0)
-    LD (BIG_MG),A
-    JP _add_round
-
-; =======================================================================
-; FIN_ACC_TO_SINGLE_AWAY — MBF_UDWORD_TO_SINGLEと同じ入力
-; (FIN_ACC3:ACC2:ACC1:ACC0・FIN_SIGN)から単精度MBFを作るが、24bitに
-; 収まらない場合の丸めが違う: MBF_UDWORD_TO_SINGLE(_add_round、偶数丸め)
-; ではなく「半分は絶対値の大きい側」(docs/spec/l4-basic.md 5.1.1節の
+; FIN_ACC_TO_SINGLE_AWAY — FIN_ACC3:ACC2:ACC1:ACC0(32bit符号なし整数)と
+; FIN_SIGNから単精度MBFを作る。24bitに収まらない場合は、削除済みの
+; MBF_UDWORD_TO_SINGLE(_add_round、偶数丸め)と異なり、
+; 「半分は絶対値の大きい側」(docs/spec/l4-basic.md 5.1.1節の
 ; REP01、MBF_MULのWK_MUL_ROUNDMODE=1と同じ丸め方)。
 ;
 ; 発覚の経緯(2026-09-15、M7): REP01実装当初はMBF_UDWORD_TO_SINGLEを
@@ -1980,12 +1903,12 @@ _udwd_normed:
 ;     5.1.1節「単精度の定数の読み取り(FIN)」の推定REP01に従う
 ;     (2026-09-15、M7)。有効桁(最大32bit整数として蓄積したFIN_ACC、
 ;     単精度になるのはFIN_ACC<1,000,000のときだけなので24bit仮数へ
-;     必ず厳密に収まる)をMBF_UDWORD_TO_SINGLEで単精度へ変換し、
+;     必ず厳密に収まる)をFIN_ACC_TO_SINGLE_AWAYで単精度へ変換し、
 ;     正味指数SCALEの絶対値回数だけ「10.0を掛ける(SCALE>0)」または
 ;     「単精度に丸めた0.1〔FIN_SET_OPB_S01〕を掛ける(SCALE<0)」を
 ;     1回ずつ・毎回単精度へ丸め直しながら繰り返す(_fin_rep01_loop)。
 ;     丸めは「半分は絶対値の大きい側」(MBF_MULのWK_MUL_ROUNDMODE=1
-;     モード、$FMULSの偶数丸めとは別)。符号はMBF_UDWORD_TO_SINGLEが
+;     モード、$FMULSの偶数丸めとは別)。符号はFIN_ACC_TO_SINGLE_AWAYが
 ;     最初にFIN_SIGNを付け、以後は正のオペランド(10.0/S01)を掛ける
 ;     だけなので変わらず最後まで保たれる(符号は最後に適用、と数学的に
 ;     等価)。
@@ -3285,16 +3208,6 @@ FOUT_SET_OPB_1E6:
     LD A,0x74
     LD (MBF_OPB+2),A
     LD A,148
-    LD (MBF_OPB+3),A
-    RET
-
-; MBF_OPBへ単精度定数0.5を書く。AF破壊。
-FOUT_SET_OPB_HALF:
-    XOR A
-    LD (MBF_OPB),A
-    LD (MBF_OPB+1),A
-    LD (MBF_OPB+2),A
-    LD A,128
     LD (MBF_OPB+3),A
     RET
 
