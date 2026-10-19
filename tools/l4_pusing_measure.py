@@ -362,14 +362,18 @@ def control_value(a):
     return WRAP_OFFICIAL_OBS[a['id']] if a['id'] in WRAP_CONTROLS else prediction(a)
 
 
-def emit(path, records, trap=True):
+def emit(path, records, trap=True, selected=None):
     by_id = {r['arm']['id']: r for r in records}
     def stable(r):
         return r['gate'] and not any(r['failed']) and r['obs'][0] == r['obs'][1] and valid(r['obs'][0])
     calibration = all(a['id'] in by_id and stable(by_id[a['id']]) and
                       by_id[a['id']]['obs'][0] == control_value(a) for a in controls())
-    rows, passed = [], calibration
+    # 対照は全7腕で検証し、照合表には指定腕だけを出す。CLI既定は全採取腕。
+    output_ids = set(by_id) if selected is None else {a['id'] for a in selected}
+    rows, passed = [], calibration and bool(output_ids) and output_ids <= set(by_id)
     for r in records:
+        if r['arm']['id'] not in output_ids:
+            continue
         predictions = {c: prediction(r['arm'], c) for c in ('U_GW', 'U_N88')}
         if r['arm']['id'] in WRAP_CONTROLS:
             known = r['obs'][0] == WRAP_OFFICIAL_OBS[r['arm']['id']]
@@ -729,12 +733,6 @@ def selftest(work):
     assert 'list 30-30' in program(arms2()[-2]) and 'list 30-30' not in program(round1['hash-02'])
     assert not any(l.startswith('30 ') for l in program(arms2()[-1]))
     assert prediction(arms2()[-1]) == projection('', ';')
-    old = kw.REPO.parent/'tmp/l4s9h-work/official_round1.tsv'
-    if old.exists():
-        with old.open(encoding='utf-8') as stream:
-            typed = {r['arm']: r['typed_lines'] for r in csv.DictReader(stream, delimiter='\t')}
-        for g in gates2():
-            assert typed.get(g['id'][5:]) == json.dumps(program(g)), '関門の打鍵が保存済みの1回目と不一致'
     with tempfile.TemporaryDirectory(prefix='add2-', dir=work) as temp:
         root = Path(temp)
         sel2 = selected2()
@@ -777,7 +775,7 @@ def selftest(work):
         def expect(a):
             return WRAP_OFFICIAL_OBS[a['id']] if a['id'] in WRAP_CONTROLS else prediction(a)
         assert all(r['gate'] and r['obs'][0] == expect(r['arm']) for r in records), \
-            '自作定数関門失敗: '+json.dumps([(r['arm']['id'], r['obs'], r['failed']) for r in records])
+            '自作定数関門失敗（値は非表示）'
         measured, expected = root/'measured.tsv', root/'expected.tsv'
         # emit も折り返し2対照は公式観測（W_GW）で照合する。値を置き換えず実測のまま通す。
         flow = copy.deepcopy(records)

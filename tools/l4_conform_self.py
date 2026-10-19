@@ -232,9 +232,15 @@ def check_selected(mod, row, rom, work, exp, out):
     selected = [a for a in by_id.values() if a['id'] in ids]
     trap = not (name=='hexconst' and not any(a.get('error') for a in selected if a['id'].startswith('control-')))
     options = {'trap': trap} if name=='hexconst' else {}
-    records = mod.measure(rom, False, selected, work, **options)
+    # 本体の期待表にない折り返し対照も、emitの校正には必須。
+    measured = selected
+    if name == 'pusing':
+        measured = selected + [a for a in mod.controls() if a['id'] not in ids]
+    records = mod.measure(rom, False, measured, work, **options)
     if name == 'pusing_add2':
         passed = emit_pusing_add2(mod, out, records)
+    elif name == 'pusing':
+        passed = mod.emit(out, records, selected=selected)
     elif name == 'wrap':
         passed = mod.emit(out, records, selected)
     else:

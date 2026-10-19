@@ -185,6 +185,32 @@ def diagnostic_selftest(root):
         runner.DETAIL.clear()
         assert runner.check_selected(pu, row, root/'rom', work, runner.expected(row), out) in ('OK','NG')
     assert {a['id'] for a in pu.gates2()} <= {r['arm'] for r in runner.read_rows(out)}
+    # 本体は凍結表にない対照も採取し、出力は期待腕だけに保つ。
+    row = next(r for r in runner.ROWS if r[0]=='pusing')
+    subset = pu.controls()[:2] + pu.arms()[:1]
+    expected = work/'pusing-synthetic.tsv'
+    pu.write(expected, ['arm','prediction'],
+             [(a['id'], json.dumps(pu.control_value(a))) for a in subset])
+    def replay(rom, official, selected, dest, **kwargs):
+        assert not official
+        assert {a['id'] for a in pu.controls()} <= {a['id'] for a in selected}
+        return [dict(arm=a, obs=[pu.control_value(a)]*2, others=[0,0],
+                     failed=[False,False], gate=True) for a in selected]
+    with patch.object(pu,'measure',side_effect=replay):
+        assert runner.check_selected(pu, row, root/'rom', work, expected, out) == 'OK'
+    assert {r['arm'] for r in runner.read_rows(out)} == {a['id'] for a in subset}
+    good = replay(root/'rom', False, pu.controls()+pu.arms()[:1], work)
+    for aid in pu.WRAP_CONTROLS:
+        # 未出力対照でも、欠落・不一致・採取失敗は全照合腕の関門に伝播。
+        for fault in ('missing', 'different', 'failed'):
+            bad = copy.deepcopy(good)
+            rec = next(r for r in bad if r['arm']['id'] == aid)
+            if fault == 'missing': bad.remove(rec)
+            elif fault == 'different': rec['obs'] = [pu.prediction(rec['arm'])]*2
+            else: rec['failed'][0] = True
+            assert not pu.emit(out, bad, selected=subset)
+            assert not pu.check(expected, out)
+    assert not pu.emit(out, good, selected=[dict(id='absent')])
     # 一体checkのID抽出と関門分類も値を転送しない。
     for name, record in (('listkw', dict(id='test-arm', obs_sig='gate_failed')),
                          ('s5j', dict(arm=SimpleNamespace(id='test-arm'), stable=False)),
