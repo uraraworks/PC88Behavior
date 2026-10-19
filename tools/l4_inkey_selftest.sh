@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# l4-s9c: 自作ROMの定数と合成対照のみ。
+# l4-s9c: 自作ROMの定数と合成対照（hold-a既知差の陰性対照を含む）。
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 制限付き環境でも指定コマンドだけで検証できるよう、一時領域を使う。

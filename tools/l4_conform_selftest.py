@@ -112,6 +112,15 @@ def diagnostic_selftest(root):
     def write(path, headers, rows):
         with path.open('w', newline='') as f:
             w = csv.writer(f, delimiter='\t'); w.writerow(headers); w.writerows(rows)
+    # inkeyのbool照合が出す行頭語を、実入口のKnownSinkで拾う。
+    mod.known_difference_selftest(work)
+    known_exp, known_out = work/'known-expected.tsv', work/'known-measured.tsv'
+    with runner.KnownSink() as sink:
+        agrees=mod.check(known_exp,known_out)
+    assert runner.checked_status(mod,known_exp,[known_out],agrees,sink.known)=='KNOWN'
+    with runner.KnownSink() as sink:
+        print('KNOWN-NOW-MATCHES hold-a')
+    assert not sink.known
     write(exp, ['arm','prediction'], [('hold-a', json.dumps(['SECRET-WANTED']))])
     write(out, ['arm','repeat','print_values','gate'],
           [('hold-a', i, json.dumps(['SECRET-ACTUAL']), 'pass') for i in (1,2)])

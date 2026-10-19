@@ -252,6 +252,7 @@ def check_selected(mod, row, rom, work, exp, out):
         checked_status(mod, exp, [out], checked, sink.known)
         DETAIL['gate'] = gates([out])
         return 'NG'
+    # inkeyのbool照合も行頭「KNOWN 」で既知差を通知する。
     with KnownSink() as sink:
         agrees = mod.check(exp, out)
     return checked_status(mod, exp, [out], agrees, sink.known)

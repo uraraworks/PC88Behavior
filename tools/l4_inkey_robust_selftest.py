@@ -216,6 +216,7 @@ def main():
     assert [['iks', 2, 97], ['ikd', 1]] != expected
     with tempfile.TemporaryDirectory(prefix='inkey-robust-') as tmp:
         work = Path(tmp)
+        ik.known_difference_selftest(work)
         rom = args.rom_dir or work / 'rom'
         if args.rom_dir is None:
             proc = subprocess.run([os.sys.executable, str(ik.kw.REPO / 'src/build_main_rom.py'),

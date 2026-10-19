@@ -270,6 +270,27 @@ def emit(path,records):
     return calibration and all(r['gate'] for r in records)
 
 
+KNOWN_DIFFERENCES = {
+    'hold-a': dict(reason='長押しのリピート個数は一般規則にしない '
+                   '（docs/spec/l4-basic.md 第19.3・19.4節、33995b3 の既知の残差）')
+}
+
+
+def known_difference_target(arm, frozen, observed):
+    """件数と先頭8文字の保存長だけを変更し、他の印は凍結値を保つ。"""
+    if arm['id'] not in KNOWN_DIFFERENCES or not valid(arm, frozen) or not valid(arm, observed):
+        return None
+    count = observed[1][2]
+    char = ord(arm['text'])
+    if (count < 2 or frozen[1][3] != 1 or frozen[2] !=
+            ['ik', 2, min(frozen[1][2], 8), *([char] * min(frozen[1][2], 8))]):
+        return None
+    target = [list(row) for row in frozen]
+    target[1][2] = count
+    target[2] = ['ik', 2, min(count, 8), *([char] * min(count, 8))]
+    return target
+
+
 def check(expected,measured,candidate='K_BUF'):
     try:
         with expected.open() as f:
@@ -289,15 +310,35 @@ def check(expected,measured,candidate='K_BUF'):
             grouped.setdefault(r['arm'],[]).append(r)
         if not targets or set(targets)!=set(grouped):
             return False
+        notices=[]
         for aid,value in targets.items():
             runs=grouped[aid]
-            # 予測なしは照合の合格にしない。
+            # 予測なし・欠測・関門落ち・打鍵失敗を既知差で救済しない。
             if value is None or aid not in selected or len(runs)!=2 or {r['repeat'] for r in runs}!={'1','2'}:
                 return False
-            if any(r['gate']!='pass' or r['typing_or_capture_failed']!='0'
-                   or not valid(selected[aid],json.loads(r['print_values']))
-                   or json.loads(r['print_values'])!=value for r in runs):
+            observations=[json.loads(r['print_values']) for r in runs]
+            if (any(r['gate']!='pass' or r['typing_or_capture_failed']!='0'
+                    or not valid(selected[aid],o) for r,o in zip(runs,observations))
+                    or {k:v for k,v in runs[0].items() if k!='repeat'} !=
+                       {k:v for k,v in runs[1].items() if k!='repeat'}):
                 return False
+            if observations[0] == value:
+                if aid in KNOWN_DIFFERENCES:
+                    notices.append(('KNOWN-NOW-MATCHES',aid))
+                continue
+            if (aid not in KNOWN_DIFFERENCES or
+                    observations[0] != known_difference_target(selected[aid],value,observations[0])):
+                return False
+            # 件数差が候補判定・準備印・他行増加印へ波及していないこと。
+            if (any(r.get('preparation_contaminated') != '0' or
+                    r.get('other_rows_increased_vs_idle') != '0' or
+                    any(r.get(c) != 'unpredicted' for c in CANDIDATES) for r in runs)
+                    or 'echo-idle' not in grouped or
+                    any(r['other_line_counts'] != grouped['echo-idle'][0]['other_line_counts'] for r in runs)):
+                return False
+            notices.append(('KNOWN',aid))
+        for label,aid in notices:
+            print(f'{label} {aid}: {KNOWN_DIFFERENCES[aid]["reason"]}')
         return True
     except (ValueError,KeyError,TypeError,OSError):
         return False
@@ -319,8 +360,65 @@ def synthetic_screen(arm,rows):
     return bytes(data)
 
 
+def known_difference_selftest(work):
+    """凍結表を開かず、合成記録で限定受理と陰性対照を検査する。"""
+    import copy
+    import io
+    from contextlib import redirect_stdout
+    selected=controls()+[a for a in arms() if a['id'] in ('echo-idle','echo-a','hold-a')]
+    def echo(count):
+        return [['ik',1,0],['iks',10000,count,int(count>0)],
+                ['ik',2,min(count,8),*([97]*min(count,8))],['ikd',1]]
+    frozen={a['id']:prediction(a,'K_BUF') if a['kind']=='constant' else
+            echo(0 if a['id']=='echo-idle' else 1 if a['id']=='echo-a' else 12)
+            for a in selected}
+    exp=work/'known-expected.tsv';out=work/'known-measured.tsv'
+    sf.write(exp,['arm','print_values'],[(aid,json.dumps(o)) for aid,o in frozen.items()])
+    records=[dict(arm=a,obs=[copy.deepcopy(frozen[a['id']]) for _ in range(2)],
+                  others=[4,4],failed=[False,False],gate=True) for a in selected]
+    def verdict(count=3,damage=None):
+        rs=copy.deepcopy(records)
+        hold=rs[-1]
+        hold['obs']=[echo(count),echo(count)]
+        if damage: damage(rs,hold)
+        emit(out,rs)
+        with redirect_stdout(io.StringIO()) as sink:
+            passed=check(exp,out)
+        return passed,sink.getvalue()
+    assert verdict()[0]
+    assert verdict(2)[0] and verdict(8)[0] and verdict(20)[0]
+    assert verdict()[1].startswith('KNOWN hold-a:')
+    assert verdict(12)[1].startswith('KNOWN-NOW-MATCHES hold-a:')
+    assert not verdict(1)[0]
+    assert not verdict(0)[0]
+    def mutate(row,index,value):
+        def damage(rs,hold):
+            for o in hold['obs']: o[row][index]=value
+        return damage
+    for damage in (mutate(2,3,98), mutate(0,2,1), mutate(1,3,2), mutate(3,1,0),
+                   lambda rs,h: h.update(others=[5,5]),
+                   lambda rs,h: h.update(gate=False),
+                   lambda rs,h: h.update(failed=[True,True]),
+                   lambda rs,h: h['obs'].__setitem__(1,echo(4)),
+                   lambda rs,h: rs[-2].update(obs=[echo(2),echo(2)])):
+        assert not verdict(damage=damage)[0]
+    # emit後の各印の改変も2走同時に行い、check自身の拒否を検証する。
+    for field,value in [('K_BUF','agree'),('K_LAST','differ'),('K_NONE','agree'),
+                        ('preparation_contaminated','1'),('other_rows_increased_vs_idle','1'),
+                        ('gate','gate_failed'),('typing_or_capture_failed','1'),('repeat','1')]:
+        verdict()
+        with out.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+        for r in rows:
+            if r['arm']=='hold-a': r[field]=value
+        sf.write(out,list(rows[0]),[[r[k] for k in rows[0]] for r in rows])
+        assert not check(exp,out)
+    assert verdict()[0]  # 入口自己検査にも使う陽性記録を残す。
+    print('OK hold-a 限定KNOWN・完全一致・陰性対照')
+
+
 def selftest(work):
     work.mkdir(parents=True,exist_ok=True)
+    known_difference_selftest(work)
     selected=controls()+arms()+addendum_arms()
     assert len({a['id'] for a in selected})==len(selected)
     for a in selected:
