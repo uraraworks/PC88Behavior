@@ -267,6 +267,9 @@ ERRKIND_TABLE:
     DW ERR_MSG_4
     DB 17
     DW ERR_MSG_17
+    ; 第4.17節: 編集・CLEAR後のRESUMEは番号20を表示する。
+    DB 20
+    DW ERR_MSG_20
     DB 70
     DW ERR_MSG_70
     DB 51

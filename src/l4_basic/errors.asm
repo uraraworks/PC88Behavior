@@ -38,6 +38,8 @@ ERR_MSG_17:
     DB "Can't continue",0
 ERR_MSG_18:
     DB "Undefined user function",0
+ERR_MSG_20:
+    DB "RESUME without error",0
 ERR_MSG_22:
     DB "Missing operand",0
 ERR_MSG_26:

@@ -29,7 +29,7 @@ import re
 TABLE_HEADER = "| 番号 | メッセージ |"
 ROW_RE = re.compile(r"^\|\s*(\S+)\s*\|\s*(.+?)\s*\|$")
 # ERRKIND_TABLEから引かれず、ファイル入出力の予約にも含めない番号。
-OMITTED_ROM_NUMBERS = frozenset({14, 16, 19, 20, 21, 23, 27, 31, 32, 33, 56, 59, 69, 71, 72})
+OMITTED_ROM_NUMBERS = frozenset({14, 16, 19, 21, 23, 27, 31, 32, 33, 56, 59, 69, 71, 72})
 
 SYNTAX_ERROR_NUMBER = "2"
 SYNTAX_ERROR_TEXT = "Syntax error"
