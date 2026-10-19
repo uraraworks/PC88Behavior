@@ -1,5 +1,6 @@
 ; docs/spec/l4-graphics.md 第5版 第11節（l4-s9w の観測）から独立実装。PAINT 文のうち構文・検査・埋め値の準備。バンク2の line.asm の後ろへ連結。
-; 塗りの本体（区間を単位にした反復走査の塗り）はバンク1の paint.asm。ここは引数を読み、検査し、作業域 PAINT_WORK を整えて本体を1回呼ぶ。
+; 塗りの本体はバンク1 paint.asm。描画前処理は本体からbank3へ1回だけ呼ぶ。
+; ここは引数を読み、検査し、作業域 PAINT_WORK を整えて本体を1回呼ぶ。
 ;
 ; 形: PAINT [STEP](x,y)[,領域色または文字列(タイル)[,境界色[,バックグラウンド(文字列)]]]。文の種別 50（gfx.asm の gx_stmt から）。
 ; 誤り番号（第11.1・11.3節）: 構文は ERR 2、欄の後ろが空なら ERR 22、色の範囲外・開始点が画面外・タイルが1行に満たないは ERR 5、
@@ -243,7 +244,7 @@ gp_bset:
     LD A,(PA_PCOL)
     LD HL,PA_PF
     CALL gp_fill
-    LD HL,PAINT_CORE_ENTRY      ; 塗りの本体（バンク1）を1回だけ呼ぶ
+    LD HL,PAINT_CORE_ENTRY      ; バンク1の塗り本体を1回だけ呼ぶ
     LD A,1
     LD IX,GP_EXTCALL_ADDR
     CALL BANK2_MAIN_CALL_ADDR

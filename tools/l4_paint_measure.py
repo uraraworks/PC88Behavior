@@ -936,8 +936,6 @@ KNOWN_DIFFERENCES = {
     for ids, kind, reason in (
         (('ws-6c', 'ws-10a', 'ws-10b', 'ws-10c', 'ws-10d', 'ws-10e'),
          'regular-fill', 'スタック96〜129で壁を塗る公式の異常は再現しない'),
-        (('ws-8a', 'ws-8e', 'ws-8f', 'ws-2c'),
-         'err7', '作業領域不足はERR 7でよい'),
     ) for aid in ids
 }
 
@@ -1237,13 +1235,13 @@ def selftest(work=None, check_only=False):
     print('OK 期待値の作成・照合（陽性、1画素ずれ・欠け・結果行違いの陰性）', flush=True)
     with tempfile.TemporaryDirectory(prefix='l4s9w-known-', dir=work) as temp:
         root = Path(temp)
-        a = known['ws-8a']
-        official = dict(comparable(o_c), res={'2': [0, 0, 0]})
+        a = known['ws-6c']
+        official = dict(comparable(o_c), res={})
         alternative = known_difference_target(a, official)
         official = dict(alternative, hash='synthetic-official')
         expected, measured = root/'expected.tsv', root/'measured.tsv'
         lm.write_tsv(expected, ['arm', 'observation'],
-                     [('ws-8a', json.dumps(official)), ('base-cls3', json.dumps(comparable(o_c)))])
+                     [('ws-6c', json.dumps(official)), ('base-cls3', json.dumps(comparable(o_c)))])
         def save(value, base=o_c):
             obs = dict(value, arm=a['id'], sent=1)
             lm.write_tsv(measured, ['arm', 'repeat', 'plan', 'observation', 'gate',
@@ -1251,16 +1249,16 @@ def selftest(work=None, check_only=False):
                          [(aid, i+1, json.dumps(plan(known[aid])), json.dumps(o), 'pass', '{}', 0)
                           for aid, o in ((a['id'], obs), ('base-cls3', base)) for i in range(2)])
         save(alternative)
-        assert check(expected, measured)[1:3] == ({}, ['ws-8a'])
+        assert check(expected, measured)[1:3] == ({}, ['ws-6c'])
         save(alternative, dict(o_c, hash='broken'))
         assert 'base-cls3' in check(expected, measured)[1]
         wrong = json.loads(json.dumps(alternative))
         key = next(str(i) for it, stmt, probe, i, pred in steps(a)[0] if it['op']=='P')
         wrong['res'][key][0] = 5
         save(wrong)
-        assert 'ws-8a' in check(expected, measured)[1]
+        assert 'ws-6c' in check(expected, measured)[1]
         save(official)
-        assert check(expected, measured)[3] == ['ws-8a']
+        assert check(expected, measured)[3] == ['ws-6c']
     print('OK 既知差の限定受理・未知腕の破損拒否・ERR 5拒否・KNOWN-NOW-MATCHES', flush=True)
     if not check_only:
         # 自作ROMの対照
