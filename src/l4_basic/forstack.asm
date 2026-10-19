@@ -1,7 +1,33 @@
 ; l4-s9d追補1/3（依頼で提示された観測）。公式ROMのバイト列は参照しない。
-; FORの後ろにNEXTキーワードが一つでも必要。変数名/入れ子の対応は検査しない。
-; 本線の位置/字句/式/フレーム作業域を変更せず、文字列・REM・DATAを除外する。
+; FORの後ろにNEXTキーワードが一つでも必要。明示名は呼出側で照合する。
+; 途中のFORはIYに記録し、その場合の名前照合は従来どおりNEXT時に任せる。
+; 位置は呼出側で保存/復元する。字句/式/フレーム作業域は触らず、文字列・REM・DATAを除外する。
+; PAINT前処理とKEY入口の間。既存の文字列/REM/DATA除外の後だけ呼ぶ。
+    ORG 0x7281
+s9n_check_for:
+    PUSH HL
+    LD IX,s9n_for
+    LD B,3
+    CALL s9n_word
+    JR NZ,s9n_not_for
+    LD IY,1
+s9n_not_for:
+    POP HL
+    RET
+s9n_for: DB "for"
+s9n_next: DB "next"
+s9n_rem: DB "rem"
+s9n_data: DB "data"
+s9n_missing:
+    LD A,26
+    LD (ERROR_KIND),A
+    LD A,1
+    LD (ERROR_FLAG),A
+    RET
+
     ORG 0x7EE0
+; 入力: IY=0。成功: CUR_PTR/LINE_END=最初のNEXT直後/その行末、途中のFORありならIY=1。
+; ERROR_FLAG/KINDで結果を返す。呼出側は位置とIYを必ず復元する。
 S9D_REQUIRE_NEXT:
     LD HL,(RUN_CUR_RECORD)
     PUSH HL
@@ -29,6 +55,7 @@ s9n_scan:
     LD B,4
     CALL s9n_word
     JR Z,s9n_data_scan
+    CALL s9n_check_for
 s9n_skip_ident:
     INC HL
     CALL s9n_more
@@ -61,7 +88,7 @@ s9n_line:
     LD A,(HL)
     INC HL
     OR (HL)
-    JR Z,s9n_missing
+    JP Z,s9n_missing
     INC HL
     LD C,(HL)
     LD B,0
@@ -71,7 +98,7 @@ s9n_line:
     INC HL
     AND (HL)
     INC A
-    JR Z,s9n_missing          ; 行番号FFFFは番兵
+    JP Z,s9n_missing          ; 行番号FFFFは番兵
     DEC HL
     PUSH HL
     INC HL
@@ -83,16 +110,12 @@ s9n_line:
     ADD HL,BC
     EX DE,HL
     POP HL
-    JR s9n_scan
+    JP s9n_scan
 s9n_found:
+    LD (CUR_PTR),HL           ; NEXT直後とその行末（呼出側で必ず復元）
+    LD (LINE_END),DE
     POP HL
     XOR A
-    LD (ERROR_FLAG),A
-    RET
-s9n_missing:
-    LD A,26
-    LD (ERROR_KIND),A
-    LD A,1
     LD (ERROR_FLAG),A
     RET
 s9n_more:                    ; HL < DEならCF=1
@@ -161,6 +184,3 @@ s9n_word_no:
     LD A,1
     OR A
     RET
-s9n_next: DB "next"
-s9n_rem: DB "rem"
-s9n_data: DB "data"

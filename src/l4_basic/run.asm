@@ -1843,12 +1843,6 @@ _ret_nogosub:
     RET
 
 FOR_STMT:
-    ; NEXTは本体へ戻すため、2周目以降はここへ来ず走査を繰り返さない。
-    LD HL,0622Ch
-    CALL S9_BANK_CALL
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
     CALL SKIP_SPACES
     CALL LEX_IDENT_CONSUME
     OR A
@@ -1861,6 +1855,11 @@ FOR_STMT:
     LD DE,RUN_FOR_VARNAME
     LD BC,8
     LDIR
+    ; 名前確定後、初期値評価/代入より前に検査。NEXTからの再開時には通らない。
+    CALL RUN_FOR_REQUIRE_NEXT
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     CALL SKIP_SPACES
     CALL PEEK_CHAR
     CP '='
@@ -1947,6 +1946,68 @@ _for_typeerr:
     LD (ERROR_FLAG),A
     LD A,13
     LD (ERROR_KIND),A
+    RET
+
+; 前方走査の一時的な現在行と、識別子解析の全作業域をスタックへ退避。
+; 式の作業域とRUN_CUR_RECORDはどちらの検査でも変更しない。
+RUN_FOR_REQUIRE_NEXT:
+    LD HL,(CUR_PTR)
+    PUSH HL
+    LD HL,(LINE_END)
+    PUSH HL
+    LD HL,(RUN_TMP16)
+    PUSH HL
+    LD HL,(IDENT_LEN)          ; IDENT_KINDも隣接する
+    PUSH HL
+    LD A,(IDENT_SFX)
+    PUSH AF
+    PUSH IY
+    LD IY,0
+    LD HL,0622Ch
+    CALL S9_BANK_CALL
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_frn_restore
+    PUSH IY
+    POP HL
+    LD A,H
+    OR L
+    JR NZ,_frn_restore         ; 入れ子の対応規則を広げない
+    CALL SKIP_SPACES
+    CALL LEX_IDENT_PEEK
+    OR A
+    JR Z,_frn_restore          ; 名前省略のNEXTも従来どおり
+    LD HL,IDENT_BUF
+    LD DE,RUN_FOR_VARNAME
+    LD B,8
+_frn_compare:
+    LD A,(DE)
+    CP (HL)
+    JR NZ,_frn_wrong_name
+    INC DE
+    INC HL
+    DJNZ _frn_compare
+    JR _frn_restore
+_frn_wrong_name:
+    LD A,1
+    LD (ERROR_KIND),A
+    LD (ERROR_FLAG),A
+_frn_restore:
+    POP IY
+    POP AF
+    LD (IDENT_SFX),A
+    POP HL
+    LD (IDENT_LEN),HL
+    POP HL
+    LD (RUN_TMP16),HL
+    POP HL
+    LD (LINE_END),HL
+    POP HL
+    LD (CUR_PTR),HL
+    LD HL,RUN_FOR_VARNAME
+    LD DE,IDENT_BUF
+    LD BC,8
+    LDIR
     RET
 
 NEXT_STMT:

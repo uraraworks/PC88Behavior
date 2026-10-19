@@ -251,6 +251,39 @@ class Suite:
         assert 'out of memory' in text and re.search(r'shared\s*1\b',text),text
         self.ok('FOR/GOSUB共用域の衝突でERR7（n=121、19B＋7B×1、GOSUB余白92B）')
 
+    @staticmethod
+    def for_wrongvar_rejected(text):
+        # 誤り番号だけでは本体を1回実行する旧実装を検出できない。
+        return ('next without for' in text and
+                re.search(r'r4state\s*29\s+17\b',text) is not None and
+                re.search(r'^r4body$',text,re.M) is None)
+
+    def for_names(self):
+        commands=[(line,160) for line in [
+            '10 I=17:D=29',
+            '20 FOR I=1 TO 1:D=73:PRINT "R4BODY"',
+            '30 NEXT J']]+[('CLS:RUN',500),('PRINT "R4STATE";D;I',160)]
+        _,text=self.run('for-wrongvar',commands)
+        assert self.for_wrongvar_rejected(text), 'FOR変数違い: ERR1・本体未実行・初期値未代入'
+        # 陰性対照: 同じプログラムのNEXT名を合わせれば本体と代入に到達する。
+        matched=[(cmd.replace('NEXT J','NEXT I'),pause) for cmd,pause in commands]
+        _,text=self.run('for-matchedvar',matched)
+        assert (not self.for_wrongvar_rejected(text) and
+                re.search(r'r4state\s*73\s+2\b',text) and
+                re.search(r'^r4body$',text,re.M) and 'error' not in text), 'FOR同名の陽性対照'
+        # 空白、接尾辞、既定型、7文字の同一性、直接行、名前省略を既存規則で扱う。
+        for tag,setup,loop in [
+            ('spaces','', 'FOR I%=1 TO 1:D=D+1:NEXT   i%'),
+            ('single','', 'FOR I!=1 TO 1:D=D+1:NEXT I'),
+            ('default','DEFINT I:', 'FOR I=1 TO 1:D=D+1:NEXT I%'),
+            ('long','', 'FOR ABCDEFGH=1 TO 1:D=D+1:NEXT ABCDEFGX'),
+            ('omitted','', 'FOR I=1 TO 1:D=D+1:NEXT'),
+            ('nested','', 'FOR I=1 TO 1:FOR J=1 TO 1:D=D+1:NEXT J:NEXT I')]:
+            _,text=self.run('for-name-'+tag,[(setup+'D=0:'+loop,500),
+                           ('CLS:PRINT "R4COUNT";D',160)])
+            assert re.search(r'r4count\s*1\b',text), 'FOR名前規則: '+tag
+        self.ok('FOR変数違いを本体/初期代入前にERR1、同名対照・空白/型/長名/直接行/省略/入れ子')
+
     def exhaustion(self):
         # ページ不足とヒープ不足を各々起こし、既存値とBASIC復帰を確認。
         lines=[f'{(i+1)*10} S{i}$="'+('X'*40)+'"' for i in range(90)]
@@ -287,8 +320,8 @@ def main():
         work=args.work_dir or Path(temp)
         work.mkdir(parents=True,exist_ok=True)
         suite=Suite(work)
-        suite.large();suite.wide_capture();suite.capture_edge();suite.symbols();suite.strings();suite.edits();suite.limits();suite.exhaustion()
-        print('l4_memdyn_selftest: OK（全13群、自作ROM/自作媒体のみ）')
+        suite.large();suite.wide_capture();suite.capture_edge();suite.symbols();suite.strings();suite.edits();suite.limits();suite.for_names();suite.exhaustion()
+        print('l4_memdyn_selftest: OK（全14群、自作ROM/自作媒体のみ）')
 
 if __name__=='__main__':
     main()
