@@ -80,6 +80,7 @@ L4_LOAD_GAP_ASM = REPO / "src" / "l4_basic" / "load_gap.asm"
 # 拡張ROMバンク(4th ROM)の土台。docs/spec/ext-rom-bank.md 参照。
 EXT_BANK_DIR = REPO / "src" / "ext_bank"
 EXT_BANK_RELAY_ASM = EXT_BANK_DIR / "relay.asm"
+EXT_BANK_SELFTEST_ASM = EXT_BANK_DIR / "selftest.asm"
 EXT_BANK_WINCALL_PROBE_ASM = EXT_BANK_DIR / "wincall_probe.asm"
 
 # 故障注入（tools/l4_basic_selftest.sh の陰性対照用）。
@@ -261,7 +262,7 @@ KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
 # EXT_BANK_LOOP_TEST(割り込みを有効にしたまま多数回EXT_BANK_CALLを
 # 呼ぶ自己検査)の呼び出しを差し込む。STEADY_WAITはHALT/JPで毎フレーム
 # 回るループなので、呼び出し先は自前で「実行済みフラグ」を見て
-# 2回目以降は素通りする(src/ext_bank/relay.asm EXT_BANK_LOOP_TEST)。
+# 2回目以降は素通りする(src/ext_bank/selftest.asm EXT_BANK_LOOP_TEST)。
 STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 
 # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)・割り込み処理
@@ -1336,7 +1337,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     key_table_path.write_text(key_table_text, encoding="utf-8")
 
     vsync_regcheck_path = work / "vsync_regcheck_gen.asm"
-    vsync_regcheck_path.write_text(VSYNC_REGCHECK_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    if enable_vsync_regcheck:
+        vsync_regcheck_path.write_text(VSYNC_REGCHECK_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     # M7段階3b: BASIC核(直接モードPRINT)。tokens.asm/print_dispatch.asm/
     # errors.asmは生成物(手で編集しない)、lexer.asm/interp.asmは新規実装。
@@ -1424,17 +1426,20 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             EXT_BANK_BCDE_SAVE_FAULT_OLD, EXT_BANK_BCDE_SAVE_FAULT_NEW)
         ext_bank_relay_text = ext_bank_relay_text.replace(
             EXT_BANK_BCDE_RESTORE_FAULT_OLD, EXT_BANK_BCDE_RESTORE_FAULT_NEW)
+    if enable_ext_bank_selftest:
+        ext_bank_relay_text += EXT_BANK_SELFTEST_ASM.read_text(encoding="utf-8")
     ext_bank_relay_path = work / "ext_bank_relay_gen.asm"
     ext_bank_relay_path.write_text(ext_bank_relay_text, encoding="utf-8")
     ext_bank_relay_include = f'\nINCLUDE "{ext_bank_relay_path}"\n'
 
     # 「窓の中から呼んでも戻れる」自己検査用プローブ(src/ext_bank/
     # wincall_probe.asm)。窓の中の常駐コードとして振る舞わせたいので、
-    # 常にrun.asmの直後(=既存モジュールの末尾)にINCLUDEする
+    # 自己検査有効時だけrun.asmの直後にINCLUDEする
     # (--inject-ext-bank-window-faultの影響を受けない)。
     ext_bank_wincall_probe_path = work / "ext_bank_wincall_probe_gen.asm"
-    ext_bank_wincall_probe_path.write_text(
-        EXT_BANK_WINCALL_PROBE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
+    if enable_ext_bank_selftest:
+        ext_bank_wincall_probe_path.write_text(
+            EXT_BANK_WINCALL_PROBE_ASM.read_text(encoding="utf-8"), encoding="utf-8")
 
     if inject_ext_bank_window_fault:
         pad_mark = "AEL_ROM_LAYOUT_PAD:\n"
@@ -1455,7 +1460,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         f'\nINCLUDE "{screen_path}"\n'
         + f'\nINCLUDE "{keyboard_path}"\n'
         + f'\nINCLUDE "{key_table_path}"\n'
-        + f'\nINCLUDE "{vsync_regcheck_path}"\n'
+        + (f'\nINCLUDE "{vsync_regcheck_path}"\n' if enable_vsync_regcheck else "")
         + f'\nINCLUDE "{REPO / "src/l4_basic/state.asm"}"\n'
         + (f'\nINCLUDE "{tokens_path}"\n' if enable_l4_selftest else "")
         + f'\nINCLUDE "{print_dispatch_path}"\n'
@@ -1470,7 +1475,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{load_path}"\n'
         + f'\nINCLUDE "{save_path}"\n'
     )
-    combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
+    if enable_ext_bank_selftest:
+        combined += f'\nINCLUDE "{ext_bank_wincall_probe_path}"\n'
+    else:
+        # プローブの旧17Bは未配置の空きにする。後続の常駐部とmain-sub末尾は
+        # 動かさない（DSで使用済み領域にはしない）。
+        combined += '\nORG $ + 17\n'
     combined += f'\nINCLUDE "{REPO / "src/l4_basic/keyboot.asm"}"\n'
     combined += f'\nINCLUDE "{REPO / "src/ext_bank/capacity_main.asm"}"\n'
     if enable_main_sub_read:

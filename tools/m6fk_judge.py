@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path
 
 import m6fk_script as script
 
-ERROR_TABLE = Path(__file__).resolve().parent.parent / "src/l4_basic/errors.asm"
+ERROR_TABLE = Path(__file__).resolve().parent.parent / "src/l4_basic/errors.tsv"
 
 
 def errors() -> dict[int, str]:
     raw = ERROR_TABLE.read_text(encoding="utf-8")
     return {int(number): message for number, message in
-            re.findall(r'^ERR_MSG_(\d+):\s*\n\s*DB "([^"]+)",0', raw, re.M)}
+            (line.split("\t", 1) for line in raw.splitlines()
+             if line and not line.startswith("#"))}
 
 
 def signed(row: int, content: str) -> tuple[int, int, str]:

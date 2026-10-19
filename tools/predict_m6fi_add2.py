@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import re
 import sys
 from pathlib import Path
 
@@ -18,9 +17,10 @@ class PredictionError(ValueError):
     pass
 
 
-def messages(path: Path = HERE.parent / "src/l4_basic/errors.asm") -> dict[int, str]:
+def messages(path: Path = HERE.parent / "src/l4_basic/errors.tsv") -> dict[int, str]:
     source = path.read_text(encoding="utf-8")
-    found = re.findall(r'^ERR_MSG_(\d+):\s*\n\s*DB "([^"\r\n]+)",0\s*$', source, re.M)
+    found = [line.split("\t", 1) for line in source.splitlines()
+             if line and not line.startswith("#")]
     result = {int(number): body for number, body in found}
     if len(result) != len(found) or not result:
         raise PredictionError("エラー表")

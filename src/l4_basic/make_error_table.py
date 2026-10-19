@@ -4,11 +4,9 @@ make_error_table.py — docs/spec/l4-basic.md 第6.1節のエラーメッセー�
 （マニュアルのエラー番号・文言、資料の記載として仕様書に既に転記済み）から
 src/l4_basic/errors.tsv と src/l4_basic/errors.asm を機械生成する。
 
-第6.1節は「開発者判断で採る」と明記済みの一覧であり、この版で使うのは
-構文の誤り（番号2, "Syntax error"）の文言だけだが、指示どおり一覧全体を
-表にしてよいのでそうする。番号に "?" が付く項（60?）は資料自身が確信を
-持てないと注記している項なので、この版の表からは除外する
-（l4-basic.md 第6.1節の指示どおり）。
+TSVは一覧全体を保持し、ROMには使用中とファイル入出力用予約番号の
+文言だけを生成する。番号に "?" が付く項（60?）は資料自身が確信を
+持てないと注記しているため除外する（第6.1節の指示どおり）。
 
 読むのは docs/spec/l4-basic.md（仕様書側）だけであり、マニュアル本文
 （refs/manual.txt 等）は読まない。CLAUDE.md「情報の流れ」（仕様書から
@@ -16,8 +14,7 @@ src/l4_basic/errors.tsv と src/l4_basic/errors.asm を機械生成する。
 
 出力:
   src/l4_basic/errors.tsv  : number<TAB>message（機械可読）
-  src/l4_basic/errors.asm  : 全項目のテーブル＋SYNTAX_ERROR_MSGラベル
-                             （番号2の項を直接指す独立ラベル）
+  src/l4_basic/errors.asm  : 使用中とファイル入出力用予約番号の文言
 
 使い方:
   src/l4_basic/make_error_table.py
@@ -31,6 +28,9 @@ import re
 
 TABLE_HEADER = "| 番号 | メッセージ |"
 ROW_RE = re.compile(r"^\|\s*(\S+)\s*\|\s*(.+?)\s*\|$")
+# ERRKIND_TABLEから引かれず、ファイル入出力の予約にも含めない番号。
+OMITTED_ROM_NUMBERS = frozenset({14, 16, 19, 20, 21, 23, 27, 31, 32, 33, 56, 59, 69, 71, 72})
+
 SYNTAX_ERROR_NUMBER = "2"
 SYNTAX_ERROR_TEXT = "Syntax error"
 
@@ -104,19 +104,16 @@ def write_outputs(rows: list[tuple[str, str]], tsv_path: str, asm_path: str) -> 
     lines.append("; 出所: docs/spec/l4-basic.md 第6.1節（開発者判断で採用したマニュアルの")
     lines.append("; エラーメッセージ一覧。番号に'?'が付く項は除外済み）。")
     lines.append(";")
-    lines.append("; 今回使うのは構文の誤り(SYNTAX_ERROR_MSG、番号2)の文言だけ。")
-    lines.append("; 他の項目は一覧として持つのみで、この段階では未使用。")
+    lines.append("; ERRKIND_TABLEで使う文言とファイル入出力の予約番号を生成する。")
+    lines.append("; 全番号の文言・判定器具の入力はerrors.tsvに保持する。")
     lines.append("")
     for number, message in rows:
+        if int(number) in OMITTED_ROM_NUMBERS:
+            continue
         safe_num = re.sub(r"[^0-9A-Za-z]", "_", number)
         lines.append(f"ERR_MSG_{safe_num}:")
         lines.append(f'    DB "{asm_escape(message)}",0')
     lines.append("")
-    lines.append("; 構文の誤り（番号2）を直接指す独立ラベル。interp.asmが参照する。")
-    lines.append("SYNTAX_ERROR_MSG:")
-    lines.append(f'    DB "{asm_escape(SYNTAX_ERROR_TEXT)}",0')
-    lines.append("")
-
     with open(asm_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
