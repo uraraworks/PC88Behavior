@@ -328,6 +328,9 @@ SCRIPTS_EXPECTED=(
   "tools/l4_line_selftest.sh:0"
   "tools/l4_circle_selftest.sh:0"
   "tools/l4_paint_selftest.sh:0"
+  # q1b: 本走は全件2.9〜8.7時間かつsrc/全体に依存するため登録しない。
+  # run_l4_conform_self.sh は run_all と並べて別に回し、ここでは短時間自己検査だけ。
+  "tools/run_l4_conform_self_selftest.sh:0"
   "tools/l4_getput_selftest.sh:0"
   # l4-s9y: 合成陰性対照と自作HEADだけ。公式ROM・公式保存観測を開かない。
   "tools/l4_dim_selftest.sh:0"
