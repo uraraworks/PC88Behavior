@@ -32,9 +32,9 @@ import os, sys, time
 from pathlib import Path
 work, result, exp = map(Path, sys.argv[1:])
 assert not any(k.startswith('PC88_REF_') for k in os.environ)
-(work/'started').touch()
+(work.parent/(work.name+'.started')).touch()
 deadline = time.monotonic()+10
-while work.parent.name == 'batch-1' and len(list(work.parent.glob('*/started'))) < 2:
+while work.parent.name == 'batch-1' and len(list(work.parent.glob('*.started'))) < 2:
     if time.monotonic() > deadline:
         raise RuntimeError('parallel barrier')
     time.sleep(.01)
@@ -103,6 +103,116 @@ result.write_text(exp.read_text())
         assert sorted(calls) == ['alpha','beta']
 
 
+def diagnostic_selftest(root):
+    from types import SimpleNamespace
+    import l4_inkey_measure as mod
+    work = root/'diagnostic'; work.mkdir()
+    exp, out = work/'expected.tsv', work/'measured.tsv'
+    # 合成値を使い、腕ID以外の比較内容が診断へ出ないことを確認。
+    def write(path, headers, rows):
+        with path.open('w', newline='') as f:
+            w = csv.writer(f, delimiter='\t'); w.writerow(headers); w.writerows(rows)
+    write(exp, ['arm','prediction'], [('hold-a', json.dumps(['SECRET-WANTED']))])
+    write(out, ['arm','repeat','print_values','gate'],
+          [('hold-a', i, json.dumps(['SECRET-ACTUAL']), 'pass') for i in (1,2)])
+    row = ('synthetic','unused.py',[],[],1,1)
+    result = work/'status.txt'
+    def mismatch(*args):
+        return runner.checked_status(mod, exp, [out], False)
+    with patch.object(runner,'worker',side_effect=mismatch):
+        assert runner.execute_worker(row, root/'rom', work, result) == 1
+    payload = json.loads(result.read_text())
+    assert payload['mismatch'] == ['hold-a'] and payload['status']=='NG'
+    text = result.read_text() + runner.summary(payload)
+    assert 'hold-a' in text and 'SECRET' not in text
+    write(out, ['arm','repeat','print_values','gate'],
+          [('hold-a', i, json.dumps(['SECRET-ACTUAL']), 'gate_failed') for i in (1,2)])
+    with patch.object(runner,'worker',side_effect=mismatch):
+        assert runner.execute_worker(row, root/'rom', work, result)==1
+    assert json.loads(result.read_text())['gate']==['hold-a']
+    def explosion(*args):
+        with tempfile.TemporaryDirectory(prefix='retained-', dir=work) as td:
+            (Path(td)/'marker').touch()
+            raise ValueError('SECRET-EXCEPTION-BODY')
+    with patch.object(runner,'worker',side_effect=explosion):
+        assert runner.execute_worker(row, root/'rom', work, result)==1
+    payload = json.loads(result.read_text())
+    text = result.read_text()+runner.summary(payload)
+    assert payload['exception']=='ValueError' and payload['frames']
+    assert list(work.glob('retained-*/marker'))
+    assert any('l4_conform_selftest.py:' in f and 'explosion' in f for f in payload['frames'])
+    assert 'SECRET' not in text and len(payload['frames'])<=4
+    # 集計行にも同じ診断が載り、NG作業先を保持する。
+    batch = root/'diagnostic-batch'; batch.mkdir()
+    def failed(*args):
+        dest = args[2]; dest.mkdir(); (dest/'status.txt').write_text(json.dumps(payload))
+        return payload
+    with patch.object(runner,'measure_one',side_effect=failed), redirect_stdout(io.StringIO()) as sink:
+        assert runner.run_rows([row], root/'rom', batch, 1, True)==1
+    assert 'ValueError' in sink.getvalue() and 'explosion' in sink.getvalue()
+    assert 'SECRET' not in sink.getvalue() and (batch/'synthetic/status.txt').exists()
+    # 実際のworker結果ファイルを親が読み、ID要約を出す。
+    def synthetic(argv, env):
+        Path(argv[argv.index('--result')+1]).write_text(json.dumps(
+            dict(status='NG', mismatch=['hold-a'], gate=[])))
+        return 1
+    batch = root/'diagnostic-ids'; batch.mkdir()
+    with patch.object(runner,'run_silent',side_effect=synthetic), redirect_stdout(io.StringIO()) as sink:
+        assert runner.run_rows([row], root/'rom', batch, 1, True)==1
+    assert '不一致=1:hold-a' in sink.getvalue() and 'SECRET' not in sink.getvalue()
+    # 外部許可根は明示した子孫だけ。symlinkによる脱出も拒否。
+    from l4_work_paths import allowed_path, ENV
+    external = root/'allowed'; external.mkdir()
+    sibling = root/'sibling'; sibling.mkdir()
+    (external/'escape').symlink_to(sibling, target_is_directory=True)
+    with patch.dict(os.environ, {ENV:str(external)}):
+        assert allowed_path(external/'child', ())
+        assert not allowed_path(sibling, ())
+        assert not allowed_path(external/'escape/child', ())
+        assert not allowed_path(Path('relative'), ())
+    for invalid in (str(runner.REPO), str(runner.REPO.parent), '/', 'relative'):
+        with patch.dict(os.environ, {ENV:invalid}):
+            assert not allowed_path(runner.REPO/'tools/new-file', ())
+    # 追補2凍結表の腕を本体+追補カタログから取得し、4関門を省かない。
+    import l4_pusing_measure as pu
+    row = next(r for r in runner.ROWS if r[0]=='pusing_add2')
+    def measure(rom, official, selected, dest, **kwargs):
+        assert not official and 'scientific-07' in {a['id'] for a in selected}
+        return [dict(arm=a, obs=[pu.prediction(a)]*2, others=[0,0],
+                     failed=[False,False], gate=True) for a in selected]
+    with patch.object(pu,'measure',side_effect=measure):
+        # 合成値の照合は凍結値と一致する必要がない。カタログ・関門・checkの接続を確認。
+        runner.DETAIL.clear()
+        assert runner.check_selected(pu, row, root/'rom', work, runner.expected(row), out) in ('OK','NG')
+    assert {a['id'] for a in pu.gates2()} <= {r['arm'] for r in runner.read_rows(out)}
+    # 一体checkのID抽出と関門分類も値を転送しない。
+    for name, record in (('listkw', dict(id='test-arm', obs_sig='gate_failed')),
+                         ('s5j', dict(arm=SimpleNamespace(id='test-arm'), stable=False)),
+                         ('listnum', dict(id='test-arm', gates=[True,False]))):
+        def original(*args): return [record]
+        def main():
+            if name == 'listnum': fake.check_records([record], {})
+            else: fake.measure()
+            print('test-arm' if name == 's5j' else 'NG test-arm: SECRET-BODY')
+            return 1
+        fake = SimpleNamespace(measure=original, check_records=original, main=main)
+        runner.DETAIL.clear()
+        assert runner.integrated_check(fake, name, {'test-arm'}) == 'NG'
+        assert runner.DETAIL['mismatch'] == runner.DETAIL['gate'] == ['test-arm']
+        assert 'SECRET' not in json.dumps(runner.DETAIL)
+    import l4_rnd_measure as rnd
+    synthetic = [dict(round='round1', arm='test-arm', count='1', sha256_16='wanted')]
+    runner.DETAIL.clear()
+    with patch.object(rnd,'load_expected',return_value=synthetic), \
+         patch.object(rnd,'arm_catalog',return_value={('round1','test-arm'):dict(id='test-arm',counts=[1])}), \
+         patch.object(rnd,'run_arm',return_value=([['SECRET-VALUE']],0)), \
+         patch.object(rnd,'valid',return_value=False):
+        assert runner.check_rnd(rnd, root/'rom', exp, work/'rnd')=='NG'
+    assert runner.DETAIL['mismatch']==runner.DETAIL['gate']==['round1:test-arm']
+    assert 'SECRET' not in json.dumps(runner.DETAIL)
+    print('OK NG診断: 不一致ID・関門ID / 例外型と末尾4フレーム / 本文・値なし / 集計要約・NG保持 / 外部許可根・脱出拒否 / 追補2カタログ')
+
+
 def selftest(work):
     import l4_paint_measure as p
     lm = p.lm
@@ -111,13 +221,13 @@ def selftest(work):
         arms = {a['id']: a for a in p.arms()}
         plain = dict(arm='base-cls3', n=0, hash=lm.pix_hash({}), tail=0,
                      stat=[], spans=[], res={}, sent=1, last={})
-        a = arms['ws-8a']
-        seed = dict(p.comparable(plain), res={'2': [0,0,0]})
+        a = arms[next(iter(p.KNOWN_DIFFERENCES))]
+        seed = dict(p.comparable(plain), res={})
         alternative = p.known_difference_target(a, seed)
         official = dict(alternative, hash='synthetic-frozen-observation')
         expected, measured = root/'expected.tsv', root/'measured.tsv'
         lm.write_tsv(expected, ['arm','observation'],
-                     [('ws-8a',json.dumps(official)),
+                     [(a['id'],json.dumps(official)),
                       ('base-cls3',json.dumps(p.comparable(plain)))])
 
         def save(value, base=plain, gate='pass'):
@@ -125,7 +235,7 @@ def selftest(work):
             lm.write_tsv(measured, ['arm','repeat','plan','observation','gate',
                                     'prediction_judgement','failed'],
                          [(aid,i+1,json.dumps(p.plan(arms[aid])),json.dumps(o),gate,'{}',0)
-                          for aid,o in (('ws-8a',obs),('base-cls3',base)) for i in range(2)])
+                          for aid,o in ((a['id'],obs),('base-cls3',base)) for i in range(2)])
 
         def verdict(exp=expected):
             _, bad, known, _ = p.check(exp, measured)
@@ -177,9 +287,10 @@ def selftest(work):
         assert not p.check(frozen, measured, ['base-cls3'])[1]
         # 許可された自作入口が測定・checkを呼び、NGを握り潰さないこと。
         row = next(r for r in runner.ROWS if r[0]=='line')
-        with patch.object(runner, 'run_silent', side_effect=[0, 1]) as run:
+        with patch.object(runner, 'run_silent', return_value=0) as run, \
+             patch('l4_line_measure.check', return_value=([], {'synthetic-arm': []})):
             assert runner.worker(row, root/'rom', root, root/'result') == 'NG'
-            assert run.call_count == 2
+            assert run.call_count == 1
             assert all('--official' not in call.args[0] for call in run.call_args_list)
         # KEYの4要素戻り値（KNOWNあり）も既存判定のまま要約する。
         import l4_key_measure as key
@@ -196,6 +307,7 @@ def selftest(work):
         with patch.object(Path, 'open', side_effect=AssertionError('一覧で本文を開いた')), \
              redirect_stdout(io.StringIO()):
             runner.table()
+        diagnostic_selftest(root)
         cache_selftest(root)
         env = runner.clean_env(root)
         assert not any(k.startswith('PC88_REF_') for k in env)

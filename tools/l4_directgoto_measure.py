@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from l4_work_paths import allowed_path
 import sys
 import tempfile
 import traceback
@@ -433,7 +434,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
     args=p.parse_args()
     if hasattr(args,'work_dir'):
-        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(r.resolve()) for r in (ROOT, REPO/'tmp/t1-impl-work', REPO/'tmp/t2-impl-work')): p.error('作業先はtmp/t1-workまたはtmp/t1-impl-workまたはtmp/t2-impl-work内の絶対パス必須')
+        if not allowed_path(args.work_dir, (ROOT, REPO/'tmp/t1-impl-work', REPO/'tmp/t2-impl-work')): p.error('作業先はtmp/t1-workまたはtmp/t1-impl-workまたはtmp/t2-impl-work内の絶対パス必須')
         args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(f'- `{a["id"]}`: `{a["stmt"]}` — {a["prediction"]}')

@@ -10,6 +10,9 @@ import csv
 import importlib
 import json
 import os
+import shutil
+import traceback
+from unittest.mock import patch
 from pathlib import Path
 import subprocess
 import sys
@@ -78,6 +81,139 @@ SELECTED = {'hexconst','strcmp','strfunc','peekpoke','inkey','wrap','deffn',
             'memlimit_add1','memlimit_add2','memlimit_add3','pusing','pusing_add2'}
 
 
+# 診断に値・例外本文を混ぜない。workerごとの独立プロセス内だけで使用。
+DETAIL = {}
+
+
+def exception_detail(exc):
+    frames = [(Path(f.f_code.co_filename).name, n, f.f_code.co_name)
+              for f, n in traceback.walk_tb(exc.__traceback__)]
+    return dict(exception=type(exc).__name__,
+                frames=[f'{file}:{line} {func}' for file, line, func in frames[-4:]])
+
+
+def read_rows(path):
+    with path.open(newline='', encoding='utf-8') as stream:
+        return list(csv.DictReader((line for line in stream if not line.startswith('#')), delimiter='\t'))
+
+
+def gates(paths):
+    bad = set()
+    for path in paths:
+        if not path.exists():
+            continue
+        for r in read_rows(path):
+            if (r.get('gate', 'pass') != 'pass' or
+                    r.get('status') == 'gate_failed' or
+                    r.get('typing_or_capture_failed', '0') != '0' or
+                    r.get('skipped', '0') != '0'):
+                bad.add(r['arm'])
+    return sorted(bad)
+
+
+def note_bad(bad, paths):
+    DETAIL['mismatch'] = sorted(set(bad))
+    DETAIL['gate'] = gates(paths)
+
+
+def bool_bad(mod, exp, out):
+    """bool型checkの診断用。期待値・観測を腕単位で比較しIDのみを返す。
+
+    合否は必ず器具のcheckで決定する。射影はその器具と同じcomparableを使う。
+    """
+    wanted, actual = {}, {}
+    for r in read_rows(exp):
+        if r.get('candidate', 'K_BUF') != 'K_BUF' and mod.__name__ == 'l4_inkey_measure':
+            continue
+        wanted.setdefault(r['arm'], []).append(r)
+    for r in read_rows(out):
+        actual.setdefault(r['arm'], []).append(r)
+    catalog = ({a['id']: a for a in mod.controls()+mod.arms()}
+               if hasattr(mod, 'controls') else {})
+    def value(r, aid, expected=False):
+        field = next(k for k in (('prediction', 'observation', 'print_values') if expected
+                                  else ('observation', 'print_values')) if r.get(k))
+        v = json.loads(r[field])
+        if hasattr(mod, 'comparable'):
+            v = (mod.comparable(v) if mod.__name__ == 'l4_editinv_measure'
+                 else mod.comparable(v, catalog[aid]))
+        return v
+    bad = set(wanted) ^ set(actual)
+    for aid in set(wanted) & set(actual):
+        runs = actual[aid]
+        try:
+            targets = [value(r, aid, True) for r in wanted[aid]]
+            obs = [value(r, aid) for r in runs]
+            if (len(runs) != 2 or {r['repeat'] for r in runs} != {'1','2'} or
+                    obs[0] != obs[1] or any(v not in targets for v in obs) or
+                    any(r.get('status', 'pass') not in ('pass', 'observed') for r in runs)):
+                bad.add(aid)
+        except (ValueError, KeyError, TypeError, StopIteration):
+            bad.add(aid)
+    return sorted(bad)
+
+
+def checked_status(mod, exp, paths, checked, known=False):
+    if isinstance(checked, bool):
+        bad = bool_bad(mod, exp, paths[0]) if not checked else []
+        failed = not checked
+    else:
+        bad = list(checked[1])
+        failed = bool(bad)
+        known = bool(checked[2]) if len(checked) > 2 else known
+    if failed:
+        note_bad(bad, paths)
+    return status(failed, known)
+
+
+def ng_measure(paths):
+    note_bad([], paths)
+    return 'NG'
+
+
+def summary(detail):
+    parts = []
+    if detail.get('exception'):
+        parts.append('例外=' + detail['exception'] + ' 場所=' + ', '.join(detail['frames']))
+    for key, label in (('mismatch', '不一致'), ('gate', '関門落ち')):
+        ids = detail.get(key, [])
+        parts.append(f'{label}={len(ids)}' + (':' + ','.join(ids[:5]) if ids else ''))
+    if detail.get('process_rc') is not None:
+        parts.append(f"worker終了値={detail['process_rc']}")
+    return ' / '.join(parts)
+
+
+def out_output_bad(mod, exp, out):
+    wanted = {r['arm']: json.loads(r['observation']) for r in read_rows(exp)}
+    actual = {r['arm']['id']: r for r in mod.read_passed(out)}
+    return [aid for aid, value in wanted.items()
+            if aid not in actual or actual[aid]['obs'][0] != value]
+
+
+def emit_pusing_add2(mod, out, records):
+    """凍結追補は本体のscientific-07も含み、空書式の未凍結腕は含まない。
+
+    emit2の全selected2集合必須条件とは別に、同じ4関門で期待腕を測る。
+    値の照合は元のcheckに任せる。予測外を合格扱いする経路はない。
+    """
+    by_id = {r['arm']['id']: r for r in records}
+    def stable(r):
+        return (r['gate'] and not any(r['failed']) and
+                r['obs'][0] == r['obs'][1] and mod.valid(r['obs'][0]))
+    calibrated = all(a['id'] in by_id and stable(by_id[a['id']]) and
+                     by_id[a['id']]['obs'][0] == mod.prediction(a) for a in mod.gates2())
+    rows = []
+    passed = calibrated
+    for aid, r in by_id.items():
+        gate = calibrated and stable(r)
+        passed = passed and gate
+        for i in range(2):
+            rows.append((aid, i+1, json.dumps(r['obs'][i]),
+                         'pass' if gate else 'gate_failed', int(r['failed'][i])))
+    mod.write(out, ['arm','repeat','observation','gate','typing_or_capture_failed'], rows)
+    return passed
+
+
 def check_selected(mod, row, rom, work, exp, out):
     # checkの内部準備: 値は解釈・表示せず、全期待腕にちょうど対応する操作を選ぶ。
     with exp.open(newline='') as stream:
@@ -86,7 +222,7 @@ def check_selected(mod, row, rom, work, exp, out):
     if name.startswith('memlimit'):
         catalog = mod.selection(int(name[-1]) if '_add' in name else None)
     elif name == 'pusing_add2':
-        catalog = mod.selected2()
+        catalog = mod.controls()+mod.arms()+mod.selected2()
     else:
         catalog = mod.controls()+mod.arms()
         if name == 'inkey': catalog += mod.addendum_arms()
@@ -97,14 +233,22 @@ def check_selected(mod, row, rom, work, exp, out):
     trap = not (name=='hexconst' and not any(a.get('error') for a in selected if a['id'].startswith('control-')))
     options = {'trap': trap} if name=='hexconst' else {}
     records = mod.measure(rom, False, selected, work, **options)
-    if name == 'wrap':
+    if name == 'pusing_add2':
+        passed = emit_pusing_add2(mod, out, records)
+    elif name == 'wrap':
         passed = mod.emit(out, records, selected)
     else:
         passed = (mod.emit2 if name=='pusing_add2' else mod.emit)(out, records, **options)
-    if not passed: return 'NG'
+    if not passed:
+        DETAIL['gate'] = gates([out])
+        with KnownSink() as sink:
+            checked = mod.check(exp, out)
+        checked_status(mod, exp, [out], checked, sink.known)
+        DETAIL['gate'] = gates([out])
+        return 'NG'
     with KnownSink() as sink:
         agrees = mod.check(exp, out)
-    return status(not agrees, sink.known)
+    return checked_status(mod, exp, [out], agrees, sink.known)
 
 
 def expected(row):
@@ -131,7 +275,7 @@ def table():
         name, tool, m, c, count, seconds = r
         if name in SELECTED:
             ma = 'API measure(R,False,期待腕の操作集合,W); emit(M,records)'
-            if name == 'pusing_add2': ma += '（selected2/emit2）'
+            if name == 'pusing_add2': ma += '（本体＋selected2カタログ、追補2の4関門）'
             if name.startswith('memlimit'): ma += ' ' + ' '.join(m)
             ca = 'API check(E,M)（期待値全腕、predicted-onlyなし）'
         elif m[:1] == ['integrated']:
@@ -163,12 +307,11 @@ def status(rc, known=False):
 
 
 def worker(row, rom, work, result):
-    """別プロセス。標準出力は親で/dev/nullへ。結果は固定語だけ。"""
+    """別プロセス。標準出力は破棄し、結果は合否と値を含まない診断だけ。"""
     name, tool, margs, cargs, _, _ = row
     mod = importlib.import_module(Path(tool).stem)
     out = work/'measured.tsv'
     exp = expected(row)
-    known = False
     if name in SELECTED:
         return check_selected(mod, row, rom, work, exp, out)
     if margs[:1] == ['api']:
@@ -179,50 +322,154 @@ def worker(row, rom, work, result):
                 mod.ROUND = rnd
                 p = dest/'measured.tsv'; paths.append(p)
                 if not mod.emit(p, mod.measure(rom, False, dest)):
-                    return 'NG'
+                    return ng_measure(paths)
             with KnownSink() as sink:
                 _, bad = mod.results_check(exp, paths)
+            note_bad(bad, paths) if bad else None
             return status(bool(bad), sink.known)
         if name == 'out_output':
             rc = mod.measure(rom, False, work, out)
             with KnownSink() as sink:
                 differs = mod.check(exp, out) if not rc else True
-            return status(rc or differs, sink.known)
+            if rc:
+                DETAIL['gate'] = gates([out])
+                if out.exists(): note_bad(out_output_bad(mod, exp, out), [out])
+                return 'NG'
+            if differs: note_bad(out_output_bad(mod, exp, out), [out])
+            return status(differs, sink.known)
         records = (mod.measure(rom, False, mod.arms(), work) if name == 'input'
                    else mod.measure(rom, False, work))
         if not mod.emit(out, records):
+            with KnownSink() as sink:
+                checked = mod.check(exp, out)
+            checked_status(mod, exp, [out], checked, sink.known)
+            DETAIL['gate'] = gates([out])
             return 'NG'
         with KnownSink() as sink:
             checked = mod.check(exp, out)
-        bad = checked[1]
-        return status(bool(bad), bool(checked[2]) if len(checked)>2 else sink.known)
+        return checked_status(mod, exp, [out], checked, sink.known)
     if margs[:1] == ['integrated']:
         # 元のcheckが測定と照合を一体で行う。TMPDIRで作業先を外部へ固定。
         sys.argv = [tool, 'check', '--rom-dir', str(rom), '--expected', str(exp), *cargs]
-        # KNOWNの出力だけを検出し、本文は保持しない。
-        with KnownSink() as sink:
-            rc = mod.main()
-        return status(rc, sink.known)
+        # 合否語と許可した腕IDだけを検出する。
+        if name == 'rnd': return check_rnd(mod, rom, exp, work)
+        return integrated_check(mod, name, integrated_ids(exp))
     env = dict(os.environ)
     rc = run_silent([sys.executable, str(REPO/'tools'/tool), 'measure', '--rom-dir', str(rom),
                      '--work-dir', str(work), '--out', str(out), *margs], env)
     if rc:
+        # measureが候補差をNGとした場合も、存在するTSVから腕を診断する。
+        if not out.exists(): return ng_measure([out])
+        with KnownSink() as sink:
+            checked = mod.check(exp, out)
+        checked_status(mod, exp, [out], checked, sink.known)
+        DETAIL['gate'] = gates([out])
         return 'NG'
-    if name == 'paint':
-        _, bad, known, _ = mod.check(exp, out)
-        return status(bool(bad), bool(known))
-    rc = run_silent([sys.executable, str(REPO/'tools'/tool), 'check', '--expected', str(exp),
-                     '--measured', str(out), *cargs], env)
-    return status(rc)
+    with KnownSink() as sink:
+        checked = mod.check(exp, out)
+    return checked_status(mod, exp, [out], checked, sink.known)
+
+
+def check_rnd(mod, rom, exp, work):
+    """一体checkと同じ全腕・1走の署名照合。構造化されたIDだけを記録する。"""
+    selected = mod.select_expected(mod.load_expected(exp), None, True)
+    catalog = mod.arm_catalog()
+    bad, gate = [], []
+    if not selected:
+        raise ValueError('照合対象なし')
+    for row in selected:
+        aid = row['round'] + ':' + row['arm']
+        arm = catalog[(row['round'], row['arm'])]
+        dest = work / row['round'] / row['arm']; dest.mkdir(parents=True)
+        try:
+            if 'pages' in arm:
+                parts, _ = mod.run_paged_arm(rom, False, arm, dest)
+                valid_output = mod.paged_valid(parts, arm)
+                values = [value for part in parts for value in part]
+            else:
+                values, _ = mod.run_arm(rom, False, arm, dest)
+                valid_output = mod.valid(values, arm['counts']) and all(
+                    len(value) == (3 if arm['id'] == 'range' and i == 2 else 5)
+                    for i, value in enumerate(values))
+            if not valid_output: gate.append(aid)
+            agrees = (valid_output and len(values) == int(row['count']) and
+                      mod.rows_digest(values)[:16] == row['sha256_16'])
+        except Exception as exc:
+            agrees = False; gate.append(aid)
+            if 'exception' not in DETAIL: DETAIL.update(exception_detail(exc))
+        if not agrees: bad.append(aid)
+    if bad:
+        DETAIL.update(mismatch=sorted(bad), gate=sorted(gate))
+    return status(bool(bad))
+
+
+def record_gates(records):
+    for r in records:
+        aid = r.get('id')
+        if aid is None:
+            arm = r['arm']; aid = arm['id'] if isinstance(arm, dict) else arm.id
+        if (r.get('obs_sig') == 'gate_failed' or not r.get('stable', True) or
+                not all(r.get('gates', [True])) or not r.get('gate', True)):
+            DETAIL.setdefault('gate', []).append(aid)
+    DETAIL['gate'] = sorted(set(DETAIL.get('gate', [])))
+
+
+def integrated_check(mod, name, ids):
+    # 一体checkの戻り値はrcだけなので、測定レコードから関門IDを受け取る。
+    function = 'check_records' if name == 'listnum' else 'measure'
+    original = getattr(mod, function, None)
+    def observed(*args, **kwargs):
+        if name == 'listnum':
+            record_gates(args[0])
+            return original(*args, **kwargs)
+        records = original(*args, **kwargs)
+        record_gates(records)
+        return records
+    with KnownSink(ids=ids) as sink:
+        if original and name != 'rnd':
+            with patch.object(mod, function, observed):
+                rc = mod.main()
+        else:
+            rc = mod.main()
+    if rc:
+        DETAIL['mismatch'] = sorted(sink.bad)
+    return status(rc, sink.known)
+
+
+def integrated_ids(exp):
+    ids = set()
+    for line in exp.read_text().splitlines():
+        if line.startswith('# excluded\t'):
+            ids.update(line.split('\t')[1].split(','))
+        elif line and not line.startswith('#'):
+            ids.add(line.split('\t')[0])
+    # RNDはroundとarmを組み合わせて表示する。
+    for r in read_rows(exp):
+        if 'round' in r and 'arm' in r:
+            ids.add(r['round'] + ':' + r['arm'])
+    return ids
+
 
 
 class KnownSink:
     """行頭の固定語だけ検知。画面本文や差分は蓄積しない。"""
-    def __init__(self):
+    def __init__(self, ids=()):
+        self.ids = ids
+        self.bad = set()
+        self.line = ''
         self.known = False
         self.prefix = ''
     def write(self, value):
         for part in value.splitlines(keepends=True):
+            if self.ids:
+                self.line = (self.line + part)[:256]
+                if part.endswith('\n'):
+                    line = self.line.strip()
+                    for aid in self.ids:
+                        if (line == aid or line.startswith('NG ' + aid + ':') or
+                                line.startswith(aid + ' 不一致')):
+                            self.bad.add(aid)
+                    self.line = ''
             self.prefix = (self.prefix + part)[:6]
             if self.prefix.startswith('KNOWN '): self.known = True
             if part.endswith('\n'): self.prefix = ''
@@ -238,6 +485,7 @@ def clean_env(work):
     env = {k:v for k,v in os.environ.items() if not k.startswith('PC88_REF_')}
     env['PYTHONDONTWRITEBYTECODE'] = '1'
     env['TMPDIR'] = str(work)
+    env['PC88_L4_CONFORM_ALLOWED_ROOT'] = str(work.resolve())
     return env
 
 
@@ -309,8 +557,17 @@ def measure_one(row, rom, dest):
     rc = run_silent(['nice','-n','10',sys.executable,str(Path(__file__).resolve()),
                      '--worker',row[0],'--work-dir',str(dest),'--rom',str(rom),
                      '--result',str(result)], clean_env(dest))
-    value = result.read_text().strip() if result.exists() else 'NG'
-    return value if not rc and value in ('OK', 'KNOWN') else 'NG'
+    raw = result.read_text().strip() if result.exists() else 'NG'
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        payload = dict(status=raw)  # 合成・旧workerとの互換
+    if rc or payload.get('status') not in ('OK', 'KNOWN'):
+        payload['status'] = 'NG'
+        if not result.exists(): payload['process_rc'] = rc
+    else:
+        shutil.rmtree(dest)
+    return payload
 
 
 def run_rows(selected, rom, root, jobs, no_cache=False):
@@ -326,10 +583,11 @@ def run_rows(selected, rom, root, jobs, no_cache=False):
                 try:
                     saved = json.loads(entry.read_text())
                     if saved.get('key') == key and saved.get('status') in ('OK','KNOWN'):
-                        return 'CACHED', time.monotonic()-start
+                        return 'CACHED', time.monotonic()-start, {}
                 except (OSError, ValueError, AttributeError):
                     pass
-            value = measure_one(row, rom, root/row[0])
+            detail = measure_one(row, rom, root/row[0])
+            value = detail['status']
             if entry and value in ('OK','KNOWN'):
                 # 成功だけを原子的に記録。並行する別の本走とも途中状態を共有しない。
                 with tempfile.NamedTemporaryFile(mode='w', dir=cache, delete=False) as f:
@@ -339,20 +597,44 @@ def run_rows(selected, rom, root, jobs, no_cache=False):
                     temp.replace(entry)
                 finally:
                     temp.unlink(missing_ok=True)
-            return value, time.monotonic()-start
-        except Exception:
-            return 'NG', time.monotonic()-start
+            return value, time.monotonic()-start, detail
+        except Exception as exc:
+            detail = dict(status='NG', **exception_detail(exc))
+            dest = root/row[0]; dest.mkdir(exist_ok=True)
+            (dest/'status.txt').write_text(json.dumps(detail)+'\n')
+            return 'NG', time.monotonic()-start, detail
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {row[0]: pool.submit(run, row) for row in selected}
         results = {name: future.result() for name, future in futures.items()}
     counts = dict(OK=0, NG=0, KNOWN=0, CACHED=0)
-    for name, (value, seconds) in sorted(results.items()):
+    for name, (value, seconds, detail) in sorted(results.items()):
         counts[value] += 1
         print(f'{value} {name} {seconds:.1f}秒' +
-              ('（測定・照合または前提条件の不成立）' if value=='NG' else ''), flush=True)
+              (' ' + summary(detail) if value=='NG' else ''), flush=True)
     print('集計 ' + ' / '.join(f'{k} {v}' for k,v in counts.items()))
     return int(counts['NG'] != 0)
+
+
+class WorkerDirectory:
+    """worker内の測定中間物は親が合否に応じてまとめて処理する。"""
+    def __init__(self, *args, **kwargs):
+        self.name = tempfile.mkdtemp(*args, **kwargs)
+    def __enter__(self): return self.name
+    def __exit__(self, *args): pass
+    def cleanup(self): pass
+
+
+def execute_worker(row, rom, work, result):
+    DETAIL.clear()
+    try:
+        with patch.object(tempfile, 'TemporaryDirectory', WorkerDirectory):
+            value = worker(row, rom, work, result)
+    except Exception as exc:
+        value = 'NG'
+        DETAIL.update(exception_detail(exc))
+    result.write_text(json.dumps(dict(status=value, **DETAIL), ensure_ascii=False)+'\n')
+    return int(value == 'NG')
 
 
 def main():
@@ -376,12 +658,7 @@ def main():
     work = external_work(args.work_dir)
     if args.worker:
         row = next(r for r in ROWS if r[0] == args.worker)
-        try:
-            value = worker(row, args.rom, work, args.result)
-        except Exception:
-            value = 'NG'
-        args.result.write_text(value+'\n')
-        return int(value == 'NG')
+        return execute_worker(row, args.rom, work, args.result)
     names = args.only.split(',') if args.only is not None else [r[0] for r in ROWS]
     if not names or any(n not in {r[0] for r in ROWS} for n in names):
         ap.error('--only の名前が一覧にありません')
@@ -398,14 +675,21 @@ def main():
         kw.find_core()
     except (SystemExit, OSError):
         print('NG 前提不足: quasi88のコアがありません。tools/setup_harness.shで準備してください'); return 2
-    with tempfile.TemporaryDirectory(prefix='run-', dir=work) as td:
-        root = Path(td); env = clean_env(root)
+    root = Path(tempfile.mkdtemp(prefix='run-', dir=work))
+    try:
+        env = clean_env(root)
         rom = root/'rom'
         rc = run_silent([sys.executable, str(REPO/'src/build_main_rom.py'), str(rom),
                          '--work-dir', str(root/'asm')], env)
         if rc:
             print(f'NG 自作ROMビルド失敗 rc={rc}（前提・書込み・ビルド環境を確認）'); return 1
         return run_rows(selected, rom, root, args.j, args.no_cache)
+    finally:
+        # NGの器具ディレクトリだけ残す（ROM・ビルド中間物は除去）。
+        for path in root.iterdir():
+            if path.is_dir() and not (path/'status.txt').exists(): shutil.rmtree(path)
+        if not any(root.iterdir()): root.rmdir()
+        else: print(f'NG 作業先保持: {root}')
 
 
 if __name__ == '__main__':

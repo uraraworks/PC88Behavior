@@ -2,6 +2,7 @@
 """l4-t4 CALL・USR・VARPTR。自作コードと既知符号化だけを測る。"""
 import argparse, copy, csv, hashlib, io, json, os, re, subprocess, sys, tempfile, traceback
 from contextlib import redirect_stdout, redirect_stderr
+from l4_work_paths import allowed_path
 from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode=True
@@ -1380,10 +1381,10 @@ def main():
     for name in ('work_dir','out','expected','measured'):
         path=getattr(args,name,None)
         if isinstance(path,list):
-            if any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in path): p.error('入力もtmp/t4-work内')
+            if any(not allowed_path(x, (ROOT,)) for x in path): p.error('入力もtmp/t4-work内')
             continue
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work'))): p.error('作業・結果はtmp/t4-workまたはtmp/c2-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not any(x.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work')) for x in args.paths): p.error('入力もtmp/t4-work内')
+        if path is not None and (not allowed_path(path, (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work'))): p.error('作業・結果はtmp/t4-workまたはtmp/c2-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not allowed_path(x, (ROOT,IMPL_ROOT,T3B_IMPL_ROOT,REPO/'tmp/c2-work')) for x in args.paths): p.error('入力もtmp/t4-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False))

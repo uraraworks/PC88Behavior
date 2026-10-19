@@ -2,6 +2,7 @@
 """l4-s9z INPUT/LINE INPUT測定。画面本文は出力しない。"""
 import argparse, copy, csv, io, json, os, re, subprocess, sys, tempfile, traceback
 from contextlib import redirect_stdout, redirect_stderr
+from l4_work_paths import allowed_path
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools'))
 import l4_dim_measure as dm
@@ -614,7 +615,7 @@ def main():
     c=sub.add_parser('check'); c.add_argument('--expected',type=Path,required=True); c.add_argument('--measured',type=Path,required=True)
     args=p.parse_args()
     if hasattr(args,'work_dir'):
-        if not args.work_dir.is_absolute() or not any(args.work_dir.resolve().is_relative_to(root.resolve()) for root in (ROOT,IMPL_ROOT,kw.REPO/'tmp/t1-impl-work',kw.REPO/'tmp/t2-impl-work')): p.error('作業先はtmp/s9z-work、tmp/s9z-impl-workまたはtmp/t1-impl-workまたはtmp/t2-impl-work内の絶対パス必須')
+        if not allowed_path(args.work_dir, (ROOT,IMPL_ROOT,kw.REPO/'tmp/t1-impl-work',kw.REPO/'tmp/t2-impl-work')): p.error('作業先はtmp/s9z-work、tmp/s9z-impl-workまたはtmp/t1-impl-workまたはtmp/t2-impl-work内の絶対パス必須')
         args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print('- `'+a['id']+'`: `'+a['stmt']+'` 入力='+json.dumps(a['inputs'])+' 予測='+a['prediction'])

@@ -2,6 +2,7 @@
 """l4-t2 KEY測定。画面本文とROMバイト列を出力しない。"""
 import argparse, copy, csv, io, json, os, re, subprocess, sys, tempfile, traceback
 from contextlib import redirect_stdout, redirect_stderr
+from l4_work_paths import allowed_path
 from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode = True
@@ -708,8 +709,8 @@ def main():
         path=getattr(args,name,None)
         conformance_path=((name=='out' and args.command=='expected') or (name=='expected' and args.command=='check'))
         if conformance_path and path is not None and path.is_absolute() and path.resolve()==REPO/'tests/conformance/expected_l4_key.tsv': continue
-        if path is not None and (not path.is_absolute() or not any(path.resolve().is_relative_to(root.resolve()) for root in (ROOT, REPO/"tmp/t2-impl-work", REPO/"tmp/c2-work"))): p.error('作業・結果先はtmp/t2-work、tmp/t2-impl-workまたはtmp/c2-work内の絶対パス必須')
-    if hasattr(args,'paths') and any(not x.is_absolute() or not x.resolve().is_relative_to(ROOT.resolve()) for x in args.paths): p.error('入力もtmp/t2-work内')
+        if path is not None and (not allowed_path(path, (ROOT, REPO/"tmp/t2-impl-work", REPO/"tmp/c2-work"))): p.error('作業・結果先はtmp/t2-work、tmp/t2-impl-workまたはtmp/c2-work内の絶対パス必須')
+    if hasattr(args,'paths') and any(not allowed_path(x, (ROOT,)) for x in args.paths): p.error('入力もtmp/t2-work内')
     if hasattr(args,'work_dir'): args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='describe':
         for a in arms(): print(json.dumps(a,ensure_ascii=False,sort_keys=True))
