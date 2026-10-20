@@ -2664,106 +2664,46 @@ _dfoutd10_skip:
 ; (呼び出し前に10^15未満であることを確認済みなので、10倍しても10^16は
 ; 超えず7byteに収まる)。
 DFOUT_INT_MUL10:
-    LD A,(DFOUT_INT)
-    LD (WK_DFOUT_M10_T),A
-    LD A,(DFOUT_INT+1)
-    LD (WK_DFOUT_M10_T+1),A
-    LD A,(DFOUT_INT+2)
-    LD (WK_DFOUT_M10_T+2),A
-    LD A,(DFOUT_INT+3)
-    LD (WK_DFOUT_M10_T+3),A
-    LD A,(DFOUT_INT+4)
-    LD (WK_DFOUT_M10_T+4),A
-    LD A,(DFOUT_INT+5)
-    LD (WK_DFOUT_M10_T+5),A
-    LD A,(DFOUT_INT+6)
-    LD (WK_DFOUT_M10_T+6),A
-    ; WK_DFOUT_M10_T *= 2 (X*2)
-    XOR A
-    LD A,(WK_DFOUT_M10_T)
-    SLA A
-    LD (WK_DFOUT_M10_T),A
-    LD A,(WK_DFOUT_M10_T+1)
-    RLA
-    LD (WK_DFOUT_M10_T+1),A
-    LD A,(WK_DFOUT_M10_T+2)
-    RLA
-    LD (WK_DFOUT_M10_T+2),A
-    LD A,(WK_DFOUT_M10_T+3)
-    RLA
-    LD (WK_DFOUT_M10_T+3),A
-    LD A,(WK_DFOUT_M10_T+4)
-    RLA
-    LD (WK_DFOUT_M10_T+4),A
-    LD A,(WK_DFOUT_M10_T+5)
-    RLA
-    LD (WK_DFOUT_M10_T+5),A
-    LD A,(WK_DFOUT_M10_T+6)
-    RLA
-    LD (WK_DFOUT_M10_T+6),A
-    ; DFOUT_INT <<= 3 (X*8)
-    LD B,3
+    ; 容量整理 c3: バイト単位の展開をレジスタ対のループにした（結果は同一。
+    ; BC・DE・HLは保存する。WK_DFOUT_M10_Tは従来どおりX*2が残る）。
+    PUSH BC
+    PUSH DE
+    PUSH HL
+    LD HL,DFOUT_INT
+    LD DE,WK_DFOUT_M10_T
+    LD BC,7
+    LDIR                    ; T = X
+    LD HL,WK_DFOUT_M10_T
+    CALL _dfoutm10_shl      ; T = X*2
+    LD C,3
 _dfoutm10_shift3:
-    XOR A
-    LD A,(DFOUT_INT)
-    SLA A
-    LD (DFOUT_INT),A
-    LD A,(DFOUT_INT+1)
-    RLA
-    LD (DFOUT_INT+1),A
-    LD A,(DFOUT_INT+2)
-    RLA
-    LD (DFOUT_INT+2),A
-    LD A,(DFOUT_INT+3)
-    RLA
-    LD (DFOUT_INT+3),A
-    LD A,(DFOUT_INT+4)
-    RLA
-    LD (DFOUT_INT+4),A
-    LD A,(DFOUT_INT+5)
-    RLA
-    LD (DFOUT_INT+5),A
-    LD A,(DFOUT_INT+6)
-    RLA
-    LD (DFOUT_INT+6),A
-    DEC B
-    JP NZ,_dfoutm10_shift3
-    ; DFOUT_INT(X*8) += WK_DFOUT_M10_T(X*2) => X*10
-    LD A,(DFOUT_INT)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T)
-    ADD A,B
-    LD (DFOUT_INT),A
-    LD A,(DFOUT_INT+1)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+1)
-    ADC A,B
-    LD (DFOUT_INT+1),A
-    LD A,(DFOUT_INT+2)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+2)
-    ADC A,B
-    LD (DFOUT_INT+2),A
-    LD A,(DFOUT_INT+3)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+3)
-    ADC A,B
-    LD (DFOUT_INT+3),A
-    LD A,(DFOUT_INT+4)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+4)
-    ADC A,B
-    LD (DFOUT_INT+4),A
-    LD A,(DFOUT_INT+5)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+5)
-    ADC A,B
-    LD (DFOUT_INT+5),A
-    LD A,(DFOUT_INT+6)
-    LD B,A
-    LD A,(WK_DFOUT_M10_T+6)
-    ADC A,B
-    LD (DFOUT_INT+6),A
+    LD HL,DFOUT_INT
+    CALL _dfoutm10_shl      ; X <<= 3
+    DEC C
+    JR NZ,_dfoutm10_shift3
+    LD HL,DFOUT_INT
+    LD DE,WK_DFOUT_M10_T
+    LD B,7
+    OR A
+_dfoutm10_add:
+    LD A,(DE)
+    ADC A,(HL)
+    LD (HL),A
+    INC HL
+    INC DE
+    DJNZ _dfoutm10_add      ; X = X*8 + X*2
+    POP HL
+    POP DE
+    POP BC
+    RET
+; (HL)から7バイトを左へ1bit（LSBから）。HL・B・AFを破壊。
+_dfoutm10_shl:
+    LD B,7
+    OR A
+_dfoutm10_shl1:
+    RL (HL)
+    INC HL
+    DJNZ _dfoutm10_shl1
     RET
 
 ; DFOUT_INT >= 10^16(7byte定数比較、MSBから)か判定。WK_DFOUT_K=1/0。
