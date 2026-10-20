@@ -3421,46 +3421,23 @@ _dbldiv_body:
     LD A,(DA_EXP)
     OR A
     JP Z,_ddiv_zero
+    ; 容量整理 c3: DQ7..DQ0・DR7（連続9B）の消去と DA_M6..M0 → DR6..DR0、
+    ; DB_M6..M0 → DDV6..DDV0 の複写をLDIRにまとめた（並びはビルド時に
+    ; build_main_rom.py が検査する）。
     XOR A
-    LD (DQ7),A
-    LD (DQ6),A
-    LD (DQ5),A
-    LD (DQ4),A
-    LD (DQ3),A
-    LD (DQ2),A
-    LD (DQ1),A
-    LD (DQ0),A
-    LD (DR7),A
-    LD A,(DA_M6)
-    LD (DR6),A
-    LD A,(DA_M5)
-    LD (DR5),A
-    LD A,(DA_M4)
-    LD (DR4),A
-    LD A,(DA_M3)
-    LD (DR3),A
-    LD A,(DA_M2)
-    LD (DR2),A
-    LD A,(DA_M1)
-    LD (DR1),A
-    LD A,(DA_M0)
-    LD (DR0),A
-    XOR A
+    LD HL,DQ7
+    LD (HL),A
+    LD DE,DQ7+1
+    LD BC,8
+    LDIR                    ; DEはDR6を指して終わる
+    LD HL,DA_M6
+    LD C,7                  ; B=0のまま
+    LDIR
     LD (DDV7),A
-    LD A,(DB_M6)
-    LD (DDV6),A
-    LD A,(DB_M5)
-    LD (DDV5),A
-    LD A,(DB_M4)
-    LD (DDV4),A
-    LD A,(DB_M3)
-    LD (DDV3),A
-    LD A,(DB_M2)
-    LD (DDV2),A
-    LD A,(DB_M1)
-    LD (DDV1),A
-    LD A,(DB_M0)
-    LD (DDV0),A
+    LD HL,DB_M6
+    LD DE,DDV6
+    LD C,7
+    LDIR
 
     ; 事前正規化: DA(DR)>=DB(DDV)なら1回だけ引いて前提(R<B)を満たす
     XOR A
