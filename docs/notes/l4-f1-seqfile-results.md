@@ -195,3 +195,5 @@ python3 tools/l4_seqfile_measure.py check --expected "$PWD/tmp/f1-work/expected.
 ```
 
 理由の文面は期待値ファイルの `exclusions` 列と完全に一致させる。
+
+[追補1の結果へ](l4-f1-addendum1-results.md)

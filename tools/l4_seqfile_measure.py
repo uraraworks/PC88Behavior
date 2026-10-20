@@ -483,7 +483,7 @@ def parse_exclude(items):
         out[aid]=reason.strip()
     return out
 
-def expected(out,paths,exclude=None):
+def first_expected(out,paths,exclude=None):
     if len(paths)!=1: raise ValueError('one complete measurement')
     exclude=exclude or {}
     got=read_passed(paths[0],exclude)
@@ -493,7 +493,7 @@ def expected(out,paths,exclude=None):
     else: mem.write_tsv(out,['arm','plan_sha','values'],[[k,PLAN_SHA,json.dumps(v,sort_keys=True)] for k,v in sorted(got.items())])
     return len(got)
 
-def check(exp,path,exclude=None):
+def first_check(exp,path,exclude=None):
     exclude=exclude or {}
     with exp.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
     want={r['arm']:json.loads(r['values']) for r in rows}
@@ -516,6 +516,104 @@ def check(exp,path,exclude=None):
         rule=KNOWN_DIFFERENCES.get(k)
         if not (rule and rule.get('reason') and rule.get('expected')==v and rule.get('measured')==got.get(k)): bad.append(k)
     return len(want)-len(bad),bad
+
+# 77629adで凍結した86腕の腕集合・署名・論理期待値。除外理由の文面は対象外。
+FROZEN86_SHA = '4c06c3720426c6b24d17b113badac8b2c7e1bb9f3f7bf38404ef59bfc1d3acf5'
+FIRST_EXCLUDED = {'finish-run','flush-run','finish-load','flush-load'}
+A1_EXCLUDED = {'finish-load-a1','flush-load-a1','flush-load-control-a1'}
+A1_ACCEPTED = {'finish-run-a1','flush-run-a1'}
+
+def frozen86(rows):
+    base={r['arm']:{'plan_sha':r['plan_sha'],'values':json.loads(r['values'])}
+          for r in rows if not r['arm'].endswith('-a1')}
+    digest=hashlib.sha256(json.dumps(base,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    if len(base)!=86 or digest!=FROZEN86_SHA: raise ValueError('frozen86 changed')
+    # 既存公式の2走・取りこぼし0は第1回結果ノートの成立記録を継承。
+    # ここでは凍結観測から較正・陽性・非一様を独立に再検算する。
+    rs=[]
+    for a in arms():
+        if a['id'] not in base: continue
+        v=base[a['id']]['values']
+        o=synth(a) if a['id'] in PROTECTED[:2] else {}
+        o.update(v)
+        rs.append(dict(arm=a,obs=[o],gate=True))
+    if not gates(rs)['passed']: raise ValueError('baseline global gate')
+    return base
+
+def read_addendum(path,exclude,strict_excluded=True):
+    known={a['id']:a for a in addendum_arms()};groups={}
+    if set(exclude)!=A1_EXCLUDED: raise ValueError('addendum exclusions')
+    with path.open() as f:
+        for row in csv.DictReader(f,delimiter='\t'): groups.setdefault(row['arm'],[]).append(row)
+    if set(groups)!=set(known): raise ValueError('addendum arms')
+    got={}
+    for aid,rows in groups.items():
+        if len(rows)!=2 or {r['repeat'] for r in rows}!={'1','2'}: raise ValueError('repeat')
+        if any((r['plan_sha'],r['program_sha'])!=(ADDENDUM_PLAN_SHA,ADDENDUM_PROGRAM_SHA)
+               or r['gate'] not in ('pass','gate_failed') for r in rows): raise ValueError('signature/gate')
+        obs=[json.loads(r['observation']) for r in rows]
+        ok=all(valid(o,known[aid]) for o in obs) and comparable(obs[0])==comparable(obs[1])
+        if aid in exclude:
+            if ok and strict_excluded: raise ValueError('excluded arm passed')
+        elif not ok: raise ValueError('observations')
+        else: got[aid]={k:obs[0][k] for k in ('values','media')}
+    return got
+
+def expected(out,paths,exclude=None,base_expected=None):
+    if base_expected is None: return first_expected(out,paths,exclude)
+    if len(paths)!=1: raise ValueError('one addendum measurement')
+    with base_expected.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+    base=frozen86(rows)
+    if len(rows)!=86: raise ValueError('base shape')
+    exclude=exclude or {}
+    required={'finish-load','flush-load'}|A1_EXCLUDED
+    if set(exclude)!=required or any(not x.strip() for x in exclude.values()): raise ValueError('promotion exclusions')
+    got=read_addendum(paths[0],{k:v for k,v in exclude.items() if k in A1_EXCLUDED})
+    note=json.dumps(exclude,sort_keys=True,ensure_ascii=False)
+    result=[[k,v['plan_sha'],json.dumps(v['values'],sort_keys=True),note] for k,v in base.items()]
+    result += [[k,ADDENDUM_PLAN_SHA,json.dumps(v,sort_keys=True),note] for k,v in got.items()]
+    mem.write_tsv(out,['arm','plan_sha','values','exclusions'],sorted(result))
+    return len(result)
+
+def check(exp,path,exclude=None):
+    if isinstance(path,list):
+        if not path or len(path)>2: raise ValueError('measurement inputs')
+        rounds=[]
+        for item in path:
+            with item.open() as f: records=list(csv.DictReader(f,delimiter='\t'))
+            if not records: raise ValueError('empty measurement')
+            rounds.append(all(r['arm'].endswith('-a1') for r in records))
+        if len(set(rounds))!=len(rounds): raise ValueError('duplicate round')
+        results=[check(exp,item,exclude) for item in path]
+        return sum(n for n,_ in results),[k for _,bad in results for k in bad]
+    with exp.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+    if not any(r['arm'].endswith('-a1') for r in rows): return first_check(exp,path,exclude)
+    base=frozen86(rows);exclude=exclude or {}
+    note=json.dumps(exclude,sort_keys=True,ensure_ascii=False)
+    if len(rows)!=88 or {r['arm'] for r in rows}!=set(base)|A1_ACCEPTED: raise ValueError('promoted shape')
+    if set(exclude)!={'finish-load','flush-load'}|A1_EXCLUDED or any(r['exclusions']!=note for r in rows): raise ValueError('expected exclusions')
+    want={r['arm']:json.loads(r['values']) for r in rows}
+    for a in addendum_arms():
+        if a['id'] not in A1_ACCEPTED: continue
+        r=next(r for r in rows if r['arm']==a['id'])
+        if r['plan_sha']!=ADDENDUM_PLAN_SHA: raise ValueError('addendum signature')
+        value=want[a['id']]
+        if set(value)!={'values','media'} or set(value['values'])!=set(FIELDS): raise ValueError('expected fields')
+        if any(type(n) is not int or not 0<=n<=255 for n in value['values'].values()): raise ValueError('expected values')
+        o=synth(a);o['media']=value['media']
+        o.update(conditions={k:True for k in ('stable','logical_marks','memory_no_loss','io_no_loss','pre_io_marks_absent')},io_counts={})
+        if not valid(o,a): raise ValueError('expected media')
+    with path.open() as f: measured=list(csv.DictReader(f,delimiter='\t'))
+    if measured and all(r['arm'].endswith('-a1') for r in measured):
+        targets=A1_ACCEPTED
+        try: got=read_addendum(path,{k:v for k,v in exclude.items() if k in A1_EXCLUDED},False)
+        except (ValueError,KeyError,TypeError): got={}
+    else:
+        targets=set(base)
+        try: got=read_passed(path,FIRST_EXCLUDED,strict_excluded=False)
+        except (ValueError,KeyError,TypeError): got={}
+    bad=sorted(k for k in targets if want[k]!=got.get(k))
+    return len(targets)-len(bad),bad
 
 def serial_plan(round_name="first"):
     return [{**a,'bodies':{n:hashlib.sha256(b).hexdigest() for n,b in a['bodies'].items()}} for a in selected_arms(round_name)]
@@ -694,8 +792,18 @@ def addendum_selftest(work):
     frozen=REPO/'tests/conformance/expected_l4_seqfile.tsv'
     before=hashlib.sha256(frozen.read_bytes()).hexdigest()
     with frozen.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
-    assert len(rows)==86
-    ex=json.loads(rows[0]['exclusions'])
+    frozen86(rows)
+    original_rows=[r for r in rows if not r['arm'].endswith('-a1')]
+    ex={k:'第1回関門落ち' for k in FIRST_EXCLUDED}
+    with tempfile.TemporaryDirectory(dir=work,prefix='baseline86-') as td:
+        frozen=Path(td)/'expected.tsv'
+        note=json.dumps(ex,sort_keys=True,ensure_ascii=False)
+        mem.write_tsv(frozen,['arm','plan_sha','values','exclusions'],[[r['arm'],r['plan_sha'],r['values'],note] for r in original_rows])
+        frozen_rows_test(frozen,ex,work)
+    assert hashlib.sha256((REPO/'tests/conformance/expected_l4_seqfile.tsv').read_bytes()).hexdigest()==before
+    promotion_selftest(rows,work)
+
+def frozen_rows_test(frozen,ex,work):
     rs=[dict(arm=a,obs=[synth(a),synth(a)],gate=True) for a in arms()]
     image=bytearray(fixture_image('alpha'));write_sector(image,18,0,1,b'ok\r\n\x1a')
     for o in rs[2]['obs']: o['media']=inspect(image,rs[2]['arm'])
@@ -709,8 +817,43 @@ def addendum_selftest(work):
         assert len(selected_arms('addendum1'))==5 and len(arms())==90
         assert signatures()==(PLAN_SHA,PROGRAM_SHA) and check(frozen,path,ex)==baseline
         assert baseline[0]+len(baseline[1])==86
-    assert hashlib.sha256(frozen.read_bytes()).hexdigest()==before
     print('OK 追補5腕: 条件別陰性対照・複合失敗・開始前印・凍結86腕の合成照合結果不変・期待値不変',flush=True)
+
+def promotion_selftest(rows,work):
+    base=[r for r in rows if not r['arm'].endswith('-a1')]
+    frozen86(base)
+    for index in range(len(base)):
+        bad=copy.deepcopy(base);value=json.loads(bad[index]['values']);value['values']['p65']^=1
+        bad[index]['values']=json.dumps(value)
+        try: frozen86(bad)
+        except ValueError: pass
+        else: raise AssertionError('frozen86 mutation accepted')
+    ex={k:'合成除外' for k in {'finish-load','flush-load'}|A1_EXCLUDED}
+    rs=[]
+    for a in addendum_arms():
+        o=synth(a)
+        o.update(conditions={k:True for k in ('stable','logical_marks','memory_no_loss','io_no_loss','pre_io_marks_absent')},io_counts={})
+        if a['id'] in A1_EXCLUDED: o=dict(failure='GateError',conditions={'logical_marks':False})
+        rs.append(dict(arm=a,obs=[o,copy.deepcopy(o)],gate=a['id'] in A1_ACCEPTED))
+    with tempfile.TemporaryDirectory(dir=work,prefix='promotion-') as td:
+        td=Path(td);b=td/'base.tsv';m=td/'a1.tsv';e=td/'expected.tsv'
+        mem.write_tsv(b,['arm','plan_sha','values','exclusions'],[[r['arm'],r['plan_sha'],r['values'],r['exclusions']] for r in base])
+        emit(m,rs,'addendum1')
+        assert expected(e,[m],ex,b)==88 and check(e,m,ex)==(2,[]) and check(e,[m],ex)==(2,[])
+        try: check(e,[m,m],ex)
+        except ValueError: pass
+        else: raise AssertionError('duplicate round')
+        bad=copy.deepcopy(rs);bad[0]['obs'][1]['conditions']['io_no_loss']=False;emit(m,bad,'addendum1')
+        assert check(e,m,ex)==(0,sorted(A1_ACCEPTED))
+        try: expected(e,[m],ex,b)
+        except ValueError: pass
+        else: raise AssertionError('loss accepted')
+        bad=copy.deepcopy(base);v=json.loads(bad[0]['values']);v['values']['p65']^=1;bad[0]['values']=json.dumps(v)
+        mem.write_tsv(b,['arm','plan_sha','values','exclusions'],[[r['arm'],r['plan_sha'],r['values'],r['exclusions']] for r in bad])
+        try: expected(e,[m],ex,b)
+        except ValueError: pass
+        else: raise AssertionError('baseline changed')
+    print('OK 追補昇格: 88腕形状・追補2腕照合・関門落ち拒否・第1回86腕変異拒否',flush=True)
 
 def addendum_report(rs,work,seconds):
     frames=sum(schedule(a,True)[1]*2 for a in addendum_arms())
@@ -762,20 +905,20 @@ def main():
     s=sub.add_parser('selftest');s.add_argument('--round',choices=['first','addendum1'],default='first');s.add_argument('--synthetic-only',action='store_true');s.add_argument('--work-dir',type=Path,default=ROOT/'selftest')
     m=sub.add_parser('measure');m.add_argument('--round',choices=['first','addendum1'],default='first');m.add_argument('--official',action='store_true');m.add_argument('--rom-dir',type=Path);m.add_argument('--work-dir',type=Path,required=True);m.add_argument('--out',type=Path,required=True)
     d=sub.add_parser('describe');d.add_argument('--round',choices=['first','addendum1'],default='first')
-    e=sub.add_parser('expected');e.add_argument('--out',type=Path,required=True);e.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='器具関門を通らなかった腕IDを理由つきで除外（繰り返し可）');e.add_argument('paths',nargs='+',type=Path)
-    c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,required=True);c.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='期待値ファイルに記録された除外と同じ指定');
+    e=sub.add_parser('expected');e.add_argument('--out',type=Path,required=True);e.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='器具関門を通らなかった腕IDを理由つきで除外（繰り返し可）');e.add_argument('--base-expected',type=Path);e.add_argument('paths',nargs='+',type=Path)
+    c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,nargs='+',required=True);c.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='期待値ファイルに記録された除外と同じ指定');
     args=p.parse_args();OFFICIAL=getattr(args,'official',False)
     if addendum_signatures()!=(ADDENDUM_PLAN_SHA,ADDENDUM_PROGRAM_SHA): raise ValueError('addendum signatures')
     if signatures()!=(PLAN_SHA,PROGRAM_SHA): raise ValueError('frozen signatures')
-    for key in ('work_dir','out','paths','expected','measured'):
+    for key in ('work_dir','out','paths','expected','measured','base_expected'):
         value=getattr(args,key,None)
         for path in value if isinstance(value,list) else [value] if value else []:
-            if key == 'expected' and path.resolve() == (REPO/'tests/conformance/expected_l4_seqfile.tsv').resolve(): continue
+            if key in ('expected','base_expected') and path.resolve() == (REPO/'tests/conformance/expected_l4_seqfile.tsv').resolve(): continue
             if not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve()): p.error('作業・入出力は指定された作業root内の絶対パス必須')
     if args.command=='describe':
         for a in serial_plan(args.round): print(json.dumps(a,ensure_ascii=False))
         return 0
-    if args.command=='expected': print(f'期待値{expected(args.out,args.paths,parse_exclude(args.exclude))}腕、除外{len(args.exclude)}腕');return 0
+    if args.command=='expected': print(f'期待値{expected(args.out,args.paths,parse_exclude(args.exclude),args.base_expected)}腕、除外{len(args.exclude)}腕');return 0
     if args.command=='check':
         exclusions=parse_exclude(args.exclude)
         if not args.exclude:
