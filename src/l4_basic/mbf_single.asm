@@ -1830,17 +1830,7 @@ UDWORD_TO_DOUBLE:
     LD A,(FIN_ACC0)
     OR A
     JR NZ,_udwd_nz
-    XOR A
-    LD (DA_SIGN),A
-    LD (DA_EXP),A
-    LD (DA_M6),A
-    LD (DA_M5),A
-    LD (DA_M4),A
-    LD (DA_M3),A
-    LD (DA_M2),A
-    LD (DA_M1),A
-    LD (DA_M0),A
-    RET
+    JP _ddiv_zero           ; 容量整理 c3: DAを0にしてRET（DBL_DIV側と共用）
 _udwd_nz:
     LD A,(FIN_SIGN)
     LD (DA_SIGN),A
@@ -3890,6 +3880,8 @@ _ddiv_overflow:
     LD A,1
     LD (MBF_STATUS),A
     RET
+; _ddiv_zero — DAを0（符号・指数・仮数）にしてRET。AはXOR Aの結果（0）で戻る。
+; 容量整理 c3: UDWORD_TO_DOUBLE・MBF_DMULのゼロ結果・整数→倍精度の0も共用する。
 _ddiv_zero:
     XOR A
     LD (DA_SIGN),A

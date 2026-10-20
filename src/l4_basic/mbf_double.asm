@@ -1569,16 +1569,7 @@ _dmulc_round_down:
     LD (DA_EXP),A
     JP DBL_PACK_RES
 _dmulc_zero:
-    XOR A
-    LD (DA_SIGN),A
-    LD (DA_EXP),A
-    LD (DA_M6),A
-    LD (DA_M5),A
-    LD (DA_M4),A
-    LD (DA_M3),A
-    LD (DA_M2),A
-    LD (DA_M1),A
-    LD (DA_M0),A
+    CALL _ddiv_zero         ; 容量整理 c3: DAを0にする本体は共用
     JP DBL_PACK_RES
 _dmulc_overflow2:
 _dmulc_overflow:
@@ -1643,17 +1634,7 @@ MBF_ITOD:
     LD A,H
     OR L
     JP NZ,_i2d_nonzero
-    XOR A
-    LD (DA_SIGN),A
-    LD (DA_EXP),A
-    LD (DA_M6),A
-    LD (DA_M5),A
-    LD (DA_M4),A
-    LD (DA_M3),A
-    LD (DA_M2),A
-    LD (DA_M1),A
-    LD (DA_M0),A
-    JP DBL_PACK_RES
+    JP _dmulc_zero
 _i2d_nonzero:
     LD A,H
     BIT 7,A
