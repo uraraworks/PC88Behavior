@@ -2391,6 +2391,8 @@ RESUME_STMT:
     LD HL,07480h
     JP S9_BANK_CALL
 
+; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）
+
 
 RUN_EXEC:
 _run_loop:
@@ -4024,7 +4026,6 @@ LOGIC_OR_EXPR:
 
 
 ; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
-; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 
