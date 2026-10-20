@@ -1061,11 +1061,8 @@ _l4factor_plain_ident:
 _l4factor_array_read:
     JP ARRAY_READ
 _l4factor_ident_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,13
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _l4factor_bad:
     LD A,1
     LD (ERROR_FLAG),A
@@ -1308,11 +1305,8 @@ FTNF_DO_ASC:
     JR NZ,_ftnf_asc_ok
     ; 空文字列(仕様書に無い判断: 一般的なBASICの慣例どおりIllegal
     ; function callにする、第7.1節のマニュアル一覧に既にある番号)
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,5
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _ftnf_asc_ok:
     LD A,(RUN_STR_TMP_BUF)
     LD L,A
@@ -1345,11 +1339,8 @@ FTNF_DO_CINT:
     CALL CUR_TO_INT16
     OR A
     JR NZ,_cint_ok
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _cint_ok:
     EX DE,HL
     JP VAL_SET_INT
@@ -1549,11 +1540,8 @@ _sqr_zero:
     LD (MBF_RES+3),A
     JP VAL_SET_SINGLE_FROM_RES
 _sqr_negative:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,5
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; ---------------------------------------------------------------------
 ; FTNF_DO_SIN/FTNF_DO_COS — 2026-09-20追記。SIN(<数値式>)・
@@ -1698,11 +1686,8 @@ FTNF_DO_LOG:
     CALL EXT_BANK_CALL
     JP VAL_SET_SINGLE_FROM_RES
 _log_illegal:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,5
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; ---------------------------------------------------------------------
 ; PARSE_NUM_FROM_MEM — HL=バッファ先頭、B=バイト数。数値として解釈し

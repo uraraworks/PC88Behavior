@@ -519,11 +519,8 @@ _vrn_copy:
     LD (ERROR_FLAG),A
     RET
 _vrn_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,7
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; VAR_WRITE_NUMERIC — IDENT_BUFの変数へCUR_TYPE/CUR_DATAを書く。
 ;   M7段階4b-3: VAR_READ_NUMERICと対で8バイトのデータ部を書く。
@@ -553,11 +550,8 @@ _vwn_copy:
     LD (ERROR_FLAG),A
     RET
 _vwn_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,7
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; VAR_READ_STRING — IDENT_BUFの変数の文字列をRUN_STR_TMP_LEN/BUFへ読む。
 VAR_READ_STRING:
@@ -609,11 +603,8 @@ PARSE_STRING_RHS:
     CP 3
     JR Z,_psr_fromvar
 _psr_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,13
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 ; 第4.21節: 数値で始まる式（数字・'.'・'-'）は文字列を要求する文脈でType mismatch(13)、
 ; それ以外はSyntax error(2)。判定はバンク0。
 _psr_noident:
@@ -660,11 +651,8 @@ _psr_lit_done:
     LD (ERROR_FLAG),A
     RET
 _psr_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; =======================================================================
 ; STRING_EXPR — 文字列の式を1個読む(PARSE_STRING_RHSの"項"を'+'で
@@ -751,11 +739,8 @@ STR_CONCAT:
     LD (ERROR_FLAG),A
     RET
 _sc_toolong:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,15
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; EXPECT_CHAR — A=期待する1文字。SKIP_SPACESしてから照合し、一致すれば
 ;   ADV_PTRする(TRY_MATCH系と同じ「空白を挟んでよい」規則)。不一致は
@@ -774,11 +759,8 @@ EXPECT_CHAR:
     RET
 _ec_fail:
     POP BC
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; CUR_TO_INT16 — CUR_TYPE/CUR_DATAを符号付き16bit整数へ変換しDEへ返す
 ;   (ASSIGN_STMTの%代入(第4.4b節)と同じ丸め規則の共有)。
@@ -811,11 +793,8 @@ PARSE_INT_ARG:
     CALL CUR_TO_INT16
     OR A
     JR NZ,_pia_ok
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _pia_ok:
     XOR A
     LD (ERROR_FLAG),A
@@ -1468,11 +1447,8 @@ RUN_FOR_PUSH:
     LD (ERROR_FLAG),A
     RET
 _rfp_oom:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,7
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; RUN_FOR_POP_DISCARD — FORスタックを1つ減らす(中身は使わない)。
 RUN_FOR_POP_DISCARD:
@@ -1710,11 +1686,8 @@ _rstmn_found:
     LD (ERROR_FLAG),A
     RET
 _rstmn_notfound:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,26
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; =======================================================================
 ; GOSUBスタック
@@ -1747,17 +1720,11 @@ GOTO_STMT:
     LD (ERROR_FLAG),A
     RET
 _goto_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _goto_undef:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,8
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 GOSUB_STMT:
     CALL SKIP_SPACES
@@ -1778,17 +1745,11 @@ GOSUB_STMT:
     LD (ERROR_FLAG),A
     RET
 _gosub_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _gosub_undef:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,8
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 RETURN_STMT:
     LD HL,(RUN_GOSUB_SP)
@@ -1833,11 +1794,8 @@ RETURN_STMT:
     LD (ERROR_FLAG),A
     RET
 _ret_nogosub:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,3
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 FOR_STMT:
     CALL SKIP_SPACES
@@ -1933,17 +1891,11 @@ _for_enter_body:
     LD (RUN_CTRL),A
     RET
 _for_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _for_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,13
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; 前方走査の一時的な現在行と、識別子解析の全作業域をスタックへ退避。
 ; 式の作業域とRUN_CUR_RECORDはどちらの検査でも変更しない。
@@ -2052,16 +2004,10 @@ _next_done:
     RET
 _next_nofor:
     LD A,1
-    LD (ERROR_FLAG),A
-    LD A,1
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _next_typeerr:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,13
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 END_STMT:
     CALL SQ_CLOSE_ALL
@@ -2642,16 +2588,20 @@ _run_stmt_start:
     CALL S9C_INIT
     JP RUN_EXEC
 _run_stmt_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _run_stmt_undef:
+    LD A,8
+    JP ERR_SET_A
+
+; ERR_SET_A — 誤りの定型（ERROR_FLAG=1・ERROR_KIND=A）の共通入口（容量整理 c3）。
+;   入力: A=誤り番号。JPで入り、呼び元の代わりにRETで戻る。
+;   出口のAは入力のA（誤り番号）、フラグは不変（従来の11B列と同じ）。
+ERR_SET_A:
+    LD (ERROR_KIND),A
     LD A,1
     LD (ERROR_FLAG),A
-    LD A,8
-    LD (ERROR_KIND),A
+    LD A,(ERROR_KIND)
     RET
 
 ; l4-t1: 空白1個の語形だけを、文中の照合にも共用する。
@@ -3276,11 +3226,8 @@ _pow_err:
     RET
 _pow_ovfl_early:
     CALL VAL_POP_DISCARD
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; POWER_COMPUTE — CUR_TYPE/DATA(底)とRUN_POW_EXP(指数)から
 ;   CUR_TYPE/DATA(結果)を計算する。
@@ -3376,11 +3323,8 @@ _loe_err:
     CALL VAL_POP_DISCARD
     RET
 _loe_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 LOGIC_AND_EXPR:
     CALL NOT_EXPR
@@ -3419,11 +3363,8 @@ _lae_err:
     CALL VAL_POP_DISCARD
     RET
 _lae_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 NOT_EXPR:
     CALL SKIP_SPACES
@@ -3451,11 +3392,8 @@ _ne_have_not:
     LD (ERROR_FLAG),A
     RET
 _ne_ovfl:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,6
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; COMPARE_EXPR — EXPR(+ -のみ)を左右に、比較記号(CMP_OPS)で比べる。
 ;   第4.22節: 比較は括弧なしで何段でも続き、左から畳む(1<2<3は(1<2)<3)。
@@ -3660,17 +3598,11 @@ _if_false_done:
     LD (RUN_CTRL),A
     RET
 _if_syntax:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 _if_undef:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,8
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; REM_STMT — 第6.7節。CUR_PTRを行末まで進める(':'も含め注釈として
 ;   無視する、仕様書に無い判断・第8節31)。
@@ -3903,11 +3835,8 @@ _reos_kill:
 _reos_name:
     JP NAME_STMT
 _reos_unmatched:
-    LD A,1
-    LD (ERROR_FLAG),A
     LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP ERR_SET_A
 
 ; ARRAY_ASSIGN_STMT — RUN_STMT_KIND=14。RUN_ASSIGN_NAME/KINDは
 ;   RUN_MATCH_STMT_KEYWORDが設定済み、CUR_PTRは'('の位置。
