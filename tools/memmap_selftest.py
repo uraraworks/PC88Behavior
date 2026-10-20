@@ -312,7 +312,7 @@ def main():
             raise AssertionError(f"仮置き再導入を検出できない: {name}")
     assert memmap.CONSTANTS["MM_USER_START"] == 0x8400
     assert memmap.CONSTANTS["MM_USER_LIMIT_DEFAULT"] == 0xE5FD
-    assert set(memmap.DYNAMIC_STRUCTURES) == {"PROGRAM", "HEAP", "STRING_PAGES", "FOR_STACK", "GOSUB_STACK", "CAPTURE"}
+    assert set(memmap.DYNAMIC_STRUCTURES) == {"PROGRAM", "HEAP", "STRING_PAGES", "FOR_STACK", "GOSUB_STACK", "CAPTURE", "SEQ_BUFFERS"}
     assert memmap.CONSTANTS["MM_USER_LIMIT_MAX"] == 0xE5FF
     assert memmap.CONSTANTS["MM_USER_STACK_SIZE"] == 512
     assert memmap.CONSTANTS["MM_STACK_RESERVED"] == 92

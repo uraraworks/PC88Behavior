@@ -30,6 +30,10 @@ _save_capture_call:
 
 ; KILL/NAMEもSAVEと同じ通信完了フラグを使う。常駐部は入口だけ。
 KILL_STMT:
+    CALL SQ_KILL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     LD A,2
     LD HL,07100h
     JP EXT_BANK_CALL

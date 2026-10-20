@@ -47,6 +47,7 @@ REGIONS = (
     Region('STRING_ARG', 0xEAA4, 255, '一時', '文字列第1引数退避', 'normal'),
     Region('STRING_ACC', 0xEBA3, 255, '一時', '文字列連結蓄積', 'normal'),
     Region('STRING_WORK', 0xECA2, 16, '一時', '文字列操作・RESUME一時カウンタ', 'normal'),
+    Region('SEQ_FORMAT_BACKUP', 0xEAA4, 512, '一時', 'ファイル出力中の単位境界でUSING作業512Bを退避。式評価終了後だけ文字列引数/連結一時域を使う。STRING_WORK先頭2Bは別途保存復元', 'normal'),
     Region('STMT_START', 0xFFEB, 2, '保持（毎文更新）', 'RESUME NEXT文頭', 'normal'),
     Region('STRCMP', 0xECB2, 256, '一時', '文字列比較左辺退避（棚卸し追補）', 'normal'),
     Region('RUN', 0xEFBC, 90, '保持/一時', '実行状態（offset 1–5は保持、82–83はスタック計算一時、他一時）', 'normal'),
@@ -61,7 +62,11 @@ REGIONS = (
     Region('RESUME', 0xF21A, 6, '保持', 'RESUME保存位置3ポインタ', 'normal'),
     Region('STR_ARG_LEN', 0xF050, 1, '一時', '文字列第1引数長', 'normal'),
     Region('STR_ACC_LEN', 0xF051, 1, '一時', '文字列連結長', 'normal'),
-    Region('RUN_INPUT', 0xF052, 88, '一時', 'INPUT・配列代入・数値字句', 'normal'),
+    Region('RUN_INPUT', 0xF052, 7, '一時', 'INPUT・配列代入・数値字句', 'normal'),
+    Region('SEQ_STATE', 0xF059, 37, '保持/一時', '順次ファイル2本のヒープ枠ポインタ・出力先・作業値（旧INPUT未使用予約域）', 'normal'),
+    Region('INPUT_RAW_LEN', 0xF07E, 1, '一時', 'INPUT生行長', 'normal'),
+    Region('SEQ_WORK', 0xF07F, 40, '一時', '順次ファイル文・媒体操作の退避（旧INPUT未使用予約域）', 'normal'),
+    Region('INPUT_TAIL', 0xF0A7, 3, '一時', 'INPUT配列番地・LOCATE桁', 'normal'),
     Region('SECTOR', 0xEDB2, 256, '一時', 'FILES/LOAD/SAVE共用セクタバッファ', 'normal'),
     Region('ONWHILE_WORK', 0xEDB2, 32, '一時', 'ON選択・WHILE対応探索（式評価から独立）', 'normal'),
     Region('PU_WORK', 0xEDB2, 256, '一時', 'PRINT USINGの欄解析・十進丸め・出力組立', 'normal'),
@@ -136,6 +141,9 @@ OVERLAPS = {
 # 名前 -> (構造, 構造内のオフセット)。同一番地のバンク別名は同じ名前を使う。
 # PAINT本体では式評価・文字列処理・LINE・ディスク文を呼ばない。
 # 訪問ビットは引数を全てPAINT_WORK/TILEへ退避した後のみ置く。
+for _name in ('STRING_ARG', 'STRING_ACC', 'STRING_WORK'):
+    OVERLAPS[frozenset(('SEQ_FORMAT_BACKUP', _name))] = '式評価後のファイル出力中だけ利用し、USINGの作業を単位境界の媒体処理から保護する。STRING_WORKの2Bは保存復元する。'
+
 for _region in REGIONS:
     if _region.name != 'PAINT_BITMAP_TEMP' and _region.profile == 'normal' and _region.base < 0xEE00 and _region.base + _region.size > 0xE600:
         OVERLAPS[frozenset(('PAINT_BITMAP_TEMP', _region.name))] = 'PAINT本体の訪問ビットは引数評価完了後だけ使い、式評価・文字列・LINE・ディスク文の作業とは排他的。'
@@ -145,6 +153,23 @@ for _region in REGIONS:
         OVERLAPS[frozenset(('ARRAY_WORK', _region.name))] = '添字の評価・整数化完了後に配列作業値を書く。再入中の名前と添字はCPUスタックに保持し、値の数値変換は要素解決後に行う。PAINT訪問ビットは引数評価後だけ使う。'
 
 FIELDS = {
+    'MM_RUN_INPUT_COUNT': ('SEQ_STATE', 35),
+    'MM_RUN_INPUT_VARS': ('SEQ_STATE', 36),
+    'MM_SQ_HANDLES': ('SEQ_STATE', 0),
+    'MM_SQ_CURRENT': ('SEQ_STATE', 4),
+    'MM_SQ_OUTPUT': ('SEQ_STATE', 6),
+    'MM_SQ_SLOT': ('SEQ_STATE', 7),
+    'MM_SQ_MODE': ('SEQ_STATE', 9),
+    'MM_SQ_NAME': ('SEQ_STATE', 10),
+    'MM_SQ_DRIVE': ('SEQ_STATE', 19),
+    'MM_SQ_COLUMN': ('SEQ_STATE', 20),
+    'MM_SQ_WRITE': ('SEQ_STATE', 21),
+    'MM_SQ_OP': ('SEQ_STATE', 22),
+    'MM_SQ_TOKEN': ('SEQ_STATE', 23),
+    'MM_SQ_LINE': ('SEQ_STATE', 24),
+    'MM_SQ_QUOTE': ('SEQ_STATE', 25),
+    'MM_SQ_LEN': ('SEQ_STATE', 26),
+    'MM_SQ_WORK': ('SEQ_WORK', 0),
     "MM_USR_STRING_DESC": ("USR_STRING_DESC", 0),
     "MM_FKEY_PTR": ("FKEY", 0),
     "MM_FKEY_ON": ("FKEY", 2),
@@ -540,12 +565,9 @@ FIELDS = {
     'MM_PNFM_SAVE_PTR': ('RUN_INPUT', 2),
     'MM_PNFM_SAVE_END': ('RUN_INPUT', 4),
     'MM_PNFM_NEG': ('RUN_INPUT', 6),
-    'MM_RUN_INPUT_COUNT': ('RUN_INPUT', 7),
-    'MM_RUN_INPUT_VARS': ('RUN_INPUT', 8),
-    'MM_RUN_INPUT_RAW_LEN': ('RUN_INPUT', 44),
-    'MM_RUN_INPUT_RAW_BUF': ('RUN_INPUT', 45),
-    'MM_RUN_ARRAY_ASSIGN_ADDR': ('RUN_INPUT', 85),
-    'MM_RUN_LOCATE_COL': ('RUN_INPUT', 87),
+    'MM_RUN_INPUT_RAW_LEN': ('INPUT_RAW_LEN', 0),
+    'MM_RUN_ARRAY_ASSIGN_ADDR': ('INPUT_TAIL', 0),
+    'MM_RUN_LOCATE_COL': ('INPUT_TAIL', 2),
     'MM_KEY_OLD': ('KEY_OLD', 0),
     'MM_KEY_NEW': ('KEY_NEW', 0),
     'MM_VAR_LINELEN': ('LINE', 0),
@@ -1046,7 +1068,7 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": (
-        "番兵直後HEAP_STARTからHEAP_ENDまで、種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別6=順次ファイル298B（管理42B+専用セクタ256B、最大2本、同じHEAP_ALLOCで確保しCLOSEで空き化）/種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
         "bit7は空き印、同種の空きを再利用。"
         "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
         "編集/NEW/CLEAR/RUNでヒープと共に消す（配列はl4-program第4.10.7の観測、FN枠は未測定・自作判断）。"
@@ -1055,6 +1077,7 @@ DYNAMIC_STRUCTURES = {
         "実引数は通常形式42Bの非字句名で保存し全評価後に束縛。"
         "CPUスタック下限+96BでERR 7（未測定・自作判断）"
     ),
+    "SEQ_BUFFERS": "HEAP種別6の各枠+42..297（256B）。HEAP_END/FREE_TOPで他の動的領域との非重複を検査。固定ポインタはSEQ_STATE。",
     "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
     "FOR_STACK": "STACK_BOTTOM+80からFOR/WHILE共用19Bずつ上向き（GOSUB追加時は余白92B）",
     "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",

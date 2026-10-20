@@ -99,6 +99,7 @@ MAIN_SUB_LOGICAL_SENT      EQU MM_MAIN_SUB_LOGICAL_SENT
 ; 一度だけ呼び、常に0から始まるようにする。
 ; ---------------------------------------------------------------
 EXT_BANK_INIT:
+    CALL SQ_INIT
     XOR A
     LD (EXT_BANK_BUSY),A
     LD (EXT_BANK_REENTRY_DETECTED),A

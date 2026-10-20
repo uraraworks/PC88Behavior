@@ -274,6 +274,12 @@ ERRKIND_TABLE:
     DW ERR_MSG_70
     DB 51
     DW ERR_MSG_51
+    DB 52
+    DW ERR_MSG_52
+    DB 54
+    DW ERR_MSG_54
+    DB 55
+    DW ERR_MSG_55
     DB 53
     DW ERR_MSG_53
     DB 57
@@ -295,6 +301,9 @@ ERRKIND_TABLE:
 ; ---------------------------------------------------------------------
 DIRECT_LINE:
 _l4dl_loop:
+    CALL SQ_TRY_STMT
+    OR A
+    JP NZ,_l4dl_after_stmt
     CALL SKIP_SPACES
     CALL AT_END
     RET Z
@@ -514,98 +523,18 @@ STMT_NEW_LEN EQU 3
 ;   を消費)/0(不一致、CUR_PTR不変)。
 ; ---------------------------------------------------------------------
 TRY_MATCH_LIST:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_LIST_LEN
-    JR C,_l4tml_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_LIST_TEXT
-    LD B,STMT_LIST_LEN
-_l4tml_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tml_fail
-    INC HL
-    INC DE
-    DJNZ _l4tml_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tml_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tml_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tml_boundary_ok2
-    JR _l4tml_fail
-_l4tml_boundary_ok:
-    POP HL
-_l4tml_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_LIST_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tml_fail:
-    XOR A
-    RET
+    LD HL,STMT_LIST_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_LIST_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 TRY_MATCH_NEW:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_NEW_LEN
-    JR C,_l4tmn_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_NEW_TEXT
-    LD B,STMT_NEW_LEN
-_l4tmn_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmn_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmn_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmn_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmn_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmn_boundary_ok2
-    JR _l4tmn_fail
-_l4tmn_boundary_ok:
-    POP HL
-_l4tmn_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_NEW_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmn_fail:
-    XOR A
-    RET
+    LD HL,STMT_NEW_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_NEW_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 ; ---------------------------------------------------------------------
 ; TRY_MATCH_PRINT — print_dispatch.asm の TOK_PRINT_TEXT(=PRINT語形)を
@@ -614,56 +543,22 @@ _l4tmn_fail:
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 ; ---------------------------------------------------------------------
 TRY_MATCH_PRINT:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP TOK_PRINT_LEN
-    JR C,_l4tmp_fail
-    LD HL,(CUR_PTR)
-    LD DE,TOK_PRINT_TEXT
-    LD B,TOK_PRINT_LEN
-_l4tmp_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmp_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmp_cmp
-    ; HL は一致した5文字の直後。境界確認(続く文字が英字でないこと)。
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmp_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmp_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmp_boundary_ok2
-    JR _l4tmp_fail
-_l4tmp_boundary_ok:
-    POP HL
-_l4tmp_boundary_ok2:
-    ; HLは照合後の位置のまま（境界判定でもPUSH/POPで保持）。
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmp_fail:
-    XOR A
-    RET
+    LD HL,TOK_PRINT_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,TOK_PRINT_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 ; ---------------------------------------------------------------------
 ; PRINT_STMT — 現在位置から印字リストを解釈・出力する
 ;   (l4-basic.md 第2〜5節の書式)。
 ; ---------------------------------------------------------------------
 PRINT_STMT:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '#'
+    JP Z,SQ_PRINT
+PRINT_BODY:
     ; 第23節。本体・USING照合はbank1、普通のPRINTはA=0で戻る。
     LD A,1
     LD HL,PRINT_USING_ENTRY
@@ -774,6 +669,9 @@ _l4ps_stmt_end:
 ;   (l4-basic.md 第4・4.1節。桁56以上は完全欄が残らないので改行)。
 ; ---------------------------------------------------------------------
 ZONE_PAD:
+    LD A,(MM_SQ_OUTPUT)
+    OR A
+    JR NZ,_l4zp_column
     LD A,(SCR_ZT)               ; 改行閾値T÷2（下位5bit。80桁28・40桁7。l4-program.md 4.22.4）
     AND 01Fh
     ADD A,A
@@ -781,6 +679,8 @@ ZONE_PAD:
     LD A,(VAR_COL)
     CP B
     JP NC,NEWLINE
+_l4zp_column:
+    LD A,(VAR_COL)
     ; 負になるまで引き、次の境界までの距離を得る(境界上は14)。
 _l4zp_find:
     SUB ZONE_WIDTH
@@ -1274,6 +1174,12 @@ _ftnf_none:
     RET
 
 FTNF_TABLE:
+    DB 3,"EOF"
+    DW SQ_EOF
+    DB 3,"LOC"
+    DW SQ_LOC
+    DB 3,"LOF"
+    DW SQ_LOF
     DB 3,"RND"
     DW FTNF_DO_RND
     DB 3
@@ -3054,6 +2960,14 @@ _l4ddc_advance:
 ;   長い場合だけ前改行。行頭の長い項目はPRINT_CHARに任せる。
 ; ---------------------------------------------------------------------
 PRINT_FIELD_WRAP_CHECK:
+    PUSH AF
+    LD A,(MM_SQ_OUTPUT)
+    OR A
+    JR Z,_sq_wrap_screen
+    POP AF
+    RET
+_sq_wrap_screen:
+    POP AF
     PUSH BC
     LD B,A
     LD A,(VAR_COL)

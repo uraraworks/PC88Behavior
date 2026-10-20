@@ -64,6 +64,7 @@ VAR_ROWBASE EQU MM_VAR_ROWBASE   ; 現在行のVRAM先頭番地（2バイト）
 ; SCREEN_MAIN — 画面初期化 → 自作バナー → (試験用の埋め草) → Ok
 ; ---------------------------------------------------------------------
 SCREEN_MAIN:
+    CALL SQ_INIT
     XOR A
     LD (SAVE_CAPTURE_ACTIVE),A
     LD (SAVE_DONE_FLAG),A
@@ -210,6 +211,14 @@ _ps_loop:
 ; ---------------------------------------------------------------------
 PRINT_CHAR:
     PUSH AF
+    LD A,(MM_SQ_OUTPUT)
+    OR A
+    JR Z,_sq_pc_screen
+    POP AF
+    JP SQ_CHAR
+_sq_pc_screen:
+    POP AF
+    PUSH AF
     LD A,(SAVE_CAPTURE_ACTIVE)
     OR A
     JR Z,_pc_no_capture
@@ -263,6 +272,9 @@ _pc_bell:
 ; カーソル・スクロールの対象から外す（対象はrow0=0〜USABLE_ROWS-1）。
 ; ---------------------------------------------------------------------
 NEWLINE:
+    LD A,(MM_SQ_OUTPUT)
+    OR A
+    JP NZ,SQ_NEWLINE
     LD A,(SAVE_CAPTURE_ACTIVE)
     OR A
     JP NZ,SAVE_CAPTURE_NEWLINE

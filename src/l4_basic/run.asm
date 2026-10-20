@@ -179,10 +179,7 @@ RUN_ARG1            EQU MM_RUN_ARG1 ; 2B MID$の第2引数(開始位置)の退�
 PNFM_SAVE_PTR        EQU MM_PNFM_SAVE_PTR ; 2B PARSE_NUM_FROM_MEMのCUR_PTR退避
 PNFM_SAVE_END        EQU MM_PNFM_SAVE_END ; 2B 同LINE_END退避
 PNFM_NEG             EQU MM_PNFM_NEG ; 1B 同'-'符号
-RUN_INPUT_COUNT      EQU MM_RUN_INPUT_COUNT ; 1B 旧INPUT領域（互換のため予約を維持）
-RUN_INPUT_VARS       EQU MM_RUN_INPUT_VARS ; 旧INPUT受け皿36B（本体はMM_INPUT_VARS）
 RUN_INPUT_RAW_LEN    EQU MM_RUN_INPUT_RAW_LEN ; 1B INPUT_READLINEが読み取った生の行の長さ
-RUN_INPUT_RAW_BUF    EQU MM_RUN_INPUT_RAW_BUF ; 旧INPUTバッファ40B（本体はMM_INPUT_RAW）
 ; 終端 = DE95+40 = DEBDh(まだ0xE800より十分手前)
 
 ; ---- M7段階5c-2b: 配列代入(ARRAY_ASSIGN_STMT)の左辺アドレス退避 ----
@@ -2067,6 +2064,10 @@ _next_typeerr:
     RET
 
 END_STMT:
+    CALL SQ_CLOSE_ALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     XOR A
     LD (ERROR_FLAG),A
     LD A,2
@@ -2153,6 +2154,10 @@ COLOR_STMT:
 ; 第14.17版 4.13/4.13a（測定0fc2cfc）。本体はbank3、項目切出しはbank1。
 ; INPUT用の排他的作業域はPRINT USINGの文内作業と共用する。
 INPUT_STMT:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP '#'
+    JP Z,SQ_INPUT
     LD HL,0x6AD0
     LD A,3
     JP EXT_BANK_CALL
@@ -2548,6 +2553,8 @@ RUN_RESET_STATE:
     CALL RND_RESET
 ; CLEARは乱数状態を保持する（第16節の自作判断を維持）。
 RUN_CLEAR_STATE:
+    CALL SQ_CLOSE_ALL
+    RET NZ
     XOR A
     LD (MM_FKEY_PTR),A         ; CLEAR/RUN/NEWで割当のヒープ寿命が終わる
     LD (MM_FKEY_PTR+1),A
@@ -2690,51 +2697,11 @@ TRY_MATCH_GOTO:
     CALL TRY_MATCH_GO_TO
     OR A
     RET NZ
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_GOTO_LEN
-    JR C,_l4tmgoto_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_GOTO_TEXT
-    LD B,STMT_GOTO_LEN
-_l4tmgoto_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmgoto_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmgoto_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmgoto_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmgoto_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmgoto_boundary_ok2
-    JR _l4tmgoto_fail
-_l4tmgoto_boundary_ok:
-    POP HL
-_l4tmgoto_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_GOTO_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmgoto_fail:
-    XOR A
-    RET
+    LD HL,STMT_GOTO_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_GOTO_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_GOTO_TEXT: DB "GOTO"
 STMT_GOTO_LEN EQU 4
@@ -2747,51 +2714,11 @@ TRY_MATCH_GOSUB:
     CALL TRY_MATCH_GO_SUB
     OR A
     RET NZ
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_GOSUB_LEN
-    JR C,_l4tmgosub_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_GOSUB_TEXT
-    LD B,STMT_GOSUB_LEN
-_l4tmgosub_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmgosub_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmgosub_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmgosub_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmgosub_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmgosub_boundary_ok2
-    JR _l4tmgosub_fail
-_l4tmgosub_boundary_ok:
-    POP HL
-_l4tmgosub_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_GOSUB_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmgosub_fail:
-    XOR A
-    RET
+    LD HL,STMT_GOSUB_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_GOSUB_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_GOSUB_TEXT: DB "GOSUB"
 STMT_GOSUB_LEN EQU 5
@@ -2801,51 +2728,11 @@ STMT_GOSUB_LEN EQU 5
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_RETURN:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_RETURN_LEN
-    JR C,_l4tmreturn_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_RETURN_TEXT
-    LD B,STMT_RETURN_LEN
-_l4tmreturn_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmreturn_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmreturn_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmreturn_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmreturn_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmreturn_boundary_ok2
-    JR _l4tmreturn_fail
-_l4tmreturn_boundary_ok:
-    POP HL
-_l4tmreturn_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_RETURN_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmreturn_fail:
-    XOR A
-    RET
+    LD HL,STMT_RETURN_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_RETURN_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_RETURN_TEXT: DB "RETURN"
 STMT_RETURN_LEN EQU 6
@@ -2855,51 +2742,11 @@ STMT_RETURN_LEN EQU 6
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_FOR:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_FOR_LEN
-    JR C,_l4tmfor_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_FOR_TEXT
-    LD B,STMT_FOR_LEN
-_l4tmfor_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmfor_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmfor_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmfor_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmfor_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmfor_boundary_ok2
-    JR _l4tmfor_fail
-_l4tmfor_boundary_ok:
-    POP HL
-_l4tmfor_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_FOR_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmfor_fail:
-    XOR A
-    RET
+    LD HL,STMT_FOR_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_FOR_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_FOR_TEXT: DB "FOR"
 STMT_FOR_LEN EQU 3
@@ -2909,51 +2756,11 @@ STMT_FOR_LEN EQU 3
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_NEXT:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_NEXT_LEN
-    JR C,_l4tmnext_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_NEXT_TEXT
-    LD B,STMT_NEXT_LEN
-_l4tmnext_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmnext_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmnext_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmnext_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmnext_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmnext_boundary_ok2
-    JR _l4tmnext_fail
-_l4tmnext_boundary_ok:
-    POP HL
-_l4tmnext_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_NEXT_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmnext_fail:
-    XOR A
-    RET
+    LD HL,STMT_NEXT_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_NEXT_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_NEXT_TEXT: DB "NEXT"
 STMT_NEXT_LEN EQU 4
@@ -2963,51 +2770,11 @@ STMT_NEXT_LEN EQU 4
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_END:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_END_LEN
-    JR C,_l4tmend_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_END_TEXT
-    LD B,STMT_END_LEN
-_l4tmend_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmend_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmend_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmend_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmend_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmend_boundary_ok2
-    JR _l4tmend_fail
-_l4tmend_boundary_ok:
-    POP HL
-_l4tmend_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_END_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmend_fail:
-    XOR A
-    RET
+    LD HL,STMT_END_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_END_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_END_TEXT: DB "END"
 STMT_END_LEN EQU 3
@@ -3017,51 +2784,11 @@ STMT_END_LEN EQU 3
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_STOP:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_STOP_LEN
-    JR C,_l4tmstop_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_STOP_TEXT
-    LD B,STMT_STOP_LEN
-_l4tmstop_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmstop_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmstop_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmstop_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmstop_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmstop_boundary_ok2
-    JR _l4tmstop_fail
-_l4tmstop_boundary_ok:
-    POP HL
-_l4tmstop_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_STOP_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmstop_fail:
-    XOR A
-    RET
+    LD HL,STMT_STOP_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_STOP_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_STOP_TEXT: DB "STOP"
 STMT_STOP_LEN EQU 4
@@ -3071,51 +2798,11 @@ STMT_STOP_LEN EQU 4
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_RUN:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_RUN_LEN
-    JR C,_l4tmrun_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_RUN_TEXT
-    LD B,STMT_RUN_LEN
-_l4tmrun_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmrun_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmrun_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmrun_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmrun_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmrun_boundary_ok2
-    JR _l4tmrun_fail
-_l4tmrun_boundary_ok:
-    POP HL
-_l4tmrun_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_RUN_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmrun_fail:
-    XOR A
-    RET
+    LD HL,STMT_RUN_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_RUN_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_RUN_TEXT: DB "RUN"
 STMT_RUN_LEN EQU 3
@@ -3125,51 +2812,11 @@ STMT_RUN_LEN EQU 3
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_TO:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_TO_LEN
-    JR C,_l4tmto_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_TO_TEXT
-    LD B,STMT_TO_LEN
-_l4tmto_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmto_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmto_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmto_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmto_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmto_boundary_ok2
-    JR _l4tmto_fail
-_l4tmto_boundary_ok:
-    POP HL
-_l4tmto_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_TO_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmto_fail:
-    XOR A
-    RET
+    LD HL,STMT_TO_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_TO_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_TO_TEXT: DB "TO"
 STMT_TO_LEN EQU 2
@@ -3179,51 +2826,11 @@ STMT_TO_LEN EQU 2
 ;   (TRY_MATCH_PRINTと同じ構造・境界確認)。
 ;   出力: A=1(一致、CUR_PTRを消費)/0(不一致、CUR_PTR不変)
 TRY_MATCH_STEP:
-    LD HL,(LINE_END)
-    LD DE,(CUR_PTR)
-    OR A
-    SBC HL,DE
-    LD A,L
-    CP STMT_STEP_LEN
-    JR C,_l4tmstep_fail
-    LD HL,(CUR_PTR)
-    LD DE,STMT_STEP_TEXT
-    LD B,STMT_STEP_LEN
-_l4tmstep_cmp:
-    LD A,(HL)
-    CALL FOLD_UPPER
-    LD C,A
-    LD A,(DE)
-    CP C
-    JR NZ,_l4tmstep_fail
-    INC HL
-    INC DE
-    DJNZ _l4tmstep_cmp
-    LD DE,(LINE_END)
-    PUSH HL
-    OR A
-    SBC HL,DE
-    JR Z,_l4tmstep_boundary_ok
-    POP HL
-    LD A,(HL)
-    CALL FOLD_UPPER
-    CP 'A'
-    JR C,_l4tmstep_boundary_ok2
-    CP 'Z'+1
-    JR NC,_l4tmstep_boundary_ok2
-    JR _l4tmstep_fail
-_l4tmstep_boundary_ok:
-    POP HL
-_l4tmstep_boundary_ok2:
-    LD HL,(CUR_PTR)
-    LD DE,STMT_STEP_LEN
-    ADD HL,DE
-    LD (CUR_PTR),HL
-    LD A,1
-    RET
-_l4tmstep_fail:
-    XOR A
-    RET
+    LD HL,STMT_STEP_TEXT
+    LD (RUN_KW_TEXT),HL
+    LD A,STMT_STEP_LEN
+    LD (RUN_KW_LEN),A
+    JP TRY_MATCH_KEYWORD_GENERIC
 
 STMT_STEP_TEXT: DB "STEP"
 STMT_STEP_LEN EQU 4
@@ -4154,9 +3761,22 @@ ARRAY_SIZE:
 ;   IF文(THEN/ELSEの単文実行、IF_STMT参照)から再利用できるようにした。
 ;   出力: ERROR_FLAG/ERROR_KIND・RUN_CTRL(呼び出し元が確認する)。
 RUN_EXEC_ONE_STMT:
-    ; 分岐の印は文ごとに消す。POKE等は通常続行を明示しない。
+    ; 分岐の印はファイル文も含め、文ごとに消す。
     XOR A
     LD (RUN_CTRL),A
+    CALL TRY_MATCH_NEW
+    OR A
+    JR Z,_reos_seqfile
+    CALL NEW_STMT
+    CALL sq_bad
+    RET NZ
+    LD A,2
+    LD (RUN_CTRL),A
+    RET
+_reos_seqfile:
+    CALL SQ_TRY_STMT
+    OR A
+    RET NZ
     CALL RUN_MATCH_STMT_KEYWORD
     OR A
     JP Z,_reos_unmatched
@@ -4430,6 +4050,10 @@ OW_WHILE_STMT:
     LD HL,07320h
     JR OW_BANK_CALL
 OW_WEND_STMT:
+    CALL SQ_CLOSE_ALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     LD HL,07330h
 OW_BANK_CALL:
     LD A,1

@@ -1471,6 +1471,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{mbf_double_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
         + f'\nINCLUDE "{program_path}"\n'
+        + f'\nINCLUDE "{REPO / "src/l4_basic/seqfile.asm"}"\n'
         + f'\nINCLUDE "{run_path}"\n'
         + f'\nINCLUDE "{files_path}"\n'
         + f'\nINCLUDE "{load_path}"\n'
