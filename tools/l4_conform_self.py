@@ -57,6 +57,7 @@ ROWS = [
  ('listnum','l4_listnum_measure.py',['integrated'],[],193,420),
  ('s5j','l4_s5j_measure.py',['integrated'],[],113,300),
  ('rnd','l4_rnd_measure.py',['integrated'],['--all'],108,1800),
+ ('seqfile','l4_seqfile_measure.py',[],[],90,600),
 ]
 L3_EXPECTED = {
     'files','load','load_existing','seqfile','kill','name','run_file','merge','bsave',
@@ -316,6 +317,8 @@ def status(rc, known=False):
 def worker(row, rom, work, result):
     """別プロセス。標準出力は破棄し、結果は合否と値を含まない診断だけ。"""
     name, tool, margs, cargs, _, _ = row
+    # 器具のROOTは取込み時に環境変数から決まる。外部作業先を先に渡す。
+    if name == 'seqfile': os.environ['PC88_L4_SEQFILE_WORK'] = str(work.resolve())
     mod = importlib.import_module(Path(tool).stem)
     out = work/'measured.tsv'
     exp = expected(row)
@@ -362,18 +365,23 @@ def worker(row, rom, work, result):
         if name == 'rnd': return check_rnd(mod, rom, exp, work)
         return integrated_check(mod, name, integrated_ids(exp))
     env = dict(os.environ)
+    def check_exp():
+        # seqfileは期待値の先頭行に記録された除外を、CLIと同じく読んで渡す。
+        if name != 'seqfile': return mod.check(exp, out)
+        with exp.open() as f: first = next(csv.DictReader(f, delimiter='\t'))
+        return mod.check(exp, out, json.loads(first.get('exclusions') or '{}'))
     rc = run_silent([sys.executable, str(REPO/'tools'/tool), 'measure', '--rom-dir', str(rom),
                      '--work-dir', str(work), '--out', str(out), *margs], env)
     if rc:
         # measureが候補差をNGとした場合も、存在するTSVから腕を診断する。
         if not out.exists(): return ng_measure([out])
         with KnownSink() as sink:
-            checked = mod.check(exp, out)
+            checked = check_exp()
         checked_status(mod, exp, [out], checked, sink.known)
         DETAIL['gate'] = gates([out])
         return 'NG'
     with KnownSink() as sink:
-        checked = mod.check(exp, out)
+        checked = check_exp()
     return checked_status(mod, exp, [out], checked, sink.known)
 
 

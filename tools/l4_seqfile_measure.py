@@ -10,12 +10,14 @@ import l4_mlcall_measure as mem
 import build_blank_data_disk as blank
 
 REPO = Path(__file__).resolve().parents[1]
-ROOT = REPO / 'tmp/f1-work'
+ROOT = Path(os.environ.get('PC88_L4_SEQFILE_WORK', REPO / 'tmp/f1-work')).resolve()
 BASE = mem.BASE
 FIELDS = mem.FIELDS
 KNOWN_DIFFERENCES = {}  # 期待値全体と観測全体が一致する理由付き規則だけ。事前免除なし。
 PLAN_SHA = 'e9531797224d19bdae81978a4cc4091c92036014c8ea1fdccd69d9655a048816'
 PROGRAM_SHA = '8ee7416ce43f7e7fe4a2ff8aa0d1250f6a446217877168e822759a86bd5c9d0a'
+ADDENDUM_PLAN_SHA = '4c2c9968e41e9ed23ead9bbeb002eaccf9f43e57a22d2e5dc8532cb5f5158671'
+ADDENDUM_PROGRAM_SHA = 'e0f7492a5478b7fcfb6f5503a5f327d925929044766cd418f086cbfa5243120e'
 OFFICIAL = False
 NAME = b'f1own'
 
@@ -110,6 +112,29 @@ def arms():
     add('kill-open',[op,'print #1,"alpha"'],['kill "2:f1own"'],prediction='ERR54を仮説',bodies={'alpha':b'alpha'})
     add('append-existing',['open "2:f1own" for append as #1'],['print #1,"beta"'],['close #1',ip,'line input #1,a$','line input #1,b$',boolean(65,'a$="alpha" and b$="beta"'),'close'],fixture='alpha',bodies={'joined':b'alpha\r\nbeta'},prediction='ERR0・既存SUBを置換して末尾追加・読戻印1')
     return aa
+
+def addendum_arms():
+    selected = []
+    for a in arms():
+        if a['id'] not in ('finish-run','flush-run','finish-load','flush-load'): continue
+        a=copy.deepcopy(a);a['id']+='-a1'
+        a.update(io_start='initial-run-minus-one', load_wait=36000, self_load_wait=7200)
+        selected.append(a)
+    control=copy.deepcopy(next(a for a in selected if a['id']=='flush-load-a1'))
+    control.update(id='flush-load-control-a1', stages=[[], ['load "2:f1prog"'], ['rem no close before media observation']],
+                   prediction='順次OPEN/PRINTなしのLOAD後最小経路で段2/3復帰・終了・600フレーム安定・取りこぼし0を予測。対象ファイル非生成')
+    selected.append(control)
+    return selected
+
+def is_addendum(a): return a['id'].endswith('-a1')
+def selected_arms(round_name): return addendum_arms() if round_name=='addendum1' else arms()
+def round_signatures(round_name):
+    return (ADDENDUM_PLAN_SHA,ADDENDUM_PROGRAM_SHA) if round_name=='addendum1' else (PLAN_SHA,PROGRAM_SHA)
+def addendum_signatures():
+    aa=addendum_arms()
+    plan=[{**a,'bodies':{n:hashlib.sha256(b).hexdigest() for n,b in a['bodies'].items()}} for a in aa]
+    return (hashlib.sha256(json.dumps(plan,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+            hashlib.sha256(json.dumps([program(a) for a in aa],separators=(',',':')).encode()).hexdigest())
 
 FIXTURES = {'alpha':b'alpha\r\n\x1a','number':b'12\r\n\x1a','negative':b'-12\r\n\x1a',
             'comma':b'a,b\r\n\x1a','quote':b'"a,b"\r\n\x1a','empty':b'\r\n\x1a',
@@ -243,7 +268,11 @@ def prepare(work,a,official):
     if official and source is None: raise ValueError('PC88_REF_DISK_DIR_missing')
     try:
         if source: shutil.copyfile(source,work/'a.d88')
-        else: (work/'a.d88').write_bytes(blank.build()) # 自作試走の代替。公式関門は免除しない。
+        else:
+            # 第24.1節の起動構成: 既定ドライブ1は書込禁止。自作媒体で同じ条件を作る。
+            substitute=bytearray(blank.build())
+            write_sector(substitute,18,1,13,bytes([0x10])*256)
+            (work/'a.d88').write_bytes(substitute)
         (work/'a.d88').chmod(0o600)
         (work/'b.d88').write_bytes(fixture_image(a['fixture']))
     except BaseException:
@@ -252,7 +281,12 @@ def prepare(work,a,official):
     return ['--disk',str(work/'a.d88'),'--disk2',str(work/'b.d88'),'--save-to-disk-image']
 
 def valid(o,a):
-    if type(o) is not dict or set(o)!={'values','writes','media'}: return False
+    if type(o) is not dict: return False
+    if is_addendum(a):
+        if set(o)!={'values','writes','media','conditions','io_counts'}: return False
+        c=o['conditions']
+        if type(c) is not dict or set(c)!={'stable','logical_marks','memory_no_loss','io_no_loss','pre_io_marks_absent'} or not all(v is True for v in c.values()): return False
+    elif set(o)!={'values','writes','media'}: return False
     base={k:o[k] for k in ('values','writes')}
     # 自作の比較印は65..73、関数数値は21..29に限定。
     if not mem.memory_valid(base,a): return False
@@ -266,23 +300,86 @@ def schedule(a,official):
     for cmd in program(a):
         typed.append((at,cmd+'\n'))
         at+=(len(cmd)+1)*(12 if official else 8)+(360 if official else 120)
-        if cmd=='run' and a['lifecycle']: at+=18000 if official else 6000
+        if cmd=='run' and a['lifecycle']:
+            at+=(a['load_wait'] if official else a['self_load_wait']) if is_addendum(a) and a['lifecycle']=='load' else (18000 if official else 6000)
     return typed,at+(24000 if official else 6000)
 
+def io_start(a,typed):
+    # 印ログは打鍵開始から。入出力だけ、最初のRUNの打鍵直前から採る。
+    return next(t for t,c in typed if c=='run\n')-1 if is_addendum(a) else typed[0][0]
+
+def memory_conditions(raw,start,finish,a):
+    conditions=dict(stable=None,logical_marks=None,memory_no_loss=False)
+    totals=re.findall(r'^# 取りこぼし: (\d+)件 / 総イベント数: (\d+)件$',raw,re.M)
+    conditions['memory_no_loss']=len(totals)==1 and totals[0][0]=='0'
+    # 取りこぼしがあっても安定/論理印を独立に診断する。採用判定には元のloss条件を必須とする。
+    diagnostic=re.sub(r'(# 取りこぼし: )\d+',r'\g<1>0',raw)
+    o=None
+    try:
+        o=mem.parse_log(diagnostic,start,finish,a)
+        conditions.update(stable=True,logical_marks=True)
+    except mem.GateError as exc:
+        conditions['stable']=str(exc)!='安定'
+        if conditions['stable']: conditions['logical_marks']=False
+        else:
+            try: mem.parse_log(diagnostic,start,10**15,a);conditions['logical_marks']=True
+            except ValueError: conditions['logical_marks']=False
+    except ValueError:
+        conditions['logical_marks']=False
+    return o,conditions
+
+def io_counts(raw,memory_raw):
+    # 値/PC列は参照せず、CPU別・段別の件数とポート番号の種類だけを残す。
+    from bisect import bisect_right
+    marks=[]
+    for line in memory_raw.splitlines():
+        parts=line.split()
+        if len(parts)==5 and parts[0].isdigit() and parts[3]=='C301':
+            marks.append((int(parts[1]),int(parts[4],16)))
+    marks.sort();frames=[t for t,_ in marks]
+    result={};cpu=None
+    for line in raw.splitlines():
+        if line in ('# main','# sub'):
+            cpu=line[2:];result[cpu]=dict(stages={},ports={},recorded=0,dropped=None)
+        parts=line.split()
+        if cpu and len(parts)==8 and parts[0].isdigit():
+            frame=int(parts[2]);port=parts[5];ix=bisect_right(frames,frame)-1
+            stage=str(marks[ix][1]) if ix>=0 else 'before-stage1'
+            d=result[cpu];d['stages'][stage]=d['stages'].get(stage,0)+1
+            d['ports'][port]=d['ports'].get(port,0)+1
+        m=re.fullmatch(r'# 取りこぼし: (\d+)件 / 総イベント数: (\d+)件',line)
+        if m and cpu: result[cpu].update(dropped=int(m[1]),recorded=int(m[2]))
+    return result
+
+def addendum_observation(memory_raw,io_raw,start,finish,a,io_from):
+    o,conditions=memory_conditions(memory_raw,start,finish,a)
+    drops=re.findall(r'^# 取りこぼし: (\d+)件 / 総イベント数: \d+件$',io_raw,re.M)
+    conditions['io_no_loss']=len(drops)==2 and all(int(n)==0 for n in drops)
+    # 記録を省く区間には診断域の書込（段印を含む）が一つも無いことを確認。
+    conditions['pre_io_marks_absent']=not any(len(p)==5 and p[0].isdigit() and int(p[1])<io_from
+                                              for p in (line.split() for line in memory_raw.splitlines()))
+    counts=io_counts(io_raw,memory_raw)
+    if o is None or not all(v is True for v in conditions.values()):
+        return dict(failure='GateError',conditions=conditions,io_counts=counts)
+    return dict(**o,conditions=conditions,io_counts=counts)
+
 def capture(rom,official,a,work):
-    typed,finish=schedule(a,official); start=typed[0][0]
+    typed,finish=schedule(a,official); start=typed[0][0];io_from=io_start(a,typed)
     path=work/'memory.txt'; io_path=work/'io.txt'; safe_io=work/'io.redacted.txt'
     argv=[str(mem.kw.FRONT),'--core',str(mem.kw.find_core()),'--rom-dir',str(rom)]
     for frame,cmd in typed: argv+=['--type-at',str(frame),'--type',cmd]
     argv+=['--mem-write-log',str(path),'--mem-write-range',mem.RANGE,'--mem-write-from-frame',str(start),
-           '--io-log',str(io_path),'--io-log-from-frame',str(start),'--frames',str(finish)]
+           '--io-log',str(io_path),'--io-log-from-frame',str(io_from),'--frames',str(finish)]
     try:
         argv+=prepare(work,a,official)
         p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,M6FH_LONG_TYPING='1'),timeout=240)
         if p.returncode: raise mem.ExecutionDenied('execution denied')
         if b'untypable' in p.stderr.lower(): raise RuntimeError('typing')
-        o=mem.parse_log(path.read_text(),start,finish,a)
-        io_text=io_path.read_text()
+        memory_raw=path.read_text();io_text=io_path.read_text()
+        if is_addendum(a):
+            o=addendum_observation(memory_raw,io_text,start,finish,a,io_from)
+            if 'failure' in o: return o
+        else: o=mem.parse_log(memory_raw,start,finish,a)
         drops=re.findall(r'^# 取りこぼし: (\d+)件 / 総イベント数: \d+件$',io_text,re.M)
         if len(drops)!=2 or any(int(n) for n in drops):
             raise mem.GateError('io log loss',[(0,i,v) for i,v in o['writes']])
@@ -324,7 +421,7 @@ def gates(rs,exclude=()):
     nonuniform=bool(ee) and None not in ee and len(set(ee))>1
     return dict(calibration=calibration,positive=positive,nonuniform=nonuniform,passed=calibration and positive and nonuniform and all(r['gate'] for r in rs if r['arm']['id'] not in exclude))
 
-def measure(rom,official,work):
+def measure(rom,official,work,round_name="first"):
     safety(work)
     if official and reference_disk() is None: raise ValueError('PC88_REF_DISK_DIR_missing')
     def run(a):
@@ -334,22 +431,25 @@ def measure(rom,official,work):
             try: obs.append(capture(rom,official,a,dest))
             except (PermissionError,mem.ExecutionDenied): raise
             except Exception as exc:
-                obs.append(dict(failure=type(exc).__name__,errors=getattr(exc,'errors',{})))
-        gate=all(valid(o,a) for o in obs) and obs[0]==obs[1]
+                obs.append(dict(failure=type(exc).__name__,conditions=dict(stable=None,logical_marks=None,memory_no_loss=None,io_no_loss=None,pre_io_marks_absent=None)) if is_addendum(a) else dict(failure=type(exc).__name__,errors=getattr(exc,'errors',{})))
+        gate=all(valid(o,a) for o in obs) and comparable(obs[0])==comparable(obs[1])
         print(a['id']+': '+('pass' if gate else 'gate_failed'),flush=True)
         return dict(arm=a,obs=obs,gate=gate)
-    if official: return [run(a) for a in arms()]
+    if official: return [run(a) for a in selected_arms(round_name)]
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run,arms()))
+    with ThreadPoolExecutor(max_workers=4) as pool: return list(pool.map(run,selected_arms(round_name)))
 
-def emit(path,rs):
+def comparable(o): return {k:v for k,v in o.items() if k not in ("conditions","io_counts")}
+
+def emit(path,rs,round_name="first"):
     g=gates(rs)
+    plan_sha,program_sha=round_signatures(round_name)
     mem.write_tsv(path,['arm','repeat','plan_sha','program_sha','observation','gate'],
-        [[r['arm']['id'],j+1,PLAN_SHA,PROGRAM_SHA,json.dumps(o,sort_keys=True),'pass' if r['gate'] and g['passed'] else 'gate_failed'] for r in rs for j,o in enumerate(r['obs'])])
+        [[r['arm']['id'],j+1,plan_sha,program_sha,json.dumps(o,sort_keys=True),'pass' if r['gate'] and g['passed'] else 'gate_failed'] for r in rs for j,o in enumerate(r['obs'])])
     return g['passed'] and all(r['gate'] for r in rs)
 
 PROTECTED=('cal-poke','cal-error','disk-positive')
-def read_passed(path,exclude=()):
+def read_passed(path,exclude=(),strict_excluded=True):
     """exclude: 器具関門を通らなかった腕IDの明示。指定が無ければ従来どおり全腕の関門成立を要求する。"""
     exclude=set(exclude)
     known={a['id']:a for a in arms()}; groups={}
@@ -368,7 +468,7 @@ def read_passed(path,exclude=()):
         obs=[json.loads(r['observation']) for r in rows];a=known[aid]
         ok=all(valid(o,a) for o in obs) and obs[0]==obs[1]
         if aid in exclude:
-            if ok: raise ValueError('excluded arm passed')  # 関門を通った腕は除外できない
+            if ok and strict_excluded: raise ValueError('excluded arm passed')  # 関門を通った腕は除外できない
         elif not ok: raise ValueError('observations')
         rs.append(dict(arm=a,obs=obs,gate=ok))
     if not gates(rs,exclude)['passed']: raise ValueError('global gate')
@@ -408,7 +508,7 @@ def check(exp,path,exclude=None):
         o=synth(a);o['media']=value['media']
         if not valid(o,a) or set(value['values'])!=set(FIELDS) or any(type(n) is not int or not 0<=n<=255 for n in value['values'].values()): raise ValueError('expected content')
         if a['id'] in ('cal-poke','cal-error') and value!=dict(values=synth(a)['values'],media=synth(a)['media']): raise ValueError('expected calibration')
-    try: got=read_passed(path,exclude)
+    try: got=read_passed(path,exclude,strict_excluded=False)
     except (ValueError,KeyError,TypeError): got={}
     bad=[]
     for k,v in want.items():
@@ -417,8 +517,8 @@ def check(exp,path,exclude=None):
         if not (rule and rule.get('reason') and rule.get('expected')==v and rule.get('measured')==got.get(k)): bad.append(k)
     return len(want)-len(bad),bad
 
-def serial_plan():
-    return [{**a,'bodies':{n:hashlib.sha256(b).hexdigest() for n,b in a['bodies'].items()}} for a in arms()]
+def serial_plan(round_name="first"):
+    return [{**a,'bodies':{n:hashlib.sha256(b).hexdigest() for n,b in a['bodies'].items()}} for a in selected_arms(round_name)]
 
 def signatures():
     return (hashlib.sha256(json.dumps(serial_plan(),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
@@ -490,6 +590,11 @@ def safety(work):
         assert rejects(lambda:parse_exclude([victim]))
         assert expected(exp,[out],ex)==len(aa)-1
         assert check(exp,out,ex)==(len(aa)-1,[])
+        # 公式で除外された腕が自作で成立しても、比較対象の集合は変えない。
+        emit(out,rs)
+        assert rejects(lambda:expected(exp,[out],ex))
+        assert check(exp,out,ex)==(len(aa)-1,[])
+        emit(out,bad)
         assert rejects(lambda:check(exp,out))                            # 除外つき期待値は除外指定なしで検査できない
         assert rejects(lambda:check(exp,out,{victim:'別の理由'}))        # 理由が期待値の記録と違えば拒否
         two=copy.deepcopy(bad);two[-3]['obs']=[dict(failure='GateError',errors={}) for _ in (1,2)];two[-3]['gate']=False
@@ -552,18 +657,97 @@ def safety(work):
         front[2]['obs']=[negative,negative]
         assert gates(front)['calibration'] and gates(front)['nonuniform'] and not gates(front)['positive']
         assert not sink.getvalue() and not list(dest.glob('*.d88')) and not (dest/'memory.txt').exists() and not (dest/'io.txt').exists()
+    addendum_selftest(work)
     print(f'OK 合成自己検査 {len(aa)}腕: 媒体構成陰性・1B変異・一様ERR0/2/33・2走・署名・ログ関門',flush=True)
+
+def addendum_selftest(work):
+    assert signatures()==(PLAN_SHA,PROGRAM_SHA)
+    assert addendum_signatures()==(ADDENDUM_PLAN_SHA,ADDENDUM_PROGRAM_SHA)
+    aa=addendum_arms(); assert len(aa)==5
+    original={a['id']:a for a in arms()}
+    for a in aa[:4]:
+        assert a['prediction']==original[a['id'][:-3]]['prediction']
+        typed,finish=schedule(a,True)
+        assert io_start(a,typed)==next(t for t,c in typed if c=='run\n')-1
+        if a['lifecycle']=='load':
+            at=next(i for i,(_,c) in enumerate(typed) if c=='run\n')
+            assert typed[at+1][0]-typed[at][0]==(len('run')+1)*12+360+36000
+    a=aa[0];raw=mem.fake_log(synth(a));io_raw='# main\n1 1 101 main IN 0040 SECRET SECRET\n# 取りこぼし: 0件 / 総イベント数: 1件\n# sub\n# 取りこぼし: 0件 / 総イベント数: 0件\n'
+    good=addendum_observation(raw,io_raw,100,2000,a,99)
+    assert all(good['conditions'].values()) and 'SECRET' not in json.dumps(good)
+    assert good['io_counts']['main']['ports']=={'0040':1}
+    cases=[('stable',raw,io_raw,200),
+           ('logical_marks',raw.replace('C303 A3','C303 A2'),io_raw,2000),
+           ('memory_no_loss',raw.replace('取りこぼし: 0','取りこぼし: 1'),io_raw,2000),
+           ('io_no_loss',raw,io_raw.replace('取りこぼし: 0','取りこぼし: 1',1),2000)]
+    for key,mraw,iraw,end in cases:
+        failed=addendum_observation(mraw,iraw,100,end,a,99)
+        assert failed.get('failure')=='GateError' and failed['conditions'][key] is False
+        assert all(v is True for k,v in failed['conditions'].items() if k!=key),(key,failed['conditions'])
+        assert not any(k in failed for k in ('values','writes','errors','media'))
+    both=addendum_observation(raw.replace('C303 A3','C303 A2'),io_raw,100,200,a,99)
+    assert both['conditions']['stable'] is False and both['conditions']['logical_marks'] is False
+    pre=addendum_observation(raw,io_raw,100,2000,a,101)
+    assert pre['conditions']['pre_io_marks_absent'] is False
+    # 凍結期待値に対する合成記録の照合結果を、追補集合生成の前後で固定する。
+    # 旧公式は四腕の関門確認以外に読まない。
+    frozen=REPO/'tests/conformance/expected_l4_seqfile.tsv'
+    before=hashlib.sha256(frozen.read_bytes()).hexdigest()
+    with frozen.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
+    assert len(rows)==86
+    ex=json.loads(rows[0]['exclusions'])
+    rs=[dict(arm=a,obs=[synth(a),synth(a)],gate=True) for a in arms()]
+    image=bytearray(fixture_image('alpha'));write_sector(image,18,0,1,b'ok\r\n\x1a')
+    for o in rs[2]['obs']: o['media']=inspect(image,rs[2]['arm'])
+    rs[-2]['obs']=[synth(rs[-2]['arm'],54) for _ in (1,2)]
+    for r in rs:
+        if r['arm']['id'] in ex:
+            r['obs']=[dict(failure='GateError',errors={}) for _ in (1,2)];r['gate']=False
+    with tempfile.TemporaryDirectory(dir=work,prefix='frozen86-') as td:
+        path=Path(td)/'synthetic.tsv';emit(path,rs)
+        baseline=check(frozen,path,ex)
+        assert len(selected_arms('addendum1'))==5 and len(arms())==90
+        assert signatures()==(PLAN_SHA,PROGRAM_SHA) and check(frozen,path,ex)==baseline
+        assert baseline[0]+len(baseline[1])==86
+    assert hashlib.sha256(frozen.read_bytes()).hexdigest()==before
+    print('OK 追補5腕: 条件別陰性対照・複合失敗・開始前印・凍結86腕の合成照合結果不変・期待値不変',flush=True)
+
+def addendum_report(rs,work,seconds):
+    frames=sum(schedule(a,True)[1]*2 for a in addendum_arms())
+    own_frames=sum(schedule(a,False)[1]*2 for a in addendum_arms())
+    rows=['# l4-f1 追補1 第1回報告',
+          'CLAUDE.mdを先に読み適用。公式ROM未実行・バイト列未読・画面未取得。src変更、commit、run_allなし。',
+          '事前登録: docs/notes/l4-f1-addendum1-preregistration.md。第1回の署名・腕定義・凍結期待値は維持。',
+          '自己検査: 合成陽性/陰性対照、失敗条件の独立記録、凍結86腕に対する合成記録の照合結果不変を検査（旧公式の全腕再照合ではない）。',
+          '作業逸脱: 初版の自己検査が旧official.tsvの全180行を2回内部照合し、指定された4腕の読取範囲を超えた。値・画面本文は出力していない。該当処理は撤去し、以後は凍結期待値と合成記録のみで不変性を検査。srcは読まず変更していない。',
+          f'自作試走: 追補5腕、各2独立起動の一式を1回。器具関門 {sum(r["gate"] for r in rs)}/5。壁時計 {seconds:.1f}秒。',
+          'PC88_REF_*未指定。自作のdrive1は自作書込禁止媒体で代用。公式の起動条件成立は主張しない。',
+          '追補だけでは較正・陽性・非一様の全体関門を証明しない。公式結果から期待値を作る際も既存の全体関門を免除しない。',
+          f'公式予定: 10起動、計{frames}フレーム。60fps換算 {frames/3600:.1f}分、各起動240秒上限の合計40分。',
+          f'自作の並列実測からの単純比例は約{seconds*4*frames/own_frames/60:.1f}分（4並列相当を逐次へ換算、ホスト速度依存）。',
+          '旧公式のRUN先頭区間: finish-runは記録8388608/欠落502323、flush-runは記録8388608/欠落434825（各2走同数、結果ノートから）。',
+          '旧公式の段別内訳・ポート種類は不明。許可されたofficial.tsvに件数列がなく、他のtmpを開かない制約のため復元不能。',
+          '以下は件数・ポート番号・関門真偽のみ。失敗した観測には誤り値を入れない。',
+          '|腕|走|器具関門|条件|','|---|---|---|---|']
+    table=rows[-2:];rows=rows[:-2]
+    details=[]
+    for r in rs:
+        for j,o in enumerate(r['obs'],1):
+            table.append('|'+r['arm']['id']+'|'+str(j)+'|'+str(r['gate'])+'|'+json.dumps(o.get('conditions',{}),sort_keys=True)+'|')
+            details.append(r['arm']['id']+' 走'+str(j)+' 段別入出力件数: `'+json.dumps(o.get('io_counts',{}),sort_keys=True)+'`')
+    rows.append('\n'.join(table));rows.extend(details)
+    (ROOT/'a1-report.md').write_text('\n\n'.join(rows)+'\n')
 
 def report(rs,work,seconds):
     from collections import Counter
     counts=Counter(str(o.get('values',o.get('errors',{})).get('first_err','不明')) for r in rs for o in r['obs'])
     rows=['# l4-f1 第1回報告',f'腕数: {len(rs)}、各2走（自作ROMのみ、計{2*len(rs)}起動）。',
-          '公式ROM未実行。src/変更・commit・run_allなし。',
+          '本器具は公式ROMの実行・srcの変更・commit・run_allを行わない。',
           '自己検査: 合成陽性、媒体構成誤り、1バイト変異、一様ERR0/2/33、2走不一致、ログ関門を通過。',
           f'自作試走の器具関門: {sum(r["gate"] for r in rs)}/{len(rs)}。',
           '最初ERR集計（走単位）: '+json.dumps(dict(counts),ensure_ascii=False),
           '全体関門: '+json.dumps(gates(rs),ensure_ascii=False),
-          'PC88_REF_*未指定の自作試走はdrive1に自作空媒体を代用。追補1構成の公式測定ではない。陽性・一様誤り関門の免除なし。',
+          'PC88_REF_*未指定の自作試走はdrive1に自作の書込禁止媒体を代用。追補1構成の公式測定ではない。陽性・一様誤り関門の免除なし。',
           f'実測壁時計: {seconds:.1f}秒。公式は逐次{len(rs)*2}起動、各240秒上限。',
           f'公式予定フレーム合計: {sum(schedule(a,True)[1]*2 for a in arms())}。ホスト実行速度依存。上限見積{len(rs)*2*240/3600:.1f}時間。',
           '|腕|器具関門|最初ERR@段|最後ERR@段|','|---|---|---|---|']
@@ -575,23 +759,32 @@ def report(rs,work,seconds):
 def main():
     global OFFICIAL
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
-    s=sub.add_parser('selftest');s.add_argument('--synthetic-only',action='store_true');s.add_argument('--work-dir',type=Path,default=ROOT/'selftest')
-    m=sub.add_parser('measure');m.add_argument('--official',action='store_true');m.add_argument('--rom-dir',type=Path);m.add_argument('--work-dir',type=Path,required=True);m.add_argument('--out',type=Path,required=True)
-    sub.add_parser('describe')
+    s=sub.add_parser('selftest');s.add_argument('--round',choices=['first','addendum1'],default='first');s.add_argument('--synthetic-only',action='store_true');s.add_argument('--work-dir',type=Path,default=ROOT/'selftest')
+    m=sub.add_parser('measure');m.add_argument('--round',choices=['first','addendum1'],default='first');m.add_argument('--official',action='store_true');m.add_argument('--rom-dir',type=Path);m.add_argument('--work-dir',type=Path,required=True);m.add_argument('--out',type=Path,required=True)
+    d=sub.add_parser('describe');d.add_argument('--round',choices=['first','addendum1'],default='first')
     e=sub.add_parser('expected');e.add_argument('--out',type=Path,required=True);e.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='器具関門を通らなかった腕IDを理由つきで除外（繰り返し可）');e.add_argument('paths',nargs='+',type=Path)
     c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,required=True);c.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='期待値ファイルに記録された除外と同じ指定');
     args=p.parse_args();OFFICIAL=getattr(args,'official',False)
+    if addendum_signatures()!=(ADDENDUM_PLAN_SHA,ADDENDUM_PROGRAM_SHA): raise ValueError('addendum signatures')
     if signatures()!=(PLAN_SHA,PROGRAM_SHA): raise ValueError('frozen signatures')
     for key in ('work_dir','out','paths','expected','measured'):
         value=getattr(args,key,None)
         for path in value if isinstance(value,list) else [value] if value else []:
-            if not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve()): p.error('作業・入出力はtmp/f1-work内の絶対パス必須')
+            if key == 'expected' and path.resolve() == (REPO/'tests/conformance/expected_l4_seqfile.tsv').resolve(): continue
+            if not path.is_absolute() or not path.resolve().is_relative_to(ROOT.resolve()): p.error('作業・入出力は指定された作業root内の絶対パス必須')
     if args.command=='describe':
-        for a in serial_plan(): print(json.dumps(a,ensure_ascii=False))
+        for a in serial_plan(args.round): print(json.dumps(a,ensure_ascii=False))
         return 0
     if args.command=='expected': print(f'期待値{expected(args.out,args.paths,parse_exclude(args.exclude))}腕、除外{len(args.exclude)}腕');return 0
     if args.command=='check':
-        ok,bad=check(args.expected,args.measured,parse_exclude(args.exclude));print(f'一致{ok}腕、不一致{len(bad)}腕');return int(bool(bad))
+        exclusions=parse_exclude(args.exclude)
+        if not args.exclude:
+            with args.expected.open() as f: first=next(csv.DictReader(f,delimiter='\t'))
+            exclusions=json.loads(first.get('exclusions') or '{}')
+        ok,bad=check(args.expected,args.measured,exclusions)
+        print(f'一致{ok}腕、不一致{len(bad)}腕')
+        for aid in bad: print(aid+': false')
+        return int(bool(bad))
     args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='selftest':
         safety(args.work_dir)
@@ -599,12 +792,14 @@ def main():
         rom=args.work_dir/'rom'
         p1=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(args.work_dir/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
         if p1.returncode: raise RuntimeError('自作ビルド失敗')
-        start=time.monotonic();rs=measure(rom,False,args.work_dir);emit(args.work_dir/'selfrun.tsv',rs);report(rs,args.work_dir,time.monotonic()-start)
+        start=time.monotonic();rs=measure(rom,False,args.work_dir,args.round);emit(args.work_dir/'selfrun.tsv',rs,args.round)
+        if args.round=='addendum1': addendum_report(rs,args.work_dir,time.monotonic()-start)
+        else: report(rs,args.work_dir,time.monotonic()-start)
         # 未実装差と媒体代替による全体測定無効は自己検査成功と区別して報告。
         return int(not all(r['gate'] for r in rs))
     rom=os.environ.get('PC88_REF_ROM_DIR') if args.official else args.rom_dir
     if not rom or (args.official and args.rom_dir): p.error('公式はPC88_REF_ROM_DIR、自作は--rom-dir')
-    return int(not emit(args.out,measure(rom,args.official,args.work_dir)))
+    return int(not emit(args.out,measure(rom,args.official,args.work_dir,args.round),args.round))
 
 if __name__=='__main__':
     try: raise SystemExit(main())
