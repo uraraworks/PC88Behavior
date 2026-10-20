@@ -156,7 +156,10 @@ def bool_bad(mod, exp, out):
 
 def checked_status(mod, exp, paths, checked, known=False):
     if isinstance(checked, bool):
-        bad = bool_bad(mod, exp, paths[0]) if not checked else []
+        bad = []
+        if not checked:
+            try: bad = bool_bad(mod, exp, paths[0])
+            except Exception: bad = []   # 診断は補助。合否はcheck側で確定済み
         failed = not checked
     else:
         bad = list(checked[1])
@@ -367,7 +370,12 @@ def worker(row, rom, work, result):
     env = dict(os.environ)
     def check_exp():
         # seqfileは期待値の先頭行に記録された除外を、CLIと同じく読んで渡す。
-        if name != 'seqfile': return mod.check(exp, out)
+        if name != 'seqfile':
+            if hasattr(mod, 'check'): return mod.check(exp, out)
+            # モジュール関数のcheckが無い器具はCLIのcheckを呼び、終了コードで合否を決める。
+            # 不一致の腕IDはchecked_status経由の汎用比較(bool_bad)が出す。
+            return run_silent([sys.executable, str(REPO/'tools'/tool), 'check', '--expected', str(exp),
+                               '--measured', str(out), *cargs], env) == 0
         with exp.open() as f: first = next(csv.DictReader(f, delimiter='\t'))
         return mod.check(exp, out, json.loads(first.get('exclusions') or '{}'))
     rc = run_silent([sys.executable, str(REPO/'tools'/tool), 'measure', '--rom-dir', str(rom),

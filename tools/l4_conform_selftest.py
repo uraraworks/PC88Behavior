@@ -248,6 +248,40 @@ def diagnostic_selftest(root):
     print('OK NG診断: 不一致ID・関門ID / 例外型と末尾4フレーム / 本文・値なし / 集計要約・NG保持 / 外部許可根・脱出拒否 / 追補2カタログ')
 
 
+def check_route_selftest(root):
+    """表の全行でcheckの呼び方(モジュール関数/CLI)を静的に確かめ、CLI経路を合成器具で通す。"""
+    import ast
+    from types import SimpleNamespace
+    cli_rows = []
+    for name, tool, margs, cargs, _, _ in runner.ROWS:
+        if margs[:1] in (['api'], ['integrated']) or name in runner.SELECTED:
+            continue
+        tree = ast.parse((runner.REPO/'tools'/tool).read_text(encoding='utf-8'))
+        has_fn = any(isinstance(n, ast.FunctionDef) and n.name == 'check' for n in tree.body)
+        src = (runner.REPO/'tools'/tool).read_text(encoding='utf-8')
+        # モジュールに無ければCLIにcheckサブコマンドが要る。
+        assert has_fn or "add_parser('check'" in src, name + ': checkの経路が無い'
+        if not has_fn: cli_rows.append(name)
+    assert 'circle' in cli_rows
+    # 合成の器具: module checkなし、CLIは終了コードだけ返す。AttributeErrorにならない。
+    work = root/'route'; work.mkdir()
+    for code, want in ((0, 'OK'), (1, 'NG')):
+        tool = work/f'synth{code}.py'
+        tool.write_text(f'import sys\nsys.exit({code} if sys.argv[1] == "check" else 0)\n')
+        mod = SimpleNamespace(__name__='synth')
+        exp, out = work/'e.tsv', work/'m.tsv'
+        exp.write_text('arm\tprediction\n'); out.write_text('arm\trepeat\n')
+        with patch.object(runner, 'REPO', work), patch.object(runner, 'expected', return_value=exp), \
+             patch.object(runner.importlib, 'import_module', return_value=mod), \
+             patch.object(runner, 'run_silent', side_effect=lambda argv, env: 0 if code == 0 else (
+                 1 if argv[2] == 'check' else 0)):
+            (work/'tools').mkdir(exist_ok=True)
+            os.replace(tool, work/'tools'/tool.name)
+            row = ('synth', tool.name, [], [], 1, 1)
+            got = runner.worker(row, work/'rom', work, work/'r')
+        assert got == want, (code, got)
+
+
 def selftest(work):
     import l4_paint_measure as p
     lm = p.lm
@@ -343,6 +377,7 @@ def selftest(work):
              redirect_stdout(io.StringIO()):
             runner.table()
         diagnostic_selftest(root)
+        check_route_selftest(root)
         cache_selftest(root)
         env = runner.clean_env(root)
         assert not any(k.startswith('PC88_REF_') for k in env)
