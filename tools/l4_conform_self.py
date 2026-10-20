@@ -58,6 +58,7 @@ ROWS = [
  ('s5j','l4_s5j_measure.py',['integrated'],[],113,300),
  ('rnd','l4_rnd_measure.py',['integrated'],['--all'],108,1800),
  ('seqfile','l4_seqfile_measure.py',[],[],90,600),
+ ('randfile','l4_randfile_measure.py',[],[],85,600),
 ]
 L3_EXPECTED = {
     'files','load','load_existing','seqfile','kill','name','run_file','merge','bsave',
@@ -322,6 +323,7 @@ def worker(row, rom, work, result):
     name, tool, margs, cargs, _, _ = row
     # 器具のROOTは取込み時に環境変数から決まる。外部作業先を先に渡す。
     if name == 'seqfile': os.environ['PC88_L4_SEQFILE_WORK'] = str(work.resolve())
+    if name == 'randfile': os.environ['PC88_L4_RANDFILE_WORK'] = str(work.resolve())
     mod = importlib.import_module(Path(tool).stem)
     out = work/'measured.tsv'
     exp = expected(row)
@@ -369,8 +371,8 @@ def worker(row, rom, work, result):
         return integrated_check(mod, name, integrated_ids(exp))
     env = dict(os.environ)
     def check_exp():
-        # seqfileは期待値の先頭行に記録された除外を、CLIと同じく読んで渡す。
-        if name != 'seqfile':
+        # seqfile/randfileは期待値の先頭行に記録された除外を、CLIと同じく読んで渡す。
+        if name not in ('seqfile', 'randfile'):
             if hasattr(mod, 'check'): return mod.check(exp, out)
             # モジュール関数のcheckが無い器具はCLIのcheckを呼び、終了コードで合否を決める。
             # 不一致の腕IDはchecked_status経由の汎用比較(bool_bad)が出す。

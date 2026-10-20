@@ -171,17 +171,19 @@ def diagnostic_selftest(root):
     assert '不一致=1:hold-a' in sink.getvalue() and 'SECRET' not in sink.getvalue()
     # 外部許可根は明示した子孫だけ。symlinkによる脱出も拒否。
     from l4_work_paths import allowed_path, ENV
+    import l4_work_paths as work_paths
+    guard_repo = root/'guard-repo'
     external = root/'allowed'; external.mkdir()
     sibling = root/'sibling'; sibling.mkdir()
     (external/'escape').symlink_to(sibling, target_is_directory=True)
-    with patch.dict(os.environ, {ENV:str(external)}):
+    with patch.object(work_paths, 'REPO', guard_repo), patch.dict(os.environ, {ENV:str(external)}):
         assert allowed_path(external/'child', ())
         assert not allowed_path(sibling, ())
         assert not allowed_path(external/'escape/child', ())
         assert not allowed_path(Path('relative'), ())
-    for invalid in (str(runner.REPO), str(runner.REPO.parent), '/', 'relative'):
-        with patch.dict(os.environ, {ENV:invalid}):
-            assert not allowed_path(runner.REPO/'tools/new-file', ())
+    for invalid in (str(guard_repo), str(guard_repo.parent), '/', 'relative'):
+        with patch.object(work_paths, 'REPO', guard_repo), patch.dict(os.environ, {ENV:invalid}):
+            assert not allowed_path(guard_repo/'tools/new-file', ())
     # 追補2凍結表の腕を本体+追補カタログから取得し、4関門を省かない。
     import l4_pusing_measure as pu
     row = next(r for r in runner.ROWS if r[0]=='pusing_add2')
@@ -394,4 +396,11 @@ if __name__ == '__main__':
     ap.add_argument('--work-dir', default=os.environ.get('PC88_L4_CONFORM_WORK',
                     str(Path(os.environ.get('TMPDIR','/tmp'))/'q1-check-work')))
     args = ap.parse_args()
-    raise SystemExit(selftest(runner.external_work(args.work_dir)))
+    # 合成自己検査はリポジトリ内tmpにも閉じ込められるようにする。
+    # 実測入口の外部作業先制限は変更しない。
+    work = Path(args.work_dir).expanduser().resolve()
+    if (runner.REPO/'tmp') in work.parents:
+        work.mkdir(parents=True, exist_ok=True)
+    else:
+        work = runner.external_work(args.work_dir)
+    raise SystemExit(selftest(work))
