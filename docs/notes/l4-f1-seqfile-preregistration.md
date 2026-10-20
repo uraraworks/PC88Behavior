@@ -937,3 +937,5 @@ python3 tools/l4_seqfile_measure.py check --expected "$PWD/tmp/f1-work/expected.
 継続セッションの自作試走でRUN腕のCLEARがON ERROR登録の後にあり、最初の未実装OPENで診断ハンドラを失っていた。初回だけ再入口判定→CLEAR→開始/初期化→ON ERROR→準備の順へ修正した。再RUN時は7000番へ直接移り、履歴を初期化しない。PROGRAM署名とRUN 2腕の入力署名を更新し、現行90腕を全て再試走する。公式測定に基づく変更はない。
 
 全体passedにも全腕の器具関門成立を直接要求し、較正・陽性・非一様が保たれていても1腕の器具関門を落とすと全体不成立となる合成陰性検査を追加した。RUNの初回CLEARがON ERRORより前であること、および再RUN観測部が初回打鍵時点から存在することも自己検査する。
+
+結果へ: [l4-f1-seqfile-results.md](l4-f1-seqfile-results.md)

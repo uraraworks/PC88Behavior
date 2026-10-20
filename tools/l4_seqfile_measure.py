@@ -314,13 +314,15 @@ def synth(a,err=0):
     ws += [[1,3],[1,90],[3,163]]
     return dict(values={FIELDS[i]:v for i,v in ws},writes=ws,media={'found':False})
 
-def gates(rs):
+def gates(rs,exclude=()):
+    # excludeは腕IDの明示だけ。除外腕は非一様判定と全体passedから外れる。較正・陽性の条件は緩めない。
+    exclude=set(exclude)
     by={r['arm']['id']:r for r in rs}
     calibration=all(k in by and by[k]['gate'] and all(o==synth(by[k]['arm']) for o in by[k]['obs']) for k in ('cal-poke','cal-error'))
     c=by.get('disk-positive'); positive=bool(c and c['gate'] and all(o.get('values',{}).get('count')==0 and o['values'].get('p65')==1 and o.get('media',{}).get('type00') and 'ok-crlf-sub' in o['media'].get('matches',[]) for o in c['obs']))
-    ee=[o.get('values',{}).get('first_err',o.get('errors',{}).get('first_err')) for r in rs if r['arm']['id'] not in ('cal-poke','cal-error','disk-positive') for o in r['obs']]
+    ee=[o.get('values',{}).get('first_err',o.get('errors',{}).get('first_err')) for r in rs if r['arm']['id'] not in ('cal-poke','cal-error','disk-positive') and r['arm']['id'] not in exclude for o in r['obs']]
     nonuniform=bool(ee) and None not in ee and len(set(ee))>1
-    return dict(calibration=calibration,positive=positive,nonuniform=nonuniform,passed=calibration and positive and nonuniform and all(r['gate'] for r in rs))
+    return dict(calibration=calibration,positive=positive,nonuniform=nonuniform,passed=calibration and positive and nonuniform and all(r['gate'] for r in rs if r['arm']['id'] not in exclude))
 
 def measure(rom,official,work):
     safety(work)
@@ -346,36 +348,67 @@ def emit(path,rs):
         [[r['arm']['id'],j+1,PLAN_SHA,PROGRAM_SHA,json.dumps(o,sort_keys=True),'pass' if r['gate'] and g['passed'] else 'gate_failed'] for r in rs for j,o in enumerate(r['obs'])])
     return g['passed'] and all(r['gate'] for r in rs)
 
-def read_passed(path):
+PROTECTED=('cal-poke','cal-error','disk-positive')
+def read_passed(path,exclude=()):
+    """exclude: 器具関門を通らなかった腕IDの明示。指定が無ければ従来どおり全腕の関門成立を要求する。"""
+    exclude=set(exclude)
     known={a['id']:a for a in arms()}; groups={}
+    if not exclude<=set(known) or exclude&set(PROTECTED): raise ValueError('exclude')
     with path.open() as f:
         for row in csv.DictReader(f,delimiter='\t'): groups.setdefault(row['arm'],[]).append(row)
     if set(groups)!=set(known): raise ValueError('arms')
     rs=[]
     for aid,rows in groups.items():
         if len(rows)!=2 or {r['repeat'] for r in rows}!={'1','2'}: raise ValueError('repeat')
-        if any(r['gate']!='pass' or r['plan_sha']!=PLAN_SHA or r['program_sha']!=PROGRAM_SHA for r in rows): raise ValueError('signature/gate')
+        if any(r['plan_sha']!=PLAN_SHA or r['program_sha']!=PROGRAM_SHA for r in rows): raise ValueError('signature/gate')
+        # 除外指定が無いときは従来どおり行の関門欄がpassであること。除外指定時は全体関門が
+        # 除外腕の失敗で落ちた記録をそのまま使うため、関門欄はpass/gate_failedのいずれかとし、
+        # 各腕の成立は観測から再計算する（緩和ではなく再検算）。
+        if any(r['gate']!='pass' for r in rows) and (not exclude or any(r['gate'] not in ('pass','gate_failed') for r in rows)): raise ValueError('signature/gate')
         obs=[json.loads(r['observation']) for r in rows];a=known[aid]
-        if not all(valid(o,a) for o in obs) or obs[0]!=obs[1]: raise ValueError('observations')
-        rs.append(dict(arm=a,obs=obs,gate=True))
-    if not gates(rs)['passed']: raise ValueError('global gate')
-    return {r['arm']['id']:dict(values=r['obs'][0]['values'],media=r['obs'][0]['media']) for r in rs}
+        ok=all(valid(o,a) for o in obs) and obs[0]==obs[1]
+        if aid in exclude:
+            if ok: raise ValueError('excluded arm passed')  # 関門を通った腕は除外できない
+        elif not ok: raise ValueError('observations')
+        rs.append(dict(arm=a,obs=obs,gate=ok))
+    if not gates(rs,exclude)['passed']: raise ValueError('global gate')
+    return {r['arm']['id']:dict(values=r['obs'][0]['values'],media=r['obs'][0]['media']) for r in rs if r['arm']['id'] not in exclude}
 
-def expected(out,paths):
+def parse_exclude(items):
+    """ARM=理由 の列を {腕ID: 理由} にする。理由が空なら拒否。"""
+    out={}
+    for item in items or []:
+        aid,sep,reason=item.partition('=')
+        if not sep or not aid or not reason.strip() or aid in out: raise ValueError('exclude')
+        out[aid]=reason.strip()
+    return out
+
+def expected(out,paths,exclude=None):
     if len(paths)!=1: raise ValueError('one complete measurement')
-    got=read_passed(paths[0]);mem.write_tsv(out,['arm','plan_sha','values'],[[k,PLAN_SHA,json.dumps(v,sort_keys=True)] for k,v in sorted(got.items())]);return len(got)
+    exclude=exclude or {}
+    got=read_passed(paths[0],exclude)
+    if exclude:
+        note=json.dumps(exclude,sort_keys=True,ensure_ascii=False)
+        mem.write_tsv(out,['arm','plan_sha','values','exclusions'],[[k,PLAN_SHA,json.dumps(v,sort_keys=True),note] for k,v in sorted(got.items())])
+    else: mem.write_tsv(out,['arm','plan_sha','values'],[[k,PLAN_SHA,json.dumps(v,sort_keys=True)] for k,v in sorted(got.items())])
+    return len(got)
 
-def check(exp,path):
+def check(exp,path,exclude=None):
+    exclude=exclude or {}
     with exp.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
     want={r['arm']:json.loads(r['values']) for r in rows}
-    if len(want)!=len(rows) or set(want)!={a['id'] for a in arms()} or any(r['plan_sha']!=PLAN_SHA for r in rows): raise ValueError('expected shape')
+    if len(want)!=len(rows) or set(want)!={a['id'] for a in arms()}-set(exclude) or any(r['plan_sha']!=PLAN_SHA for r in rows): raise ValueError('expected shape')
+    # 除外は期待値ファイル自身が理由つきで持ち、呼び出し側の指定と完全一致していること。
+    note=json.dumps(exclude,sort_keys=True,ensure_ascii=False) if exclude else None
+    if any(r.get('exclusions')!=note for r in rows): raise ValueError('expected exclusions')
     for a in arms():
+        if a['id'] in exclude: continue
         value=want[a['id']]
         if set(value)!={'values','media'}: raise ValueError('expected fields')
         o=synth(a);o['media']=value['media']
         if not valid(o,a) or set(value['values'])!=set(FIELDS) or any(type(n) is not int or not 0<=n<=255 for n in value['values'].values()): raise ValueError('expected content')
         if a['id'] in ('cal-poke','cal-error') and value!=dict(values=synth(a)['values'],media=synth(a)['media']): raise ValueError('expected calibration')
-    try: got=read_passed(path)
+    try: got=read_passed(path,exclude)
     except (ValueError,KeyError,TypeError): got={}
     bad=[]
     for k,v in want.items():
@@ -439,6 +472,34 @@ def safety(work):
         except ValueError: pass
         else: raise AssertionError('repeat negative')
         assert check(exp,out)[1]
+        # 腕IDを明示した除外: 関門を通らない腕があるときだけ、理由つきで除外できる。
+        def rejects(f):
+            try: f()
+            except ValueError: return True
+            return False
+        bad=copy.deepcopy(rs);victim=bad[-1]['arm']['id'];other=bad[-2]['arm']['id']
+        bad[-1]['obs']=[dict(failure='GateError',errors={}) for _ in (1,2)];bad[-1]['gate']=False
+        emit(out,bad)
+        ex={victim:'合成の関門落ち'}
+        assert rejects(lambda:expected(exp,[out]))                       # 除外指定なしは従来どおり拒否
+        assert rejects(lambda:expected(exp,[out],{other:'x'}))           # 別の腕の除外では落ちた腕が残り拒否
+        assert rejects(lambda:expected(exp,[out],{other:'x',victim:'y'})) # 関門を通った腕は除外できない
+        assert rejects(lambda:expected(exp,[out],{'cal-poke':'x',victim:'y'})) # 較正・陽性は除外できない
+        assert rejects(lambda:expected(exp,[out],{'no-such-arm':'x',victim:'y'}))
+        assert rejects(lambda:parse_exclude([victim+'=']))               # 理由なしは拒否
+        assert rejects(lambda:parse_exclude([victim]))
+        assert expected(exp,[out],ex)==len(aa)-1
+        assert check(exp,out,ex)==(len(aa)-1,[])
+        assert rejects(lambda:check(exp,out))                            # 除外つき期待値は除外指定なしで検査できない
+        assert rejects(lambda:check(exp,out,{victim:'別の理由'}))        # 理由が期待値の記録と違えば拒否
+        two=copy.deepcopy(bad);two[-3]['obs']=[dict(failure='GateError',errors={}) for _ in (1,2)];two[-3]['gate']=False
+        emit(out,two)
+        assert rejects(lambda:expected(exp,[out],ex))                    # 2腕目の失敗は除外指定が無い限り拒否
+        two=copy.deepcopy(bad);two[-3]['obs'][1]['values']['p21']=1       # 除外外の腕の2走不一致
+        emit(out,two)
+        assert rejects(lambda:expected(exp,[out],ex))
+        emit(out,rs);expected(exp,[out])
+        assert check(exp,out)==(len(aa),[]) and rejects(lambda:check(exp,out,ex))
     # 複数誤りの最初/最後と段履歴を保持し、矛盾を拒否する。
     a=aa[3];o=synth(a);ix=o['writes'].index([1,2])+1
     o['writes'][ix:ix]=mem.error_block(13,2,0,set())+mem.error_block(2,2,1,{2})
@@ -517,8 +578,8 @@ def main():
     s=sub.add_parser('selftest');s.add_argument('--synthetic-only',action='store_true');s.add_argument('--work-dir',type=Path,default=ROOT/'selftest')
     m=sub.add_parser('measure');m.add_argument('--official',action='store_true');m.add_argument('--rom-dir',type=Path);m.add_argument('--work-dir',type=Path,required=True);m.add_argument('--out',type=Path,required=True)
     sub.add_parser('describe')
-    e=sub.add_parser('expected');e.add_argument('--out',type=Path,required=True);e.add_argument('paths',nargs='+',type=Path)
-    c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,required=True)
+    e=sub.add_parser('expected');e.add_argument('--out',type=Path,required=True);e.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='器具関門を通らなかった腕IDを理由つきで除外（繰り返し可）');e.add_argument('paths',nargs='+',type=Path)
+    c=sub.add_parser('check');c.add_argument('--expected',type=Path,required=True);c.add_argument('--measured',type=Path,required=True);c.add_argument('--exclude',action='append',default=[],metavar='ARM=理由',help='期待値ファイルに記録された除外と同じ指定');
     args=p.parse_args();OFFICIAL=getattr(args,'official',False)
     if signatures()!=(PLAN_SHA,PROGRAM_SHA): raise ValueError('frozen signatures')
     for key in ('work_dir','out','paths','expected','measured'):
@@ -528,9 +589,9 @@ def main():
     if args.command=='describe':
         for a in serial_plan(): print(json.dumps(a,ensure_ascii=False))
         return 0
-    if args.command=='expected': print(f'期待値{expected(args.out,args.paths)}腕');return 0
+    if args.command=='expected': print(f'期待値{expected(args.out,args.paths,parse_exclude(args.exclude))}腕、除外{len(args.exclude)}腕');return 0
     if args.command=='check':
-        ok,bad=check(args.expected,args.measured);print(f'一致{ok}腕、不一致{len(bad)}腕');return int(bool(bad))
+        ok,bad=check(args.expected,args.measured,parse_exclude(args.exclude));print(f'一致{ok}腕、不一致{len(bad)}腕');return int(bool(bad))
     args.work_dir.mkdir(parents=True,exist_ok=True)
     if args.command=='selftest':
         safety(args.work_dir)
