@@ -1610,12 +1610,39 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
                 f"{link_size} > {MAIN_SUB_LINK_MAX_SIZE}")
     check_ext_bank_relay_below_window(asm)
     check_ext_bank_callable_labels_below_window(asm)
+    check_dmul_ldir_layout(asm)
     # INKEY$がバンクを選んだまま読む6表は、全96Bが窓の外に必要。
     for name in ("BASE", "KANA", "GRPH", "CTRL", "CAPS", "SHIFT"):
         label = f"{name}_CODE_TAB"
         if not 0 <= asm.labels[label] <= EXT_BANK_WINDOW_START - 96:
             raise SystemExit(f"拡張ROMバンク: 共有キー表{label}が窓の外に収まらない")
     return bytes(rom), asm
+
+
+def check_dmul_ldir_layout(asm: "z80text.Assembler"):
+    """MBF_DMUL のコアと DFOUT が LDIR で消去・複写する RAM の並びを検査する（容量整理 c3）。
+    DPR13..DPR0・DMC13..DMC7 は連続21B、DMC6 が直後。DB_M6..M0・DMC6..DMC0 は
+    ともに M6 が最小番地の連続7B。DA_EXP,DA_M6..DA_M0 は連続8B（DFOUT_ORIGVAL と同順）。"""
+    s = asm.symtab
+    ok = True
+    # DPR13..DPR0, DMC13..DMC7 が連続
+    names = ["DPR%d" % (13 - k) for k in range(14)] + ["DMC%d" % (13 - k) for k in range(7)]
+    for i in range(len(names) - 1):
+        ok = ok and s[names[i + 1]] == s[names[i]] + 1
+    ok = ok and s["DMC6"] == s["DMC7"] + 1
+    for i in range(7):
+        ok = ok and s["DMC%d" % i] == s["DMC6"] + (6 - i)
+        ok = ok and s["DB_M%d" % i] == s["DB_M6"] + (6 - i)
+        ok = ok and s["DA_M%d" % i] == s["DA_EXP"] + 1 + (6 - i)
+    # DBL_DIV の前処理: DQ7..DQ0・DR7..DR0 が連続し、DA_M6..M0・DB_M6..M0 は最小番地がM6
+    for i in range(7):
+        ok = ok and s["DQ%d" % i] == s["DQ7"] + (7 - i)
+        ok = ok and s["DR%d" % i] == s["DR7"] + (7 - i)
+        ok = ok and s["DDV%d" % i] == s["DDV7"] + (7 - i)
+    ok = ok and s["DR7"] == s["DQ7"] + 8 and s["DR6"] == s["DR7"] + 1
+    ok = ok and s["DQ0"] == s["DQ7"] + 7 and s["DDV6"] == s["DDV7"] + 1
+    if not ok:
+        raise SystemExit("MBF_DMUL/DFOUT の LDIR が前提とする DPR/DMC/DB_M/DA の並びが崩れている")
 
 
 def check_ext_bank_relay_below_window(asm: "z80text.Assembler"):

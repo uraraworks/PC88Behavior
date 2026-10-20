@@ -1230,43 +1230,18 @@ _dmul_core_start:
     OR A
     JP Z,_dmulc_zero
 
+    ; 容量整理 c3: DPR13..DPR0・DMC13..DMC7（連続21B、0）の消去と、
+    ; DB_M6..M0 → DMC6..DMC0（連続7B）の複写を、LDIRにまとめた
+    ; （番地の並びはビルド時に build_main_rom.py が検査する）。
     XOR A
-    LD (DPR13),A
-    LD (DPR12),A
-    LD (DPR11),A
-    LD (DPR10),A
-    LD (DPR9),A
-    LD (DPR8),A
-    LD (DPR7),A
-    LD (DPR6),A
-    LD (DPR5),A
-    LD (DPR4),A
-    LD (DPR3),A
-    LD (DPR2),A
-    LD (DPR1),A
-    LD (DPR0),A
-    LD A,(DB_M0)
-    LD (DMC0),A
-    LD A,(DB_M1)
-    LD (DMC1),A
-    LD A,(DB_M2)
-    LD (DMC2),A
-    LD A,(DB_M3)
-    LD (DMC3),A
-    LD A,(DB_M4)
-    LD (DMC4),A
-    LD A,(DB_M5)
-    LD (DMC5),A
-    LD A,(DB_M6)
-    LD (DMC6),A
-    XOR A
-    LD (DMC7),A
-    LD (DMC8),A
-    LD (DMC9),A
-    LD (DMC10),A
-    LD (DMC11),A
-    LD (DMC12),A
-    LD (DMC13),A
+    LD HL,DPR13
+    LD (HL),A
+    LD DE,DPR13+1
+    LD BC,20
+    LDIR                    ; DEはDMC6を指して終わる
+    LD HL,DB_M6
+    LD C,7                  ; B=0のまま
+    LDIR
 
     LD A,56
     LD (DWK_MULLOOP),A
@@ -2100,22 +2075,10 @@ _dfout_nonzero:
     LD (DA_SIGN),A
     LD (DFOUT_SCALECNT),A
     ; 元の値(符号を落とした絶対値)を退避
-    LD A,(DA_EXP)
-    LD (DFOUT_ORIGVAL),A
-    LD A,(DA_M6)
-    LD (DFOUT_ORIGVAL+1),A
-    LD A,(DA_M5)
-    LD (DFOUT_ORIGVAL+2),A
-    LD A,(DA_M4)
-    LD (DFOUT_ORIGVAL+3),A
-    LD A,(DA_M3)
-    LD (DFOUT_ORIGVAL+4),A
-    LD A,(DA_M2)
-    LD (DFOUT_ORIGVAL+5),A
-    LD A,(DA_M1)
-    LD (DFOUT_ORIGVAL+6),A
-    LD A,(DA_M0)
-    LD (DFOUT_ORIGVAL+7),A
+    LD HL,DA_EXP            ; 容量整理 c3: 8B複写をLDIRに（DA_EXP..DA_M0は連続）
+    LD DE,DFOUT_ORIGVAL
+    LD BC,8
+    LDIR
 
 _dfout_scale_up:
     LD A,15
@@ -2164,22 +2127,10 @@ _dfout_scale_down_done:
     ; FOUT_DSCALE_NEG/WK_DFOUT_APPLYをそのまま再利用、5373c78の分割)。
     XOR A
     LD (DA_SIGN),A
-    LD A,(DFOUT_ORIGVAL)
-    LD (DA_EXP),A
-    LD A,(DFOUT_ORIGVAL+1)
-    LD (DA_M6),A
-    LD A,(DFOUT_ORIGVAL+2)
-    LD (DA_M5),A
-    LD A,(DFOUT_ORIGVAL+3)
-    LD (DA_M4),A
-    LD A,(DFOUT_ORIGVAL+4)
-    LD (DA_M3),A
-    LD A,(DFOUT_ORIGVAL+5)
-    LD (DA_M2),A
-    LD A,(DFOUT_ORIGVAL+6)
-    LD (DA_M1),A
-    LD A,(DFOUT_ORIGVAL+7)
-    LD (DA_M0),A
+    LD HL,DFOUT_ORIGVAL
+    LD DE,DA_EXP
+    LD BC,8
+    LDIR
 
     LD A,(DFOUT_SCALECNT)
     OR A
