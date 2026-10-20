@@ -4744,8 +4744,16 @@ S9B_DO_CLEAR:
     JP S9_BANK_CALL
 
 ; 第19節。毎文で12行を確認し、変化時はVRTCの位相によらず走査する。
-; VRTC立ち上がりでも呼ぶ。IK_TICK=20hは時計、0は行列更新だけ。
+; VSYNC再入フックがリピート時計を実フレームで減算する。
+; 通常のフック内だけ再受理を許可し、再入フックは時計だけ進める。
 S9C_POLL:
+    LD A,(MM_IK_TICK)
+    OR A
+    JR Z,_s9c_vrtc
+    LD A,0FFh
+    OUT (0E4h),A
+    EI
+_s9c_vrtc:
     IN A,(040h)
     AND 020h
     LD HL,MM_IK_VRTC
@@ -4755,6 +4763,13 @@ S9C_POLL:
     OR A
     JR NZ,_s9c_rise
 _s9c_matrix:
+    LD A,(MM_IK_CHAR)
+    OR A
+    JR Z,_s9c_matrix_only
+    LD A,(MM_IK_TIMER)
+    OR A
+    JR Z,_s9c_scan
+_s9c_matrix_only:
     LD HL,MM_IK_OLD             ; IK_OLD（RUN開始時・バンク走査時に更新）
     LD C,0
 _s9c_port:
@@ -4768,14 +4783,12 @@ _s9c_port:
     JR NZ,_s9c_port
     RET
 _s9c_changed:
-    XOR A
     JR _s9c_scan
 _s9c_rise:
     PUSH AF                      ; 実行中は毎フレーム、カーソル非表示のコマンド 0x80＋位置（l4-program.md 5.6.5）
     CALL CURSOR_UPDATE
     POP AF
 _s9c_scan:
-    LD (MM_IK_TICK),A            ; 中継がAF/BC/DEを使うのでRAMで渡す
     LD HL,06F20h
     JP S9_BANK_CALL
 ; CURSOR_INPUT — INPUT の入力待ち（INPUT_READLINE のポーリング）。垂直帰線の立ち上がりごとに

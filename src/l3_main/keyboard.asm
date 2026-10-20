@@ -138,6 +138,8 @@ _ki_loop:
     LD (VAR_INSMODE),A
     LD (REPEAT_KIND),A
     ; 第19節: 起動時はキューだけ空にする。バンク切替のI/Oは増やさない。
+    LD (MM_IK_TICK),A
+    LD (MM_IK_TIMER),A
     LD (MM_IK_VRTC),A
     LD (MM_IK_HEAD),A
     LD (MM_IK_TAIL),A
@@ -865,6 +867,20 @@ CURSOR_UPDATE:
 ; フレームでは、そちらを優先しリピートは確かめない(1フレーム1イベント
 ; の方針、ヘッダコメント参照)。
 L3_VSYNC_HOOK:
+    ; BASICはこのフックの内側で動く。再入時はリピート時計だけ進め、
+    ; キー・エディタ・バンク中継の作業域には触れない。
+    LD A,(MM_IK_TICK)             ; 1=外側フック実行中
+    OR A
+    JR Z,_hook_enter
+    LD HL,MM_IK_TIMER
+    LD A,(HL)
+    OR A
+    JP Z,SET_CURSOR
+    DEC (HL)                    ; 毎フレーム減算、0で飽和（文境界で取りこぼさない）
+    JP SET_CURSOR
+_hook_enter:
+    INC A
+    LD (MM_IK_TICK),A
     CALL KEY_READ
     OR A
     JR NZ,_hook_have_event
@@ -885,5 +901,8 @@ _hook_have_event:
 _hook_return:
     CALL LINE_FINISH
 _hook_done:
+    DI
+    XOR A
+    LD (MM_IK_TICK),A
     CALL SET_CURSOR
     RET

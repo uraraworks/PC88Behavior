@@ -27,6 +27,32 @@ CTRL_CODE_TAB EQU 0x1787
 CAPS_CODE_TAB EQU 0x1787
 SHIFT_CODE_TAB EQU 0x1787
 
+; バンク3先頭の空きに配置し、6F20以降の既存配置予算を保つ。
+    ORG 0x6003
+; RUN開始時点の押下を既読とする。開始RETURNを混入させない。
+IK_INIT:
+    XOR A
+    LD (IK_HEAD),A
+    LD (IK_TAIL),A
+    LD (IK_COUNT),A
+    LD (IK_CHAR),A
+    LD (IK_TIMER),A
+    IN A,(040h)
+    AND 020h
+    LD (IK_VRTC),A
+    LD C,0
+    LD HL,IK_OLD
+ik_init_port:
+    IN A,(C)
+    LD (HL),A
+    INC HL
+    INC C
+    LD A,C
+    CP 12
+    JR NZ,ik_init_port
+    RET
+
+
     ORG 0x6F00
     JP IK_TRY
     ORG 0x6F10
@@ -75,30 +101,7 @@ ik_not_name:
 IK_NAME:
     DB "INKEY",0,0
 
-; RUN開始時点の押下を既読とする。開始RETURNを混入させない。
-IK_INIT:
-    XOR A
-    LD (IK_HEAD),A
-    LD (IK_TAIL),A
-    LD (IK_COUNT),A
-    LD (IK_CHAR),A
-    IN A,(040h)
-    AND 020h
-    LD (IK_VRTC),A
-    LD C,0
-    LD HL,IK_OLD
-ik_init_port:
-    IN A,(C)
-    LD (HL),A
-    INC HL
-    INC C
-    LD A,C
-    CP 12
-    JR NZ,ik_init_port
-    RET
-
-; 行列変化またはVRTC立ち上がりで呼ぶ。IK_TICK=0なら時計は進めない。
-; 時計の立ち上がりの取りこぼしは従来どおり（間隔は第19.4節で未確定）。
+; 行列変化またはリピート期限で呼ぶ。時計はVSYNCの再入フックで減算する。
 ; 押下の取りこぼしを時計から分離し、全エッジをポート/ビット順にキューする。
 IK_SCAN:
     IN A,(08h)
@@ -174,13 +177,12 @@ ik_next_bit:
     LD (IK_CHAR),A
     RET
 ik_held:
-    LD A,(IK_TICK)
+    LD A,(IK_TIMER)
     OR A
-    RET Z
-    LD HL,IK_TIMER
-    DEC (HL)
     RET NZ
-    LD (HL),4
+    ; 遅い読出しでも一度に大量再送せず、次の周期は今回から数える。
+    LD A,4
+    LD (IK_TIMER),A
     LD A,(IK_CHAR)
     JP IK_PUSH
 
