@@ -2397,103 +2397,61 @@ FIN_SET_OPB_S01:
 ; DIV_T0-3・DIV_R0-3をスクラッチに使う(MBF_DIVと同時には呼ばれないので
 ; 衝突しない=仕様書に無い判断、番地の使い回し)。
 FIN_MUL10ADD:
+    ; 容量整理 c3: 32bit整数の演算(ACC*2+ACC*8+桁)をレジスタ対で行う
+    ; （結果は従来のバイト単位の実装と厳密に同一。FIN_ACCはACC3が最小番地
+    ; の並び）。AF・DIV_T/Rを書き換えていた従来と違い、BC・DE・HLは保存する。
     LD (WK_FINDIGIT),A
-    LD A,(FIN_ACC0)
-    LD (DIV_T0),A
-    LD A,(FIN_ACC1)
-    LD (DIV_T1),A
-    LD A,(FIN_ACC2)
-    LD (DIV_T2),A
-    LD A,(FIN_ACC3)
-    LD (DIV_T3),A
-    XOR A
-    LD A,(DIV_T0)
-    SLA A
-    LD (DIV_T0),A
-    LD A,(DIV_T1)
-    RLA
-    LD (DIV_T1),A
-    LD A,(DIV_T2)
-    RLA
-    LD (DIV_T2),A
-    LD A,(DIV_T3)
-    RLA
-    LD (DIV_T3),A
-    ; DIV_R = DIV_T (これからDIV_R<<=2してACC*8を作る)
-    LD A,(DIV_T0)
-    LD (DIV_R0),A
-    LD A,(DIV_T1)
-    LD (DIV_R1),A
-    LD A,(DIV_T2)
-    LD (DIV_R2),A
-    LD A,(DIV_T3)
-    LD (DIV_R3),A
-    XOR A
-    LD A,(DIV_R0)
-    SLA A
-    LD (DIV_R0),A
-    LD A,(DIV_R1)
-    RLA
-    LD (DIV_R1),A
-    LD A,(DIV_R2)
-    RLA
-    LD (DIV_R2),A
-    LD A,(DIV_R3)
-    RLA
-    LD (DIV_R3),A
-    XOR A
-    LD A,(DIV_R0)
-    SLA A
-    LD (DIV_R0),A
-    LD A,(DIV_R1)
-    RLA
-    LD (DIV_R1),A
-    LD A,(DIV_R2)
-    RLA
-    LD (DIV_R2),A
-    LD A,(DIV_R3)
-    RLA
-    LD (DIV_R3),A
-    ; FIN_ACC = DIV_T(*2) + DIV_R(*8)
-    LD A,(DIV_T0)
-    LD B,A
-    LD A,(DIV_R0)
-    ADD A,B
-    LD (FIN_ACC0),A
-    LD A,(DIV_T1)
-    LD B,A
-    LD A,(DIV_R1)
-    ADC A,B
-    LD (FIN_ACC1),A
-    LD A,(DIV_T2)
-    LD B,A
-    LD A,(DIV_R2)
-    ADC A,B
-    LD (FIN_ACC2),A
-    LD A,(DIV_T3)
-    LD B,A
-    LD A,(DIV_R3)
-    ADC A,B
-    LD (FIN_ACC3),A
-    ; += digit
+    PUSH BC
+    PUSH DE
+    PUSH HL
+    LD HL,FIN_ACC3
+    LD D,(HL)
+    INC HL
+    LD E,(HL)
+    INC HL
+    LD B,(HL)
+    INC HL
+    LD C,(HL)
+    PUSH BC
+    POP HL                  ; HL=下位16bit、DE=上位16bit
+    ADD HL,HL
+    EX DE,HL
+    ADC HL,HL               ; HL=上位、DE=下位 (ACC*2)
+    PUSH HL
+    PUSH DE
+    LD B,2
+_fmul10_x4:
+    EX DE,HL
+    ADD HL,HL
+    EX DE,HL
+    ADC HL,HL
+    DJNZ _fmul10_x4         ; HL=上位、DE=下位 (ACC*8)
+    POP BC
+    EX DE,HL                ; HL=下位8、DE=上位8
+    ADD HL,BC
+    EX DE,HL                ; HL=上位8、DE=下位10
+    POP BC
+    ADC HL,BC               ; HL=上位 (ACC*10)
+    EX DE,HL                ; HL=下位、DE=上位
     LD A,(WK_FINDIGIT)
-    LD B,A
-    LD A,(FIN_ACC0)
-    ADD A,B
-    LD (FIN_ACC0),A
+    ADD A,L
+    LD L,A
     JR NC,_fmul10_done
-    LD A,(FIN_ACC1)
-    INC A
-    LD (FIN_ACC1),A
+    INC H
     JR NZ,_fmul10_done
-    LD A,(FIN_ACC2)
-    INC A
-    LD (FIN_ACC2),A
-    JR NZ,_fmul10_done
-    LD A,(FIN_ACC3)
-    INC A
-    LD (FIN_ACC3),A
+    INC DE
 _fmul10_done:
+    LD A,D
+    LD (FIN_ACC3),A
+    LD A,E
+    LD (FIN_ACC2),A
+    LD A,H
+    LD (FIN_ACC1),A
+    LD A,L
+    LD (FIN_ACC0),A
+    POP HL
+    POP DE
+    POP BC
     RET
 
 ; =======================================================================
