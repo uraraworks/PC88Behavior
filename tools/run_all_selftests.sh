@@ -287,6 +287,8 @@ SCRIPTS_EXPECTED=(
   # l4-s9a。合成整数PRINT採取と自作ROMの定数対照だけ。
   "tools/l4_strfunc_selftest.sh:0"
   "tools/l4_inkey_selftest.sh:0"
+  # r5（d4f425a）。自作ROMだけでINKEY$の短打1文字・長押し複数文字（各2走）。
+  "tools/l4_inkey_repeat_selftest.sh:0"
   # l4-s9b。先行POKE・値漏出防止の合成検査と自作ROM定数対照。
   "tools/l4_peekpoke_selftest.sh:0"
   "tools/l4_memlimit_selftest.sh:0"

@@ -9,6 +9,18 @@ import tempfile
 import l4_inkey_measure as ik
 
 
+def judge(stats, hold):
+    return (len(stats) == 3 and stats[0] == 'iks' and stats[2] == 0
+            and (stats[1] == 1 if hold == 4 else stats[1] >= 2))
+
+
+def negative_control():
+    # エミュレータ不要。長押しで1文字しか届かない旧ROMの状態を合成し、判定が落ちることを確かめる。
+    return (not judge(['iks', 1, 0], 160) and judge(['iks', 1, 0], 4)
+            and not judge(['iks', 2, 0], 4) and not judge(['iks', 3, 1], 160)
+            and judge(['iks', 3, 0], 160))
+
+
 def run(rom, hold, work):
     # 先頭8文字だけでなく、取得した全文字の長さ・文字をBASIC側で検査する。
     lines = ['new', '10 c=0:b=0', '20 for j=1 to 10000:a$=inkey$',
@@ -36,9 +48,7 @@ def run(rom, hold, work):
         rows, _ = ik.extract(screen.read_bytes())
         if len(rows) != 2 or rows[-1] != ['ikd', 1]:
             return False
-        stats = rows[0]
-        return (len(stats) == 3 and stats[0] == 'iks' and stats[2] == 0
-                and (stats[1] == 1 if hold == 4 else stats[1] >= 2))
+        return judge(rows[0], hold)
     finally:
         screen.unlink(missing_ok=True)
 
@@ -48,6 +58,9 @@ def main():
     parser.add_argument('--rom-dir', type=Path, required=True, help='ビルド済みの自作ROM')
     args = parser.parse_args()
     failures = 0
+    neg = negative_control()
+    print(f'negative control (long press with 1 char must fail): {"OK" if neg else "NG"}', flush=True)
+    failures += not neg
     with tempfile.TemporaryDirectory(prefix='inkey-repeat-') as tmp:
         for hold in (4, 160):
             for round_id in (1, 2):
