@@ -908,8 +908,11 @@ MID_COMPUTE:
     LD IX,0x73EE
     JP CAPACITY_BANK_CALL
 
-; PSR_DO_LEFT — LEFT$(str,n)。先頭からmin(n,元の長さ)文字。
-PSR_DO_LEFT:
+; PSR_LR_ARGS — LEFT$/RIGHT$の共通の前半（容量整理 c3）。文字列式を
+;   RUN_STR_ARG1へ移し、','・個数・')'を読んで、個数をmin(n,元の長さ)に
+;   丸めてRUN_STR_TMP_LENへ置き、ERROR_FLAGを0にして戻る。
+;   出力: ERROR_FLAG(誤りなら他は不定)、B=結果の文字数、C=元の長さ。
+PSR_LR_ARGS:
     CALL STRING_EXPR
     LD A,(ERROR_FLAG)
     OR A
@@ -948,6 +951,14 @@ _pl_have_n:
     LD (RUN_STR_TMP_LEN),A
     XOR A
     LD (ERROR_FLAG),A
+    RET
+
+; PSR_DO_LEFT — LEFT$(str,n)。先頭からmin(n,元の長さ)文字。
+PSR_DO_LEFT:
+    CALL PSR_LR_ARGS
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
     LD A,B
     OR A
     RET Z
@@ -958,44 +969,10 @@ _pl_have_n:
 
 ; PSR_DO_RIGHT — RIGHT$(str,n)。末尾からmin(n,元の長さ)文字。
 PSR_DO_RIGHT:
-    CALL STRING_EXPR
+    CALL PSR_LR_ARGS
     LD A,(ERROR_FLAG)
     OR A
     RET NZ
-    LD A,(RUN_STR_TMP_LEN)
-    LD (RUN_STR_ARG1_LEN),A
-    LD HL,RUN_STR_TMP_BUF
-    LD DE,RUN_STR_ARG1_BUF
-    LD B,A
-    CALL STR_COPY_BN
-    LD A,','
-    CALL EXPECT_CHAR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL PARSE_INT_ARG
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    PUSH DE
-    LD A,')'
-    CALL EXPECT_CHAR
-    POP DE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,E
-    LD B,A
-    LD A,(RUN_STR_ARG1_LEN)
-    LD C,A
-    CP B
-    JR NC,_pr_have_n
-    LD B,A
-_pr_have_n:
-    LD A,B
-    LD (RUN_STR_TMP_LEN),A
-    XOR A
-    LD (ERROR_FLAG),A
     LD A,B
     OR A
     RET Z
