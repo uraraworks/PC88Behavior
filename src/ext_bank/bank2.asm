@@ -559,9 +559,6 @@ s2_entry_tail:
     INC A
     LD (S2_DONE),A
     RET
-s2_syntax:
-    LD A,2
-    JR s2_error
 s2_unsupported:
     LD A,51
     JR s2_error
@@ -575,6 +572,9 @@ s2_full:
     LD A,68
     JR s2_error
 s2_disk_error:
+    ; 書き込み前のST3で検出した保護は、通信失敗(ERR64)へ上書きしない。
+    CP 61
+    JR Z,s2_error
     LD A,64
 s2_error:
     LD (S2_ERROR_KIND),A
@@ -586,8 +586,6 @@ s2_read:
     LD A,(S2_DRIVE)
     LD IX,BANK2_READ_CHR_ADDR
     JP BANK2_MAIN_CALL_ADDR
-s2_write:
-    JP s2_write_stream
 s2_skip:
     LD IX,BANK2_SKIP_SPACES_ADDR
     JP BANK2_SKIP_SPACES_ADDR  ; 常駐の非再入ヘルパを直接呼ぶ(IXの規約は維持)
@@ -662,6 +660,13 @@ s2_ws_later:
 s2_ws_recv:
     CALL s2_recv
     RET C
+    ; 初回はSENSE DRIVE STATUSの応答。公開uPD765のST3 bit6=保護。
+    ; 後続の0x06への応答はbit6=0。保護ならWRITEを送らずERR61へ戻す。
+    BIT 6,A
+    JR Z,s2_ws_request
+    LD A,61
+    SCF
+    RET
 s2_ws_request:
     LD A,011h
     CALL s2_send
@@ -752,10 +757,6 @@ s2_fat_loop:
     CP 17
     JR C,s2_fat_loop
     OR A
-    RET
-s2_flush_error:
-    CALL s2_disk_error
-    SCF
     RET
 
 ; 文字列で保存する処理系なので tokens.tsv の KILL=D8/NAME=F4 に対応する

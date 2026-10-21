@@ -35,13 +35,14 @@ MAIN_SUB_READ_CHR:
     LD A,E
     LD (MAIN_SUB_CHR_SECTOR),A
     XOR A
-    LD (MAIN_SUB_MARK_REQUEST),A
-    LD (MAIN_SUB_MARK_RECV256),A
-    LD (MAIN_SUB_MARK_SUCCESS),A
-    LD (MAIN_SUB_MARK_TIMEOUT),A
-    LD (MAIN_SUB_MARK_FAULT_WAIT),A
-    LD (MAIN_SUB_MARK_FAULT_CONT),A
-    LD (MAIN_SUB_MARK_FAULT_PAIR),A
+    ; DISK_STATE先頭の連続7Bだけを消す。BC/HLは入口で保存済み。
+    ; 同じ初期化を12B縮め、通常・自己検査ビルドともmain末尾の空きを205Bにする。
+    LD HL,MAIN_SUB_MARK_REQUEST
+    LD B,MAIN_SUB_MARK_FAULT_PAIR-MAIN_SUB_MARK_REQUEST+1
+_ms_chr_clear_marks:
+    LD (HL),A
+    INC HL
+    DJNZ _ms_chr_clear_marks
 
     CALL MAIN_SUB_SEND_LOGICAL_ONCE
     JP C,_ms_read_timeout

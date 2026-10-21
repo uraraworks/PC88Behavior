@@ -348,6 +348,7 @@ SCRIPTS_EXPECTED=(
   "tools/l4_mlcall_selftest.sh:0"
   "tools/l4_bsave_selftest.sh:0"
   "tools/l4_seqfile_selftest.sh:0"
+  "tools/l4_write_protect_selftest.sh:0"
   "tools/l4_randfile_selftest.sh:0"
   # 2026-09-20追記: 拡張ROMバンク0のSQR本体(EXT_BANK0_SQR_ENTRY、
   # docs/spec/l4-program.md 第4.16b節実装メモ)を実際にZ80として実行し、
