@@ -66,6 +66,7 @@ result.write_text(exp.read_text())
         with redirect_stdout(output):
             rc = runner.run_rows(list(reversed(rows)), rom, work, 2, no_cache)
         lines = output.getvalue().splitlines()
+        assert lines[0].startswith('投入順 '); lines = lines[1:]
         assert len(lines) == 3
         assert lines[0].split()[1] == 'alpha' and lines[1].split()[1] == 'beta'
         return rc, [line.split()[0] for line in lines[:2]]
@@ -101,6 +102,36 @@ result.write_text(exp.read_text())
         calls.clear()
         assert run(no_cache=True) == (0,['KNOWN','KNOWN'])
         assert sorted(calls) == ['alpha','beta']
+        order_selftest(rows, cache)
+        # NGの器具でも所要秒は記録される。
+        (cache/'durations.json').unlink(missing_ok=True)
+        runner.expected(rows[0]).write_text('NG')
+        assert run(no_cache=True)[0] == 1
+        d = runner.load_durations(cache)
+        assert set(d) == {'alpha','beta'} and all(v >= 0 for v in d.values()), d
+
+
+def order_selftest(rows, cache):
+    r = [('a','',[],[],1,10),('b','',[],[],1,50),('c','',[],[],1,30),('d','',[],[],1,50)]
+    names = lambda x: [q[0] for q in x]
+    # 記録なし: 既定の見込みの降順、同値は表の順。
+    assert names(runner.launch_order(r, {})) == ['b','d','c','a']
+    # 記録あり: 記録の降順。記録の無い器具は見込みを使う。
+    assert names(runner.launch_order(r, {'a':900,'b':5,'c':100})) == ['a','c','d','b']
+    # CACHEDは所要0（記録が大きくても先頭に居座らない）。
+    o = runner.launch_order(r, {'a':900}, cached={'a','b'})
+    assert names(o) == ['d','c','a','b'], names(o)
+    # 記録の読み書き: 壊れた記録は空、更新は既存へ併合。
+    (cache/'durations.json').write_text('broken')
+    assert runner.load_durations(cache) == {}
+    runner.save_durations(cache, {'x': 1.5}); runner.save_durations(cache, {'y': 2.0})
+    assert runner.load_durations(cache) == {'x':1.5,'y':2.0}
+    runner.save_durations(cache, {})
+    (cache/'durations.json').unlink()
+    # -jの既定: CPU数-2、下限1・上限6。
+    for cpus, want in ((1,1),(2,1),(3,1),(4,2),(8,6),(64,6),(None,1)):
+        with patch.object(os,'cpu_count',return_value=cpus):
+            assert runner.default_jobs() == want, (cpus, want)
 
 
 def diagnostic_selftest(root):

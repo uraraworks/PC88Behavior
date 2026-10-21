@@ -595,9 +595,56 @@ def measure_one(row, rom, dest):
     return payload
 
 
+def load_durations(directory):
+    try:
+        data = json.loads((directory/'durations.json').read_text())
+        return {k: float(v) for k, v in data.items()
+                if isinstance(k, str) and isinstance(v, (int, float))}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_durations(directory, fresh):
+    """前回の所要秒（合否を問わず）を原子的に記録。CACHEDは更新しない。"""
+    if not fresh: return
+    merged = load_durations(directory); merged.update(fresh)
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=directory, delete=False) as f:
+            temp = Path(f.name)
+            json.dump(merged, f, sort_keys=True)
+        try: temp.replace(directory/'durations.json')
+        finally: temp.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def launch_order(selected, durations, cached=()):
+    """所要の降順（記録が無ければ表の見込み秒、CACHEDは0）。同値は表の順。"""
+    def cost(row):
+        if row[0] in cached: return 0
+        return durations.get(row[0], row[5])
+    return sorted(selected, key=lambda row: -cost(row))  # sortは安定
+
+
+def default_jobs():
+    return max(1, min(6, (os.cpu_count() or 1) - 2))
+
+
 def run_rows(selected, rom, root, jobs, no_cache=False):
     cache = None if no_cache else cache_root()
     rh = rom_digest(rom) if cache else None
+    ddir = cache_root()
+    cached = set()
+    if cache:
+        for row in selected:
+            try:
+                saved = json.loads((cache/(row[0]+'.json')).read_text())
+                if saved.get('key') == cache_key(row, rh) and saved.get('status') in ('OK','KNOWN'):
+                    cached.add(row[0])
+            except Exception:
+                pass
+    order = launch_order(selected, load_durations(ddir), cached)
+    print('投入順 ' + ','.join(r[0] for r in order), flush=True)
 
     def run(row):
         start = time.monotonic()
@@ -630,8 +677,9 @@ def run_rows(selected, rom, root, jobs, no_cache=False):
             return 'NG', time.monotonic()-start, detail
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = {row[0]: pool.submit(run, row) for row in selected}
+        futures = {row[0]: pool.submit(run, row) for row in order}
         results = {name: future.result() for name, future in futures.items()}
+    save_durations(ddir, {n: round(sec, 1) for n, (v, sec, _) in results.items() if v != 'CACHED'})
     counts = dict(OK=0, NG=0, KNOWN=0, CACHED=0)
     for name, (value, seconds, detail) in sorted(results.items()):
         counts[value] += 1
@@ -665,7 +713,8 @@ def execute_worker(row, rom, work, result):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--list', action='store_true')
-    ap.add_argument('-j', type=int, default=3, help='同時実行する器具数（既定3）')
+    ap.add_argument('-j', type=int, default=default_jobs(),
+                    help='同時実行する器具数（既定=論理CPU数-2、下限1・上限6）')
     ap.add_argument('--no-cache', action='store_true', help='キャッシュの参照・記録をしない')
     ap.add_argument('--only', help='器具名（一覧の名前列）、カンマ区切り')
     ap.add_argument('--work-dir', default=os.environ.get('PC88_L4_CONFORM_WORK',
