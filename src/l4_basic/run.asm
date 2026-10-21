@@ -2330,8 +2330,7 @@ _rmsk_array_assign:
     LD A,1
     RET
 _rmsk_assign_fail:
-    XOR A
-    RET
+    JR rf_stmt_entry
 
 RMSK_TABLE:
     DB 80,0
@@ -2379,6 +2378,8 @@ RMSK_TABLE:
     DB 69,28
     DW TRY_MATCH_ERROR
     DB 0
+rf_stmt_entry:
+    JP RF_TRY_ASSIGN
 
 ; ONの共通入口。ON ERROR GOTOの捕捉/解除とON 式 GOTO/GOSUBを
 ; バンク1で振り分ける（第4.18節、onwhile.asm）。
@@ -4026,6 +4027,7 @@ LOGIC_OR_EXPR:
 
 
 ; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
+; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 

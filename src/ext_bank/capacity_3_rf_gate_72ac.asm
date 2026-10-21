@@ -1,0 +1,5 @@
+; RF関数だけをmainの共通入口へ渡す。
+    ORG 0x72AC
+RF3_FUNC:
+    LD IX,CAP_ADDR_RF_FUNC
+    JP CAP_ADDR_MAIN_CALL

@@ -170,6 +170,12 @@ FIELDS = {
     'MM_SQ_QUOTE': ('SEQ_STATE', 25),
     'MM_SQ_LEN': ('SEQ_STATE', 26),
     'MM_SQ_WORK': ('SEQ_WORK', 0),
+    # ランダム文内だけの作業。既存SEQ_WORKの使用分(+0..11)と非重複。
+    'MM_RF_NEW': ('SEQ_WORK', 12),
+    'MM_RF_OFFSET': ('SEQ_WORK', 13),
+    'MM_RF_TARGET': ('SEQ_WORK', 15),
+    'MM_RF_INDEX': ('SEQ_WORK', 17),
+    'MM_RF_PUT': ('SEQ_WORK', 19),
     "MM_USR_STRING_DESC": ("USR_STRING_DESC", 0),
     "MM_FKEY_PTR": ("FKEY", 0),
     "MM_FKEY_ON": ("FKEY", 2),
@@ -1068,7 +1074,7 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": (
-        "番兵直後HEAP_STARTからHEAP_ENDまで、種別6=順次ファイル298B（管理42B+専用セクタ256B、最大2本、同じHEAP_ALLOCで確保しCLOSEで空き化）/種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別6=順次/ランダムファイル298B（管理42B+専用セクタ256B、最大2本、同じHEAP_ALLOCで確保しCLOSEで空き化）/種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
         "bit7は空き印、同種の空きを再利用。"
         "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
         "編集/NEW/CLEAR/RUNでヒープと共に消す（配列はl4-program第4.10.7の観測、FN枠は未測定・自作判断）。"
@@ -1077,7 +1083,7 @@ DYNAMIC_STRUCTURES = {
         "実引数は通常形式42Bの非字句名で保存し全評価後に束縛。"
         "CPUスタック下限+96BでERR 7（未測定・自作判断）"
     ),
-    "SEQ_BUFFERS": "HEAP種別6の各枠+42..297（256B）。HEAP_END/FREE_TOPで他の動的領域との非重複を検査。固定ポインタはSEQ_STATE。",
+    "SEQ_BUFFERS": "HEAP種別6の各枠+42..297（256B）。HEAP_END/FREE_TOPで他の動的領域との非重複を検査。固定ポインタはSEQ_STATE。FIELDは同じ256Bの範囲へ参照し、文字列レコード+9=3、+10=長さ、+11=参照先word（通常代入で切離し）。",
     "STRING_PAGES": "STACK_BOTTOM=LIMIT-n+1の下から256Bずつ下向き、使用ビット表で管理",
     "FOR_STACK": "STACK_BOTTOM+80からFOR/WHILE共用19Bずつ上向き（GOSUB追加時は余白92B）",
     "GOSUB_STACK": "LIMIT+1から7Bずつ下向き（FORと共用）",

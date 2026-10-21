@@ -1,0 +1,5 @@
+; l4-f2: main窓を復元する共有中継。
+    ORG 0x72FC
+RF1_CALL_PARSE_INT_ARG:
+    LD IX,CAP_ADDR_RF_PARSE_INT_ARG
+    JP CAP_ADDR_MAIN_CALL

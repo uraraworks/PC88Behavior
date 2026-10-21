@@ -1,0 +1,5 @@
+; l4-f2: main窓を復元する共有中継。
+    ORG 0x7303
+RF1_CALL_SQ_ERROR:
+    LD IX,CAP_ADDR_RF_SQ_ERROR
+    JP CAP_ADDR_MAIN_CALL

@@ -86,34 +86,18 @@ sq_keyword:
     LD (RUN_KW_TEXT),HL
     LD (RUN_KW_LEN),A
     JP TRY_MATCH_KEYWORD_GENERIC
-SQ_TRY_STMT:
-    CALL SKIP_SPACES
-    LD HL,sq_open_word
-    LD A,4
-    CALL sq_keyword
-    OR A
-    JR NZ,sq_do_open
-    LD HL,sq_close_word
-    LD A,5
-    CALL sq_keyword
-    OR A
-    JR NZ,sq_do_close
-    LD HL,sq_write_word
-    LD A,5
-    CALL sq_keyword
-    OR A
-    RET Z
-    CALL SQ_WRITE
-    LD A,1
+; ランダムと共用のバッファ零埋め。c3-9: SQR陰性対照のためRUN_EXECの前（この位置）に置く。
+rf_clear_buffer:
+    CALL sq_buffer
+    LD (HL),0
+    LD D,H
+    LD E,L
+    INC DE
+    LD BC,255
+    LDIR
     RET
-sq_do_close:
-    CALL SQ_CLOSE
-    LD A,1
-    RET
-sq_do_open:
-    CALL SQ_OPEN
-    LD A,1
-    RET
+; 旧3語の本体は予約前の共通部。RUN_EXECの配置を保つ。
+    DS 13
 sq_open_word: DB "OPEN"
 sq_close_word: DB "CLOSE"
 sq_write_word: DB "WRITE"
@@ -264,6 +248,8 @@ sq_check_found:
     POP BC
     JP sq_opened
 SQ_OPEN:
+    XOR A
+    LD (MM_RF_NEW),A
     CALL sq_filename
     CALL sq_bad
     RET NZ
@@ -271,7 +257,7 @@ SQ_OPEN:
     LD A,3
     CALL sq_keyword
     OR A
-    JP Z,sq_syntax
+    JR Z,sq_mode_found
     CALL SKIP_SPACES
     LD HL,sq_modes
     LD A,5
@@ -304,8 +290,13 @@ sq_mode_found:
     LD A,H
     OR L
     JP NZ,sq_opened
+    CALL rf_end
+    CALL sq_bad
+    RET NZ
     CALL sq_disk_name
-    CALL SQ_KILL_CHECK
+    LD A,(MM_SQ_MODE)
+    OR A
+    CALL NZ,SQ_KILL_CHECK
     CALL sq_bad
     RET NZ
     LD A,(MM_SQ_MODE)
@@ -327,11 +318,13 @@ sq_open_find:
     OR A
     JR NZ,sq_open_allocate
     LD A,(MM_SQ_MODE)
-    CP 3
-    JR Z,sq_open_create
+    CP 1
+    JR NZ,sq_open_create
     LD A,53
     JP SQ_ERROR
 sq_open_create:
+    LD A,1
+    LD (MM_RF_NEW),A
     LD HL,(MM_HEAP_END)
     LD (HL),0x1A
     LD HL,(MM_FREE_TOP)
@@ -413,7 +406,11 @@ sq_count_add:
     LD A,64
     JP SQ_ERROR
 sq_open_ready:
+    CALL rf_clear_buffer
+    LD (IY+17),0
     LD A,(IY+11)
+    OR A
+    JP Z,RF_OPEN_READY
     CP 2
     JR NZ,sq_open_append
     LD (IY+20),0
@@ -478,13 +475,7 @@ sq_load:
     LDIR
     JR sq_loaded
 sq_zero_buffer:
-    CALL sq_buffer
-    LD (HL),0
-    LD D,H
-    LD E,L
-    INC DE
-    LD BC,255
-    LDIR
+    CALL rf_clear_buffer
 sq_loaded:
     LD (IY+17),1
     LD A,(IY+11)
@@ -803,6 +794,8 @@ sq_close_current:
     RET Z
     CALL sq_current
     LD A,(IY+11)
+    OR A
+    JR Z,sq_close_free
     CP 1
     JR Z,sq_close_flush
     LD A,(IY+25)

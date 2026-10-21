@@ -43,7 +43,7 @@ gput_stmt:
     CALL s2_skip
     CALL s2_peek
     CP '('
-    JP NZ,gx_err2              ; 第1座標のSTEPは禁止
+    JP NZ,rf_gput_stmt         ; ファイル形だけを追加判定する
     CALL gput_coord
     RET NZ
     LD HL,(MM_GFX_LPX)

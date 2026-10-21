@@ -311,6 +311,20 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
 # バンク1のFILES/LOAD/PRINT USING/ON/WHILE/DIMが窓外中継で呼ぶmain側ルーチン。
 # バンクROMを別に組み立てるため、実ビルドのラベル番地を渡す。
 EXT_BANK1_MAIN_ADDR_LABELS = {
+    # FIELDのAS照合はmain窓を復元した先で既存文字列を読む。
+    "CAP_ADDR_RF_AS_WORD": "sq_as_word",
+    "CAP_ADDR_RF_LEX_IDENT_CONSUME": "LEX_IDENT_CONSUME",
+    "CAP_ADDR_RF_PARSE_INT_ARG": "PARSE_INT_ARG",
+    "CAP_ADDR_RF_SQ_ERROR": "SQ_ERROR",
+    "CAP_ADDR_RF_VAR_WRITE_STRING": "VAR_WRITE_STRING",
+    "CAP_ADDR_RF_rf_end": "rf_end",
+    "CAP_ADDR_RF_sq_bad": "sq_bad",
+    "CAP_ADDR_RF_sq_buffer": "sq_buffer",
+    "CAP_ADDR_RF_sq_comma": "sq_comma",
+    "CAP_ADDR_RF_sq_current": "sq_current",
+    "CAP_ADDR_RF_sq_keyword": "sq_keyword",
+    "CAP_ADDR_RF_sq_number": "sq_number",
+    "CAP_ADDR_RF_sq_syntax": "sq_syntax",
     "CAP_ADDR_BINARY_ARG": "BINARY_ARG",
     "CAP_ADDR_BINARY_FILL": "BINARY_FILL",
     "CAP_ADDR_BINARY_TAKE": "BINARY_TAKE",
@@ -406,6 +420,7 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK2_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_RF_TRY_TRANSFER": "RF_TRY_TRANSFER",
     "CAP_ADDR_BINARY_ARG": "BINARY_ARG",
     "CAP_ADDR_BINARY_FILL": "BINARY_FILL",
     "CAP_ADDR_BINARY_TAKE": "BINARY_TAKE",
@@ -460,6 +475,15 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_RF_FUNC": "RF_FUNC",
+    "CAP_ADDR_RF_CUR_TO_INT16": "CUR_TO_INT16",
+    "CAP_ADDR_RF_LOGIC_OR_EXPR": "LOGIC_OR_EXPR",
+    "CAP_ADDR_RF_SQ_ERROR": "SQ_ERROR",
+    "CAP_ADDR_RF_STR_COPY_BN": "STR_COPY_BN",
+    "CAP_ADDR_RF_VAL_LOAD_CUR_TO_OPA": "VAL_LOAD_CUR_TO_OPA",
+    "CAP_ADDR_RF_VAL_LOAD_CUR_TO_OPA_D": "VAL_LOAD_CUR_TO_OPA_D",
+    "CAP_ADDR_RF_VAR_GET_OR_CREATE": "VAR_GET_OR_CREATE",
+    "CAP_ADDR_RF_sq_syntax": "sq_syntax",
     # INKEY$は窓外のmainキー表を共有し、bank3に複製しない。
     "BASE_CODE_TAB": "BASE_CODE_TAB",
     "KANA_CODE_TAB": "KANA_CODE_TAB",
@@ -585,6 +609,9 @@ EXT_BANK0_SINCOS_ADDR_LABELS = {
 # 常駐ラベル→bank0.asm側EQU名の対応。EXT_BANK0_SINCOS_ADDR_LABELSと同じ手法。
 # 第4.19節のDEF FN/SWAP/ERASE本体が窓外中継で呼ぶmain番地。
 EXT_BANK0_DEFFN_ADDR_LABELS = {
+    "CAP_ADDR_RF_FIELD": "RF_FIELD",
+    "CAP_ADDR_RF_LSET": "RF_LSET",
+    "CAP_ADDR_RF_RSET": "RF_RSET",
     "CAP_ADDR_ML_DEF": "ML_DEF",
     "CAP_ADDR_ML_ADDRESS": "ML_ADDRESS",
     "CAP_ADDR_ML_TABLE": "ML_TABLE",
@@ -1392,6 +1419,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     run_text = L4_RUN_ASM.read_text(encoding="utf-8")
     run_text = run_text.replace("; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）",
                                 (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/binary.asm").read_text(encoding="utf-8"))
+    run_text = run_text.replace("; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）",
+                                (REPO / "src/l4_basic/randfile.asm").read_text(encoding="utf-8"))
     run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"

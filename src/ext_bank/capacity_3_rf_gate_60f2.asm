@@ -1,0 +1,5 @@
+; l4-f2: main窓を復元する共有中継。
+    ORG 0x60F2
+RF3_CALL_CUR_TO_INT16:
+    LD IX,CAP_ADDR_RF_CUR_TO_INT16
+    JP CAP_ADDR_MAIN_CALL

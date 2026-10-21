@@ -533,7 +533,7 @@ S9_READ_STRING:
     INC HL
     LD A,C
     CP 2
-    JR NZ,s9_read_copy
+    JR C,s9_read_copy
     LD E,(HL)
     INC HL
     LD D,(HL)
