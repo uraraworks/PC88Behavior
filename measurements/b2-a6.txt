@@ -1,0 +1,103 @@
+# b2 腕 A6: 白リスト通過分（抽出器の出力そのまま＋境界の記録の A 行＋止めた腕のポート別件数）。生の記録は作業場のみ
+## run1
+# b2_extract_boot_probe (白リスト: 控えは書いた命令が自作コードのものだけ。ROM が書いた値は出さない)
+rows_total=339050 unparsed_rows=0
+rom_pc_writes: rows=332643 ranges=8
+  rom_range_near C000-E5EB rows=332630
+  rom_range 847D-8481 rows=5
+  rom_range 84A2-84A2 rows=1
+  rom_range 84B0-84B0 rows=1
+  (ほか 4 範囲)
+ram_pc_other_writes: rows=6374
+probe: found=yes magic=ok complete=yes probe_rows=33 inconsistent_rows=0
+base_true=C000 base_reported=C000 consistent=yes
+regs: AF=0100 BC=0001 DE=C100 HL=C000 IX=FFFF IY=FFFF SP=E5F4
+intr: iff2=1 i=F3
+ret=45D9
+markers: k1=0 k2=0 k3=0 k4=0 k5=0 k6=0 k7=0 k8=0
+boundary:
+  frames    : 1200
+  instr     : ram=21353 rom=9921412 none=0
+  ret-stack : dropped=0
+  A 0F8E 1 0 1 0 0
+  A 3391 1167 1167 0 0 1167
+  A 3593 827 0 827 0 0
+  A 3596 39 0 39 0 0
+  A 3599 38 0 38 0 0
+  A 35A8 61 0 61 0 0
+  A 35AB 36 0 36 0 0
+  A 35AC 25 0 25 0 0
+  A 35AD 13 0 13 0 0
+  A 3827 1 0 1 0 0
+  A 39CE 3 0 3 0 0
+  A 3B3C 24 0 24 0 0
+  A 3DED 9 0 9 0 0
+  A 443C 1 0 1 0 0
+  A 44A8 1 0 1 0 0
+  A 45D9 1 0 1 0 0
+  A 4FB7 1 0 1 0 0
+  A 5375 26 0 26 0 0
+  A 56EA 1 0 1 0 0
+  A 5A6C 1 0 1 0 0
+  A 5FCB 1 0 1 0 0
+  A 64C7 1 0 1 0 0
+  A 650F 1 0 1 0 0
+  A 6B62 1 0 1 0 0
+  A 7341 1 0 1 0 0
+  A 7552 1 0 1 0 0
+  A 7780 61 0 61 0 0
+  A 7783 47 0 47 0 0
+  A 7784 15 0 15 0 0
+  # (A 終わり)
+  (落とした行: 130)
+## run2
+# b2_extract_boot_probe (白リスト: 控えは書いた命令が自作コードのものだけ。ROM が書いた値は出さない)
+rows_total=339050 unparsed_rows=0
+rom_pc_writes: rows=332643 ranges=8
+  rom_range_near C000-E5EB rows=332630
+  rom_range 847D-8481 rows=5
+  rom_range 84A2-84A2 rows=1
+  rom_range 84B0-84B0 rows=1
+  (ほか 4 範囲)
+ram_pc_other_writes: rows=6374
+probe: found=yes magic=ok complete=yes probe_rows=33 inconsistent_rows=0
+base_true=C000 base_reported=C000 consistent=yes
+regs: AF=0100 BC=0001 DE=C100 HL=C000 IX=FFFF IY=FFFF SP=E5F4
+intr: iff2=1 i=F3
+ret=45D9
+markers: k1=0 k2=0 k3=0 k4=0 k5=0 k6=0 k7=0 k8=0
+boundary:
+  frames    : 1200
+  instr     : ram=21353 rom=9921412 none=0
+  ret-stack : dropped=0
+  A 0F8E 1 0 1 0 0
+  A 3391 1167 1167 0 0 1167
+  A 3593 827 0 827 0 0
+  A 3596 39 0 39 0 0
+  A 3599 38 0 38 0 0
+  A 35A8 61 0 61 0 0
+  A 35AB 36 0 36 0 0
+  A 35AC 25 0 25 0 0
+  A 35AD 13 0 13 0 0
+  A 3827 1 0 1 0 0
+  A 39CE 3 0 3 0 0
+  A 3B3C 24 0 24 0 0
+  A 3DED 9 0 9 0 0
+  A 443C 1 0 1 0 0
+  A 44A8 1 0 1 0 0
+  A 45D9 1 0 1 0 0
+  A 4FB7 1 0 1 0 0
+  A 5375 26 0 26 0 0
+  A 56EA 1 0 1 0 0
+  A 5A6C 1 0 1 0 0
+  A 5FCB 1 0 1 0 0
+  A 64C7 1 0 1 0 0
+  A 650F 1 0 1 0 0
+  A 6B62 1 0 1 0 0
+  A 7341 1 0 1 0 0
+  A 7552 1 0 1 0 0
+  A 7780 61 0 61 0 0
+  A 7783 47 0 47 0 0
+  A 7784 15 0 15 0 0
+  # (A 終わり)
+  (落とした行: 130)
