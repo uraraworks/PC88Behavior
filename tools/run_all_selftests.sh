@@ -156,6 +156,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/iolog_selftest.sh:0"
   "tools/harness/vram_dump_selftest.sh:0"
   "tools/harness/mem_write_log_selftest.sh:0"
+  "tools/harness/boundary_selftest.sh:0"
   "tools/harness/key_matrix_selftest.sh:0"
   "tools/harness/type_untypable_selftest.sh:0"
   "tools/harness/type_bracesymbol_selftest.sh:0"

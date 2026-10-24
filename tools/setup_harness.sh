@@ -121,6 +121,10 @@ case "$SYMS" in
   *) echo "  NG: 割り込み受理ログのシンボルが無い" >&2; exit 1 ;;
 esac
 case "$SYMS" in
+  *retro_q88h_boundary*) echo "  OK: ROM境界の横断記録のシンボルあり" ;;
+  *) echo "  NG: ROM境界の横断記録のシンボルが無い" >&2; exit 1 ;;
+esac
+case "$SYMS" in
   *retro_q88h_fontsrc*) echo "  OK: フォント供給源記録のシンボルあり" ;;
   *) echo "  NG: フォント供給源記録のシンボルが無い" >&2; exit 1 ;;
 esac
@@ -153,5 +157,6 @@ python3 "$REPO/tools/harness/diff_file_selftest.py" \
 "$REPO/tools/harness/iolog_selftest.sh"
 "$REPO/tools/harness/intlog_selftest.sh"
 "$REPO/tools/harness/fontsrc_selftest.sh"
+"$REPO/tools/harness/boundary_selftest.sh"
 
 say "完了"

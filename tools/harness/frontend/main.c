@@ -54,6 +54,7 @@
 #include "q88h_trap.h"
 #include "q88h_iolog.h"
 #include "q88h_memlog.h"
+#include "q88h_boundary.h"
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
@@ -159,6 +160,13 @@ static void           (*p_memlog_set_enabled)(int);
 static void           (*p_memlog_set_frame)(uint32_t);
 static void           (*p_memlog_set_range)(uint32_t, uint32_t);
 static bool            g_memlog_available = false;
+
+/* ROM 境界の横断記録（ゴールB）。無いコアでは黙って機能を落とす。 */
+static q88h_boundary_t *(*p_boundary)(void);
+static void            (*p_boundary_reset)(void);
+static void            (*p_boundary_set_enabled)(int);
+static void            (*p_boundary_set_fault)(int);
+static bool             g_boundary_available = false;
 
 /* 交換run介入。既存コアでも通常測定は続けられるが、オプション指定時は
  * シンボル・命中・実変更をすべて必須にして「指定したが効かなかった」を落とす。 */
@@ -703,6 +711,17 @@ static bool load_core(const char *path)
         fprintf(stderr, "[q88measure] 注記: このコアに範囲指定の書き込み記録が無い。"
                         "--mem-write-log は無効化される\n");
 
+    /* ROM 境界の横断記録（ゴールB）。 */
+    *(void **)(&p_boundary)             = dlsym(h, "retro_q88h_boundary");
+    *(void **)(&p_boundary_reset)       = dlsym(h, "retro_q88h_boundary_reset");
+    *(void **)(&p_boundary_set_enabled) = dlsym(h, "retro_q88h_boundary_set_enabled");
+    *(void **)(&p_boundary_set_fault)   = dlsym(h, "retro_q88h_boundary_set_fault");
+    g_boundary_available = p_boundary && p_boundary_reset
+                         && p_boundary_set_enabled && p_boundary_set_fault;
+    if (!g_boundary_available)
+        fprintf(stderr, "[q88measure] 注記: このコアにROM境界の記録が無い。"
+                        "--boundary-log は無効化される\n");
+
     *(void **)(&p_exchange_intervention) = dlsym(h, "retro_q88h_exchange_intervention");
     *(void **)(&p_exchange_intervention_reset) = dlsym(h, "retro_q88h_exchange_intervention_reset");
     *(void **)(&p_exchange_intervention_configure) = dlsym(h, "retro_q88h_exchange_intervention_configure");
@@ -1191,6 +1210,67 @@ static void write_memlog_report(FILE *fp, const char *core, const char *romdir,
     fprintf(fp, "# 取りこぼし: %u件 / 総イベント数: %u件\n", m->n_dropped, m->n_events);
 }
 
+/* ---- ROM 境界の横断記録（ゴールB）の書き出し ---------------------------
+ *
+ * 書くのは番地と回数だけ。レジスタ値・メモリの値・ROM から読んだ値は
+ * コア側が持っていないので、ここからも出ない（方針ノート第4節）。
+ * 回数は10進、番地は4桁16進。2桁の16進は出さない（boundary_selftest.sh が
+ * 目印の値の不在を語単位で検査するため）。 */
+static void write_boundary_report(FILE *fp, const char *core, const char *romdir,
+                                  const char *disk, const char *disk2, unsigned frames,
+                                  const q88h_boundary_t *b)
+{
+    unsigned a;
+    fprintf(fp, "# PC88Behavior ROM境界の横断記録 (main CPU)\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# 記録しているのは番地と回数だけ。レジスタ値・メモリの値・ROMから\n");
+    fprintf(fp, "# 読んだ値は記録しない。「どこ由来か」は番地の固定範囲ではなく、\n");
+    fprintf(fp, "# 記録時点のバンク切替後の実体(ROM像 / 未割り当て / RAM)で決める。\n");
+    fprintf(fp, "#\n");
+    fprintf(fp, "# A <飛び先> total call jump int ret\n");
+    fprintf(fp, "#   RAM由来の命令の次にROM由来の命令が来た瞬間の飛び先。\n");
+    fprintf(fp, "#   call = 呼び出し型(SPが2減りスタック先頭が直前命令の直後を指す。割り込み受理含む)\n");
+    fprintf(fp, "#   jump = 飛び込み型(それ以外)  int = うち割り込み受理直後(callの内数)\n");
+    fprintf(fp, "#   ret  = その呼び出しに対し、期待した戻り番地・SPでRAMへ戻ってきた回数\n");
+    fprintf(fp, "# B <番地> count\n");
+    fprintf(fp, "#   RAM由来の命令がROM由来の番地をデータとして読んだ回数\n");
+    fprintf(fp, "# C <番地> rom_read rom_write ram_read ram_write\n");
+    fprintf(fp, "#   ROM由来の命令とRAM由来の命令の両方から触られたRAM番地。\n");
+    fprintf(fp, "#   命令の先頭+1〜+3の読みはオペランドとみなし数えない(ROMが写した\n");
+    fprintf(fp, "#   コード領域が丸ごと共有になるのを避ける。自分自身を+1〜+3で読む\n");
+    fprintf(fp, "#   データ読みは取りこぼす)。\n\n");
+    fprintf(fp, "core      : %s\n", core);
+    fprintf(fp, "rom-dir   : %s\n", romdir);
+    fprintf(fp, "disk      : %s\n", disk ? disk : "(なし)");
+    if (disk2) fprintf(fp, "disk2     : %s\n", disk2);
+    fprintf(fp, "frames    : %u\n", frames);
+    fprintf(fp, "instr     : ram=%u rom=%u none=%u\n",
+            b->n_instr[Q88H_BND_RAM], b->n_instr[Q88H_BND_ROM], b->n_instr[Q88H_BND_NONE]);
+    fprintf(fp, "ret-stack : dropped=%u\n\n", b->rs_dropped);
+
+    for (a = 0; a < 0x10000; a++) {
+        if (!b->x_total[a]) continue;
+        fprintf(fp, "A %04X %u %u %u %u %u\n", a, b->x_total[a], b->x_call[a],
+                b->x_jump[a], b->x_int[a], b->x_ret[a]);
+    }
+    fprintf(fp, "# (A 終わり)\n");
+    for (a = 0; a < 0x10000; a++) {
+        if (!b->rom_read[a]) continue;
+        fprintf(fp, "B %04X %u\n", a, b->rom_read[a]);
+    }
+    fprintf(fp, "# (B 終わり)\n");
+    for (a = 0; a < 0x10000; a++) {
+        unsigned rr = b->shared[Q88H_BND_ROM_READ][a],  rw = b->shared[Q88H_BND_ROM_WRITE][a];
+        unsigned ar = b->shared[Q88H_BND_RAM_READ][a],  aw = b->shared[Q88H_BND_RAM_WRITE][a];
+        if (!(rr + rw) || !(ar + aw)) continue;
+        fprintf(fp, "C %04X %u %u %u %u\n", a, rr, rw, ar, aw);
+    }
+    fprintf(fp, "# (C 終わり)\n");
+    /* 故障注入 LEAK_REG のときだけ値が入る。通常の走りでは出ない。 */
+    if (b->leak_valid)
+        fprintf(fp, "# 故障注入(leak_reg)で混ぜたレジスタ値: %04X\n", b->leak_value);
+}
+
 /* ---- 割り込み受理ログ（M4c）の書き出し ----------------------------------
  * 考え方は write_iolog_* と同じ。main/sub は別々に走る Z80 なので、
  * 混ぜて出すと前後関係を誤解させる。CPUごとに節を分ける。 */
@@ -1400,6 +1480,7 @@ static void usage(void)
         "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
+        "                   [--boundary-log FILE]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
         "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n"
@@ -1497,6 +1578,7 @@ int main(int argc, char **argv)
     /* 範囲指定の書き込み記録（M7器具2）。--mem-write-range は必須
      * （範囲を指定しないと何も記録しない設計 — q88h_memlog.h 参照）。 */
     const char *mem_write_log_path = NULL;
+    const char *boundary_log_path = NULL;
     unsigned    mem_write_range_lo = 0, mem_write_range_hi = 0;
     bool        mem_write_range_set = false;
     unsigned    mem_write_from_frame = 0;
@@ -1812,6 +1894,8 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--boundary-log") && i + 1 < argc)
+            boundary_log_path = argv[++i];
         else if (!strcmp(argv[i], "--mem-write-log") && i + 1 < argc)
             mem_write_log_path = argv[++i];
         else if (!strcmp(argv[i], "--mem-write-range") && i + 1 < argc) {
@@ -2027,6 +2111,8 @@ int main(int argc, char **argv)
     /* 出力先の安全策（禁止事項5/7）。走らせる前、コアの読み込みより先に
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
+        return 1;
+    if (boundary_log_path && reject_if_unsafe_output_path("--boundary-log", boundary_log_path))
         return 1;
     for (k = 0; k < n_vram_dump; k++) {
         if (reject_if_unsafe_output_path("--vram-dump", vram_dump[k].path))
@@ -2266,6 +2352,32 @@ int main(int argc, char **argv)
             p_intlog_reset();
             p_intlog_set_enabled(1);
             fprintf(stderr, "[q88measure] 割り込み受理ログ 有効: out=%s\n", int_log_path);
+        }
+    }
+
+    /* ROM 境界の横断記録（ゴールB）。コアを走らせる前に有効化する。
+     * 故障注入は boundary_selftest.sh 専用（既定では環境変数が無く何もしない）。 */
+    if (boundary_log_path) {
+        if (!g_boundary_available) {
+            fprintf(stderr, "[q88measure] 注記: --boundary-log が指定されたが、"
+                            "このコアにROM境界の記録が無いので無視する\n");
+        } else {
+            const char *fault = getenv("Q88MEASURE_FAULT_BOUNDARY");
+            int fault_kind = Q88H_BND_FAULT_NONE;
+            if (fault) {
+                if      (!strcmp(fault, "class_ram"))  fault_kind = Q88H_BND_FAULT_CLASS_RAM;
+                else if (!strcmp(fault, "no_return"))  fault_kind = Q88H_BND_FAULT_NO_RETURN;
+                else if (!strcmp(fault, "leak_reg"))   fault_kind = Q88H_BND_FAULT_LEAK_REG;
+                else {
+                    fprintf(stderr, "[q88measure] 未知の Q88MEASURE_FAULT_BOUNDARY: %s\n", fault);
+                    return 2;
+                }
+            }
+            p_boundary_reset();
+            p_boundary_set_fault(fault_kind);
+            p_boundary_set_enabled(1);
+            fprintf(stderr, "[q88measure] ROM境界の記録 有効: out=%s%s\n",
+                    boundary_log_path, fault_kind ? " (故障注入)" : "");
         }
     }
 
@@ -2601,6 +2713,21 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
+            }
+
+            /* ROM 境界の横断記録（ゴールB）。番地と回数だけなので値の漏れ口は
+             * 無いが、出力先の安全策は他の記録と同じく通す。 */
+            if (boundary_log_path && g_boundary_available) {
+                q88h_boundary_t *b = p_boundary();
+                FILE *fp;
+                if (reject_if_unsafe_output_path("--boundary-log", boundary_log_path))
+                    return 1;
+                fp = fopen(boundary_log_path, "w");
+                if (!fp) { perror(boundary_log_path); return 1; }
+                write_boundary_report(fp, core, g_rom_dir, disk, disk2, frames, b);
+                fclose(fp);
+                fprintf(stderr, "[q88measure] ROM境界の記録を書き出した: %s\n",
+                        boundary_log_path);
             }
 
             /* 範囲指定の書き込み記録（M7器具2）も --io-log と同じく別ファイルに書く。

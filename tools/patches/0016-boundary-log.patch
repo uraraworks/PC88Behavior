@@ -1,0 +1,163 @@
+diff --git a/Makefile.common b/Makefile.common
+index 7aee69c..6f24dc4 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -59,6 +59,7 @@ SOURCES_C := $(CORE_DIR)/quasi88.c \
+    $(CORE_DIR)/q88h_clock.c \
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_memlog.c \
++   $(CORE_DIR)/q88h_boundary.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+    $(CORE_DIR)/q88h_main_interrupt_intervention.c \
+diff --git a/src/pc88main.c b/src/pc88main.c
+index 2f8efda..4578527 100644
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2961,6 +2961,7 @@ void	main_io_out_with_BP( byte port, byte data )
+ #include "q88h_iolog.h"
+ #include "q88h_exchange_intervention.h"
+ #include "q88h_memlog.h"
++#include "q88h_boundary.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -3081,6 +3082,61 @@ static int q88h_addr_is_rom( word addr )
+   }
+ }
+ 
++/* ----------------------------------------------------------------------
++ * 番地の今の実体が ROM / 未割り当て / RAM のどれかを返す（ROM 境界の横断記録用）。
++ *
++ * q88h_addr_is_rom と同じ範囲分岐・同じポインタ（read_mem_*）を見るが、
++ * こちらは dummy_rom を「未割り当て」として ROM から分ける。番地の固定範囲で
++ * 決めない（バンク切替で同じ番地の実体が変わる）。値は読まず、ポインタの
++ * 所属先だけを見る。ext_ram / main_ram / main_high_ram / VRAM は RAM。
++ * ---------------------------------------------------------------------- */
++static int q88h_ptr_class( const byte *p )
++{
++  if( !p ) return Q88H_BND_RAM;
++  if( p >= dummy_rom  && p < dummy_rom  + 0x8000 ) return Q88H_BND_NONE;
++  if( p >= main_rom   && p < main_rom   + 0x8000 ) return Q88H_BND_ROM;
++  if( p >= main_rom_n && p < main_rom_n + 0x8000 ) return Q88H_BND_ROM;
++  if( main_rom_ext &&
++      p >= (const byte *)main_rom_ext &&
++      p <  (const byte *)main_rom_ext + 0x2000*4 ) return Q88H_BND_ROM;
++  if( jisho_rom &&
++      p >= (const byte *)jisho_rom &&
++      p <  (const byte *)jisho_rom + 0x4000*32 )   return Q88H_BND_ROM;
++  return Q88H_BND_RAM;
++}
++
++static int q88h_addr_class( word addr )
++{
++  if     ( addr < 0x6000 ) return q88h_ptr_class( read_mem_0000_5fff );
++  else if( addr < 0x8000 ) return q88h_ptr_class( read_mem_6000_7fff );
++  else if( addr < 0xc000 ) return Q88H_BND_RAM;   /* window / main_ram 固定 */
++  else{
++    switch( vram_access_way ){
++    case VRAM_ACCESS_ALU:
++    case VRAM_ACCESS_BANK: return Q88H_BND_RAM;   /* VRAM は RAM 扱い */
++    default:
++      if( addr < 0xf000 ) return q88h_ptr_class( read_mem_c000_efff );
++      else                 return q88h_ptr_class( read_mem_f000_ffff );
++    }
++  }
++}
++
++/* 命令の先頭 fetch を ROM 境界の記録へ渡す（enabled のときだけ呼ぶ）。
++ * スタック先頭の1語は、RAM → ROM の横断かどうかの判定にだけ使い、
++ * 判定が済めば捨てる（記録しない）。それ以外の瞬間は読まない
++ * （main_mem_read は VRAM の ALU 読み出し等の副作用を持ちうるため、
++ * 必要なときだけ最小限に読む）。 */
++static void q88h_boundary_note_instr( q88h_boundary_t *bd, word addr )
++{
++  int    cls = q88h_boundary_class_filter( bd, q88h_addr_class( addr ) );
++  word   sp  = z80main_cpu.SP.W;
++  word   top = 0;
++
++  if( cls == Q88H_BND_ROM && bd->last_class == Q88H_BND_RAM )
++    top = main_mem_read( sp ) | (main_mem_read( (word)(sp + 1) ) << 8);
++  q88h_boundary_on_instr( bd, addr, cls, sp, top, z80main_cpu.HL.W );
++}
++
+ static byte q88h_fetch( word addr )
+ {
+   q88h_trace_t *t  = retro_q88h_trace();
+@@ -3092,7 +3148,11 @@ static byte q88h_fetch( word addr )
+   /* この fetch() が新しい命令の先頭かどうかは、実際に読めた値を見るまで
+    * 確定しないが、先頭番地そのものは「fetch() が呼ばれた時点の addr」で
+    * 決まる。先に控えてから、下でオペコード値を見て次の状態を決める。 */
+-  if( is_instr_start ) q88h_instr_pc = addr;
++  if( is_instr_start ){
++    q88h_boundary_t *bd = retro_q88h_boundary();
++    q88h_instr_pc = addr;
++    if( bd->enabled ) q88h_boundary_note_instr( bd, addr );
++  }
+ 
+   t->mem_exec[addr] = 1;
+   if( q88h_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
+@@ -3168,6 +3228,15 @@ static byte q88h_mem_read( word addr )
+   t->n_read++;
+   v = main_mem_read( addr );
+ 
++  /* ROM 境界の記録（ゴールB）。値 v は見ない。番地の由来と、
++   * 実行中の命令の由来だけで数える。 */
++  {
++    q88h_boundary_t *bd = retro_q88h_boundary();
++    if( bd->enabled )
++      q88h_boundary_on_read( bd, addr,
++                              q88h_boundary_class_filter( bd, q88h_addr_class( addr ) ) );
++  }
++
+   /* データアクセスは値を差し替えない。挙動を変えるのは実行アクセスだけ。
+    * STOPモードで既に停止済みのあとのデータ読みも exec と同じ理由で
+    * 意味が無いので、記録しない扱いに揃える。データアクセスは fetch では
+@@ -3191,6 +3260,12 @@ static void q88h_mem_write( word addr, byte data )
+   t->mem_write[addr] = 1;
+   t->n_write++;
+ 
++  /* ROM 境界の記録（ゴールB）。書き込みは常に RAM へ落ちる。値 data は見ない。 */
++  {
++    q88h_boundary_t *bd = retro_q88h_boundary();
++    if( bd->enabled ) q88h_boundary_on_write( bd, addr );
++  }
++
+   /* 範囲指定の書き込み記録（M7器具2）。enabled と範囲内かどうかの判定は
+    * ここ（呼び手）の責任にする — q88h_iolog と同じ役割分担。発行元PCは
+    * q88h_instr_pc（このバイトを書いた命令の先頭番地。q88h_fetch 側の
+diff --git a/src/z80.c b/src/z80.c
+index 71264da..78b6787 100644
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -96,6 +96,7 @@
+  * 判断した。z80arch 構造体自体は変更していない（識別子は足していない）。 */
+ #include "pc88cpu.h"
+ #include "q88h_intlog.h"
++#include "q88h_boundary.h"
+ #include "q88h_sub_interrupt_intervention.h"
+ #include "q88h_main_interrupt_intervention.h"
+ 
+@@ -758,6 +759,13 @@ static	void	z80_interrupt( z80arch *z80 )
+                                  * ポインタとして書き換えられるため、記録用に
+                                  * 受理直後の値を別変数へ退避しておく。 */
+ 
++    /* ROM 境界の記録（ゴールB）。受理処理中のスタック操作等は命令の
++     * アクセスではないので記録から外し、次の命令先頭 fetch に
++     * 「割り込み受理直後」の印を引き継ぐ。main CPU のみ。 */
++    q88h_boundary_t *q88h_bd = (z80 == &z80main_cpu) ? retro_q88h_boundary() : NULL;
++    if( q88h_bd && q88h_bd->enabled )
++      q88h_boundary_int_begin( q88h_bd, (uint16_t)z80->SP.W );
++
+     z80->IFF = INT_DISABLE;			/* 割り込み禁止 */
+     z80->R ++;					/* 割り込み応答サイクル */
+     z80->state0 += 2;
+@@ -793,6 +801,8 @@ static	void	z80_interrupt( z80arch *z80 )
+     /* handler_pc（分岐後のPC＝ハンドラ入口）はここで確定する。
+      * level は case 2 (IM2) の中でベクタ読み出し位置として書き換えられて
+      * いるため、記録には switch 前に退避した q88h_level を使う。 */
++    if( q88h_bd && q88h_bd->enabled ) q88h_boundary_int_end( q88h_bd );
++
+     if( q88h_il && q88h_il->enabled ){
+       q88h_intlog_record( q88h_il, (uint8_t)z80->IM, (uint8_t)q88h_level,
+                            (uint16_t)q88h_ret_pc, (uint16_t)z80->PC.W );
