@@ -518,6 +518,8 @@ SCRIPTS_EXPECTED=(
   "tools/derive_m6fc_protect_selftest.sh:0"
   "tools/check_m6fc_protect_preregistration_selftest.sh:0"
   "tools/measure_m6fc_protect_driver_selftest.sh:0"
+  # ゲームディスクの識別子ヘルパ(stage_game.sh / register_game.sh)。合成ダミーのみ、SKIP無し。
+  "tools/stage_game_selftest.sh:0"
 )
 
 RC="$REPO/tools/runall_cache.py"
