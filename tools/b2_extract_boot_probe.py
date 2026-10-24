@@ -8,11 +8,11 @@ b2_extract_boot_probe.py — 書き込み記録 (--mem-write-log) から起動�
 
 ## 白リスト（これ以外は内容を出さない）
 
-  A. 発行元 PC が RAM 上（--ram-pc-lo 以上）で、**かつ** その PC が生成器の控え用の書き込み命令の
-     どれかに当たり（レイアウトの stores と PC から逆算した先頭番地で照合）、**かつ** 書き込み先が
+  A. 発行元 PC が [X, X+0x100)（X = 生成器に与えた読み込み先。RAM 上のほかの PC は含まない）に入り、
+     **かつ** その PC が生成器の控え用の書き込み命令のどれかに当たり（レイアウトの stores と照合）、**かつ** 書き込み先が
      その命令に決まっている控えの位置と一致する行 ……… 値を控えとして復元する
   B. 発行元 PC が ROM 側の行 ………………………… 値は一切表示しない。番地の範囲と件数だけ
-  C. 発行元 PC が RAM 上だが A に当たらない行（スタックへの積み込みなど）……… 件数だけ
+  C. 発行元 PC が RAM 上だが A に当たらない行（スタックへの積み込み、ROM が RAM に置いたコードの書き込みなど）……… 件数だけ
   D. 形式に合わない行 ………………………………… 件数だけ
 
 控えを出すのは A だけ。ROM が RAM に書いた値は、ROM 内部のテーブルやバッファ外の内容が
@@ -109,17 +109,14 @@ def extract(rows, layout, ram_pc_lo, fault_trust=False):
                     return True
         return False
 
-    cands = {}
-    for _, pc, a, v in ram:
-        for off in store_pcs:
-            b = pc - off
-            if 0 <= b <= 0xFFFF:
-                cands.setdefault(b, 0)
+    # 控えとして扱うのは、書いた命令の PC が [X, X+0x100)（X = 生成器に与えた読み込み先）に
+    # 入るものだけ。ROM が別の RAM 番地へ写して実行したコードの書き込みは、PC が RAM 上でも
+    # ここに入らないので番地の範囲と件数だけ（ram_pc_other_writes）になる。
+    X = layout["load_addr"]
     best, best_n = None, 0
-    for b in cands:
-        n = sum(1 for _, pc, a, v in ram if explains(b, pc, a))
-        if n > best_n:
-            best, best_n = b, n
+    n = sum(1 for _, pc, a, v in ram if X <= pc < X + 0x100 and explains(X, pc, a))
+    if n > 0:
+        best, best_n = X, n
     if best is None or best_n == 0:
         res["ram_other"] = len(ram)
         return res
@@ -133,7 +130,7 @@ def extract(rows, layout, ram_pc_lo, fault_trust=False):
     seq_pos = {}
     for _, pc, a, v in ram:
         off = pc - base
-        if off in store_pcs:
+        if 0 <= off < 0x100 and off in store_pcs:
             if explains(base, pc, a):
                 rec[a - (base + rec_off)] = v
                 nacc += 1

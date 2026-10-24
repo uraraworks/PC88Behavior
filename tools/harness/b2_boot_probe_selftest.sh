@@ -74,6 +74,8 @@ res = {}
 
 if mode == "norecord":
     res["J_norecord"] = (rc == 3 and "found=no" in out)
+    # ROM が別の RAM 番地へ写して走らせたコードの書き込みの値は、出力に出てはならない
+    res["J_noleak"] = not (exp["decoy_word"] is not None and exp["decoy_text"] in out)
     for k, v in res.items():
         print(("PASS " if v else "FAIL ") + k)
     sys.exit(0)
@@ -193,6 +195,7 @@ run_case() {
   local extra=()
   [ "$decoy" = 1 ] && extra+=(--decoy)
   [ "$place" != "-" ] && extra+=(--place-addr "$place")
+  [ -n "${MIMIC:-}" ] && extra+=(--mimic-base "$MIMIC")
   if [ "$mode" = norecord ]; then
     local trap
     trap="$(python3 -c "import json;l=json.load(open('$d/l.json'));print(l['load_addr']+l['here_sector_off'])")"
@@ -257,6 +260,14 @@ run_case N1 ret   0xC000 0  1  std 0 0xA000 norecord ""
 expect_fails N1 ""
 grep -q 'found=no' "$WORK/N1/ex.txt" || ng "N1: no_record にならない"
 ok "N1(陰性対照): 組んだ番地と別の番地に置くと、抽出器は no_record(rc=3) を返し、控えを捏造しない"
+
+# 陰性対照2: ROM が別の RAM 番地 (A400) へ控えを真似るコードを写して走らせる。プローブ本体は
+# 外れた番地に置かれ実行されない。真似たコードの書き込みは発行元 PC が RAM 上なので、
+# 「RAM 上の PC ならすべて自作コード」とする抽出器は値(7E7E)を控えとして出してしまう。
+MIMIC=0xA400 run_case M1 ret   0xC000 0  1  std 0 0xA000 norecord ""
+expect_fails M1 ""
+grep -q 'found=no' "$WORK/M1/ex.txt" || ng "M1: ROM が置いた RAM 上のコードの書き込みから控えを作ってしまう"
+ok "M1(陰性対照): ROM が別の RAM 番地へ写して走らせたコードが目印の値を書いても、抽出器は no_record で値を出さない"
 
 # ===== 故障注入 =====
 run_case F1 ret   0xC000 0  1  std 1 -      normal "" --fault-base-off

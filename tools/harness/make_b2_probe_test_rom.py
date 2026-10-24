@@ -96,6 +96,27 @@ def build(args):
             A(f"    ld a,{v:#04x}")
             A(f"    ld ({a:#06x}),a")
             events.append(a)
+    if args.mimic_base is not None:
+        # 別の RAM 番地へ小さなコードを写して実行し、目印の値(7E7E)を書かせる。
+        # 発行元 PC は「控え用の書き込み命令の位置(mimic_base+オフセット)」に合わせてあり、
+        # 書き込み先も控えの SP 欄に合わせてある（直す前の抽出器はこれを控えと見なして値を出す）
+        fx = [s for s in layout["stores"] if s["kind"] == "fixed" and s["field"] in
+              (layout["fields"]["SP"][0], layout["fields"]["SP"][0] + 1)]
+        fx.sort(key=lambda s: s["field"])
+        assert fx[1]["pc"] == fx[0]["pc"] + 3
+        mb = args.mimic_base
+        q = mb + fx[0]["pc"] - 2
+        rec = mb + layout["rec_off"]
+        a1, a2 = rec + layout["fields"]["SP"][0], rec + layout["fields"]["SP"][0] + 1
+        img = bytes([0x3E, DECOY & 0xFF, 0x32, a1 & 0xFF, a1 >> 8, 0x32, a2 & 0xFF, a2 >> 8, 0xC9])
+        A(f"    ld hl,MIMIC_IMG")
+        A(f"    ld de,{q:#06x}")
+        A(f"    ld bc,{len(img)}")
+        A("    ldir")
+        events += list(range(q, q + len(img)))
+        A(f"    call {q:#06x}")
+        events += [S_BOOT - 1, S_BOOT - 2]
+        mimic_img = img
     if args.trap_at is not None:
         A("    ld a,76h")
         A(f"    ld ({args.trap_at:#06x}),a")
@@ -143,6 +164,10 @@ def build(args):
     A("PROBE_IMG:")
     for i in range(0, len(sector), 16):
         A("    db " + ",".join(f"{b:#04x}" for b in sector[i:i + 16]))
+    if args.mimic_base is not None:
+        A("    org 4800h")
+        A("MIMIC_IMG:")
+        A("    db " + ",".join(f"{b:#04x}" for b in mimic_img))
     A("    org 7fffh")
     A("    db 0")
 
@@ -166,8 +191,8 @@ def build(args):
         "arm": arm, "place_addr": X, "load_addr": layout["load_addr"],
         "entry_off": layout["entry_off"],
         "markers": [expected_mask(k, args.markers) for k in range(1, K + 1)],
-        "rom_events": events, "decoy_word": DECOY if (args.decoy and arm == "ret") else None,
-        "decoy_text": f"{DECOY:04X}",
+        "rom_events": events, "decoy_word": DECOY if ((args.decoy and arm == "ret") or args.mimic_base is not None) else None,
+        "decoy_text": f"{DECOY:04X}", "mimic": args.mimic_base is not None,
         "marker_mode": args.markers,
     }
     pathlib.Path(args.expected).write_text(json.dumps(exp, indent=1), encoding="utf-8")
@@ -185,6 +210,8 @@ def main():
     ap.add_argument("--iff", type=int, choices=(0, 1), default=1, help="呼ぶ直前に EI(1) / DI(0)")
     ap.add_argument("--markers", choices=("std", "all", "none"), default="std")
     ap.add_argument("--decoy", action="store_true")
+    ap.add_argument("--mimic-base", type=lambda v: int(v, 0), default=None,
+                    help="別の RAM 番地 B' に控えを真似る小さなコードを写して実行する（白リストの検査用）")
     ap.add_argument("--trap-at", type=lambda v: int(v, 0), default=None,
                     help="この番地に HALT を置く（陰性対照で CALL の飛び先を止める）")
     build(ap.parse_args())
