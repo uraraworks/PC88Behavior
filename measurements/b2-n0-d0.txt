@@ -1,0 +1,67 @@
+# b2 N0 (ディスク無し対照): 白リスト通過分。番地・件数のみ
+## run1
+rom_range 847D-8481 rows=5
+rom_range 84A2-84A2 rows=1
+rom_range 84B0-84B0 rows=1
+rom_range 84B3-84B3 rows=1
+rom_range 84B6-84B6 rows=1
+rom_range 84B9-84B9 rows=1
+rom_range 84BE-84C0 rows=3
+rom_range C000-E5EB rows=331673
+rom_range E5F0-FFF8 rows=1300896
+exec_ram:
+  E7EE-E7EF  (2)
+  E7F2-E7F3  (2)
+  E7F5-E7F5  (1)
+  E7F7-E7F7  (1)
+  E7FA-E7FA  (1)
+  E7FD-E7FF  (3)
+  E801-E801  (1)
+  E804-E809  (6)
+  E80C-E80C  (1)
+  E80E-E80F  (2)
+  E812-E812  (1)
+  ED0C-ED0C  (1)
+  ED12-ED12  (1)
+  ED15-ED15  (1)
+  ED33-ED33  (1)
+  ED42-ED42  (1)
+  ED72-ED72  (1)
+  ED87-ED87  (1)
+  ED99-ED99  (1)
+  EDDE-EDDE  (1)
+  EDF3-EDF3  (1)
+  EDF9-EDF9  (1)
+## run2
+rom_range 847D-8481 rows=5
+rom_range 84A2-84A2 rows=1
+rom_range 84B0-84B0 rows=1
+rom_range 84B3-84B3 rows=1
+rom_range 84B6-84B6 rows=1
+rom_range 84B9-84B9 rows=1
+rom_range 84BE-84C0 rows=3
+rom_range C000-E5EB rows=331673
+rom_range E5F0-FFF8 rows=1300896
+exec_ram:
+  E7EE-E7EF  (2)
+  E7F2-E7F3  (2)
+  E7F5-E7F5  (1)
+  E7F7-E7F7  (1)
+  E7FA-E7FA  (1)
+  E7FD-E7FF  (3)
+  E801-E801  (1)
+  E804-E809  (6)
+  E80C-E80C  (1)
+  E80E-E80F  (2)
+  E812-E812  (1)
+  ED0C-ED0C  (1)
+  ED12-ED12  (1)
+  ED15-ED15  (1)
+  ED33-ED33  (1)
+  ED42-ED42  (1)
+  ED72-ED72  (1)
+  ED87-ED87  (1)
+  ED99-ED99  (1)
+  EDDE-EDDE  (1)
+  EDF3-EDF3  (1)
+  EDF9-EDF9  (1)
