@@ -1,0 +1,8 @@
+# 識別子: G1
+# ROM: self
+frames    : 3600
+instr     : ram=0 rom=63517372 none=0
+ret-stack : dropped=0
+# (A 終わり)
+# (B 終わり)
+# (C 終わり)
