@@ -1,0 +1,110 @@
+# B4 自作照合のドライブ1の媒体の入れ方（公式ROM・自作媒体のみ）
+# 事前登録 f30a6c9、器具 a48ee43、追補1 2c437e3。白リスト（事前登録第8節）の行だけ。画面署名・iolog・媒体は含まない。
+# batch=full: a48ee43 のドライバ（Q の FILES・LOAD は引数エラーで走らず無効）。batch=full-q: 追補1 のドライバで Q の FILES・LOAD だけ回し直し。
+# full	b4-media-timing v1
+# full	repo_head	a48ee43
+# full	core_sha256	7ed9bb0f8381d09136869d99f4131bbaf0c0b86daea3b6f265e253054288b136
+# full	frontend_sha256	91fe9d0b978fc76bd3995f962e77df09ec4f2d47969c68a04b4b3e743418c7e3
+# full	insert_at	200
+# full-q	b4-media-timing v1
+# full-q	repo_head	2c437e3
+# full-q	core_sha256	7ed9bb0f8381d09136869d99f4131bbaf0c0b86daea3b6f265e253054288b136
+# full-q	frontend_sha256	91fe9d0b978fc76bd3995f962e77df09ec4f2d47969c68a04b4b3e743418c7e3
+# full-q	insert_at	200
+# batch	kind	config	arm	rep	frames	rc	insert_event	compare	mismatch	first_row	bt	read_001	dropped
+full	M	Z	M	1	1500	0	-	-	-	-	yes	0	0
+full	M	Z	M	2	1500	0	-	-	-	-	yes	0	0
+full	M	P	M	1	1500	0	-	-	-	-	no	51	0
+full	M	P	M	2	1500	0	-	-	-	-	no	51	0
+full	M	Q	M	1	1500	0	frame=200,success=1	-	-	-	yes	0	0
+full	M	Q	M	2	1500	0	frame=200,success=1	-	-	-	yes	0	0
+full	M	R	M	1	1500	0	-	-	-	-	yes	1	0
+full	M	R	M	2	1500	0	-	-	-	-	yes	1	0
+full	FILES	P	L1	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	L1	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	L11	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	L11	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	L96	1	12000	0	-	ERR	-	-	-	-	-
+full	FILES	P	L96	2	12000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-1	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-1	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-2	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-2	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-omit	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	D-omit	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	E-3	1	8000	0	-	ERR	-	-	-	-	-
+full	FILES	P	E-3	2	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-1	1	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-1	2	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-3	1	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-3	2	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-4'	1	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	I-4'	2	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	E-3	1	8000	0	-	ERR	-	-	-	-	-
+full	LOAD	P	E-3	2	8000	0	-	ERR	-	-	-	-	-
+full	FILES	Q	L1	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	L1	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	L11	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	L11	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	L96	1	12000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	L96	2	12000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-1	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-1	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-2	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-2	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-omit	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	D-omit	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	E-3	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	Q	E-3	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-1	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-1	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-3	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-3	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-4'	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	I-4'	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	E-3	1	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	LOAD	Q	E-3	2	8000	2	missing_or_failed	RUN_FAILED	-	-	-	-	-
+full	FILES	R	L1	1	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	L1	2	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	L11	1	8000	0	-	NG	3	0	-	-	-
+full	FILES	R	L11	2	8000	0	-	NG	3	0	-	-	-
+full	FILES	R	L96	1	12000	0	-	NG	17	0	-	-	-
+full	FILES	R	L96	2	12000	0	-	NG	17	0	-	-	-
+full	FILES	R	D-1	1	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	D-1	2	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	D-2	1	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	D-2	2	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	D-omit	1	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	D-omit	2	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	E-3	1	8000	0	-	NG	1	0	-	-	-
+full	FILES	R	E-3	2	8000	0	-	NG	1	0	-	-	-
+full	LOAD	R	I-1	1	8000	0	-	NG	2	0	-	-	-
+full	LOAD	R	I-1	2	8000	0	-	NG	2	0	-	-	-
+full	LOAD	R	I-3	1	8000	0	-	NG	2	0	-	-	-
+full	LOAD	R	I-3	2	8000	0	-	NG	2	0	-	-	-
+full	LOAD	R	I-4'	1	8000	0	-	NG	1	0	-	-	-
+full	LOAD	R	I-4'	2	8000	0	-	NG	1	0	-	-	-
+full	LOAD	R	E-3	1	8000	0	-	NG	1	0	-	-	-
+full	LOAD	R	E-3	2	8000	0	-	NG	1	0	-	-	-
+full-q	FILES	Q	L1	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	L1	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	L11	1	8000	0	frame=200,success=1	NG	3	0	-	-	-
+full-q	FILES	Q	L11	2	8000	0	frame=200,success=1	NG	3	0	-	-	-
+full-q	FILES	Q	L96	1	12000	0	frame=200,success=1	NG	17	0	-	-	-
+full-q	FILES	Q	L96	2	12000	0	frame=200,success=1	NG	17	0	-	-	-
+full-q	FILES	Q	D-1	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	D-1	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	D-2	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	D-2	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	D-omit	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	D-omit	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	E-3	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	FILES	Q	E-3	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	LOAD	Q	I-1	1	8000	0	frame=200,success=1	NG	2	0	-	-	-
+full-q	LOAD	Q	I-1	2	8000	0	frame=200,success=1	NG	2	0	-	-	-
+full-q	LOAD	Q	I-3	1	8000	0	frame=200,success=1	NG	2	0	-	-	-
+full-q	LOAD	Q	I-3	2	8000	0	frame=200,success=1	NG	2	0	-	-	-
+full-q	LOAD	Q	I-4'	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	LOAD	Q	I-4'	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	LOAD	Q	E-3	1	8000	0	frame=200,success=1	NG	1	0	-	-	-
+full-q	LOAD	Q	E-3	2	8000	0	frame=200,success=1	NG	1	0	-	-	-
