@@ -13,6 +13,7 @@
  *              [--disk2 <b.d88>]
  *              [--insert-disk2 <b.d88> --insert-disk2-at FRAME]
  *              [--swap-disk1 <b.d88> --swap-disk1-at FRAME]
+ *              [--insert-disk1 <a.d88> --insert-disk1-at FRAME]
  *              [--frames N] [--out <file>] [--expect-exec ADDR]...
  *
  *   --rom-dir      公式 ROM の置き場。PC88_REF_ROM_DIR でも指定できる
@@ -35,6 +36,14 @@
  *       retro_run() 呼び出し直前に quasi88_disk_insert() で指定像へ
  *       差し替える。差し替え後の filename_get_disk(0) と像の SHA-256 を
  *       末端検査し、report に frame/success のイベント1行と SHA-256 を残す。
+ *
+ *   --insert-disk1 / --insert-disk1-at
+ *       起動時は DRIVE_1（A:）を空のまま走らせ（--disk を与えない）、
+ *       指定フレームの retro_run() 呼び出し直前に quasi88_disk_insert()
+ *       で媒体を入れる。両方必須の組で、--disk / --swap-disk1 との
+ *       同時指定、--frames 以上のFRAME指定はエラー。挿入直前まで
+ *       filename_get_disk(0) が空であること、挿入直後に指定パスを返す
+ *       ことを末端で確認し、report に event 行と SHA-256 を残す。
  */
 
 #include <stdio.h>
@@ -632,6 +641,16 @@ static void write_swap_disk1_event(FILE *fp, bool done, unsigned frame,
     /* 像の同一性はイベントと分けた固定形式の1行に置く。 */
     if (success && sha256 && sha256[0])
         fprintf(fp, "swap_disk1_sha256\t%s\n", sha256);
+}
+
+static void write_insert_disk1_event(FILE *fp, bool done, unsigned frame,
+                                     bool success, const char sha256[65])
+{
+    if (!done) return;
+    fprintf(fp, "event\tinsert_disk1\tframe=%u\tsuccess=%u\n",
+            frame, success ? 1u : 0u);
+    if (success && sha256 && sha256[0])
+        fprintf(fp, "insert_disk1_sha256\t%s\n", sha256);
 }
 
 /* ---- コアの読み込み ---------------------------------------------------- */
@@ -1420,6 +1439,8 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
                          int insert2_rc, const char *insert2_actual,
                          bool swap1_done, unsigned swap1_frame,
                          bool swap1_success, const char swap1_sha256[65],
+                         bool ins1_done, unsigned ins1_frame,
+                         bool ins1_success, const char ins1_sha256[65],
                          const kmrec_t *kmrec, int n_kmrec, bool show_screen)
 {
     int i;
@@ -1434,6 +1455,8 @@ static void write_report(FILE *fp, const q88h_trace_t *t, const q88h_trace_t *ts
                 insert2_frame, insert2_rc, insert2_actual ? insert2_actual : "(なし)");
     write_swap_disk1_event(fp, swap1_done, swap1_frame,
                            swap1_success, swap1_sha256);
+    write_insert_disk1_event(fp, ins1_done, ins1_frame,
+                             ins1_success, ins1_sha256);
     fprintf(fp, "frames    : %u\n", frames);
     fprintf(fp, "type      : %s\n\n", g_typed ? g_typed : "(なし)");
     if (show_screen) write_screen(fp); else write_screen_redacted_notice(fp);
@@ -1469,6 +1492,7 @@ static void usage(void)
         "                   [--disk2 <path>] [--expect-disk2-empty]\n"
         "                   [--insert-disk2 <path> --insert-disk2-at FRAME]\n"
         "                   [--swap-disk1 <path> --swap-disk1-at FRAME]\n"
+        "                   [--insert-disk1 <path> --insert-disk1-at FRAME]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--screen-signature-only\n"
         "                    --screen-signature-at SNAPSHOT_ID:FRAME] (最大%d個)\n"
@@ -1575,6 +1599,12 @@ int main(int argc, char **argv)
     bool swap1_done = false;
     bool swap1_success = false;
     char swap1_sha256[65] = { 0 };
+    const char *insert_disk1 = NULL;
+    unsigned insert_disk1_at = 0;
+    bool insert_disk1_at_set = false;
+    bool ins1_done = false;
+    bool ins1_success = false;
+    char ins1_sha256[65] = { 0 };
     /* 5 種類のフックをそれぞれ独立に検査できるようにしておく。
      * まとめて 1 つ確認しただけでは、どれが死んでいるか分からない。 */
     struct { const char *name; const uint8_t *map; size_t size; unsigned a[16]; int n; } chk[] = {
@@ -1658,6 +1688,11 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--swap-disk1-at") && i + 1 < argc) {
             swap_disk1_at = (unsigned)strtoul(argv[++i], NULL, 0);
             swap_disk1_at_set = true;
+        }
+        else if (!strcmp(argv[i], "--insert-disk1") && i + 1 < argc) insert_disk1 = argv[++i];
+        else if (!strcmp(argv[i], "--insert-disk1-at") && i + 1 < argc) {
+            insert_disk1_at = (unsigned)strtoul(argv[++i], NULL, 0);
+            insert_disk1_at_set = true;
         }
         else if (!strcmp(argv[i], "--out")     && i + 1 < argc) out  = argv[++i];
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
@@ -2112,6 +2147,30 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if ((insert_disk1 != NULL) != insert_disk1_at_set) {
+        fprintf(stderr, "[q88measure] --insert-disk1 と --insert-disk1-at は両方必須\n");
+        return 2;
+    }
+    if (insert_disk1 && swap_disk1) {
+        fprintf(stderr, "[q88measure] --insert-disk1 と --swap-disk1 は同時指定できない\n");
+        return 2;
+    }
+    if (insert_disk1 && disk) {
+        fprintf(stderr, "[q88measure] --insert-disk1 と --disk は同時指定できない\n");
+        return 2;
+    }
+    if (insert_disk1 && insert_disk1_at >= frames) {
+        fprintf(stderr, "[q88measure] --insert-disk1-at は --frames 未満で指定すること\n");
+        return 2;
+    }
+    if (insert_disk1) {
+        struct stat st;
+        if (stat(insert_disk1, &st) != 0 || !S_ISREG(st.st_mode)) {
+            fprintf(stderr, "[q88measure] --insert-disk1 の通常ファイルを読めない: %s\n",
+                    insert_disk1);
+            return 2;
+        }
+    }
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
         return 2;
@@ -2180,9 +2239,12 @@ int main(int argc, char **argv)
     if (swap_disk1)
         fprintf(stderr, "[q88measure] swap-disk1 = %s (at frame %u)\n",
                 swap_disk1, swap_disk1_at);
+    if (insert_disk1)
+        fprintf(stderr, "[q88measure] insert-disk1 = %s (at frame %u)\n",
+                insert_disk1, insert_disk1_at);
 
     if (!load_core(core)) return 1;
-    if ((disk2 || expect_disk2_empty || insert_disk2 || swap_disk1) && !p_filename_get_disk) {
+    if ((disk2 || expect_disk2_empty || insert_disk2 || swap_disk1 || insert_disk1) && !p_filename_get_disk) {
         fprintf(stderr, "[q88measure] DRIVE_1/2末端状態を検査できないコア\n");
         return 2;
     }
@@ -2195,6 +2257,10 @@ int main(int argc, char **argv)
         return 2;
     }
     if (swap_disk1 && !p_quasi88_disk_insert) {
+        fprintf(stderr, "[q88measure] quasi88_disk_insertを持たないコア\n");
+        return 2;
+    }
+    if (insert_disk1 && !p_quasi88_disk_insert) {
         fprintf(stderr, "[q88measure] quasi88_disk_insertを持たないコア\n");
         return 2;
     }
@@ -2288,6 +2354,18 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr, "[q88measure] OK: 差し込み前のDRIVE_2空状態をコア末端で確認\n");
+    }
+    if (insert_disk1) {
+        /* 挿入より前はDRIVE_1が空であることを末端で確認する。 */
+        const char *pre1 = p_filename_get_disk(0);
+        if (pre1 && pre1[0]) {
+            fprintf(stderr, "[q88measure] NG: --insert-disk1指定なのに起動直後から"
+                            "DRIVE_1へ媒体が入っている\n");
+            p_unload_game();
+            p_deinit();
+            return 1;
+        }
+        fprintf(stderr, "[q88measure] OK: 挿入前のDRIVE_1空状態をコア末端で確認\n");
     }
     if (swap_disk1) {
         /* 差し替え(--swap-disk1-at)より前は、--diskで入れた媒体がまだ
@@ -2659,6 +2737,41 @@ int main(int argc, char **argv)
                             " (frame=%u)\n", g_frame);
         }
 
+        /* --insert-disk1: 起動時に空のDRIVE_1へ、指定フレームの
+         * retro_run()直前にquasi88_disk_insert()で媒体を入れる。 */
+        if (insert_disk1 && !ins1_done && g_frame == insert_disk1_at) {
+            int ins1_rc;
+            const char *ins1_actual;
+#ifdef Q88MEASURE_FAULT_SKIP_INSERT_DISK1
+            /* insert_disk1_selftest.sh だけが別成果物へ有効化する故障注入。
+             * quasi88_disk_insert を実際には呼ばず「呼んだふり」だけする。 */
+            ins1_rc = 1;
+#else
+            ins1_rc = p_quasi88_disk_insert(Q88_DRIVE_1, insert_disk1, 0, 0);
+#endif
+            ins1_actual = p_filename_get_disk(0);
+            ins1_done = true;
+            ins1_success = ins1_rc && ins1_actual && !strcmp(ins1_actual, insert_disk1);
+            fprintf(stderr, "[q88measure] event\tinsert_disk1\tframe=%u\tsuccess=%u\n",
+                    g_frame, ins1_success ? 1u : 0u);
+            if (!ins1_success) {
+                fprintf(stderr, "[q88measure] NG: DRIVE_1への実行中挿入が末端で"
+                                "確認できない (frame=%u rc=%d)\n", g_frame, ins1_rc);
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            if (!sha256_file(insert_disk1, ins1_sha256)) {
+                fprintf(stderr, "[q88measure] NG: --insert-disk1 のSHA-256計算に失敗: %s\n",
+                        insert_disk1);
+                p_unload_game();
+                p_deinit();
+                return 1;
+            }
+            fprintf(stderr, "[q88measure] OK: DRIVE_1への実行中挿入をコア末端状態で確認"
+                            " (frame=%u)\n", g_frame);
+        }
+
         p_run();
 
         if (g_trap_available && g_trap_map_path[0]) {
@@ -2725,6 +2838,7 @@ int main(int argc, char **argv)
                              disk, disk2, frames,
                              insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
                              swap1_done, swap_disk1_at, swap1_success, swap1_sha256,
+                             ins1_done, insert_disk1_at, ins1_success, ins1_sha256,
                              kmrec, n_kmrec,
                              getenv("Q88MEASURE_FAULT_SHOW_SCREEN_ON_STDOUT") != NULL);
             if (out) {
@@ -2753,6 +2867,7 @@ int main(int argc, char **argv)
                                  disk, disk2, frames,
                                  insert2_done, insert_disk2_at, insert2_rc, insert2_actual,
                                  swap1_done, swap_disk1_at, swap1_success, swap1_sha256,
+                             ins1_done, insert_disk1_at, ins1_success, ins1_sha256,
                                  kmrec, n_kmrec, true);
                 }
                 fclose(fp);
