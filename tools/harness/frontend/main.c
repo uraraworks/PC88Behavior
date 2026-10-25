@@ -58,6 +58,7 @@
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
+#include "q88h_main_in_force.h"
 #include "q88h_intlog.h"
 #include "q88h_fontsrc.h"
 #include "q88h_screenshot.h"
@@ -175,6 +176,13 @@ static void (*p_exchange_intervention_reset)(void);
 static int (*p_exchange_intervention_configure)(unsigned, int32_t, uint8_t, uint8_t);
 static int (*p_exchange_ready_handoff_configure)(int32_t, int32_t);
 static bool g_exchange_intervention_available = false;
+
+/* main CPU の IN の返り値の1ビット強制（0017）。シンボルが無ければ
+ * 指定時だけエラー終了する。 */
+static void (*p_main_in_force_reset)(void);
+static int (*p_main_in_force_configure)(unsigned, unsigned, unsigned, unsigned);
+static int (*p_main_in_force_stats)(unsigned, uint32_t *, uint32_t *);
+static bool g_main_in_force_available = false;
 
 /* main→sub要求runの位置指定介入。既存の交換run介入とは別枠のシンボル群。 */
 static q88h_request_intervention_t *(*p_request_intervention)(void);
@@ -731,6 +739,13 @@ static bool load_core(const char *path)
                                       && p_exchange_intervention_reset
                                       && p_exchange_intervention_configure
                                       && p_exchange_ready_handoff_configure;
+
+    *(void **)(&p_main_in_force_reset) = dlsym(h, "retro_q88h_main_in_force_reset");
+    *(void **)(&p_main_in_force_configure) = dlsym(h, "retro_q88h_main_in_force_configure");
+    *(void **)(&p_main_in_force_stats) = dlsym(h, "retro_q88h_main_in_force_stats");
+    g_main_in_force_available = p_main_in_force_reset
+                              && p_main_in_force_configure
+                              && p_main_in_force_stats;
 
     *(void **)(&p_request_intervention) = dlsym(h, "retro_q88h_request_intervention");
     *(void **)(&p_request_intervention_reset) =
@@ -1471,6 +1486,8 @@ static void usage(void)
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
         "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
+        "                   [--main-in-force PORT:BIT:VALUE] (最大8個。main CPUの\n"
+        "                    INの返り値のBITをVALUE(0/1)に強制。PORTは0x付き可)\n"
         "                   [--exchange-intervention RUN:MODE:VALUE] (最大64個)\n"
         "                   [--request-intervention RUN:POS:MODE:VALUE] (最大64個)\n"
         "                   [--response-intervention RUN:POS:MODE:VALUE] (最大64個)\n"
@@ -1606,6 +1623,8 @@ int main(int argc, char **argv)
     int n_kmrec = 0;
     struct { int32_t run; uint8_t mode, value; } xi[Q88H_EXCHANGE_INTERVENTION_SLOTS];
     int n_xi = 0;
+    struct { unsigned port, bit, value; } mif[Q88H_MAIN_IN_FORCE_SLOTS];
+    int n_mif = 0;
     struct { int32_t run; uint32_t position; uint8_t mode, value; }
         rxi[Q88H_REQUEST_INTERVENTION_SLOTS];
     int n_rxi = 0;
@@ -1755,6 +1774,34 @@ int main(int argc, char **argv)
             }
             xi[n_xi].run = (int32_t)run;
             n_xi++;
+        }
+        else if (!strcmp(argv[i], "--main-in-force") && i + 1 < argc) {
+            char *end;
+            const char *spec = argv[++i];
+            unsigned long port, bit, value;
+            if (n_mif >= Q88H_MAIN_IN_FORCE_SLOTS) {
+                fprintf(stderr, "[q88measure] --main-in-force は最大%d個\n",
+                        Q88H_MAIN_IN_FORCE_SLOTS);
+                return 2;
+            }
+            port = strtoul(spec, &end, 0);
+            if (end == spec || *end != ':' || port > 0xFF) {
+                fprintf(stderr, "[q88measure] 書式は PORT:BIT:VALUE (PORT 0-0xFF, BIT 0-7, VALUE 0/1)\n"); return 2;
+            }
+            spec = end + 1;
+            bit = strtoul(spec, &end, 0);
+            if (end == spec || *end != ':' || bit > 7) {
+                fprintf(stderr, "[q88measure] 書式は PORT:BIT:VALUE (PORT 0-0xFF, BIT 0-7, VALUE 0/1)\n"); return 2;
+            }
+            spec = end + 1;
+            value = strtoul(spec, &end, 0);
+            if (end == spec || *end != '\0' || value > 1) {
+                fprintf(stderr, "[q88measure] 書式は PORT:BIT:VALUE (PORT 0-0xFF, BIT 0-7, VALUE 0/1)\n"); return 2;
+            }
+            mif[n_mif].port = (unsigned)port;
+            mif[n_mif].bit = (unsigned)bit;
+            mif[n_mif].value = (unsigned)value;
+            n_mif++;
         }
         else if (!strcmp(argv[i], "--request-intervention") && i + 1 < argc) {
             char *end;
@@ -2154,6 +2201,9 @@ int main(int argc, char **argv)
     if ((n_xi || ready_handoff_mode) && !g_exchange_intervention_available) {
         fprintf(stderr, "[q88measure] 交換run介入を持たないコア\n"); return 2;
     }
+    if (n_mif && !g_main_in_force_available) {
+        fprintf(stderr, "[q88measure] main IN 強制を持たないコア\n"); return 2;
+    }
     if (n_rxi && !g_request_intervention_available) {
         fprintf(stderr, "[q88measure] 要求run介入を持たないコア\n"); return 2;
     }
@@ -2267,6 +2317,16 @@ int main(int argc, char **argv)
                 ready_handoff_run, ready_handoff_mode)) {
             fprintf(stderr, "[q88measure] 応答準備handoff介入の設定に失敗\n");
             p_deinit(); return 2;
+        }
+    }
+    if (g_main_in_force_available && n_mif) {
+        p_main_in_force_reset();
+        for (i = 0; i < n_mif; i++) {
+            if (!p_main_in_force_configure((unsigned)i, mif[i].port,
+                                           mif[i].bit, mif[i].value)) {
+                fprintf(stderr, "[q88measure] main IN 強制の設定に失敗\n");
+                p_deinit(); return 2;
+            }
         }
     }
     if (g_request_intervention_available) {
@@ -2862,6 +2922,14 @@ int main(int argc, char **argv)
             }
         }
 
+        for (i = 0; i < n_mif; i++) {
+            uint32_t mm = 0, cc = 0;
+            if (!p_main_in_force_stats((unsigned)i, &mm, &cc)) { failed = 1; continue; }
+            fprintf(stderr, "[q88measure] main-in-force slot=%d port=%02X bit=%u value=%u"
+                            " matched=%u changed=%u\n",
+                    i, mif[i].port, mif[i].bit, mif[i].value,
+                    (unsigned)mm, (unsigned)cc);
+        }
 
         if (n_xi) {
             q88h_exchange_intervention_t *state = p_exchange_intervention();
