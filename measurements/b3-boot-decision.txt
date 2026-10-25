@@ -1,0 +1,74 @@
+# B3: 起動を試みるかどうかを main が何で決めるか — 測定記録（白リスト通過分のみ）
+# 事前登録: docs/notes/b3-boot-decision-preregistration.md (1202d82)。器具: 78d5c89、解析器は 9948139（clock 欄の読み方の修正）
+# 条件: 公式ROM、打鍵なし、--frames 600、nice -n 10、コア=vendor のスナップショット＋0017（patch sha256 先頭 674e37b21e27ae8a）を作業場で私用ビルド
+# 媒体 M = tools/b2_make_boot_probe.py --arm ret --load-addr 0xC000 --marker-layout none（b2 の A6 とバイト一致）
+# 腕: N=無し/無し  D1=M/無し  D2=無し/M(--insert-disk2-at 0)  X1=N+IN40bit3:=0  X2=D1+IN40bit3:=1  C1=N+IN40bit3:=1  C2=D1+IN40bit3:=0
+# 取りこぼし: 全14走で main・sub・書き込み記録とも 0件
+
+== R0 ==
+R0	run=Nr1	arm=N	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=Nr2	arm=N	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=D1r1	arm=D1	K1_port=FF	branch_frame=13	K2=1782	K3=2192	class=DISK
+R0	run=D1r2	arm=D1	K1_port=FF	branch_frame=13	K2=1782	K3=2192	class=DISK
+R0	run=D2r1	arm=D2	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=D2r2	arm=D2	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=X1r1	arm=X1	K1_port=FF	branch_frame=13	K2=191	K3=5121640	class=DISK
+R0	run=X1r2	arm=X1	K1_port=FF	branch_frame=13	K2=191	K3=5121640	class=DISK
+R0	run=X2r1	arm=X2	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=X2r2	arm=X2	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=C1r1	arm=C1	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=C1r2	arm=C1	K1_port=C1	branch_frame=13	K2=0	K3=0	class=ROM
+R0	run=C2r1	arm=C2	K1_port=FF	branch_frame=13	K2=1782	K3=2192	class=DISK
+R0	run=C2r2	arm=C2	K1_port=FF	branch_frame=13	K2=1782	K3=2192	class=DISK
+== R1 ==
+R1	candidates=1
+R1	candidate	port=40	bit=3	a=1	b=0	reads_before=[Nr1:7012 Nr2:7012 D1r1:7012 D1r2:7012]	first_frame=[Nr1:1 Nr2:1 D1r1:1 D1r2:1]
+R1	non_candidates	same=38	varies_within_arm=1	other=0
+== R4 ==
+R4	run=Nr1	arm=N	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=Nr2	arm=N	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=D1r1	arm=D1	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+R4	run=D1r2	arm=D1	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+R4	run=D2r1	arm=D2	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=D2r2	arm=D2	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=X1r1	arm=X1	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+R4	run=X1r2	arm=X1	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+R4	run=X2r1	arm=X2	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=X2r2	arm=X2	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=C1r1	arm=C1	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=C1r2	arm=C1	port=40	bit=3	before=1	before_reads=7012	whole=1	whole_reads=7012
+R4	run=C2r1	arm=C2	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+R4	run=C2r2	arm=C2	port=40	bit=3	before=0	before_reads=7012	whole=0	whole_reads=7012
+
+== 介入の末端（q88measure stderr） ==
+FORCE	X1-r1 matched=7012 changed=7012
+FORCE	X1-r2 matched=7012 changed=7012
+FORCE	X2-r1 matched=7012 changed=7012
+FORCE	X2-r2 matched=7012 changed=7012
+FORCE	C1-r1 matched=7012 changed=0
+FORCE	C1-r2 matched=7012 changed=0
+FORCE	C2-r1 matched=7012 changed=0
+FORCE	C2-r2 matched=7012 changed=0
+
+== K4（C000-C0FF の書き込み記録から自作コードの控え。b2_extract_boot_probe.py） ==
+K4	D1-r1	rc=0	found=yes
+K4	D1-r2	rc=0	found=yes
+K4	C2-r1	rc=0	found=yes
+K4	C2-r2	rc=0	found=yes
+K4	X2-r1	rc=3	found=no
+K4	X2-r2	rc=3	found=no
+K4	D2-r1	rc=3	found=no
+K4	D2-r2	rc=3	found=no
+K4	N・C1・X1（媒体なし）は該当なし
+
+== R5（フレーム599の画面署名の一致のみ。本文・署名値は載せない） ==
+R5 N-r1 vs X2-r1: 一致
+R5 N-r2 vs X2-r2: 一致
+R5 N-r1 vs N-r2: 一致
+R5 D1-r1 vs C2-r1: 一致
+R5 D1-r2 vs C2-r2: 一致
+R5 D1-r1 vs D1-r2: 一致
+R5 N-r1 vs D1-r1: 一致
+R5 N-r1 vs D2-r1: 一致
+R5 N-r1 vs C1-r1: 一致
+R5 N-r1 vs X1-r1: 不一致
