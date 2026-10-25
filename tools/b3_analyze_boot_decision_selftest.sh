@@ -12,21 +12,21 @@ mk() {
   local f="$1" tmp="$2" kind="$3" v1="$4" v2="$5" p41="$6"
   {
     echo "# PC88Behavior 合成 I/O 記録"; echo "frames    : 60"; echo; echo "# main"
-    echo "# seq  frame  cpu   kind  port  value  pc"
-    echo "     1      0  main  IN    0040   $v1   BEEF"
-    if [ "$kind" != rom ]; then echo "     2      0  main  IN    00FC   A5   BEEF"; fi
-    echo "     3      1  main  IN    0040   $v2   BEEF"
-    echo "     4      1  main  IN    0042   07   BEEF"
+    echo "# seq  clock  frame  cpu   kind  port  value  pc"
+    echo "     1  1      0  main  IN    0040   $v1   BEEF"
+    if [ "$kind" != rom ]; then echo "     2  2      0  main  IN    00FC   A5   BEEF"; fi
+    echo "     3  3      1  main  IN    0040   $v2   BEEF"
+    echo "     4  4      1  main  IN    0042   07   BEEF"
     case "$kind" in
-      rom|mixc1) echo "     5      2  main  OUT   00C1   01   BEEF" ;;
-      disk) echo "     5      2  main  OUT   00FF   01   BEEF"; echo "     6      2  main  OUT   00FD   A5   BEEF" ;;
+      rom|mixc1) echo "     5  5      2  main  OUT   00C1   01   BEEF" ;;
+      disk) echo "     5  5      2  main  OUT   00FF   01   BEEF"; echo "     6  6      2  main  OUT   00FD   A5   BEEF" ;;
     esac
-    echo "     9      3  main  IN    0041   $p41   BEEF"
-    echo "    10      3  main  IN    0040   00   BEEF"
+    echo "     9  9      3  main  IN    0041   $p41   BEEF"
+    echo "    10  10      3  main  IN    0040   00   BEEF"
     echo "# sub"
     if [ "$kind" = disk ] || [ "$kind" = mixc1 ]; then
-      echo "     1      2  sub   IN    00FD   A5   BEEF"
-      echo "     2      2  sub   OUT   00FC   A5   BEEF"
+      echo "     1  1      2  sub   IN    00FD   A5   BEEF"
+      echo "     2  2      2  sub   OUT   00FC   A5   BEEF"
     fi
   } > "$tmp"
   mv "$tmp" "$f"
@@ -64,8 +64,12 @@ grep -qiE 'BEEF|A5' "$OUT" && fail "印が出力に漏れた"
 B3_ANALYZER_FAULT_LEAK=1 python3 -I "$TOOL" "${args[@]}" > "$WORK/leak.txt" 2>&1
 grep -qiE 'BEEF|A5' "$WORK/leak.txt" || fail "陰性対照: 故障注入でも印が出ない（検査が効いていない）"
 # エラー経路も本文を出さない
-echo "     1      0  main  IN    00ZZ   A5   BEEF" > "$WORK/bad.txt"
+echo "     1  1      0  main  IN    00ZZ   A5   BEEF" > "$WORK/bad.txt"
 python3 -I "$TOOL" --run x:N:"$WORK/bad.txt" > "$WORK/bad.out" 2>&1
 grep -qiE 'BEEF|A5|ZZ' "$WORK/bad.out" && fail "エラー出力に本文が出た"
+# 欄の数が違う（clock 欄の無い7欄）ログは黙って0件にせず止まる
+echo "     1      0  main  IN    0040   08   BEEF" > "$WORK/old7.txt"
+python3 -I "$TOOL" --run x:N:"$WORK/old7.txt" > "$WORK/old7.out" 2>&1 && fail "形式違いのログを黙って読んだ"
+grep -qiE 'BEEF|08' "$WORK/old7.out" && fail "形式違いのエラー出力に本文が出た"
 
-echo "b3_analyze_boot_decision_selftest: 陽性1・前切り1・K1/分類3・R4 1・漏洩1・陰性対照1・エラー1 OK"
+echo "b3_analyze_boot_decision_selftest: 陽性1・前切り1・K1/分類3・R4 1・漏洩1・陰性対照1・エラー1・形式違い1 OK"

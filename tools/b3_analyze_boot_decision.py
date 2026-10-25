@@ -50,30 +50,33 @@ def parse(path, label, arm):
         fh = open_text(path)
     except OSError:
         die('cannot open run %s' % label)
+    n_main = 0
     with fh:
         for n, line in enumerate(fh, 1):
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
             f = line.split()
-            # seq frame cpu kind port value [pc]  ← 先頭6欄だけ使う
-            if len(f) < 6 or not f[0].isdigit() or f[2] not in ('main', 'sub') \
-                    or f[3] not in ('IN', 'OUT'):
+            # seq clock frame cpu kind port value pc（q88h_iolog の8欄）。
+            # 使うのは seq・frame・cpu・kind・port・value だけで、pc は保持しない
+            if len(f) != 8 or not f[0].isdigit() or not f[1].isdigit() \
+                    or f[3] not in ('main', 'sub') or f[4] not in ('IN', 'OUT'):
                 continue  # ヘッダ行（core: 等）
             try:
-                frame = int(f[1])
-                port = int(f[4], 16)
-                if f[5] != '--':
-                    value = int(f[5], 16)
+                frame = int(f[2])
+                port = int(f[5], 16)
+                if f[6] != '--':
+                    value = int(f[6], 16)
                 else:
                     value = None
             except ValueError:
                 die('bad line %d in run %s' % (n, label))
-            cpu, kind = f[2], f[3]
-            if FAULT_LEAK and len(f) > 6 and len(run.leak) < 4:
-                run.leak.append((f[6], f[5]))
+            cpu, kind = f[3], f[4]
+            if FAULT_LEAK and len(f) > 7 and len(run.leak) < 4:
+                run.leak.append((f[7], f[6]))
             if cpu == 'sub':
                 run.k3 += 1
                 continue
+            n_main += 1
             if 0xFC <= port <= 0xFF:
                 run.k2 += 1
             if kind == 'OUT' and run.k1_port is None and port in (0xC1, 0xFF):
@@ -81,6 +84,9 @@ def parse(path, label, arm):
                 continue
             if kind == 'IN' and port not in DATA_PORTS and value is not None:
                 run.ins.append((frame, port, value, run.k1_port is None))
+    if n_main == 0:
+        # 形式違い（欄の数のずれ等）で全行を読み飛ばすと、0件が「何も起きなかった」に化ける
+        die('run %s: main のイベントを1件も読めなかった（形式を確認）' % label)
     return run
 
 
