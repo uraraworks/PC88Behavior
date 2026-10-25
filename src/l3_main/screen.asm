@@ -84,6 +84,9 @@ SCREEN_MAIN:
     CALL PROGRAM_INIT       ; l4_basic/program.asm — プログラム領域を
                              ; 空にする（M7段階5a、未初期化のまま読まない）
 
+; 起動用セクタの受け渡し（l3-boot-sector.md）を組むビルドでは、build_main_rom.py が
+; この直前に RET を差し込み、バナーとOkを受け渡しの後（BOOT_SECTOR_BASIC）で出す。
+SCREEN_BANNER:
     LD HL,BANNER_TXT
     CALL PRINT_STR
     CALL NEWLINE
