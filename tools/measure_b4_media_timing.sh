@@ -138,10 +138,15 @@ run_conform() {
   dir="$WORK/runs/$kind-$config-$safe-r$rep"; mkdir "$dir" || die run_dir
   local d1=() qargs=()
   while IFS= read -r -d '' x; do d1+=("$x"); done < <(drive1_args "$config" "$kind" "$dir")
+  # 追補1: --disk2 は2枚同時の装填でしか使えないので、Q（ドライブ1を空で起動）だけ
+  # ドライブ2をフレーム0の挿入で入れる（B3 と同じ器具）。
+  local d2src d2=()
+  if [ "$kind" = FILES ]; then d2src="$(files_disk2 "$arm")"; else d2src="$(load_dir "$arm")/ascii.d88"; fi
+  if [ "$config" = Q ]; then d2=(--insert-disk2 "$d2src" --insert-disk2-at 0); else d2=(--disk2 "$d2src"); fi
   if [ "$kind" = FILES ]; then
     frames=8000; [ "$arm" = L96 ] && frames=12000
     command="$(files_command "$arm")" || die command
-    qargs=(--core "$CORE" --rom-dir "$WORK/rom" "${d1[@]}" --disk2 "$(files_disk2 "$arm")"
+    qargs=(--core "$CORE" --rom-dir "$WORK/rom" "${d1[@]}" "${d2[@]}"
       --frames "$frames" --screen-signature-only --screen-signature-at baseline:600
       --screen-signature-at "final:$((frames - 300))" --screen-signature-at "late:$frames"
       --out "$dir/signatures.tsv" --type-at 300 --type '\n' --type-at 500 --type 'CLS\n'
@@ -149,7 +154,7 @@ run_conform() {
   else
     frames=8000
     command="$(load_command "$arm")" || die command
-    qargs=(--core "$CORE" --rom-dir "$WORK/rom" "${d1[@]}" --disk2 "$(load_dir "$arm")/ascii.d88"
+    qargs=(--core "$CORE" --rom-dir "$WORK/rom" "${d1[@]}" "${d2[@]}"
       --frames 8000 --screen-signature-only
       --screen-signature-at baseline:600 --screen-signature-at final:7700
       --screen-signature-at late:8000 --out "$dir/signatures.tsv"
