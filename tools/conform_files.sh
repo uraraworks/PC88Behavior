@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # 自作main ROMの FILES を、m6f-eで凍結した行署名だけと照合する。
-# 公式ROM・公式ディスクは使わない。自作ROMはディスク起動しないため、
-# 公式測定のD/E腕にあった「参照diskAを外してD1へ交換」は行わず、最初から
-# ドライブ1へ自作D1を入れる。第1引数 hybrid は自作main＋公式sub(DISK.ROM)。ドライブ2は各腕の自作媒体（D/E腕はD2）。
+# 公式ROM・公式ディスクは使わない。自作ROMは起動用セクタの受け渡し（l3-boot-sector）を
+# 持つため、ドライブ1を空で起動し、起動の判定のあと・打鍵の前（フレーム200）に
+# --insert-disk1 で自作D1を入れる。ドライブ2は --insert-disk2 ... --insert-disk2-at 0
+# （--disk2 は --disk 無しでは使えない。docs/notes/b4-media-timing-addendum1-q-drive2.md）。
+# この入れ方は公式との同値ではない。l3-boot-sector 第3版 第5節の設計判断（公式では
+# 起動しなかったときディスク命令が働かないが、自作ROMは意図して働く側にする）を前提にする。
+# 根拠 docs/notes/b4-media-timing-results.md。挿入イベント
+# （stderr の event<TAB>insert_disk1<TAB>frame=200<TAB>success=1）が無い走はNGにする。
+# 第1引数 hybrid は自作main＋公式sub(DISK.ROM)（同じ入れ方。公式ROMが要るため未実行）。
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -115,7 +121,8 @@ for arm in "${ARMS[@]}"; do
   case "$arm" in L96|L80|L85|L90|L95|"L96'"|L81|L86|L91|"L90'") frames=12000;; esac
   [ "$arm" = N-wait ] && frames=4000
   report="$run_dir/signatures.tsv"
-  qargs=(--core "$CORE" --rom-dir "$WORK/rom" --disk "$run_dir/drive1.d88"
+  qargs=(--core "$CORE" --rom-dir "$WORK/rom"
+    --insert-disk1 "$run_dir/drive1.d88" --insert-disk1-at 200
     --frames "$frames" --screen-signature-only --screen-signature-at baseline:600
     --screen-signature-at "final:$((frames - 300))" --screen-signature-at "late:$frames"
     --out "$report" --type-at 300 --type '\n' --type-at 500 --type 'CLS\n'
@@ -124,14 +131,15 @@ for arm in "${ARMS[@]}"; do
     qargs+=(--expect-disk2-empty --insert-disk2 "$WORK/base/L1.d88" --insert-disk2-at 1200
       --screen-signature-at preinsert:1100)
   else
-    qargs+=(--disk2 "$disk2")
+    qargs+=(--insert-disk2 "$disk2" --insert-disk2-at 0)
   fi
 
   run_rc=0
   FILES_CONFORM_ARM="$arm" FILES_CONFORM_EXPECTED_FOR_FAKE="$EXPECTED" \
     /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${qargs[@]}" \
     >"$run_dir/stdout.txt" 2>"$run_dir/stderr.txt" || run_rc=$?
-  if [ "$run_rc" -ne 0 ] || [ ! -s "$report" ]; then
+  if [ "$run_rc" -ne 0 ] || [ ! -s "$report" ] \
+    || ! grep -qF $'event\tinsert_disk1\tframe=200\tsuccess=1' "$run_dir/stderr.txt"; then
     printf '%s\tNG\t不一致行数=-\t最初の不一致行番号=-\n' "$arm"
     overall=1
     continue

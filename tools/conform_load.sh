@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # 自作ROM・自作媒体によるLOAD適合試験。観測は署名のみ。
-# 自作ROMはディスク起動しない。公式測定時のドライブ1参照媒体の交換は
-# 行わず、最初からドライブ1にも自作媒体を入れる（conform_files.shと同じ）。
+# 自作ROMは起動用セクタの受け渡しを持つため、ドライブ1を空で起動し、フレーム200で
+# --insert-disk1 により自作媒体を入れる。ドライブ2は --insert-disk2 ... --insert-disk2-at 0
+# （conform_files.shと同じ。docs/notes/b4-media-timing-addendum1-q-drive2.md）。
+# この入れ方は公式との同値ではない。l3-boot-sector 第3版 第5節の設計判断（公式では
+# 起動しなかったときディスク命令が働かないが、自作ROMは意図して働く側にする）を前提にする。
+# 根拠 docs/notes/b4-media-timing-results.md。挿入イベントが無い走はNGにする。
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-local}"
@@ -69,8 +73,9 @@ doc=json.load(open(sys.argv[1],encoding='ascii'))
 sys.stdout.write(next(a['command'] for a in doc['arms'] if a['id']==sys.argv[2]))
 PY
 )" || exit 2
-  args=(--core "$CORE" --rom-dir "$WORK/rom" --disk "$run/drive1.d88"
-    --disk2 "$dir/ascii.d88" --frames 8000 --screen-signature-only
+  args=(--core "$CORE" --rom-dir "$WORK/rom"
+    --insert-disk1 "$run/drive1.d88" --insert-disk1-at 200
+    --insert-disk2 "$dir/ascii.d88" --insert-disk2-at 0 --frames 8000 --screen-signature-only
     --screen-signature-at baseline:600 --screen-signature-at final:7700
     --screen-signature-at late:8000 --out "$run/signatures.tsv"
     --type-at 300 --type $'\n' --type-at 500 --type $'CLS\n'
@@ -84,7 +89,8 @@ PY
   LOAD_CONFORM_ARM="$arm" LOAD_CONFORM_EXPECTED_FOR_FAKE="$EXPECTED" \
     /usr/bin/perl -e 'alarm shift; exec @ARGV' 300 "$FRONTEND" "${args[@]}" \
     >"$run/stdout.txt" 2>"$run/stderr.txt" || rc=$?
-  if [ "$rc" -ne 0 ] || [ ! -s "$run/signatures.tsv" ]; then
+  if [ "$rc" -ne 0 ] || [ ! -s "$run/signatures.tsv" ] \
+    || ! grep -qF $'event\tinsert_disk1\tframe=200\tsuccess=1' "$run/stderr.txt"; then
     printf '%s\tNG\t不一致行数=-\t最初の不一致行番号=-\n' "$arm"
     overall=1
     continue

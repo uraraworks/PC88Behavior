@@ -71,7 +71,10 @@ def run_case(rom, work, core, logical, header, operation, *, swapped=False):
                f'30 poke {MARK},2:stop\n'
                f'100 poke {MARK + 1},err:poke {MARK},3:resume 200\n200 stop\n')
     args = ['nice', '-n', '10', str(REPO / 'tools/harness/frontend/q88measure'),
-            '--core', str(core), '--rom-dir', str(rom), '--disk', str(disk),
+            '--core', str(core), '--rom-dir', str(rom),
+            # ドライブ1は空で起動しフレーム200で入れる（l3-boot-sector 第3版 第5節）。
+            # 交換腕は --swap-disk1 が --insert-disk1 と併用できないため後段で差し替える。
+            '--insert-disk1', str(disk), '--insert-disk1-at', '200',
             '--save-to-disk-image', '--frames', str(frames),
             '--screen-signature-only', '--screen-signature-at', f'final:{frames}',
             '--out', str(work / 'signature.tsv'), '--mem-write-log', str(work / 'mem.log'),
@@ -81,8 +84,13 @@ def run_case(rom, work, core, logical, header, operation, *, swapped=False):
             '--type', program.replace('\n', '\\n')]
     if swapped:
         initial = work / 'initial.d88'
-        initial.write_bytes(medium(False, False))
-        args[args.index('--disk') + 1] = str(initial)
+        # 交換前の媒体は、起動用セクタ (0,0,1) の先頭を RET(C9) にして起動を戻らせる
+        # （(0,0,1)=FF の媒体は自作ROMの起動で BASIC に届かない。l3-boot-sector 第3節）。
+        init = bytearray(medium(False, False))
+        init[sector(init, 0, 0, 1)] = 0xc9
+        initial.write_bytes(bytes(init))
+        i = args.index('--insert-disk1')
+        args[i:i + 4] = ['--disk', str(initial)]
         setup = 'open "1:f" for output as #1:print #1,'
         setup += 'string$(255,65);' if operation == 'print' else '"a";'
         args += ['--type-at', '1900', '--type', setup + '\\n',
@@ -94,6 +102,8 @@ def run_case(rom, work, core, logical, header, operation, *, swapped=False):
                             timeout=120).returncode
     if rc:
         raise RuntimeError(f'エミュレータ実行失敗 rc={rc}')
+    if not swapped and 'event\tinsert_disk1\tframe=200\tsuccess=1' not in (work / 'stderr.log').read_text(errors='replace'):
+        raise RuntimeError('ドライブ1挿入イベント無し')
     log = (work / 'mem.log').read_text()
     dropped = re.search(r'^# 取りこぼし: (\d+)件', log, re.M)
     if dropped is None or int(dropped[1]):

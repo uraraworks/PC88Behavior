@@ -60,7 +60,9 @@ args=sys.argv[1:]
 def arg(name): return args[args.index(name)+1]
 arm=os.environ['SAVE_CONFORM_ARM']
 expected=check.load(pathlib.Path(os.environ['SAVE_FAKE_SOURCE']))[arm]
-image_path=pathlib.Path(arg('--insert-disk2') if arm=='J-6' else arg('--disk2'))
+if '--insert-disk1' in args and arm not in os.environ.get('SAVE_FAKE_NOEVENT_ARMS','').split():
+    sys.stderr.write('event\tinsert_disk1\tframe=%s\tsuccess=1\n'%arg('--insert-disk1-at'))
+image_path=pathlib.Path(arg('--insert-disk2'))
 image=bytearray(image_path.read_bytes())
 off=offsets(image)
 for i,record in enumerate(expected['entries'].split(',')):
@@ -113,7 +115,7 @@ run_fake() {
   SAVE_CONFORM_FRONTEND="$WORK/fake.py" SAVE_CONFORM_CORE=dummy \
     SAVE_CONFORM_TEST_ROM_DIR="$WORK/rom" SAVE_CONFORM_EXPECTED="$expectation" \
     SAVE_FAKE_TOOLS="$REPO/tools" SAVE_FAKE_SOURCE="$EXPECTED" SAVE_FAKE_BAD_ARMS="$bad" \
-    SAVE_FAKE_CANARY="$CANARY" SAVE_FAKE_FAT_CANARY="$FAT_CANARY" \
+    SAVE_FAKE_NOEVENT_ARMS="${SAVE_FAKE_NOEVENT_ARMS:-}" SAVE_FAKE_CANARY="$CANARY" SAVE_FAKE_FAT_CANARY="$FAT_CANARY" \
     PC88_SAVE_CONFORM_WORK="$WORK/$tag.work" \
     bash "$REPO/tools/conform_save.sh" local >"$WORK/$tag.out" 2>"$WORK/$tag.err" || rc=$?
   printf '%s' "$rc"
@@ -138,6 +140,8 @@ PY
 [ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/broken.out")" = J-1 ] || ng 破損腕
 [ "$(run_fake fake-bad "$EXPECTED" 'J-5')" -eq 1 ] || ng 偽故障
 [ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/fake-bad.out")" = J-5 ] || ng 偽故障腕
+[ "$(SAVE_FAKE_NOEVENT_ARMS='J-2 J-6' run_fake no-event "$EXPECTED" '')" -eq 1 ] || ng 挿入イベント欠落
+[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/no-event.out" | tr '\n' ' ')" = "J-2 J-6 " ] || ng 挿入イベント欠落腕
 python3 - "$WORK/readback.tsv" "$WORK/readback-bad.tsv" "$REPO/tools" <<'PY'
 import pathlib,sys
 good,bad,tools=map(pathlib.Path,sys.argv[1:])

@@ -125,7 +125,16 @@ sys.stdout.write(m6fj_script.keystrokes(sys.argv[2]).replace('\n','\\n'))
 PY
 )" || exit 2
   [ "$arm" = J-D1 ] && command="${command/\"2:/\"1:}"
-  args=(--core "$CORE" --rom-dir "$WORK/rom" --disk "$run/drive1.d88"
+  # 自作媒体をドライブ1に置く腕（local全腕・hybridのJ-D1）は、ドライブ1を空で起動し
+  # フレーム200で --insert-disk1 により入れる（ドライブ2は --insert-disk2 ... at 0）。
+  # 起動用セクタの受け渡しを持つ自作ROMが (0,0,1)=0xFF の自作媒体で起動を試みないため。
+  # 公式との同値ではなく、l3-boot-sector 第3版 第5節の設計判断を前提にする
+  # （根拠 docs/notes/b4-media-timing-results.md）。hybridのJ-1等は公式のドライブ1
+  # 媒体（N88_FE）をそのまま --disk で入れる。
+  use_insert=1; [ "$MODE" = hybrid ] && [ "$arm" != J-D1 ] && use_insert=0
+  if [ "$use_insert" -eq 1 ]; then d1args=(--insert-disk1 "$run/drive1.d88" --insert-disk1-at 200)
+  else d1args=(--disk "$run/drive1.d88"); fi
+  args=(--core "$CORE" --rom-dir "$WORK/rom" "${d1args[@]}"
     --save-to-disk-image --frames 8000 --screen-signature-only
     --screen-signature-at baseline:600 --screen-signature-at final:7700
     --screen-signature-at late:8000 --out "$run/signatures.tsv"
@@ -135,7 +144,8 @@ PY
     args+=(--expect-disk2-empty --insert-disk2 "$run/drive2.d88"
       --insert-disk2-at 1200 --screen-signature-at preinsert:1100)
   elif [ "$arm" != J-D1 ] || [ "$MODE" = hybrid ]; then
-    args+=(--disk2 "$run/drive2.d88")
+    if [ "$use_insert" -eq 1 ]; then args+=(--insert-disk2 "$run/drive2.d88" --insert-disk2-at 0)
+    else args+=(--disk2 "$run/drive2.d88"); fi
   fi
   rc=0
   SAVE_CONFORM_ARM="$arm" SAVE_CONFORM_EXPECTED_FOR_FAKE="$EXPECTED" \
@@ -148,6 +158,9 @@ PY
     if [ "$arm" = J-D1 ]; then other_now="$(shasum -a 256 "$run/drive2.d88" | cut -d' ' -f1)"; other_ref="$disk2_hash"
     else other_now="$(shasum -a 256 "$run/drive1.d88" | cut -d' ' -f1)"; other_ref="$disk1_hash"; fi
     [ "$other_now" = "$other_ref" ] || { other_state=changed; rc=1; }
+  fi
+  if [ "$use_insert" -eq 1 ] && ! grep -qF $'event\tinsert_disk1\tframe=200\tsuccess=1' "$run/stderr.txt"; then
+    fe_rc=1; rc=1  # 挿入イベントが無い走はNG
   fi
   if [ "$fe_rc" -eq 0 ] && [ -s "$run/signatures.tsv" ]; then
     img="$run/drive2.d88"; [ "$arm" = J-D1 ] && img="$run/drive1.d88"

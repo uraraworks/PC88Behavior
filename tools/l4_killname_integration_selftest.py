@@ -31,14 +31,18 @@ def run(work: Path, core: str) -> None:
         command = (script.keystrokes(arm) if arm in script.ARMS else
                    '10 name "2:qsa" as "2:qsd"\n20 kill "2:qsb"\ncls:run\n')
         report = path/'signatures.tsv'
-        args = [str(frontend),'--core',core,'--rom-dir',str(rom),'--disk',str(drive1),
-                '--disk2',str(drive2),'--save-to-disk-image','--frames','8600',
+        args = [str(frontend),'--core',core,'--rom-dir',str(rom),
+                # ドライブ1は空で起動しフレーム200で入れる（l3-boot-sector 第3版 第5節）
+                '--insert-disk1',str(drive1),'--insert-disk1-at','200',
+                '--insert-disk2',str(drive2),'--insert-disk2-at','0','--save-to-disk-image','--frames','8600',
                 '--screen-signature-only','--screen-signature-at','final:7700',
                 '--screen-signature-at','late:8000','--screen-signature-at','ready:8600','--out',str(report),
                 '--type-at','300','--type','\\n','--type-at','700','--type',command.replace('\n','\\n'),
                 '--type-at','8100','--type',script.READY_COMMAND+'\\n']
         with (path/'stdout').open('w') as out, (path/'stderr').open('w') as err:
             subprocess.run(args,stdout=out,stderr=err,check=True,timeout=60)
+        if 'event\tinsert_disk1\tframe=200\tsuccess=1' not in (path/'stderr').read_text(errors='replace'):
+            raise ValueError(arm+' ドライブ1挿入イベント無し')
         final,late = (css.read_report(report,name) for name in ('final','late'))
         if final != late or drive1.read_bytes() != build('KM'):
             raise ValueError(arm+' 安定/他ドライブ')

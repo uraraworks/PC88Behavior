@@ -93,6 +93,8 @@ arm = os.environ["FILES_CONFORM_ARM"]
 source = pathlib.Path(os.environ.get("FILES_FAKE_SOURCE_EXPECTED",
                                      os.environ["FILES_CONFORM_EXPECTED_FOR_FAKE"]))
 out = pathlib.Path(option("--out"))
+if "--insert-disk1" in args and arm not in os.environ.get("FILES_FAKE_NOEVENT_ARMS", "").split():
+    sys.stderr.write(f"event\tinsert_disk1\tframe={option('--insert-disk1-at')}\tsuccess=1\n")
 rows = []
 active = None
 for raw in source.read_text(encoding="ascii").splitlines()[2:]:
@@ -127,8 +129,9 @@ if "--screen-signature-at" in args and "preinsert:1100" in args:
 out.write_text("\n".join(records) + "\n", encoding="ascii")
 log = os.environ.get("FILES_FAKE_CALL_LOG")
 if log:
-    flags = [arm, pathlib.Path(option("--disk")).name,
-             "insert" if "--insert-disk2" in args else "disk2",
+    flags = [arm, pathlib.Path(option("--insert-disk1")).name,
+             "disk1-" + option("--insert-disk1-at"),
+             "insert" if "--insert-disk2" in args and "--expect-disk2-empty" in args else ("early2" if option("--insert-disk2-at") == "0" else "other"),
              "swap" if "--swap-disk1" in args else "noswap"]
     with open(log, "a", encoding="ascii") as target: target.write("\t".join(flags) + "\n")
 PY
@@ -139,7 +142,7 @@ run_fake() {
   FILES_CONFORM_FRONTEND="$WORK/fake_frontend.py" FILES_CONFORM_CORE=dummy \
     FILES_CONFORM_TEST_ROM_DIR="$WORK/rom" FILES_CONFORM_EXPECTED="$expected" \
     FILES_FAKE_SOURCE_EXPECTED="$EXPECTED" FILES_FAKE_BAD_ARMS="$bad_arms" \
-    FILES_FAKE_CANARY="$CANARY" FILES_FAKE_CALL_LOG="$WORK/$name.calls" \
+    FILES_FAKE_CANARY="$CANARY" FILES_FAKE_NOEVENT_ARMS="${FILES_FAKE_NOEVENT_ARMS:-}" FILES_FAKE_CALL_LOG="$WORK/$name.calls" \
     PC88_FILES_CONFORM_WORK="$WORK/$name.work" \
     bash "$REPO/tools/conform_files.sh" >"$WORK/$name.out" 2>"$WORK/$name.err" || rc=$?
   printf '%s' "$rc"
@@ -150,9 +153,10 @@ rc="$(run_fake all-ok "$EXPECTED" "")"
 [ "$(awk -F '\t' '$2=="OK"{n++} END{print n+0}' "$WORK/all-ok.out")" -eq 29 ] \
   || ng "全腕OK集合が不正"
 [ "$(wc -l <"$WORK/all-ok.calls" | tr -d ' ')" -eq 29 ] || ng "起動腕数が不正"
-awk -F '\t' '$1 ~ /^D-|^E-/ && $4 != "noswap" {exit 1}
-             $1 == "N-wait" && $3 != "insert" {exit 1}' "$WORK/all-ok.calls" \
-  || ng "D/Eの最初からD1またはN-wait挿入手順が不正"
+awk -F '\t' '$5 != "noswap" || $3 != "disk1-200" {exit 1}
+             $1 == "N-wait" && $4 != "insert" {exit 1}
+             $1 != "N-wait" && $4 != "early2" {exit 1}' "$WORK/all-ok.calls" \
+  || ng "ドライブ1のフレーム200挿入・ドライブ2の挿入手順が不正"
 ok "偽フロントエンドで全29腕OK、媒体操作も所定どおり"
 
 cp "$EXPECTED" "$WORK/one-broken.tsv"
@@ -176,6 +180,12 @@ rc="$(run_fake selected-ng "$EXPECTED" "L0 D-expr L91")"
 actual_ng="$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/selected-ng.out" | tr '\n' ' ')"
 [ "$actual_ng" = "L0 D-expr L91 " ] || ng "偽フロントエンドのOK/NG集合が不正"
 ok "偽フロントエンドで意図したOK/NG集合を判別"
+
+rc="$(FILES_FAKE_NOEVENT_ARMS="L1 E-0" run_fake no-event "$EXPECTED" "")"
+[ "$rc" -eq 1 ] || ng "挿入イベント欠落が不一致終了にならない"
+[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/no-event.out" | tr '\n' ' ')" = "L1 E-0 " ] \
+  || ng "挿入イベント欠落の腕だけNGになっていない"
+ok "陰性対照: 挿入イベントの無い走はNG"
 
 if grep -R -qF "$CANARY" "$WORK"/*.out "$WORK"/*.err "$WORK"/*.work 2>/dev/null; then
   ng "画面本文の漏えい目印を出力から検出"

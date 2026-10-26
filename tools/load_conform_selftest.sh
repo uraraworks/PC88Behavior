@@ -40,6 +40,8 @@ import hashlib,os,pathlib,sys
 args=sys.argv[1:]
 out=pathlib.Path(args[args.index('--out')+1])
 arm=os.environ['LOAD_CONFORM_ARM']
+if '--insert-disk1' in args and arm not in os.environ.get('LOAD_FAKE_NOEVENT_ARMS','').split():
+    sys.stderr.write('event\tinsert_disk1\tframe=%s\tsuccess=1\n'%args[args.index('--insert-disk1-at')+1])
 source=pathlib.Path(os.environ['LOAD_FAKE_SOURCE'])
 rows=[];active=None
 for line in source.read_text(encoding='ascii').splitlines()[2:]:
@@ -68,7 +70,7 @@ run_fake() {
   local tag="$1" expect="$2" bad="$3" rc=0
   LOAD_CONFORM_FRONTEND="$WORK/fake.py" LOAD_CONFORM_CORE=dummy \
     LOAD_CONFORM_TEST_ROM_DIR="$WORK/rom" LOAD_CONFORM_EXPECTED="$expect" \
-    LOAD_FAKE_SOURCE="$EXPECTED" LOAD_FAKE_BAD_ARMS="$bad" LOAD_FAKE_CANARY="$CANARY" \
+    LOAD_FAKE_SOURCE="$EXPECTED" LOAD_FAKE_BAD_ARMS="$bad" LOAD_FAKE_CANARY="$CANARY" LOAD_FAKE_NOEVENT_ARMS="${LOAD_FAKE_NOEVENT_ARMS:-}" \
     PC88_LOAD_CONFORM_WORK="$WORK/$tag.work" \
     bash "$REPO/tools/conform_load.sh" >"$WORK/$tag.out" 2>"$WORK/$tag.err" || rc=$?
   printf '%s' "$rc"
@@ -88,6 +90,8 @@ PY
 [ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/one-broken.out")" = I-1 ] || ng 破損腕
 [ "$(run_fake fake-bad "$EXPECTED" 'E-1')" -eq 1 ] || ng 偽故障
 [ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/fake-bad.out")" = E-1 ] || ng 偽故障腕
+[ "$(LOAD_FAKE_NOEVENT_ARMS='I-2 E-3m' run_fake no-event "$EXPECTED" '')" -eq 1 ] || ng 挿入イベント欠落
+[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/no-event.out" | tr '\n' ' ')" = "I-2 E-3m " ] || ng 挿入イベント欠落腕
 if grep -R -qF "$CANARY" "$WORK"/*.out "$WORK"/*.err "$WORK"/*.work 2>/dev/null; then ng 漏えい; fi
 printf '%s\n' "$CANARY" >"$WORK/leak.txt"
 grep -qF "$CANARY" "$WORK/leak.txt" || ng 漏えい陰性対照

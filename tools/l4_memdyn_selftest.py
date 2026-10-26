@@ -78,7 +78,8 @@ class Suite:
         args=[str(FRONT),'--core',str(CORE),'--rom-dir',str(self.rom)]
         if disk:
             image=path/'disk.d88';image.write_bytes(disk)
-            args+=['--disk',str(image),'--save-to-disk-image']
+            # ドライブ1は空で起動しフレーム200で入れる（l3-boot-sector 第3版 第5節）
+            args+=['--insert-disk1',str(image),'--insert-disk1-at','200','--save-to-disk-image']
         at=300
         for command,pause in commands:
             args+=['--type-at',str(at),'--type',command+'\\n']
@@ -91,6 +92,8 @@ class Suite:
                    '--mem-write-from-frame',str(trace_at)]
         with (path/'stdout').open('w') as out,(path/'stderr').open('w') as err:
             subprocess.run(args,stdout=out,stderr=err,check=True,stdin=subprocess.DEVNULL,timeout=180)
+        if disk and 'event\tinsert_disk1\tframe=200\tsuccess=1' not in (path/'stderr').read_text(errors='replace'):
+            raise AssertionError(tag+': ドライブ1挿入イベント無し')
         screen=dump.read_bytes()
         text='\n'.join(screen[i*120:i*120+80].decode('ascii',errors='replace').rstrip() for i in range(25))
         (path/'screen.txt').write_text(text)
