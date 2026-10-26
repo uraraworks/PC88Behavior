@@ -2,6 +2,8 @@
 """動的本文・混在ヒープ・ページ・SAVEを実機相当の自作ROMで検査する。"""
 from pathlib import Path
 import argparse
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -9,7 +11,6 @@ import tempfile
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO/'src'))
-import build_main_rom as build
 import memmap
 from make_m6fj_disk import build as blank, offsets
 
@@ -62,15 +63,20 @@ class Suite:
     def __init__(self, work):
         self.work=work;self.rom=work/'rom';self.results=[]
         subprocess.run(['make','-s','-C',str(FRONT.parent)],check=True)
+        labels_path=work/'labels.json'
         with (work/'build.log').open('w') as log:
-            subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(self.rom)],
+            subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(self.rom),
+                            '--labels-out',str(labels_path)],
                            stdout=log,stderr=log,check=True)
         # LISTの全出力を、既存のメモリ記録から読み取る。スクロールのコピーは除外する。
-        aw=work/'asm';aw.mkdir()
-        code,asm=build.assemble(build.build_combined_asm(aw,0,False,
-                         enable_main_sub_read=True,enable_disk_read_retry=True,
-                         enable_disk_read_chr=True,enable_main_sub_boot=False),aw)
-        start=asm.labels['_pc_no_capture'];end=asm.labels['NEWLINE']
+        # 番地は実際に走らせる配布ビルドのラベルから求める（別構成で組み直すと、
+        # 配布ビルドにだけ入るコード（起動用セクタの受け渡し）の分だけ配置がずれる）。
+        info=json.loads(labels_path.read_text(encoding='utf-8'))
+        code=(self.rom/'N88.ROM').read_bytes()
+        assert hashlib.sha256(code).hexdigest()==info['n88_sha256'], \
+            'ビルド不一致: ラベルを書き出したビルドと走らせるN88.ROMが違う'
+        labels=info['labels']
+        start=labels['_pc_no_capture'];end=labels['NEWLINE']
         self.print_pc=start+code[start:end].index(bytes((0x77,)))
 
     def run(self, tag, commands, disk=None, trace_at=None, trace_range='F3C8-FF7F', extra=400):

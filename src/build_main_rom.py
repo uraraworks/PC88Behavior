@@ -265,6 +265,78 @@ KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
 # 2回目以降は素通りする(src/ext_bank/selftest.asm EXT_BANK_LOOP_TEST)。
 STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 
+# 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第2版）。配布ビルドで
+# IM2/EIの設定直後・STEADY_WAITの手前に1回だけ通る位置へ差し込む（MAINから
+# JPで入りCALLを積んでいない位置なので、ここのSPは常にMM_STACK_TOP）。
+# 窓(0x6000-0x7FFF)より手前のL1域に置かれるので、起動用セクタのコードが
+# 戻ってくる番地(BOOT_SECTOR_RETURN)も窓の外になる。
+#
+# 仕様が決めていることと、ここで自作として決めたこと:
+# - READを頼む前に IN 40 の bit3 を見る。1なら sub に何も頼まず（ポートFC〜FFに
+#   触れず）BASICへ進む。0のときだけ READを頼む（第1.4.1節）。見るのはここでの
+#   1回だけで、VRTCの待ちとは兼ねない（読みの回数は自由とされている。自作の判断）。
+# - 読むのはドライブ1の(0,0,1)の256バイト、置く先はC000〜C0FF（第1.1節）。
+#   bit3=0 で読めなければ起動用セクタは実行せずBASICへ進む（ディスク無しは bit3 で先に分かれる。第1.2節・第1.4節）。
+#   読めない4形でBASICへ進むのは自作の判断（第6節7で判定外）。
+# - 入口の状態は第2節の表のとおり（AF=0100 BC=0001 DE=C100 HL=C000
+#   IX=IY=FFFF SP=E5F4 割り込み許可 I=F3）。
+# - I=F3 のまま割り込みを受けられるよう、F300〜F305 に自作のベクタ3語を置く
+#   （置き場は自作の判断。F248〜F3C7はCPUスタック域で、受け渡し中は使っていない）。
+# - スタックの先頭には「戻ればBASICへ進む」番地を積む。値は合わせない（第3.2節）。
+# - 戻ったら SP・I を自作の値へ戻し、バナーとOkを出してBASICへ進む。RAMの作業域は
+#   初期化し直さない（自作の判断）。
+# - 読み込みから受け渡しの間は MM_IK_TICK=1（フックの再入扱い）にして、VSYNCフックが
+#   キー入力・行編集を動かさないようにする（自作の判断。割り込み自体は止めない）。
+BOOT_SECTOR_TEXT = """\
+; ---- 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第2版）----
+    IN A,(040h)
+    BIT 3,A
+    JR NZ,BOOT_SECTOR_BASIC     ; bit3=1: 起動を試みない。FC〜FFに触れずBASICへ（第1.4.1節）
+    LD A,001h
+    LD (MM_IK_TICK),A           ; 受け渡しが終わるまでフックはBASICの入力処理をしない
+    XOR A                       ; ドライブ1（bit0=0）の(0,0,1)
+    CALL MAIN_SUB_READ_KNOWN_RETRY
+    JR C,BOOT_SECTOR_BASIC      ; 読めない: 実行せずBASICへ（第1.2節）
+    LD HL,MM_MAIN_SUB_SECTOR_BUF
+    LD DE,0C000h
+    LD BC,256
+    LDIR                        ; 読み込み先 C000〜C0FF（第1.1節）
+    DI
+    LD HL,SAFE_VEC
+    LD (0F300h),HL              ; level 0
+    LD (0F304h),HL              ; level 2
+    LD HL,VSYNC_HANDLER
+    LD (0F302h),HL              ; level 1
+    LD A,0F3h
+    LD I,A                      ; I=F3（第2節）
+    LD SP,0E5F6h
+    LD HL,BOOT_SECTOR_RETURN
+    PUSH HL                     ; SP=E5F4、先頭2バイトは戻ればBASICへ進む番地（第3.2節）
+    LD HL,00100h
+    PUSH HL
+    POP AF                      ; AF=0100
+    LD BC,00001h
+    LD DE,0C100h
+    LD HL,0C000h
+    LD IX,0FFFFh
+    LD IY,0FFFFh
+    EI                          ; 割り込み許可のまま渡す（第2節）
+    JP 0C000h
+BOOT_SECTOR_RETURN:
+    DI
+    LD SP,MM_STACK_TOP
+    LD A,VEC_TABLE>>8
+    LD I,A
+BOOT_SECTOR_BASIC:
+    DI
+    CALL SCREEN_BANNER
+    XOR A
+    LD (MM_IK_TICK),A
+    EI
+"""
+BOOT_SECTOR_MARK = "STEADY_WAIT:\n"
+SCREEN_BANNER_MARK = "SCREEN_BANNER:\n"
+
 # 拡張ROMバンク: 中継ルーチン(EXT_BANK_CALL)・割り込み処理
 # (VSYNC_HANDLER・L3_VSYNC_HOOK)が窓(0x6000-0x7FFF)の外に無ければ
 # ならない(docs/spec/ext-rom-bank.md 第2節 制約1・2)。ROM_VERSION予約
@@ -1222,7 +1294,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_m6ii_fault_d: bool = False,
                         inject_m6ii_fault_r: bool = False,
                         inject_m6ii_fault_retry: bool = False,
-                        inject_m6ik_arm: str | None = None) -> str:
+                        inject_m6ik_arm: str | None = None,
+                        enable_boot_sector: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
     del rom, used, n_out  # ここでは使わない。組み立て時検査が通ったことだけが重要
@@ -1294,6 +1367,13 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         ipl_text = ipl_text.replace(
             STEADY_WAIT_MARK, "STEADY_WAIT:\n" + steady_wait_calls + "    HALT")
 
+    if enable_boot_sector:
+        if not (enable_main_sub_read and enable_disk_read_retry):
+            raise SystemExit("起動用セクタの受け渡しには既知READの再試行ルーチンが要る")
+        if ipl_text.count(BOOT_SECTOR_MARK) != 1:
+            raise SystemExit(f"起動用セクタの挿入点が一意でない: {BOOT_SECTOR_MARK!r}")
+        ipl_text = ipl_text.replace(BOOT_SECTOR_MARK, BOOT_SECTOR_TEXT + BOOT_SECTOR_MARK)
+
     if inject_vsync_no_save_fault:
         for old, new, name in (
             (VSYNC_PUSH_OLD, VSYNC_PUSH_NEW, "PUSH"),
@@ -1347,6 +1427,11 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if keyboard_text.count(KEY_REPEAT_DELAY_FAULT_OLD) != 1:
             raise SystemExit("キーリピート故障注入の対象行が一意に見つからない（keyboard.asm が変わった？）")
         keyboard_text = keyboard_text.replace(KEY_REPEAT_DELAY_FAULT_OLD, KEY_REPEAT_DELAY_FAULT_NEW)
+
+    if enable_boot_sector:
+        if screen_text.count(SCREEN_BANNER_MARK) != 1:
+            raise SystemExit("SCREEN_BANNERの位置が一意に見つからない（screen.asm が変わった？）")
+        screen_text = screen_text.replace(SCREEN_BANNER_MARK, "    RET\n" + SCREEN_BANNER_MARK)
 
     screen_path = work / "screen_gen.asm"
     screen_path.write_text(screen_text, encoding="utf-8")
@@ -1853,6 +1938,8 @@ def main():
                     help="既知座標READの再試行ルーチンだけを配布ビルドから外す")
     ap.add_argument("--disable-disk-read-chr", action="store_true",
                     help="任意座標READとその再試行ルーチンだけを配布ビルドから外す")
+    ap.add_argument("--disable-boot-sector", action="store_true",
+                    help="起動用セクタの受け渡し（docs/spec/l3-boot-sector.md）を配布ビルドから外す")
     ap.add_argument("--inject-main-sub-wait-fault", action="store_true",
                     help="故障注入: SEND前のbit1待ちを反対(bit1=0)にする。"
                          "main-sub READを暗黙に有効化する")
@@ -1900,6 +1987,9 @@ def main():
                      default=REPO.parent / "vendor" / "misaki" / "misaki_gothic.bdf")
     ap.add_argument("--keep-work", action="store_true",
                      help="--work-dir を指定しない場合でも中間ファイルを残す")
+    ap.add_argument("--labels-out", type=pathlib.Path,
+                     help="このビルドのN88.ROMのラベル番地とSHA-256をJSONで書き出す"
+                          "（自己検査が実際に走らせるROMと同じ配置から番地を求めるため）")
     args = ap.parse_args()
 
     m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
@@ -1957,6 +2047,10 @@ def main():
         enable_disk_read_chr = (enable_main_sub_read
                                 and not args.disable_disk_read_chr)
 
+    # 起動用セクタの受け渡しは配布ビルド（起動時READの測定専用構成ではないもの）にだけ組む。
+    enable_boot_sector = (not main_sub_measure_build and enable_disk_read_retry
+                          and not args.disable_boot_sector)
+
     if args.extra_lines < 0 or args.extra_lines > 255:
         raise SystemExit("--extra-lines は 0-255")
 
@@ -2007,11 +2101,18 @@ def main():
                                        inject_m6ii_fault_d=args.inject_m6ii_fault_d,
                                        inject_m6ii_fault_r=args.inject_m6ii_fault_r,
                                        inject_m6ii_fault_retry=args.inject_m6ii_fault_retry,
-                                       inject_m6ik_arm=args.inject_m6ik_arm)
+                                       inject_m6ik_arm=args.inject_m6ik_arm,
+                                       enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
+        if args.labels_out:
+            import hashlib
+            import json
+            args.labels_out.write_text(json.dumps({
+                "n88_sha256": hashlib.sha256(rom).hexdigest(),
+                "labels": dict(asm.labels)}, ensure_ascii=False), encoding="utf-8")
         build_disk_rom(args.outdir, m6ib_arm=m6ib_arm,
                        inject_m6ie_single_read=args.inject_m6ie_single_read,
                        inject_m6ie_nops_only=args.inject_m6ie_nops_only)
