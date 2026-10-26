@@ -1,0 +1,115 @@
+# 自作ROMだけで完結する自己検査と照合を GitHub Actions で並列に回す。
+#
+# 公式ROM・公式ディスク（private/）はクラウドへ一切出さない。ここで回すのは
+#   - tools/run_all_selftests.sh（公式環境 PC88_REF_ROM_DIR が無ければ、私物が要る層は
+#     「未実行」として表に出す作り。--part K/N で分割する）
+#   - tools/l4_conform_self.py（凍結した期待値 TSV と自作ROMの照合。公式ROMは使わない）
+# だけで、hybrid（自作main＋公式sub）や公式ROMでの測定は手元の Mac に残す。
+#
+# エミュレータのコアは tools/setup_harness.sh で上流をピン留めコミットから組み直す
+# （Linux 用の .so）。手元の macOS の dylib とは別の器材になるので、導入時に
+# 手元の結果と全件一致することを対照走で確かめてから関門に使う。
+name: 自作ROMの自己検査と照合
+
+on:
+  push:
+    branches: [main, 'impl/**', 'ci/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: selftests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  harness:
+    name: 器材の用意（コア・フォント）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: PC88Behavior
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: コアを組み直す（上流ピン留め＋パッチ）
+        run: bash PC88Behavior/tools/setup_harness.sh "$GITHUB_WORKSPACE/vendor"
+      - name: フォントの素材を取得（チェックサム検証つき）
+        run: |
+          bash PC88Behavior/tools/fetch_unscii.sh
+          bash PC88Behavior/tools/fetch_misaki.sh
+      - name: 器材をまとめる
+        run: |
+          # コアの成果物とフォント素材だけを渡す（上流のソースツリーは渡さない）
+          mkdir -p out/quasi88-libretro
+          cp vendor/quasi88-libretro/quasi88_libretro.so out/quasi88-libretro/
+          cp -r vendor/unscii vendor/misaki out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor
+          path: out
+          retention-days: 3
+
+  run-all:
+    name: run_all ${{ matrix.part }}/8
+    needs: harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: PC88Behavior
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: vendor
+          path: vendor
+      - name: 日本語ロケールを用意する（run_all は C と ja_JP.UTF-8 の両方で回す）
+        run: |
+          sudo locale-gen ja_JP.UTF-8
+          sudo update-locale
+      - name: 計測フロントエンドをビルド
+        run: make -s -C PC88Behavior/tools/harness/frontend
+      - name: run_all（分割 ${{ matrix.part }}/8）
+        working-directory: PC88Behavior
+        run: tools/run_all_selftests.sh --cache-off --part ${{ matrix.part }}/8
+
+  conform:
+    name: 照合 ${{ matrix.scene }}
+    needs: harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        scene: [hexconst, strcmp, strfunc, peekpoke, inkey, wrap, deffn, deftype,
+                tabspc, widthbeep, editinv, onwhile, memlimit, memlimit_add1,
+                memlimit_add2, memlimit_add3, pusing, pusing_add2, line, circle,
+                paint, getput, dim, input, directgoto, key, portio, out_output,
+                mlcall, mlcall_usrarg, listkw, listnum, s5j, rnd, seqfile, randfile]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: PC88Behavior
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: vendor
+          path: vendor
+      - name: 計測フロントエンドをビルド
+        run: make -s -C PC88Behavior/tools/harness/frontend
+      - name: 照合（${{ matrix.scene }}）
+        working-directory: PC88Behavior
+        # 出力は照合入口の固定形式の要約だけ（画面本文・器具の生出力は出さない）
+        run: python3 tools/l4_conform_self.py --only ${{ matrix.scene }} --no-cache --work-dir "$RUNNER_TEMP/conform-work"
