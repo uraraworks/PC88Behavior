@@ -265,15 +265,18 @@ KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
 # 2回目以降は素通りする(src/ext_bank/selftest.asm EXT_BANK_LOOP_TEST)。
 STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 
-# 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第1版）。配布ビルドで
+# 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第2版）。配布ビルドで
 # IM2/EIの設定直後・STEADY_WAITの手前に1回だけ通る位置へ差し込む（MAINから
 # JPで入りCALLを積んでいない位置なので、ここのSPは常にMM_STACK_TOP）。
 # 窓(0x6000-0x7FFF)より手前のL1域に置かれるので、起動用セクタのコードが
 # 戻ってくる番地(BOOT_SECTOR_RETURN)も窓の外になる。
 #
 # 仕様が決めていることと、ここで自作として決めたこと:
+# - READを頼む前に IN 40 の bit3 を見る。1なら sub に何も頼まず（ポートFC〜FFに
+#   触れず）BASICへ進む。0のときだけ READを頼む（第1.4.1節）。見るのはここでの
+#   1回だけで、VRTCの待ちとは兼ねない（読みの回数は自由とされている。自作の判断）。
 # - 読むのはドライブ1の(0,0,1)の256バイト、置く先はC000〜C0FF（第1.1節）。
-#   読めなければ（ディスク無しを含む）起動用セクタは実行せずBASICへ進む（第1.2節）。
+#   bit3=0 で読めなければ起動用セクタは実行せずBASICへ進む（ディスク無しは bit3 で先に分かれる。第1.2節・第1.4節）。
 #   読めない4形でBASICへ進むのは自作の判断（第6節7で判定外）。
 # - 入口の状態は第2節の表のとおり（AF=0100 BC=0001 DE=C100 HL=C000
 #   IX=IY=FFFF SP=E5F4 割り込み許可 I=F3）。
@@ -285,12 +288,15 @@ STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
 # - 読み込みから受け渡しの間は MM_IK_TICK=1（フックの再入扱い）にして、VSYNCフックが
 #   キー入力・行編集を動かさないようにする（自作の判断。割り込み自体は止めない）。
 BOOT_SECTOR_TEXT = """\
-; ---- 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第1版）----
+; ---- 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第2版）----
+    IN A,(040h)
+    BIT 3,A
+    JR NZ,BOOT_SECTOR_BASIC     ; bit3=1: 起動を試みない。FC〜FFに触れずBASICへ（第1.4.1節）
     LD A,001h
     LD (MM_IK_TICK),A           ; 受け渡しが終わるまでフックはBASICの入力処理をしない
     XOR A                       ; ドライブ1（bit0=0）の(0,0,1)
     CALL MAIN_SUB_READ_KNOWN_RETRY
-    JR C,BOOT_SECTOR_BASIC      ; 読めない・ディスク無し: 実行せずBASICへ（第1.2節）
+    JR C,BOOT_SECTOR_BASIC      ; 読めない: 実行せずBASICへ（第1.2節）
     LD HL,MM_MAIN_SUB_SECTOR_BUF
     LD DE,0C000h
     LD BC,256
@@ -1981,6 +1987,9 @@ def main():
                      default=REPO.parent / "vendor" / "misaki" / "misaki_gothic.bdf")
     ap.add_argument("--keep-work", action="store_true",
                      help="--work-dir を指定しない場合でも中間ファイルを残す")
+    ap.add_argument("--labels-out", type=pathlib.Path,
+                     help="このビルドのN88.ROMのラベル番地とSHA-256をJSONで書き出す"
+                          "（自己検査が実際に走らせるROMと同じ配置から番地を求めるため）")
     args = ap.parse_args()
 
     m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
@@ -2098,6 +2107,12 @@ def main():
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
+        if args.labels_out:
+            import hashlib
+            import json
+            args.labels_out.write_text(json.dumps({
+                "n88_sha256": hashlib.sha256(rom).hexdigest(),
+                "labels": dict(asm.labels)}, ensure_ascii=False), encoding="utf-8")
         build_disk_rom(args.outdir, m6ib_arm=m6ib_arm,
                        inject_m6ie_single_read=args.inject_m6ie_single_read,
                        inject_m6ie_nops_only=args.inject_m6ie_nops_only)
