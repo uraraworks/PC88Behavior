@@ -44,7 +44,7 @@ else
 fi
 
 # --- 判定名の欠落 ------------------------------------------------------------
-grep -v '^judgment\tnot_found$' "$CONFIG" > "$WORK/mutant_judgment.tsv"
+grep -v $'^judgment\tnot_found$' "$CONFIG" > "$WORK/mutant_judgment.tsv"
 python3 "$CHECK" --config "$WORK/mutant_judgment.tsv" >/dev/null 2>"$WORK/mj.err"
 if [ $? -ne 0 ]; then
   ok "陰性対照: 判定名not_foundの欠落を拒否した"

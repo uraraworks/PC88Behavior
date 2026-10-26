@@ -70,6 +70,17 @@ for p in "$REPO"/tools/patches/*.patch; do
   git -C "$SRC" apply --whitespace=nowarn "$p"
 done
 
+say "シンボルの公開範囲を揃える"
+# 上流の link.T は retro_* 以外を local にする（Linux 等の --version-script を使う platform）。
+# 計測フロントエンドは quasi88_disk_insert・filename_get_disk・key_scan などコア内部の
+# シンボルを dlsym で引くので、隠れていると「DRIVE_1/2末端状態を検査できないコア」になる。
+# macOS ではこのスクリプトが使われず全シンボルが見えるので、Linux でも同じ見え方に揃える。
+cat > "$SRC/link.T" <<'LINKT'
+{
+   global: *;
+};
+LINKT
+
 say "ビルド"
 # macOS では platform の自動判定が壊れている。
 # Makefile が uname -a に 'win' を含むかで win32 判定するが、"Darwin" が一致する。
