@@ -24,6 +24,7 @@
 # RAM再配置後は直接モードの故障版も同じ数値を表示するため、RUN経路を
 # 陰性対照の場面に加える（正常版のSQR結果を確認してから記録を固定）。
 # RUNの戻り先は窓内にあるので、BC/DE退避欠落による復元不一致が出力にも現れる。
+# 陰性対照の必須判定は窓復元ペアの食い違い（配置非依存）。出力比較は補助。
 # 計測失敗・復元ペア未採取は陰性対照の成功に含めない。
 # 詳細: docs/notes/tool-maintenance-2026-10-05-ram-relayout.md
 
@@ -33,7 +34,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 source "$REPO/tools/lib_l3_measure.sh"
 
-BUILD="$REPO/src/build_main_rom.py"
+BUILD="${SQR_SELFTEST_BUILD:-$REPO/src/build_main_rom.py}"
 RECORD="$REPO/tools/l4_print_conform_record.py"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
@@ -191,15 +192,23 @@ if ! python3 "$BUILD" "$FAULT_ROM" --inject-ext-bank-bcde-fault >"$WORK/build_fa
 fi
 fault="$(run_and_check "$FAULT_ROM" "$WORK/fault")" || { ng "陰性対照の計測失敗"; exit 1; }
 read -r cells ok_row sha restore <<< "$fault"
-if [ -n "$sha" ] && [ "$sha" != "NA" ] && { [ "$cells" != "$PROGRAM_CELLS" ] || [ "$ok_row" != "$PROGRAM_OK_ROW" ] || [ "$sha" != "$PROGRAM_SHA" ]; }; then
-  ok "陰性対照: 固定した正常記録と不一致(cell_count=${cells}、相対Ok行=${ok_row}、SHA不一致)"
-else
-  ng "陰性対照: 正常記録との不一致を確認できなかった"
-fi
+# 主判定: 窓復元ペア（IN 0x71で読んだ旧値 vs 2回目のOUT 0x71）の食い違い。
+# BC/DE退避欠落の本質「復元される0x71/0x32の値が化けて窓が戻らない」を
+# 直接見る。コードの配置（ROMにコードが増えて番地がずれる等）に依存しない。
+# -1（復元ペア未採取）・計測失敗は成功に数えない。
 if [ "$restore" = "0" ]; then
-  ok "陰性対照: 採取した窓復元ペアに食い違いあり"
+  ok "陰性対照[必須]: 採取した窓復元ペアに食い違いあり（退避欠落を直接検出）"
+elif [ "$restore" = "-1" ]; then
+  ng "陰性対照[必須]: 窓復元ペアを採取できなかった(restore_ok=-1)。成功に数えない"
 else
-  ng "陰性対照: 窓復元不一致を確認できなかった(restore_ok=${restore:-?})"
+  ng "陰性対照[必須]: 窓復元の食い違いを確認できなかった(restore_ok=${restore:-?})"
+fi
+# 補助: 固定記録との出力比較。配置が変わると故障版でも出力が一致しうるため
+# 必須にしない（一致しても失敗にしない。情報として表示するだけ）。
+if [ -n "$sha" ] && [ "$sha" != "NA" ] && { [ "$cells" != "$PROGRAM_CELLS" ] || [ "$ok_row" != "$PROGRAM_OK_ROW" ] || [ "$sha" != "$PROGRAM_SHA" ]; }; then
+  ok "陰性対照[補助]: 固定した正常記録と不一致(cell_count=${cells}、相対Ok行=${ok_row}、SHA不一致)"
+else
+  echo "  [注記] 陰性対照[補助]: 出力は固定記録と一致/判定不能(配置依存のため必須にしない)。主判定の窓復元で検出する" >&2
 fi
 
 # -----------------------------------------------------------------------
