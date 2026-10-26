@@ -46,7 +46,7 @@ else
 fi
 
 # --- 判定名の欠落 ------------------------------------------------------------
-grep -v '^judgment\tlink_other$' "$CONFIG" > "$WORK/mutant_judgment.tsv"
+grep -v $'^judgment\tlink_other$' "$CONFIG" > "$WORK/mutant_judgment.tsv"
 python3 "$CHECK" --config "$WORK/mutant_judgment.tsv" >/dev/null 2>"$WORK/mj.err"
 rc_mj=$?
 if [ "$rc_mj" -ne 0 ]; then
@@ -56,7 +56,7 @@ else
 fi
 
 # --- 腕の欠落 ----------------------------------------------------------------
-grep -v '^arm\tSW-7F$' "$CONFIG" > "$WORK/mutant_arm.tsv"
+grep -v $'^arm\tSW-7F$' "$CONFIG" > "$WORK/mutant_arm.tsv"
 python3 "$CHECK" --config "$WORK/mutant_arm.tsv" >/dev/null 2>"$WORK/ma.err"
 rc_ma=$?
 if [ "$rc_ma" -ne 0 ]; then

@@ -43,7 +43,7 @@ else
 fi
 
 # --- 陰性対照: judgment行を1行落とす -----------------------------------------
-grep -v '^judgment\tprotect_sector_not_found$' "$CONFIG" > "$WORK/bad_judgment.tsv"
+grep -v $'^judgment\tprotect_sector_not_found$' "$CONFIG" > "$WORK/bad_judgment.tsv"
 if python3 "$CHECK" --config "$WORK/bad_judgment.tsv" >"$WORK/bj.out" 2>&1; then
   ng "judgment欠落を検出できなかった"
 else
