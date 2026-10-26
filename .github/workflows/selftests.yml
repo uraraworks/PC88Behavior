@@ -56,14 +56,14 @@ jobs:
           retention-days: 3
 
   run-all:
-    name: run_all ${{ matrix.part }}/8
+    name: run_all ${{ matrix.part }}/24
     needs: harness
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3, 4, 5, 6, 7, 8]
+        part: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,9 +88,9 @@ jobs:
           sudo update-locale
       - name: 計測フロントエンドをビルド
         run: make -s -C PC88Behavior/tools/harness/frontend
-      - name: run_all（分割 ${{ matrix.part }}/8）
+      - name: run_all（分割 ${{ matrix.part }}/24）
         working-directory: PC88Behavior
-        run: tools/run_all_selftests.sh --cache-off --part ${{ matrix.part }}/8
+        run: tools/run_all_selftests.sh --cache-off --part ${{ matrix.part }}/24
 
   conform:
     name: 照合 ${{ matrix.scene }}
