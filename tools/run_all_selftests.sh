@@ -150,6 +150,9 @@ SCRIPTS_EXPECTED=(
   "tools/harness/disk2_selftest.sh:0"
   "tools/harness/insert_disk2_selftest.sh:0"
   "tools/harness/swap_disk1_selftest.sh:0"
+  # --main-in-force（パッチ0017、B3 の介入の腕・l3-boot-sector J6 の介入）の疎通。
+  # 自作の合成ROMだけで完結し、公式ROM・私物は不要。SKIPは無く常にrc=0を期待する。
+  "tools/harness/main_in_force_selftest.sh:0"
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
   "tools/harness/iolog_capacity_selftest.sh:0"
