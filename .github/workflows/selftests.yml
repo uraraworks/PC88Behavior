@@ -43,14 +43,14 @@ jobs:
           bash PC88Behavior/tools/fetch_misaki.sh
       - name: 器材をまとめる
         run: |
-          # コアの成果物とフォント素材だけを渡す（上流のソースツリーは渡さない）
-          mkdir -p out/quasi88-libretro
-          cp vendor/quasi88-libretro/quasi88_libretro.so out/quasi88-libretro/
-          cp -r vendor/unscii vendor/misaki out/
+          # パッチ適用済みのコアツリーごと渡す。計測フロントエンドのビルドにはコアのヘッダが要り、
+          # 自己検査の一部（diff_file・ROM_VERSION 予約の検査など）はコアのソースそのものを読むため。
+          # .git と中間生成物は渡さない。tar で包むのは実行属性とシンボリックリンクを保つため。
+          tar -C vendor --exclude=.git --exclude='*.o' -czf vendor.tgz quasi88-libretro unscii misaki
       - uses: actions/upload-artifact@v4
         with:
           name: vendor
-          path: out
+          path: vendor.tgz
           retention-days: 3
 
   run-all:
@@ -72,7 +72,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: vendor
-          path: vendor
+      - name: 器材を展開
+        run: mkdir -p vendor && tar -C vendor -xzf vendor.tgz
       - name: 日本語ロケールを用意する（run_all は C と ja_JP.UTF-8 の両方で回す）
         run: |
           sudo locale-gen ja_JP.UTF-8
@@ -106,7 +107,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: vendor
-          path: vendor
+      - name: 器材を展開
+        run: mkdir -p vendor && tar -C vendor -xzf vendor.tgz
       - name: 計測フロントエンドをビルド
         run: make -s -C PC88Behavior/tools/harness/frontend
       - name: 照合（${{ matrix.scene }}）
