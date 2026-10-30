@@ -86,6 +86,29 @@ SELECTED = {'hexconst','strcmp','strfunc','peekpoke','inkey','wrap','deffn',
 # 診断に値・例外本文を混ぜない。workerごとの独立プロセス内だけで使用。
 DETAIL = {}
 
+# 各場面の完全な不一致集合。出典は仕様書の節。
+DOCUMENTED_RESIDUALS = {
+    # docs/spec/l4-basic.md「入力対照の既知の残差」
+    'rnd': frozenset({'add1:add1-negative-1e-10', 'add3:add3-negative-1e20'}),
+    # docs/spec/l4-basic.md「照合で一致しない5腕」
+    'randfile': frozenset({'loc-after-get', 'mkd-0', 'mks-0', 'put-large', 'put-two'}),
+    # docs/spec/l4-program.md「予測を立てなかった3腕」
+    'editinv': frozenset({'missing-resume', 'missing-resume-goto'}),
+}
+
+
+def residual_status(name, value, detail):
+    expected = DOCUMENTED_RESIDUALS.get(name)
+    if expected is None or detail.get('exception') or detail.get('gate'):
+        return value
+    actual = set(detail.get('mismatch', []))
+    if value == 'NG' and actual == expected:
+        return 'KNOWN'
+    if value in ('OK', 'NG') and actual < expected:
+        detail['residual_update'] = sorted(expected - actual)
+        return 'NG'
+    return value
+
 
 def exception_detail(exc):
     frames = [(Path(f.f_code.co_filename).name, n, f.f_code.co_name)
@@ -685,6 +708,9 @@ def run_rows(selected, rom, root, jobs, no_cache=False):
         counts[value] += 1
         print(f'{value} {name} {seconds:.1f}秒' +
               (' ' + summary(detail) if value=='NG' else ''), flush=True)
+        if detail.get('residual_update'):
+            ids = detail['residual_update']
+            print(f"残差表を更新してください {len(ids)}:" + ','.join(ids), flush=True)
     print('集計 ' + ' / '.join(f'{k} {v}' for k,v in counts.items()))
     return int(counts['NG'] != 0)
 
@@ -703,6 +729,7 @@ def execute_worker(row, rom, work, result):
     try:
         with patch.object(tempfile, 'TemporaryDirectory', WorkerDirectory):
             value = worker(row, rom, work, result)
+        value = residual_status(row[0], value, DETAIL)
     except Exception as exc:
         value = 'NG'
         DETAIL.update(exception_detail(exc))
