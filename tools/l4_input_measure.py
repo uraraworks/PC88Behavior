@@ -601,7 +601,10 @@ def selftest(work):
         lists=[[st.get('matches',[]) for st in o.get('stages',[])] for o in r['obs']]
         diag=[[o.get('probes',{}).get('0',[None,None])[1],o.get('errors'),o.get('consumed')] for o in r['obs']]
         summary.append('| '+r['arm']['id']+' | '+('pass' if r['gate'] and calibrated(rs) else 'gate_failed')+' | '+' / '.join(states[c['state']] for c in comparisons)+' | '+json.dumps(lists)+' | '+' / '.join(c['reason'] for c in comparisons)+' | '+json.dumps(diag)+' |')
-    ((work if any(work.resolve().is_relative_to(r.resolve()) for r in (kw.REPO/'tmp/t1-impl-work', kw.REPO/'tmp/t2-impl-work')) else ROOT)/'selfrun.md').write_text('\n'.join(summary)+'\n')
+    summary_dir=work if any(work.resolve().is_relative_to(r.resolve()) for r in (kw.REPO/'tmp/t1-impl-work', kw.REPO/'tmp/t2-impl-work')) else ROOT
+    # tmp/ は追跡外なので、まっさらな作業場（CI など）では ROOT がまだ無い
+    summary_dir.mkdir(parents=True,exist_ok=True)
+    (summary_dir/'selfrun.md').write_text('\n'.join(summary)+'\n')
     print(f'自作ROM {len(rs)}腕×2走: '+('pass' if passed else 'gate_failed'))
     return int(not passed)
 
