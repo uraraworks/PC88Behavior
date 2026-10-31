@@ -233,6 +233,7 @@ SCRIPTS_EXPECTED=(
   "tools/b16_selftest.sh:0"
   "tools/b17_selftest.sh:0"
   "tools/b19_selftest.sh:0"
+  "tools/b20_sub_interrupts_selftest.sh:0"
   "tools/b13_sub_fdc_selftest.sh:0"
   "tools/b14_request_headers_selftest.sh:0"
   "tools/m6ik_build_selftest.sh:0"
