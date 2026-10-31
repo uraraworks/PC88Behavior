@@ -603,6 +603,7 @@ class Asm:
     # ---- 命令 ----
     def di(self):        self.db(0xF3)
     def ei(self):         self.db(0xFB)
+    def im0(self):        self.db(0xED, 0x46)
     def im1(self):        self.db(0xED, 0x56)
     def reti(self):       self.db(0xED, 0x4D)
     def ret(self):        self.db(0xC9)
@@ -695,6 +696,7 @@ class Asm:
     def ld_mem_a(self, addr):  self.db(0x32, addr & 0xFF, (addr >> 8) & 0xFF)  # LD (nn),A
     def ld_hl(self, name):   self.db(0x21); self._abs(name)
     def call(self, name):    self.db(0xCD); self._abs(name)
+    def call_z(self, name):  self.db(0xCC); self._abs(name)
     def jp(self, name):      self.db(0xC3); self._abs(name)
     def jp_nz(self, name):   self.db(0xC2); self._abs(name)   # JP NZ,nn（第13版で追加。相対ジャンプが届かない遠方分岐用）
     def jp_z(self, name):    self.db(0xCA); self._abs(name)   # JP Z,nn
@@ -1516,6 +1518,7 @@ def build_subrom(break_write_ack=False,
     # 先行READの受信準備bitがmain側に残っていても、次の0x02の
     # 確定長ヘッダを途中で閉じない。読み本体の既存命令列には触れない。
     a.label("SUB_REQUEST_RETURN")
+    a.im1()                           # 1.36c: 許可状態を変えず自作のモードに戻す
     # 旧6バイト判別を復元する故障版は、復帰後もその旧経路へ通す。
     # 新しい確定長5の入口で故障を迂回しない。
     if not (break_dispatch_return or break_fixed_byte_cutoff
@@ -1658,9 +1661,7 @@ def build_subrom(break_write_ack=False,
     if inject_spurious_sense_int:
         a.ld_a_e()
         a.or_a()
-        a.jr_nz("_boot_init_after_spurious")
-        a.call("FDC_SENSE_INT")
-        a.label("_boot_init_after_spurious")
+        a.call_z("FDC_SENSE_INT")
     a.call("FDC_RECALIBRATE")
     a.inc_e()
     a.ld_a_e()
@@ -2159,6 +2160,7 @@ def build_subrom(break_write_ack=False,
     a.rra()                            # bit0をキャリーへ移す
     a.jr_nc("_general_load")
     a.di()                             # 1.36c: 実行先へ移る前に割り込み禁止
+    a.im0()                            # 1.36c: 実行先ではモード0
     a.ret()
     a.label("_general_load")
     a.call("RECV_WORD_BE")
@@ -2877,7 +2879,7 @@ def build_subrom(break_write_ack=False,
         a.cp_n(0x0E)
         a.jp_z("_exchange14_prepare_first_read")
         a.cp_n(0x17)
-        a.jp_z("_logical_track_flags_set")
+        a.jr_z("_logical_track_flags_set")
         # 長さ2のrun `0x14, D` は最初のWRITEの前置き（1.36節・m7bz）。READ直後は
         # SECTOR_READYが残っており、下の汎用経路は長さ2を交換#4のデータ要求と
         # 取り違えて256バイトを送るため、応答せずアイドルへ戻す。
