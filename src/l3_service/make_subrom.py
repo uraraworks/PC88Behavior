@@ -1909,15 +1909,13 @@ def build_subrom(break_write_ack=False,
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count）:
         # 本版で修正する前の挙動（ST0の中身を見ずに無条件で2バイト目を
         # 読む）をそのまま再現する。
-        a.call("FDC_IN")     # r1（本来存在しない場合がある）
+        a.jp("FDC_IN")       # r1（本来存在しない場合がある）
     else:
         a.and_a(0xC0)         # ST0 bit7-6 = Interrupt Code field
         a.cp_n(0x80)          # 10 = Invalid Command（保留中の割り込み無し）
         # 第69版容量圧縮: 旧JR→CALL→RETと戻り先・A・スタック最終状態は同一。
         a.ret_z()              # r1(PCN)は存在しない。読まない
         a.jp("FDC_IN")         # r1 = PCN（末尾呼び出し）
-    if break_sense_int_result_count:
-        a.ret()
 
     # ---- RECALIBRATE（指定ドライブをトラック0へ）。
     #      引数: E = ドライブ番号(0-3)。第18版でドライブ番号引数化した
@@ -2158,8 +2156,10 @@ def build_subrom(break_write_ack=False,
     a.ld_a_b()
     # 0x0C/0x0Dのbit0だけが異なる。RUNは積んだ番地へ移す。
     # 完了後は公開入口で直接受信するため、応答抑止フラグは不要。
-    a.cp_n(0x0D)
-    a.ret_z()
+    a.rra()                            # bit0をキャリーへ移す
+    a.jr_nc("_general_load")
+    a.di()                             # 1.36c: 実行先へ移る前に割り込み禁止
+    a.ret()
     a.label("_general_load")
     a.call("RECV_WORD_BE")
     a.ex_de_hl()                       # DE=長さ
@@ -3550,9 +3550,10 @@ def build_subrom(break_write_ack=False,
     a.ld_a_hl()                      # LD A,(HL)はフラグを変えない
     a.jr_nz("_osbr_send_tracked")
     a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
+    a.jr("_osbr_sent")
     a.label("_osbr_send_tracked")
     a.call("SEND_BOOT_SINGLE_TRACKED")
+    a.label("_osbr_sent")
     a.jp("IDLE_DISPATCH")
     a.label("_osbr_skip")            # HL -> 未照合の期待値、B = 残り件数
     a.inc_hl()
