@@ -83,6 +83,7 @@ cd "$REPO"
 # 「その終了コードが正常」という明示的な宣言。
 SCRIPTS_EXPECTED=(
   "tools/b6_io_sequence_selftest.sh:0"
+  "tools/b8_io_values_selftest.sh:0"
   "tools/check_cleanroom.sh:0"
   "tools/cmp_io_selftest.sh:0"
   "tools/cmp_fdc_sectors_selftest.sh:0"
