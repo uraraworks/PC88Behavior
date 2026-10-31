@@ -1,0 +1,17 @@
+# 識別子: G1
+# 腕: SS
+block 0 sector 0 0 2 matches=1
+block 1 sector 0 0 3 matches=1
+block 2 sector 0 0 4 matches=1
+block 3 sector 0 0 5 matches=1
+block 4 sector 0 0 6 matches=1
+block 5 sector 0 0 7 matches=1
+block 6 sector 0 0 8 matches=1
+block 7 sector 0 0 9 matches=1
+block 8 sector 0 0 10 matches=1
+block 9 sector 0 0 11 matches=1
+block 10 sector 0 0 12 matches=1
+block 11 sector 0 0 13 matches=1
+block 12 sector 0 0 14 matches=1
+block 13 sector 0 0 15 matches=1
+block 14 sector 0 0 16 matches=1

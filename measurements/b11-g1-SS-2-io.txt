@@ -1,0 +1,15 @@
+# 識別子: G1
+# 走: SS-2
+# 開始: boot-sector
+events: 283260
+dropped: 0
+runs: 119035
+port IN 00FC hi 32766
+port IN 00FE hi 104068
+port OUT 0030 hi 1
+port OUT 0031 hi 1
+port OUT 0051 hi 1
+port OUT 0053 hi 1
+port OUT 005F hi 1
+port OUT 00FD hi 722
+port OUT 00FF hi 67714

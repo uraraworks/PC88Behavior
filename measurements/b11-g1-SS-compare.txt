@@ -1,0 +1,36 @@
+result: diverged
+position: 35721
+context official -8 OUT 00FF hi 2
+context official -7 IN 00FE hi 4
+context official -6 OUT 00FF hi 1
+context official -5 IN 00FC hi 1
+context official -4 OUT 00FF hi 1
+context official -3 IN 00FE hi 2
+context official -2 IN 00FC hi 1
+context official -1 OUT 00FF hi 1
+context official +0 IN 0009 hi 1
+context official +1 OUT 0031 hi 1
+context official +2 OUT 00E4 hi 1
+context official +3 OUT 00E6 hi 1
+context official +4 OUT 00FF hi 2
+context official +5 IN 00FE hi 4
+context official +6 OUT 00FF hi 1
+context official +7 OUT 00FD hi 1
+context official +8 OUT 00FF hi 1
+context self -8 OUT 00FF hi 2
+context self -7 IN 00FE hi 4
+context self -6 OUT 00FF hi 1
+context self -5 IN 00FC hi 1
+context self -4 OUT 00FF hi 1
+context self -3 IN 00FE hi 2
+context self -2 IN 00FC hi 1
+context self -1 OUT 00FF hi 2
+context self +0 IN 00FE hi 4
+context self +1 OUT 00FF hi 1
+context self +2 IN 00FC hi 1
+context self +3 OUT 00FF hi 1
+context self +4 IN 00FE hi 2
+context self +5 IN 00FC hi 1
+context self +6 OUT 00FF hi 2
+context self +7 IN 00FE hi 4
+context self +8 OUT 00FF hi 1
