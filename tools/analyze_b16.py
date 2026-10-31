@@ -3,7 +3,7 @@
 import argparse, csv, io, re, sys
 from pathlib import Path
 from analyze_main_to_sub import parse_iolog
-from analyze_m6ia_main_sub import read_memlog, require_no_drops, AnalysisError
+from analyze_m6ia_main_sub import read_memlog, AnalysisError
 from b15_whitelist_sub_boundary import filter_lines
 from judge_b16 import FIELDS, PATTERNS, load
 
@@ -13,7 +13,21 @@ ROWS = ((), (12,0,0,0,0), (12,1,0,0,0), (12,0,1,0,0),
         (12,0,120,0,16), (13,0,0,0,0), (13,0,120,16,0),
         (13,16,0,0,120), (12,0,120,32,0))
 
-def analyze(row,run,events,memory,lines):
+def io_drops(path):
+    sections = {'main': [], 'sub': []}
+    section = None
+    for line in path.read_text(encoding='utf-8', errors='strict').splitlines():
+        if line.strip() in ('# main', '# sub'):
+            section = line.strip()[2:]
+            continue
+        drops = re.findall(r'取りこぼし:\s*([0-9]+)件', line)
+        if drops and section is None: raise AnalysisError('log_drops')
+        if section is not None: sections[section].extend(map(int, drops))
+    if any(not values for values in sections.values()) or any(sections['main']):
+        raise AnalysisError('log_drops')
+    return sum(sections['sub'])
+
+def analyze(row,run,events,memory,lines,sub_dropped=0):
     m={e.addr:e.value for e in memory if 0xdf50<=e.addr<=0xdf53}
     if m.get(0xdf53)!=1 or m.get(0xdf52) not in (0,1) or 0xdf50 not in m: raise ValueError('incomplete')
     # 送信成功数に対応する要求列が実際に観測されたことを確認する。
@@ -32,7 +46,7 @@ def analyze(row,run,events,memory,lines):
         if parts[0]=='A': cross.append(parts[1]+':'+','.join(parts[2:]))
         elif parts[2]=='rom': writes.append(parts[1]+':'+parts[3])
     outfd=sum(e.cpu=='sub' and e.kind=='OUT' and e.port=='00FD' for e in events)
-    vals=[str(row),str(run),str(m[0xdf50]),str(m[0xdf52]),';'.join(writes) or '-',';'.join(cross) or '-',str(outfd)]
+    vals=[str(row),str(run),str(m[0xdf50]),str(m[0xdf52]),';'.join(writes) or '-',';'.join(cross) or '-',str(outfd),str(sub_dropped)]
     if any(not re.fullmatch(p,v) for p,v in zip(PATTERNS,vals)): raise ValueError('whitelist')
     return vals
 
@@ -41,9 +55,9 @@ def main():
     for name in ('iolog','memlog','boundary'): p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args()
     try:
-        require_no_drops(a.iolog);events,masked=parse_iolog(a.iolog)
+        sub_dropped=io_drops(a.iolog);events,masked=parse_iolog(a.iolog)
         if masked or not events or events[0].frame!=0: raise ValueError('iolog')
-        vals=analyze(a.row,a.run,events,read_memlog(a.memlog),a.boundary.read_text().splitlines())
+        vals=analyze(a.row,a.run,events,read_memlog(a.memlog),a.boundary.read_text().splitlines(),sub_dropped)
         out=io.StringIO(newline='');w=csv.writer(out,delimiter='\t',lineterminator='\n');w.writerow(FIELDS);w.writerow(vals)
         load([io.StringIO(out.getvalue())]);sys.stdout.write(out.getvalue())
     except (OSError,ValueError,IndexError,TypeError,AnalysisError): print('解析失敗',file=sys.stderr);return 2

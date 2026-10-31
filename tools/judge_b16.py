@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """B16 事前登録の白リスト検証と判定。"""
 import argparse, contextlib, csv, json, re, sys
-FIELDS = ('row','run','count','timeout','writes','crossings','out_fd')
+FIELDS = ('row','run','count','timeout','writes','crossings','out_fd','sub_dropped')
 NUM = r'(?:0|[1-9][0-9]*)'
 W = rf'[0-9A-F]{{4}}-[0-9A-F]{{4}}:{NUM}'
 A = rf'[0-9A-F]{{4}}:{NUM},{NUM},{NUM},{NUM},{NUM}'
-PATTERNS = (r'(?:[1-9]|1[0-5])', r'[12]', NUM, r'[01]', rf'(?:-|{W}(?:;{W})*)', rf'(?:-|{A}(?:;{A})*)', NUM)
+PATTERNS = (r'(?:[1-9]|1[0-5])', r'[12]', NUM, r'[01]', rf'(?:-|{W}(?:;{W})*)', rf'(?:-|{A}(?:;{A})*)', NUM, NUM)
 
 def load(paths):
     records = {}
@@ -31,7 +31,7 @@ def load(paths):
     return records
 
 def judge(records):
-    same={n: (all((n,r) in records for r in (1,2)) and all(records[n,1][k]==records[n,2][k] for k in FIELDS if k!='run')) for n in range(1,16)}
+    same={n: (all((n,r) in records for r in (1,2)) and all(records[n,1][k]==records[n,2][k] for k in FIELDS if k not in ('run','sub_dropped') and (k != 'out_fd' or not any(int(records[n,r]['sub_dropped']) for r in (1,2))))) for n in range(1,16)}
     def spans(n):
         s=records[n,1]['writes']
         return [] if s=='-' else s.split(';')
@@ -44,7 +44,7 @@ def judge(records):
     def lengths(n): return [int(s.split('-')[1][:4],16)-0x7800+1 for s in spans(n) if start(s)==0x7800]
     l8,l15=lengths(8),lengths(15)
     result['shape']={'address_positions':[1,2], 'length_positions':[3,4]} if len(l8)==len(l15)==1 and l8[0]>0 and l15[0]==2*l8[0] else 'undetermined'
-    result['request_0d']={n:{'writes':records[n,1]['writes'],'out_fd':int(records[n,1]['out_fd'])} for n in (12,13,14)}
+    result['request_0d']={n:{'writes':records[n,1]['writes'],'out_fd':None if any(int(records[n,r]['sub_dropped']) for r in (1,2)) else int(records[n,1]['out_fd'])} for n in (12,13,14)}
     return result
 
 def main():
