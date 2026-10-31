@@ -52,7 +52,7 @@ def scan(path, on_row):
         raise ValueError
 
 
-def summarize(path, name):
+def summarize(path, name, after_limit=8):
     boot = first_hi = hi_clock = None
     def locate(m):
         nonlocal boot, first_hi, hi_clock
@@ -93,7 +93,7 @@ def summarize(path, name):
         else:
             after += 1
             phase = 'after'
-        if phase == 'before' or after <= 8:
+        if phase == 'before' or after <= after_limit:
             rows.append(f'request {i} {first} length={length} {phase}')
     rows.append(f'totals before={before} after={after} bytes={total}')
     return rows
@@ -118,6 +118,7 @@ def main(argv=None):
     s.add_argument('--name', required=True)
     s.add_argument('--id', required=True, choices=['G1'])
     s.add_argument('--out', required=True, type=Path)
+    s.add_argument('--all-after', action='store_true', help='after の要求も全件出す（先頭バイトと長さのみ）')
     try:
         args = parser.parse_args(argv)
         if args.selftest and args.action is None:
@@ -125,7 +126,7 @@ def main(argv=None):
             return 0
         if args.action != 'summarize' or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', args.name):
             raise ValueError
-        rows = summarize(args.log, args.name)
+        rows = summarize(args.log, args.name, 10**9 if args.all_after else 8)
         validate(rows)
         args.out.write_text(''.join(row + '\n' for row in rows), encoding='utf-8')
         return 0
