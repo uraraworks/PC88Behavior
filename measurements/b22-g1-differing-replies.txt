@@ -1,0 +1,5 @@
+# 識別子: G1
+# 比較: OO-SS
+compared=8962 differ=2
+diff index=3840 official=00 self=31 request=02
+diff index=3841 official=14 self=31 request=02
