@@ -1,0 +1,7 @@
+# 識別子: G1
+# 走: SS-1
+hi-start: no
+request 1 02 length=10 before
+request 2 0C length=709 before
+request 3 0D length=3 before
+totals before=3 after=0 bytes=722
