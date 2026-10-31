@@ -1,0 +1,58 @@
+# 識別子: G1
+# 走: OO-1
+# 開始: boot-sector
+events: 4185172
+dropped: 0
+runs: 1237214
+port IN 0000 lo 120
+port IN 0001 lo 120
+port IN 0002 lo 120
+port IN 0003 lo 120
+port IN 0004 lo 120
+port IN 0005 lo 120
+port IN 0006 lo 120
+port IN 0007 lo 120
+port IN 0008 lo 120
+port IN 0009 hi 2666442
+port IN 0009 lo 120
+port IN 000A lo 119
+port IN 0032 hi 2
+port IN 0032 lo 123
+port IN 0040 lo 273
+port IN 0044 hi 153738
+port IN 0044 lo 11156
+port IN 0045 hi 2
+port IN 0045 lo 242
+port IN 00FC hi 76570
+port IN 00FC lo 35856
+port IN 00FE hi 235490
+port IN 00FE lo 124534
+port OUT 0030 hi 1
+port OUT 0031 hi 4
+port OUT 0031 lo 1
+port OUT 0032 hi 2
+port OUT 0032 lo 1701
+port OUT 0034 lo 1
+port OUT 0035 lo 1
+port OUT 0044 hi 76869
+port OUT 0044 lo 5578
+port OUT 0045 hi 76867
+port OUT 0045 lo 5336
+port OUT 0051 hi 1
+port OUT 0053 hi 1
+port OUT 005C hi 65659
+port OUT 005C lo 1115
+port OUT 005D hi 65648
+port OUT 005D lo 1116
+port OUT 005E hi 65726
+port OUT 005E lo 1117
+port OUT 005F hi 195467
+port OUT 005F lo 1068
+port OUT 00E4 hi 55996
+port OUT 00E4 lo 8349
+port OUT 00E6 hi 1
+port OUT 00E6 lo 1
+port OUT 00FD hi 957
+port OUT 00FD lo 5408
+port OUT 00FF hi 156113
+port OUT 00FF lo 80284

@@ -1,0 +1,18 @@
+result: same
+position: 1059274
+context official -8 IN 00FE lo 4
+context official -7 OUT 00FF lo 1
+context official -6 IN 00FC lo 1
+context official -5 OUT 00FF lo 1
+context official -4 IN 00FE lo 2
+context official -3 IN 00FC lo 1
+context official -2 OUT 00FF lo 2
+context official -1 IN 00FE lo 4445514
+context self -8 IN 00FE lo 4
+context self -7 OUT 00FF lo 1
+context self -6 IN 00FC lo 1
+context self -5 OUT 00FF lo 1
+context self -4 IN 00FE lo 2
+context self -3 IN 00FC lo 1
+context self -2 OUT 00FF lo 2
+context self -1 IN 00FE lo 4445514

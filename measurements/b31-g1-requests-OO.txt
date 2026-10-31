@@ -1,0 +1,42 @@
+# 識別子: G1
+# 走: OO-1
+hi-start: yes
+request 1 02 length=10 before
+request 2 0C length=709 after
+request 3 0D length=3 after
+request 4 0C length=21 after
+request 5 0D length=3 after
+request 6 0D length=24 after
+request 7 0D length=3 after
+request 8 0D length=24 after
+request 9 0D length=3 after
+request 10 0D length=24 after
+request 11 0D length=3 after
+request 12 0D length=24 after
+request 13 0D length=3 after
+request 14 0D length=22 after
+request 15 0C length=21 after
+request 16 0D length=3 after
+request 17 0D length=24 after
+request 18 0D length=3 after
+request 19 0D length=24 after
+request 20 0D length=3 after
+request 21 0D length=27 after
+request 22 0D length=6 after
+request 23 0D length=4131 after
+request 24 0D length=6 after
+request 25 0D length=27 after
+request 26 0D length=6 after
+request 27 0D length=1059 after
+request 28 0D length=6 after
+request 29 0D length=8 after
+request 30 0D length=27 after
+request 31 0D length=6 after
+request 32 0D length=27 after
+request 33 0D length=6 after
+request 34 0D length=27 after
+request 35 0D length=6 after
+request 36 0D length=27 after
+request 37 0D length=6 after
+request 38 0D length=3 after
+totals before=1 after=37 bytes=6365

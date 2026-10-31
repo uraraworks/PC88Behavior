@@ -1,0 +1,26 @@
+# 識別子: G1
+# 走: SS-1
+hi-start: yes
+request 1 02 length=10 before
+request 2 0C length=709 after
+request 3 0D length=3 after
+request 4 0C length=21 after
+request 5 0D length=3 after
+request 6 0D length=24 after
+request 7 0D length=3 after
+request 8 0D length=24 after
+request 9 0D length=3 after
+request 10 0D length=24 after
+request 11 0D length=3 after
+request 12 0D length=24 after
+request 13 0D length=3 after
+request 14 0D length=22 after
+request 15 0C length=21 after
+request 16 0D length=3 after
+request 17 0D length=24 after
+request 18 0D length=3 after
+request 19 0D length=24 after
+request 20 0D length=3 after
+request 21 0D length=27 after
+request 22 0D length=6 after
+totals before=1 after=21 bytes=987

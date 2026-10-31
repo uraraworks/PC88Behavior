@@ -1,0 +1,7 @@
+# 識別子: G1
+# 比較: OO-SS
+port IN 00FC raw compared=76828 differ=257 first=76570 left=35598 right=0
+port OUT 00FD raw compared=987 differ=0 first=none left=5378 right=0
+port IN 00FE collapsed compared=157688 differ=104024 first=10465 left=82482 right=0
+port OUT 00FF collapsed compared=156720 differ=0 first=none left=79677 right=0
+first-difference: IN 00FE 10465
