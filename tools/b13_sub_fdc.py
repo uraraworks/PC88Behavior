@@ -40,7 +40,7 @@ def read_events(path):
         if not line or line.startswith('#'):
             continue
         m = ROW.fullmatch(line)
-        if not m or int(m[1]) != len(events):
+        if not m or int(m[1]) != len(events) + 1:
             raise ValueError('row')
         events.append((m[4], int(m[5], 16), int(m[6], 16), int(m[7], 16)))
     if not done:
@@ -123,10 +123,10 @@ def selftest():
     assert compare([], []) == ['first-difference: none']
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / 'log'
-        base = '# main\n# 取りこぼし: 0件 / 総イベント数: 0件\n# sub\n0 0 0 sub OUT 00FB 08 1FFF\n# 取りこぼし: 0件 / 総イベント数: 1件\n'
+        base = '# main\n# 取りこぼし: 0件 / 総イベント数: 0件\n# sub\n1 0 0 sub OUT 00FB 08 1FFF\n# 取りこぼし: 0件 / 総イベント数: 1件\n'
         p.write_text(base, encoding='utf-8')
         assert len(read_events(p)) == 1
-        for bad in (base.replace('0件 / 総イベント数: 1件', '1件 / 総イベント数: 1件'), base.replace('0 0 0 sub', '1 0 0 sub'), base.replace('総イベント数: 1件', '総イベント数: 2件')):
+        for bad in (base.replace('0件 / 総イベント数: 1件', '1件 / 総イベント数: 1件'), base.replace('1 0 0 sub', '2 0 0 sub'), base.replace('総イベント数: 1件', '総イベント数: 2件')):
             p.write_text(bad, encoding='utf-8')
             try:
                 read_events(p)
