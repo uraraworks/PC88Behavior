@@ -6,7 +6,6 @@ import re
 import sys
 
 from b8_io_values import parse_log
-from d88_read_sector import D88Reader
 
 PATTERNS = [re.compile(p) for p in (
     r'# 識別子: G1', r'# 腕: (?:OO|OS|SS)',
@@ -23,10 +22,49 @@ def checked(lines):
     return not bad
 
 
+def read_sectors(image):
+    """先頭のトラック表に記載されたセクタだけを読み取る。"""
+    table_limit = 32 + 164 * 4
+    if len(image) < 32 + 160 * 4:
+        raise ValueError
+    total_size = int.from_bytes(image[28:32], 'little')
+    image_end = min(total_size, len(image)) if total_size else len(image)
+    offsets = sorted(set(int.from_bytes(image[i:i + 4], 'little')
+                         for i in range(32, min(table_limit, image_end - 3), 4)) - {0})
+    if not offsets or offsets[0] <= 32 or offsets[0] > image_end:
+        raise ValueError
+    table_count = min((offsets[0] - 32) // 4, 164)
+    table_end = 32 + table_count * 4
+    offsets = sorted(set(int.from_bytes(image[i:i + 4], 'little')
+                         for i in range(32, table_end, 4)) - {0})
+    sectors = {}
+    for index, start in enumerate(offsets):
+        if start < table_end or start >= image_end:
+            continue
+        end = min(offsets[index + 1] if index + 1 < len(offsets) else image_end, image_end)
+        pos = start
+        count = None
+        seen = 0
+        while pos + 16 <= end and (count is None or seen < count):
+            if count is None:
+                count = int.from_bytes(image[pos + 4:pos + 6], 'little')
+                if not count:
+                    break
+            size = int.from_bytes(image[pos + 14:pos + 16], 'little')
+            data_end = pos + 16 + size
+            if not size or data_end > end:
+                break
+            key = tuple(image[pos:pos + 3])
+            sectors.setdefault(key, image[pos + 16:data_end])
+            pos = data_end
+            seen += 1
+    return sectors
+
+
 def coordinates(values, sectors, arm):
     if len(values) < 3840:
         raise ValueError
-    # D88Reader はトラックのオフセット順、各トラックの記録順に格納する。
+    # トラックのオフセット順、各トラックの記録順に格納する。
     items = list(sectors.items())
     starts = []
     joined = bytearray()
@@ -96,18 +134,32 @@ def selftest():
         struct.pack_into('<H', header, 14, len(data))
         image.extend(header + data)
     struct.pack_into('<I', image, 28, len(image))
+    # 160 件の表で末尾直後の track 0 見出しをオフセットと誤読しない。
     with tempfile.TemporaryDirectory() as tmp:
         disk = Path(tmp) / 'synthetic.d88'
         disk.write_bytes(image)
-        sectors = D88Reader(disk.read_bytes())._sectors
+        sectors = read_sectors(disk.read_bytes())
+        real_header = bytearray(672)
+        struct.pack_into('<I', real_header, 32, 672)
+        real_header.extend(image[688:])
+        real_header[32 + 160 * 4:32 + 160 * 4 + 3] = bytes((0, 0, 1))
+        struct.pack_into('<I', real_header, 32, 672 + 16)
+        struct.pack_into('<I', real_header, 28, len(real_header))
+        assert read_sectors(real_header) == sectors
         # 後続像だけにあるブロックが座標に出ないことを確認する。
         later = bytearray(image)
         missing = bytes((i * 13 + 17) % 256 for i in range(256))
         later[image.index(a):image.index(a) + len(a)] = missing
         disk.write_bytes(bytes(image) + bytes(later))
         combined = disk.read_bytes()
-        first_size = int.from_bytes(combined[28:32], 'little')
-        combined_sectors = D88Reader(combined[:first_size])._sectors
+        combined_sectors = read_sectors(combined)
+        small = bytearray(image)
+        struct.pack_into('<I', small, 28, 688)
+        assert read_sectors(small) == sectors
+        assert read_sectors(image[:-1]) == dict(list(sectors.items())[:-1])
+        duplicate = bytearray(image)
+        duplicate[688 + 16 + len(a):688 + 16 + len(a) + 3] = bytes(entries[0][0])
+        assert read_sectors(duplicate)[entries[0][0]] == a
     shifted = b[100:] + c[:56]
     blocks = [a, shifted, missing, bytes([0xA5]) * 256] + [a] * 11
     def log(fc, fe):
@@ -131,9 +183,6 @@ def selftest():
         pass
     else:
         raise AssertionError
-    oversized = bytearray(image)
-    struct.pack_into('<I', oversized, 28, len(oversized) + 1)
-    assert int.from_bytes(oversized[28:32], 'little') > len(oversized)
     fe = raw[('IN', '00FE', 'collapsed')]
     other = parse_log(log(b'', [1, 2, 4]))[('IN', '00FE', 'collapsed')]
     bits = fe_bits(fe, other, other)
@@ -165,9 +214,10 @@ def main():
     parser.add_argument('--selftest', action='store_true')
     sub = parser.add_subparsers(dest='command')
     coord = sub.add_parser('coordinates')
-    coord.add_argument('log'); coord.add_argument('d88')
-    coord.add_argument('--arm', required=True, choices=['OO', 'OS', 'SS'])
-    coord.add_argument('--id', required=True, choices=['G1']); coord.add_argument('--out', required=True)
+    coord.add_argument('log'); coord.add_argument('d88', nargs='?')
+    coord.add_argument('--parse-only', action='store_true')
+    coord.add_argument('--arm', choices=['OO', 'OS', 'SS'])
+    coord.add_argument('--id', choices=['G1']); coord.add_argument('--out')
     fe = sub.add_parser('fe-bits')
     fe.add_argument('oo'); fe.add_argument('os'); fe.add_argument('ss')
     fe.add_argument('--id', required=True, choices=['G1']); fe.add_argument('--out', required=True)
@@ -177,14 +227,18 @@ def main():
         return 0
     try:
         if args.command == 'coordinates':
+            if args.parse_only:
+                path = args.d88 or args.log
+            else:
+                if not all((args.d88, args.arm, args.id, args.out)):
+                    raise ValueError
+                path = args.d88
+            with open(path, 'rb') as f:
+                sectors = read_sectors(f.read())
+            if args.parse_only:
+                print(f'sectors={len(sectors)} size256={sum(len(data) == 256 for data in sectors.values())}')
+                return 0
             raw = read_log(args.log)
-            with open(args.d88, 'rb') as f:
-                image = f.read()
-            total_size = int.from_bytes(image[28:32], 'little')
-            if total_size > len(image):
-                raise ValueError
-            # コアが最初に使う先頭の像だけを読む。
-            sectors = D88Reader(image[:total_size])._sectors
             values = [item[0][0] for item in raw[('IN', '00FC', 'raw')]]
             lines = coordinates(values, sectors, args.arm)
         elif args.command == 'fe-bits':
