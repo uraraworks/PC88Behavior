@@ -229,6 +229,7 @@ SCRIPTS_EXPECTED=(
   "tools/judge_m6ii_selftest.sh:0"
   "tools/b10_selftest.sh:0"
   "tools/b12_selftest.sh:0"
+  "tools/b13_sub_fdc_selftest.sh:0"
   "tools/m6ik_build_selftest.sh:0"
   "tools/measure_m6ik_selftest.sh:0"
   "tools/check_m6ik_preregistration_selftest.sh:0"
