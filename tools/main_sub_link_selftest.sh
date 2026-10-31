@@ -115,8 +115,8 @@ if link_size > build.MAIN_SUB_LINK_MAX_SIZE:
     raise SystemExit(f"NG: 3ルーチンが1160B超過: {link_size}")
 if increase > build.MAIN_SUB_LINK_MAX_SIZE:
     raise SystemExit(f"NG: main ROM増分が1160B超過: {increase}")
-if dist_rom[build.ROM_VERSION_RESERVED_ADDR] != build.FILL:
-    raise SystemExit("NG: 0x79D7予約バイトが埋め草でない")
+if dist_rom[build.ROM_VERSION_RESERVED_ADDR] != build.ROM_VERSION_MARK:
+    raise SystemExit("NG: 0x79D7予約バイトが印ではない")
 before_reserved = dist_rom[:build.ROM_VERSION_RESERVED_ADDR]
 reserved_margin = len(before_reserved) - len(before_reserved.rstrip(bytes((build.FILL,))))
 if reserved_margin <= 0:
@@ -137,7 +137,7 @@ def site_bytes(rom, asm, site):
 for fault_name, (fault_rom, fault_asm, fault_code) in faults.items():
     if len(fault_code) != len(normal_code):
         raise SystemExit(f"NG: {fault_name}故障注入で配置長が変化した")
-    if fault_rom[build.ROM_VERSION_RESERVED_ADDR] != build.FILL:
+    if fault_rom[build.ROM_VERSION_RESERVED_ADDR] != build.ROM_VERSION_MARK:
         raise SystemExit(f"NG: {fault_name}故障版が0x79D7予約バイトを破壊")
     for site in sites:
         changed = (site_bytes(normal_rom, normal_asm, site)

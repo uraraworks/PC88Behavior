@@ -2283,16 +2283,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
 
 
-# N88.ROM 0x79D7 は予約番地(FILLのまま固定する)。エミュレータ(QUASI88、
-# vendor/quasi88-libretro/src/memory.h:48 の`ROM_VERSION main_rom[0x79d7]`)
-# が、この1バイトを文字コードとして読み機種を切り替える('4'以上でV2既定・
-# '8'以上でFH/MH相当のポート挙動、src/pc88main.c:1051・1393・1399・2688・
-# 2698)。公式ROMの同じ番地の値は読まない・合わせない(禁止事項1-2の対象外の
-# 話——これはエミュレータ側の実装の事実であって公式ROMの内部構造ではない)。
-# これまでの適合テストは全て「この番地がFILLのまま(機種判定に既定値が
-# 使われる)」状態で通っているため、コードが伸びてここへ命令の1バイトが
-# 来ると機種が偶然変わり、原因の分かりにくい食い違いを生む。
+# QUASI88 memory.h の ROM_VERSION は N88.ROM[0x79D7] を読む。
+# pc88main.c の音源ポート $44/$45 が有効になる最小値 '4' を選ぶ。
+# 公式ROMの値は読んでいない。'4' では起動時の BASIC 既定も V2 になる。
+# コード配置が予約番地に侵入した場合は印を置く前に検出する。
 ROM_VERSION_RESERVED_ADDR = 0x79D7
+ROM_VERSION_MARK = ord("4")
 MAIN_SUB_LINK_MAX_SIZE = 1160
 
 
@@ -2308,6 +2304,12 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
     rom = bytearray([FILL] * N88_SIZE)
     rom[:len(code)] = code
+    # 明示的な予約用DSだけを許可する。0x00の命令・表も見逃さない。
+    for addr, chunk, _line, raw in asm.listing:
+        if addr <= ROM_VERSION_RESERVED_ADDR < addr + len(chunk):
+            if not (addr == asm.labels.get("AEL_ROM_LAYOUT_PAD")
+                    and raw.strip().upper().startswith("DS ")):
+                raise SystemExit("ROM_VERSION予約番地へコード/表が侵入した")
     if rom[ROM_VERSION_RESERVED_ADDR] != FILL:
         raise SystemExit(
             f"ROM_VERSION予約番地0x{ROM_VERSION_RESERVED_ADDR:04X}が埋め草"
@@ -2315,6 +2317,7 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
             "コード/表がここへ届き、QUASI88の機種判定(memory.h ROM_VERSION)が"
             "偶然変わってしまう。この番地の手前でレイアウトを分けること。"
         )
+    rom[ROM_VERSION_RESERVED_ADDR] = ROM_VERSION_MARK
     link_start = asm.labels.get("MAIN_SUB_LINK_START")
     link_end = asm.labels.get("MAIN_SUB_LINK_END")
     if (link_start is None) != (link_end is None):

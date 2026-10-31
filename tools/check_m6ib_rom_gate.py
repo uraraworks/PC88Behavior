@@ -48,7 +48,7 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
         and end is not None
         and start <= end == len(asm.code)
         and end - start <= mainrom.MAIN_SUB_LINK_MAX_SIZE
-        and rom[mainrom.ROM_VERSION_RESERVED_ADDR] == mainrom.FILL
+        and rom[mainrom.ROM_VERSION_RESERVED_ADDR] == mainrom.ROM_VERSION_MARK
     )
     allocation_ok = True
     if arm != "B0":

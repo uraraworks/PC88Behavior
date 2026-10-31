@@ -101,12 +101,13 @@ fast_done:
     path = work / 'fast.asm'
     path.write_text(source)
     driver = z80text.Assembler().assemble(path)[start:]
-    # 通常コードを上書きせず、0x79D7とその直前の予約ゼロも残す。
+    # 通常コードを上書きせず、0x79D7の印とその直前の予約ゼロも残す。
     # このドライバはmainへ戻ってから呼ぶのでバンク窓内に置ける。
     assert start + len(driver) <= 0x79D6
     target = work / 'fast-rom'
     shutil.copytree(rom, target)
     image = bytearray((target / 'N88.ROM').read_bytes())
+    assert image[0x79D7] == ord('4')
     assert image[start:start+len(driver)] == bytes(len(driver))
     image[start:start+len(driver)] = driver
     entry = labels['STEADY_WAIT']
