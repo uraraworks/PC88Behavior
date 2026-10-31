@@ -1,0 +1,10 @@
+# 識別子: G1
+# 走: OO-1
+accepted: 65536
+dropped: 15401
+int 0 01CE lo 9
+int 0 0300 lo 4096
+int 0 0336 lo 2
+int 0 796F hi 61406
+int 0 7982 hi 11
+int 0 7A3D hi 12

@@ -1,0 +1,6 @@
+# 識別子: G1
+# 走: SS-1
+accepted: 19484
+dropped: 0
+int 1 0038 hi 15366
+int 1 0038 lo 4118
