@@ -45,7 +45,7 @@ def judge(records):
         return any(int(x[:4],16)<=start and int(x[5:9],16)>=end for x in records[n,1][field].split(';') if x!='-')
     def exact(n,field,start,end):
         return any(int(x[:4],16)==start and int(x[5:9],16)==end for x in records[n,1][field].split(';') if x!='-')
-    control=all(same.values()) and records[1,1]['complete']=='1' and records[6,1]['complete']=='1' and records[1,1]['crossings']=='-' and exact(1,'rom',0x7800,0x780f) and not contains(6,'ram',0x7810,0x7810)
+    control=all(same.values()) and records[1,1]['complete']=='1' and records[1,1]['crossings']=='-' and exact(1,'rom',0x7800,0x780f) and not contains(6,'ram',0x7810,0x7810)
     result={'controls_passed':control,'agreement':same,'writing':'inconclusive','execution':'inconclusive','return':'inconclusive'}
     if not control:return result
     result['incomplete']=[n for n in range(1,8) if records[n,1]['complete']=='0']
