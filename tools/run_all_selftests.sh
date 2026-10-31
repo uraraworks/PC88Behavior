@@ -84,6 +84,7 @@ cd "$REPO"
 SCRIPTS_EXPECTED=(
   "tools/b6_io_sequence_selftest.sh:0"
   "tools/b8_io_values_selftest.sh:0"
+  "tools/b9_sector_coordinates_selftest.sh:0"
   "tools/check_cleanroom.sh:0"
   "tools/cmp_io_selftest.sh:0"
   "tools/cmp_fdc_sectors_selftest.sh:0"
