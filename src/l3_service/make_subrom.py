@@ -1427,13 +1427,15 @@ def build_subrom(break_write_ack=False,
     # WRITE_PREVは「データ部256バイトの直前の1バイト」になる——1.35節の
     # 位置対応でR（セクタ番号）が全15件でその位置に一致した。
     # runの長さを事前に知らなくても、末尾256とその直前1バイトが取れる。
-    a.ld_mem_a(WRITE_TMP)             # 受信バイトを一時退避（DEを壊さないため）
+    # 第228版容量圧縮: BCを保存し、受信値をCへ置く。メモリ退避を省く。
+    a.push_bc()
+    a.ld_c_a()
     a.push_hl()
     a.ld_hl_mem(WINDOW_RUN_POS)       # L=位置、H=先頭（連続2バイト）
     a.ld_a_l()
     a.or_a()
     a.jr_nz("_hdr_window_head_done")
-    a.ld_a_mem(WRITE_TMP)
+    a.ld_a_c()
     a.ld_h_a()                        # 位置0でだけ先頭を記録
     a.label("_hdr_window_head_done")
     a.inc_l()
@@ -1446,29 +1448,25 @@ def build_subrom(break_write_ack=False,
     a.ld_h_n(WRITE_BUF >> 8)
     a.inc_a()
     a.ld_mem_a(WRITE_IDX)             # 次の位置へ（256で自然に巻き戻る）
-    a.push_bc()
     a.ld_a_mem(WRITE_PREV)
     a.ld_b_a()                        # 1つ前に追い出した値を退避
     a.ld_a_hl()                       # いま追い出される値
     a.ld_mem_a(WRITE_PREV)
     a.ld_a_b()
     a.ld_mem_a(WRITE_PREV2)           # 2バイトぶんのシフトレジスタになる
-    a.pop_bc()
-    a.ld_a_mem(WRITE_TMP)
+    a.ld_a_c()
     a.ld_hl_a()                       # WRITE_BUF[WRITE_IDX] <- 受信バイト
     a.pop_hl()                        # HLを元に戻す（AだけがこのRAM操作で変わる）
-    a.push_af()                       # 受け取ったバイトを退避
     a.ld_a_mem(RUN_LEN)
     a.cp_n(REQ_HDR_CAPACITY)
     a.jr_nc("_hdr_store_skip")        # RUN_LEN >= CAPACITY: もう格納しない
-    a.pop_af()
-    a.push_af()
+    a.ld_a_c()
     a.ld_hl_mem(HDR_PTR)
     a.ld_hl_a()
     a.inc_hl()
     a.ld_mem_hl(HDR_PTR)
     a.label("_hdr_store_skip")
-    a.pop_af()                        # スタック平衡のため復元（以降Aは未使用）
+    a.pop_bc()                        # 呼び出し元のBCを復元
     a.ld_a_mem(RUN_LEN)
     a.cp_n(0xFF)
     a.jr_z("_hdr_run_len_done")       # 0xFFで飽和、これ以上は増やさない
@@ -1508,6 +1506,13 @@ def build_subrom(break_write_ack=False,
         # 第69版容量圧縮: 呼び出し元は直後にAを上書きする（正常系へ強制
         # 継続する故障注入も$FB入力または保存済みAFで上書き）。
         a.out_imm(P_FDC_TIMEOUT_MARK, FDC_TIMEOUT_MARK_VALUE)
+    a.ret()
+    # 1.36c: 番地・長さは上位が先。RECV_BYTEはHL/BC/DEを保存する。
+    a.label("RECV_WORD_BE")
+    a.call("RECV_BYTE")
+    a.ld_h_a()
+    a.call("RECV_BYTE")
+    a.ld_l_a()
     a.ret()
     if a.pc > 0x00C1:
         raise SystemExit("要求待ち復帰入口の前段が0x00C1を超えた")
@@ -1550,13 +1555,6 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(WINDOW_RUN_POS)
     a.jp("IDLE_DISPATCH")
 
-    # 1.36c: 番地・長さは上位が先。RECV_BYTEはHL/BC/DEを保存する。
-    a.label("RECV_WORD_BE")
-    a.call("RECV_BYTE")
-    a.ld_h_a()
-    a.call("RECV_BYTE")
-    a.ld_l_a()
-    a.ret()
     a.label("FDC_OUT_THEN_N1")
     # m7lp: A(=直前のパラメータ)を送り、続けてN=1を送る列。WRITE・単発READ・バルクREADの
     # 3箇所に一字一句同一で置かれていたものを集約した。末尾はjpで抜ける。FDC_OUTはAFを
@@ -2159,30 +2157,56 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(SECTOR_READY)
     a.call("RECV_WORD_BE")             # HL=実行/書き込み先
-    a.push_hl()
     a.ld_a_b()
-    # 0x0C/0x0Dのbit0だけが異なる。RUNは積んだ番地へ移す。
+    # 第228版: 0x15も同じ番地・長さ受信を使う。RUNだけ番地へ移る。
     # 完了後は公開入口で直接受信するため、応答抑止フラグは不要。
-    a.rra()                            # bit0をキャリーへ移す
-    a.jr_nc("_general_load")
+    a.cp_n(0x0D)
+    a.jr_nz("_general_load")
     # 通常はFDC処理がDI済み。EIして公開入口へ戻った場合は、その状態を
     # 次のLOAD/RUNでも維持する（1.36c、第225版の復帰入口）。
     a.im0()                            # 1.36c: 実行先ではモード0
-    a.ret()
+    a.db(0xE9)                         # JP (HL)
     a.label("_general_load")
+    a.ex_de_hl()                       # DE=番地を保ったまま長さを受信
     a.call("RECV_WORD_BE")
-    a.ex_de_hl()                       # DE=長さ
-    a.pop_hl()
-    a.inc_de()                        # 長さ0も受信せず公開入口へ戻す
+    a.ex_de_hl()                       # HL=番地、DE=長さ
+    a.inc_de()                        # 長さ0も転送せず公開入口へ戻す
     a.label("_general_load_check")
     a.dec_de()
     a.ld_a_d()
     a.or_e()
     a.jp_z("SUB_REQUEST_RETURN")
+    a.ld_a_b()
+    a.rra()                            # LOAD=0x0Cは偶数、送信=0x15は奇数
+    a.jr_nc("_general_load_byte")
+    # 既存の送信は2件一組。残り0/1なら何も送らず、Lを超えない。
+    a.dec_de()
+    a.ld_a_d()
+    a.or_e()
+    a.jp_z("SUB_REQUEST_RETURN")
+    a.call("SEND_BUFFER_PAIR")         # 読み応答と同じ送信手順、HLは2進む
+    a.jr("_general_load_check")
+    a.label("_general_load_byte")
     a.call("RECV_BYTE")
     a.ld_hl_a()
     a.inc_hl()
     a.jr("_general_load_check")
+
+    # 第228版: 読み応答の既存2件送信を共用。I/Oと待ちの順は不変。
+    # BC/DEを保存し、HLに次の送信位置を返す。
+    a.label("SEND_BUFFER_PAIR")
+    a.call("WAIT_FE_SEND_RECV_READY")
+    a.ld_a_hl()
+    a.out_a(P_PIO_B)
+    a.inc_hl()
+    a.out_imm(0xFF, PH_SEND_DATA_SET)
+    a.call("WAIT_FE_SEND_ACK_DONE")
+    a.ld_a_hl()
+    a.out_a(P_PIO_B)
+    a.inc_hl()
+    a.ld_mem_hl(RESP_PTR)
+    a.out_imm(0xFF, PH_SEND_DATA_CLR)
+    a.jp("WAIT_FE_SEND_STATUS_CLEAR")
 
     # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
     # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
@@ -2765,6 +2789,8 @@ def build_subrom(break_write_ack=False,
         # 0x0Dは起動時の交換#14にも現れる。未完了のその段階だけは
         # 従来の4バイト要求を優先し、それ以外は一般のLOAD/RUNへ渡す。
         a.ld_a_b()
+        a.cp_n(0x15)
+        a.jp_z("_general_load_run")
         a.cp_n(0x0C)
         a.jp_z("_general_load_run")
         a.cp_n(0x0D)
@@ -3347,19 +3373,8 @@ def build_subrom(break_write_ack=False,
     a.label("_send_dispatch_buffer")
     # 第38版1.31節: 多バイト応答はSENDフェーズ1回につき連続2位置。
     # 位置1は受信準備確認後、位置2は受理確認後・解除前に出力する。
-    a.call("WAIT_FE_SEND_RECV_READY")
     a.ld_hl_mem(RESP_PTR)
-    a.ld_a_hl()
-    a.out_a(P_PIO_B)
-    a.inc_hl()
-    a.out_imm(0xFF, PH_SEND_DATA_SET)
-    a.call("WAIT_FE_SEND_ACK_DONE")
-    a.ld_a_hl()
-    a.out_a(P_PIO_B)
-    a.inc_hl()
-    a.ld_mem_hl(RESP_PTR)
-    a.out_imm(0xFF, PH_SEND_DATA_CLR)
-    a.call("WAIT_FE_SEND_STATUS_CLEAR")
+    a.call("SEND_BUFFER_PAIR")
     # 第223版・1.36b節: 直前READで読んだ 256×セクタ数 バイトを送り終えたか。
     # SECTOR_BUF は256境界に整列し、送信位置は2ずつ進むので、上位バイトが
     # READ_END_HI に達した時点（下位は0）でちょうど送り終えている。
@@ -3544,10 +3559,10 @@ def build_subrom(break_write_ack=False,
     a.djnz("_osbr_cmp_loop")
     # 全バイト一致: Cのbit7で送信種別を判定し、HLは応答値を指す。
     a.ld_a_c()
-    a.and_a(0x80)
+    a.rlca()                          # bit7の追跡フラグをcarryへ
     a.ld_a_hl()                      # LD A,(HL)はフラグを変えない
-    a.jr_nz("_osbr_send_tracked")
-    a.jp("_exchange3_send_response")   # 第227版: 1バイト送信とアイドル復帰を共有
+    a.jr_c("_osbr_send_tracked")
+    a.jr("_exchange3_send_response")   # 第228版: 近距離分岐で容量を節約
     a.label("_osbr_send_tracked")
     a.call("SEND_BOOT_SINGLE_TRACKED")
     a.label("_osbr_sent")
