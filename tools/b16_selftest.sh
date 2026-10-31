@@ -10,7 +10,7 @@ from analyze_m6ia_main_sub import AnalysisError
 from judge_b16 import FIELDS, load, judge
 
 def rec(n,r,w='-'):
-    return dict(row=str(n),run=str(r),count='0',timeout='0',writes=w,crossings='-',out_fd='0',sub_dropped='0')
+    return dict(row=str(n),run=str(r),complete='1',count='0',timeout='0',writes=w,crossings='-',out_fd='0',sub_dropped='0')
 base={(n,r):rec(n,r) for n in range(1,16) for r in (1,2)}
 assert judge(base)['controls_passed'] and judge(base)['shape']=='undetermined'
 a={k:v.copy() for k,v in base.items()}; a[1,1]['writes']=a[1,2]['writes']='7800-7800:1'; assert not judge(a)['controls_passed']
@@ -23,6 +23,12 @@ j=judge(a); assert j['shape']['address_positions']==[1,2] and j['position']['sta
 a={k:v.copy() for k,v in base.items()}
 a[14,1]['sub_dropped']='3'; a[14,1]['out_fd']='1'; a[14,2]['out_fd']='2'
 assert judge(a)['controls_passed'] and judge(a)['request_0d'][14]['out_fd'] is None
+a={k:v.copy() for k,v in base.items()}
+for r in (1,2): a[14,r].update(complete='0', count='-', timeout='-', writes='7800-7800:1')
+j=judge(a); assert j['controls_passed'] and j['incomplete'][14]=='測定 ROM が戻らなかった' and 14 not in j['request_0d']
+a[14,2]['writes']='-'; assert not judge(a)['controls_passed']
+for r in (1,2): a[1,r].update(complete='0', count='-', timeout='-')
+assert not judge(a)['controls_passed']
 with tempfile.TemporaryDirectory() as d:
     p=Path(d)/'io.log'
     p.write_text('# main\n# 取りこぼし: 0件\n# sub\n# 取りこぼし: 3件\n')
@@ -35,6 +41,9 @@ m=[E(addr=0xdf50,value=0),E(addr=0xdf52,value=0),E(addr=0xdf53,value=1),E(addr=0
 e=[E(cpu='main',kind='OUT',port='00FD',value=x) for x in (0,0x17,0x0f)] + [E(cpu='sub',kind='OUT',port='00FD',value=0xde)]
 v=analyze(1,1,e,m,['W 4000 rom 1','A 0100 1 1 0 0 1'])
 assert '222' not in '\t'.join(v) and v[-2:] == ['1','0']
+v=analyze(14,1,e,[],['W 7800 rom 1','A 0100 1 1 0 0 1'])
+assert v[2:5]==['0','-','-'] and v[5]!='-' and v[6]!='-'
+load([io.StringIO('\t'.join(FIELDS)+'\n'+'\t'.join(v)+'\n')])
 for lines in (['W 4000 rom 1','W 4000 rom 1'],['secret'],['A 2000 1 1 0 0 0']):
     try: analyze(1,1,e,m,lines)
     except ValueError: pass

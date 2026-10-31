@@ -29,15 +29,17 @@ def io_drops(path):
 
 def analyze(row,run,events,memory,lines,sub_dropped=0):
     m={e.addr:e.value for e in memory if 0xdf50<=e.addr<=0xdf53}
-    if m.get(0xdf53)!=1 or m.get(0xdf52) not in (0,1) or 0xdf50 not in m: raise ValueError('incomplete')
+    complete = m.get(0xdf53) == 1
+    if complete and (m.get(0xdf52) not in (0,1) or 0xdf50 not in m): raise ValueError('incomplete')
     # 送信成功数に対応する要求列が実際に観測されたことを確認する。
     sent=[e.value for e in events if e.cpu=='main' and e.kind=='OUT' and e.port=='00FD']
     request=ROWS[row-1] + ((0x55,)*64 if row != 1 else ())
-    count=m[0xdf50]
-    if count > len(request): raise ValueError('count')
-    expected=[0,0x17,0x0f]+list(request[:count])
-    if not any(sent[i:i+len(expected)]==expected for i in range(len(sent)-len(expected)+1)):
-        raise ValueError('request')
+    if complete:
+        count=m[0xdf50]
+        if count > len(request): raise ValueError('count')
+        expected=[0,0x17,0x0f]+list(request[:count])
+        if not any(sent[i:i+len(expected)]==expected for i in range(len(sent)-len(expected)+1)):
+            raise ValueError('request')
     filtered,dropped=filter_lines(lines,'G2','self')
     if dropped: raise ValueError('boundary')
     writes=[];cross=[]
@@ -46,7 +48,7 @@ def analyze(row,run,events,memory,lines,sub_dropped=0):
         if parts[0]=='A': cross.append(parts[1]+':'+','.join(parts[2:]))
         elif parts[2]=='rom': writes.append(parts[1]+':'+parts[3])
     outfd=sum(e.cpu=='sub' and e.kind=='OUT' and e.port=='00FD' for e in events)
-    vals=[str(row),str(run),str(m[0xdf50]),str(m[0xdf52]),';'.join(writes) or '-',';'.join(cross) or '-',str(outfd),str(sub_dropped)]
+    vals=[str(row),str(run),str(int(complete)),str(m[0xdf50]) if complete else '-',str(m[0xdf52]) if complete else '-',';'.join(writes) or '-',';'.join(cross) or '-',str(outfd),str(sub_dropped)]
     if any(not re.fullmatch(p,v) for p,v in zip(PATTERNS,vals)): raise ValueError('whitelist')
     return vals
 
