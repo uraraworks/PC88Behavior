@@ -1371,6 +1371,82 @@ _b16_done:
     RET
 """
 
+# B17: 送信本体は指定番地から組み立てた自作の3命令。
+def b17_boot(row: int) -> str:
+    address = {4: 0x6000, 5: 0x7900}.get(row, 0x7800)
+    size = 256 if row == 5 else 16
+    tables = []
+    def send(values):
+        name = f'_b17_data{len(tables)}'
+        tables.append(name + ':\n    DB ' + ','.join(f'0{x:02X}h' for x in values) + '\n')
+        return f"    LD HL,{name}\n    LD B,0{len(values):02X}h\n    CALL _b17_send\n    JP C,_b17_timeout\n"
+    def load_and_run(addr, marker, length, run=True, offset=0):
+        code = [0x3e, 0x5a, 0x32, marker & 255, marker >> 8, 0xc3, 0xc1, 0]
+        text = send([0x0c,addr >> 8,addr & 255,length >> 8,length & 255] + code)
+        text += f"    LD B,0{length-len(code):02X}h\n_b17_pad_{marker:04x}:\n    XOR A\n    CALL MAIN_SUB_SEND_REQUEST_CONT\n    JP C,_b17_timeout\n    CALL _b17_count\n    DJNZ _b17_pad_{marker:04x}\n"
+        if run: text += send([0x0d,addr >> 8,(addr+offset) & 255])
+        return text
+    text = load_and_run(address, {4:0x6010,5:0x7a10}.get(row,0x7810), size, row != 1, 3 if row == 6 else 0)
+    if row in (3, 7):
+        read = b10_boot(1)
+        read = read[read.index('    LD A,002h'):read.index('_b10_timeout:')]
+        read = read.replace('_b10_', '_b17_read_').replace('    LD IX,0DF00h\n', '').replace('    CP 0C0h', '    LD HL,00000h\n    CP 0C0h')
+        read = read.replace('    LD (0DF50h),HL\n', '')
+        read += """_b17_read_timeout:
+    LD A,001h
+    LD (0DF52h),A
+    LD HL,00000h
+_b17_read_done:
+    RET
+"""
+        helper = '_b17_read:\n' + read
+        source = b10_boot(1)
+        helper += source[source.index('_b10_save:'):].replace('_b10_', '_b17_read_')
+        text += '    LD IX,0DF00h\n    CALL _b17_read\n    LD (0DF50h),HL\n'
+        if row == 7:
+            text += load_and_run(0x7800,0x7820,16)
+            text += '    LD IX,0DF08h\n    CALL _b17_read\n    LD (0DF56h),HL\n'
+    else: helper = ''
+    prefix = b16_boot(1); prefix = prefix[:prefix.index('    JP _b16_done')].replace('_b16_', '_b17_')
+    prefix = prefix.replace('    LD (0DF50h),A\n    LD (0DF52h),A\n    LD (0DF53h),A', '    LD HL,00000h\n    LD (0DF50h),HL\n    LD (0DF52h),HL\n    LD (0DF54h),HL\n    LD (0DF56h),HL')
+    return prefix + text + """    JR _b17_done
+_b17_send:
+    LD A,(HL)
+    PUSH HL
+    CALL MAIN_SUB_SEND
+    POP HL
+    RET C
+    PUSH HL
+    CALL _b17_count
+    POP HL
+    INC HL
+    DEC B
+_b17_send_loop:
+    LD A,(HL)
+    PUSH HL
+    CALL MAIN_SUB_SEND_REQUEST_CONT
+    POP HL
+    RET C
+    PUSH HL
+    CALL _b17_count
+    POP HL
+    INC HL
+    DJNZ _b17_send_loop
+    RET
+_b17_count:
+    LD HL,(0DF54h)
+    INC HL
+    LD (0DF54h),HL
+    RET
+_b17_timeout:
+    LD A,001h
+    LD (0DF52h),A
+_b17_done:
+    LD A,001h
+    LD (0DF53h),A
+    RET
+""" + helper + "".join(tables)
+
 # B12 は B10 と同じ送受信手順を使い、各要求の記録領域を分ける。
 B12_ROWS = ((0,1,1),(2,1,1),(2,1,2),(2,1,5),(2,2,4),
             (2,5,1),(2,5,2),(2,1,6),(2,1,0),(3,1,4),(2,2,1))
@@ -1544,6 +1620,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_b10_row: int | None = None,
                         inject_b12_row: int | None = None,
                         inject_b16_row: int | None = None,
+                        inject_b17_row: int | None = None,
                         enable_boot_sector: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -1878,6 +1955,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         m6ib_variants.append((inject_b10_row is not None, b10_boot(inject_b10_row) if inject_b10_row is not None else "", "b10"))
         m6ib_variants.append((inject_b12_row is not None, b12_boot(inject_b12_row) if inject_b12_row is not None else "", "b12"))
         m6ib_variants.append((inject_b16_row is not None, b16_boot(inject_b16_row) if inject_b16_row is not None else "", "b16"))
+        m6ib_variants.append((inject_b17_row is not None, b17_boot(inject_b17_row) if inject_b17_row is not None else "", "b17"))
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
             raise SystemExit("m6i-b/m6i-h/m6i-i main介入は1つだけ指定する")
@@ -2228,6 +2306,7 @@ def main():
     ap.add_argument("--inject-m6ik-arm", choices=M6IK_ARMS,
                     help="m6i-k 測定専用の腕")
     ap.add_argument("--inject-b10-row", type=int, choices=range(1, 12))
+    ap.add_argument("--inject-b17-row", type=int, choices=range(1, 8))
     ap.add_argument("--inject-b16-row", type=int, choices=range(1, 16))
     ap.add_argument("--inject-b12-row", type=int, choices=range(1, 13))
     ap.add_argument("--inject-m6ie-single-read", action="store_true",
@@ -2255,7 +2334,7 @@ def main():
                          args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only, args.inject_m6ii_sweep,
-                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None)
+                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
     if sum(bool(value) for value in m6ii_fault_flags) > 1:
@@ -2270,7 +2349,7 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ii_sweep or args.inject_m6ik_arm is not None
-        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None
+        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     if args.disable_main_sub_read and any((args.enable_main_sub_read,
                                            args.enable_disk_read_retry,
@@ -2361,6 +2440,7 @@ def main():
                                        inject_b10_row=args.inject_b10_row,
                                        inject_b12_row=args.inject_b12_row,
                                        inject_b16_row=args.inject_b16_row,
+                                       inject_b17_row=args.inject_b17_row,
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
