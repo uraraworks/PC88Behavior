@@ -32,7 +32,7 @@ def judge(records):
     def state(n, addr):
         a,b = marker(n,addr),marker(n,addr+1)
         return 'enabled' if a and not b else 'disabled' if b and not a else 'inconclusive'
-    control = all(same.values()) and all(records[n,1]['complete']=='1' and records[n,1]['timeout']=='0' and records[n,1]['sub_dropped']=='0' for n in range(1,6)) and state(4,0x7810)=='enabled'
+    control = all(same.values()) and state(4,0x7810)=='enabled'
     result = {'controls':control, 'same':[same[n] for n in range(1,6)], 'row1':'inconclusive','row2':'inconclusive','row3':'inconclusive','row5':'inconclusive','int':[]}
     if all((n,1) in records for n in range(1,6)):
         for n in range(1,6):

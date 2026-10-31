@@ -1,0 +1,3 @@
+first-difference: 33
+A: fdc 33 seek hi - - - - -
+B: missing
