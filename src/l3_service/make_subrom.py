@@ -629,6 +629,11 @@ class Asm:
     def xor_b(self):      self.db(0xA8)   # XOR B
     def xor_a(self):      self.db(0xAF)   # XOR A（A=0。フェッチ窓予算の節約）
     def add_a_b(self):    self.db(0x80)   # ADD A,B
+    def add_a_n(self, n): self.db(0xC6, n)  # ADD A,n（第223版: 読み終わり位置の上位バイト）
+    def ld_a_h(self):     self.db(0x7C)   # LD A,H（第223版）
+    def cp_d(self):       self.db(0xBA)   # CP D（第223版）
+    def cp_h(self):       self.db(0xBC)   # CP H（第223版）
+    def srl_b(self):      self.db(0xCB, 0x38)   # SRL B（第223版）
     def rlca(self):       self.db(0x07)   # RLCA
     def rra(self):        self.db(0x1F)   # RRA（第56版・m7ax: 論理トラック>>1）
     def ld_b_n(self, n):  self.db(0x06, n)  # LD B,n（ld_bと同義の明示名）
@@ -760,6 +765,11 @@ _ASM_TEMPLATES = {
     "pop_de": lambda: "POP DE",
     "dec_de": lambda: "DEC DE",
     "ld_a_d": lambda: "LD A,D",
+    "ld_a_h": lambda: "LD A,H",
+    "cp_d": lambda: "CP D",
+    "cp_h": lambda: "CP H",
+    "srl_b": lambda: "SRL B",
+    "add_a_n": lambda n: f"ADD A,{hex8(n)}",
     "ld_d_a": lambda: "LD D,A",
     "ld_h_n": lambda n: f"LD H,{hex8(n)}",
     "ld_a_e": lambda: "LD A,E",
@@ -827,7 +837,16 @@ install_note_templates(Asm, _ASM_TEMPLATES)
 # m7ak-exchange14-read3-stack-overlap.md参照。書き込み専用領域の外
 # （0x7400-0x7FFF）の上端へ逃がす。
 STACK      = 0x7FFE
-SECTOR_BUF = 0x4000    # 256バイトのセクタ読み出しバッファ
+# 第223版・1.36b節: 読み要求 0x02 の P1 は読むセクタの数で、データは
+# 256×P1 バイト続けて main へ渡る（P1 は最大16、16セクタ/トラック）。
+# 範囲外の P1（0 や 17 以上）は 17 セクタぶん読もうとして必ず失敗させる
+# （下の _general_read_request 参照）ので、バッファは 17 セクタ要る。
+# 0x4000 からでは REQ_HDR(0x4200) と衝突するため、BULK_DATA の末尾
+# 17 セクタ（0x6300-0x73FF）に置く。単発READ（交換#3/#6/#11/#14の初回）は
+# いずれも高速バルクの READ より前に読み、送り終えている。バルクの READ が
+# ここを上書きするのは、その後である。
+SECTOR_BUF = 0x6300    # セクタ読み出しバッファ（256境界に整列。最大17セクタ）
+SECTOR_BUF_MAX_SECTORS = 17
 # ---- 第13版でREQ_HDRの領域を8バイトから拡張（下のREQ_HDR_CAPACITY参照）。
 #      HDR_PTR(0x4300)まで0x100バイトの余地があるため衝突しない。 ----
 REQ_HDR    = 0x4200    # 要求ヘッダの受信バッファ（先頭REQ_HDR_CAPACITYバイトまで格納）
@@ -881,6 +900,8 @@ BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
 # （m7akでSTACKとBULK_DATAの重なりがデータフェーズでスタックを破壊した
 # 事故があったので、ここは重複の無いことを確認してから置いている）
 WRITE_BUF = 0x7500      # 256バイト・256境界整列の循環受信バッファ
+assert SECTOR_BUF & 0xFF == 0 and SECTOR_BUF >= BULK_DATA
+assert SECTOR_BUF + SECTOR_BUF_MAX_SECTORS * 256 <= min(WRITE_BUF, 0x7400)
 WRITE_IDX = 0x4318      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
 WRITE_PREV = 0x4319     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
                         #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
@@ -904,6 +925,15 @@ WINDOW_RUN_POS = 0x4323
 WINDOW_RUN_HEAD = 0x4324
 LAST_ST0 = 0x4325        # 1バイト: 直前の結果フェーズの1件目(ST0)。m7lm
 WRITE_LAST_S = 0x4327   # 直前の単発受信。WRITE要求の前置Sを検証する
+# 第223版・1.36b節: 直前READで読む（＝mainへ渡す）データの終わりの上位バイト。
+# SECTOR_BUFは256境界に整列しているので、送信位置の上位バイトがこれに
+# 達したところで 256×セクタ数 を送り終えている。FDC_READ_SECTORS が書く。
+READ_END_HI = 0x4328
+# 第223版・1.36b節「main が 256×P1 を超えて受け取ろうとしても、それ以上は
+# 渡らない」: 一般READのデータ応答（1.37節の 0x12 で開始）を始めたら非0に
+# する。非0の間は、データを送り終えたあとの main の受信要求に何も送らない。
+# 次に main から受信したとき（RESET_HDR_RUN）0に戻す。
+DATA_RESPONSE_CLOSED = 0x4329
 # 第223版・1.36a節: 0x17,m で受けた m をそのまま保持する（0=未受信）。
 # 読み要求の論理トラック変換は、ドライブ1（m bit0）／ドライブ2（m & 0x0E）で決める。
 LOGICAL_TRACK_FLAGS = 0x4326
@@ -1956,6 +1986,7 @@ def build_subrom(break_write_ack=False,
     # 一般READ・交換#3の各所でも同一だったので、ここから入れるようにした。
     a.label("_read_sector_ready")
     a.call("FDC_READ_SECTOR")
+    a.label("_sector_ready_set")       # 第223版: 複数セクタの一般READもここから入る
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
     a.ret()
@@ -2141,7 +2172,26 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_SENSE_DRIVE_STATUS")  # ST3はAに残る
     a.and_a(0x08)                     # bit3 = 媒体あり
     a.jr_z("_general_read_wait_media")
-    a.call("_read_sector_ready")
+    # 第223版・1.36b節: P1 は読むセクタの数。READ DATA は EOT=16 で1回発行し、
+    # R から P1 セクタ（256×P1 バイト）読んだところで TC を出して止める。
+    # R + P1 - 1 > 16 ならトラックの終わりを越えて FDC が異常終了（End of
+    # Cylinder）し、既存の再試行（最大9回）を経て失敗の応答になる。
+    # P1 = 0 と P1 >= 17 は 17 セクタとして扱う（R >= 1 なので必ずトラックの
+    # 終わりを越え、同じ形で失敗する。1.36b節の「P1 = 0 も同じ形で失敗する」。
+    # P1 >= 17 を 17 に丸めるのはバッファの大きさのための自作側の判断）。
+    # EOT=16 は 1.36b節で測った 16 セクタ/トラックの媒体の値で、他の EOT は
+    # 未測定（WRITE の EOT と同じく媒体形状の 16 を固定で使う）。
+    a.ld_e(0x10)                       # EOT = 16（兼 P1-1 の上限）
+    a.ld_a_mem(REQ_HDR + 1)            # P1
+    a.dec_a()                          # P1-1（P1=0 は 0xFF になる）
+    a.cp_e()
+    a.jr_c("_general_read_count_ok")   # 1 <= P1 <= 16
+    a.ld_a_e()                         # 範囲外は 17 セクタ
+    a.label("_general_read_count_ok")
+    a.add_a_n((SECTOR_BUF >> 8) + 1)
+    a.ld_d_a()                         # 読み終わり = SECTOR_BUF + 256×セクタ数
+    a.call("FDC_READ_SECTORS")
+    a.call("_sector_ready_set")
     # 第68版・1.37節: 一般READを完了するたび、結果263件の直後にはまだ
     # ackを送らず、POST_BULK_ACTIVEを「次に待つ受信値=0x06」へ再アーム
     # してアイドル受信へ戻る。1.37節が実測したのはバルク後最初のREAD
@@ -2158,8 +2208,8 @@ def build_subrom(break_write_ack=False,
     # 戻り: A=C。
     # 自作側の判断（1.36a節で未測定）: ドライブ2（D bit0=1）は m & 0x0E が
     # 非0なら有効とする。ドライブ1は m bit0。
-    # 未実装・自作側の判断: P1=0x00 で失敗する挙動（1.36a節）。失敗時の応答形式が
-    # 未確定のため、P1は解釈にも成否にも使わない。
+    # P1 はここでは使わない（座標の解釈に効かない。1.36a節）。第223版・1.36b節の
+    # 「P1 = 読むセクタの数」は呼び出し元の _general_read_request が扱う。
     a.label("_read_request_decode")
     a.ld_a_mem(REQ_HDR + 4)
     a.ld_mem_a(REQ_HDR + 6)           # Rを退避（REQ_HDR+4をCで上書きする前）
@@ -2173,20 +2223,18 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_HDR + 3)           # T（ldはフラグを変えない）
     a.ld_b_a()
     a.jr_z("_read_decode_plain")
-    a.and_a(0x01)
-    a.ld_mem_a(REQ_H)                 # H = T & 1
+    # 第223版: 容量のため、H・unit/headの格納を2つの場合で共有した（値は同じ）。
+    a.and_a(0x01)                     # H = T & 1
+    a.srl_b()                         # C = T >> 1
+    a.jr("_read_decode_store")
+    a.label("_read_decode_plain")
+    a.xor_a()                         # H = 0、C = T
+    a.label("_read_decode_store")
+    a.ld_mem_a(REQ_H)
     a.rlca()
     a.rlca()
     a.ld_mem_a(REQ_UNIT_HEAD)         # unit/head = drive0 | (H<<2)
     a.ld_a_b()
-    a.rra()                           # C = T >> 1（直前のRLCA×2でCY=0）
-    a.jr("_read_decode_store")
-    a.label("_read_decode_plain")
-    a.xor_a()
-    a.ld_mem_a(REQ_H)
-    a.ld_mem_a(REQ_UNIT_HEAD)
-    a.ld_a_b()                        # C = T
-    a.label("_read_decode_store")
     a.ld_mem_a(REQ_HDR + 4)
     a.ret()
 
@@ -2343,6 +2391,20 @@ def build_subrom(break_write_ack=False,
     # （更新の条件はdocs/notes/m7kr-implement-retry-decision.md）。
     # それまでこの実装は「観測に合わせただけ」であり、仕様として
     # 確定していない。
+    #
+    # 第223版・1.36b節: 読むセクタの数を持てるようにした。入口は2つ。
+    #   FDC_READ_SECTOR  … 1セクタ。EOT = R、読み終わり = SECTOR_BUF+256（従来どおり）
+    #   FDC_READ_SECTORS … E = EOT、D = 読み終わり位置の上位バイト
+    #                      （SECTOR_BUF の上位 + 読むセクタの数）
+    # データは SECTOR_BUF から続けて格納し、上位バイトが D に達したら止めて
+    # 結果フェーズへ進む（FDC_IN_7 の先頭が TC）。D・E は FDC_BEGIN/OUT/IN が
+    # 保存するので、再試行をまたいで保たれる。
+    a.ld_a_mem(REQ_HDR + 6)
+    a.ld_e_a()                          # EOT = R（このセクタで終わり）
+    a.ld_d_n((SECTOR_BUF >> 8) + 1)     # 1セクタ
+    a.label("FDC_READ_SECTORS")
+    a.ld_a_d()
+    a.ld_mem_a(READ_END_HI)             # 応答の送り終わり（_send_dispatch_buffer）
     a.ld_c(9)                           # 最大9回（未確定。上記コメント参照）
     a.label("_read_retry")
     a.ld_a(0x46); a.call("FDC_BEGIN")   # クリア後にREAD DATAを送出
@@ -2351,21 +2413,23 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(REQ_H); a.call("FDC_OUT")  # H（交換#11以外は0）
     a.ld_a_mem(REQ_HDR + 6); a.call("FDC_OUT_THEN_N1")   # R = 要求末尾位置(byte6)（続くN=1の送出も共有列）
     # m7lp: N = 1 (256バイト/セクタ) の送出は FDC_OUT_THEN_N1 の中で行う
-    a.ld_a_mem(REQ_HDR + 6); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = R（このセクタで終わり）（GPL・DTLは共有列）
+    a.ld_a_e(); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = E（第223版。GPL・DTLは共有列）
     # 第118版・m7fc: WRITE経路で確立済みの公開μPD765形式N=1短GAP分類を、
     # READ経路にも同じ生成規則として適用する。条件Oとの一致は事後の裏づけ。
 
-    # データ転送: 256バイト（B=0 を DJNZ で 256 回まわす定石）。
-    # FDC_IN は A を破壊するので、ループカウンタ(B)・書き込み先(HL)は
-    # 呼び出しの前後で自然に保持される（FDC_IN/FDC_OUT は BC/HL に触れない）。
-    # 再試行カウンタ(C)も同じ理由でこのループをまたいで保持される。
+    # データ転送: 256×セクタ数バイト（第223版。HL の上位が D に達するまで）。
+    # FDC_IN は A を破壊するが、書き込み先(HL)・D・再試行カウンタ(C)は
+    # 呼び出しの前後で保持される（FDC_IN は DE を退避し、BC/HL に触れない）。
+    # FDC が途中で結果フェーズへ進んだときは FDC_IN が FDC_ABORT を立て、
+    # 以降はポートに触れずに戻るので、ループは D までで必ず終わる。
     a.ld_hl_imm(SECTOR_BUF)
-    a.ld_b(0x00)
     a.label("_read_loop")
     a.call("FDC_IN")
     a.ld_hl_a()          # (HL) <- A
     a.inc_hl()
-    a.djnz("_read_loop")
+    a.ld_a_h()
+    a.cp_d()
+    a.jr_nz("_read_loop")
 
     a.call("FDC_IN_7")
     # 第69版で意味づけを訂正: 公式subは256+7=263バイト(データ+結果)を
@@ -2412,6 +2476,7 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_hl(HDR_PTR)
     a.xor_a()
     a.ld_mem_a(RUN_LEN)
+    a.ld_mem_a(DATA_RESPONSE_CLOSED)   # 第223版: mainから受信したら送信の打ち切りを解く
     a.ret()
     a.label("ACTIVATE_SECTOR_RESPONSE")
     # m7lp: HL(=応答の先頭。呼び出し元でSECTOR_BUFを入れる)を応答ポインタにし、RESP_ACTIVEを
@@ -2660,6 +2725,8 @@ def build_subrom(break_write_ack=False,
     if not break_fixed_byte_cutoff:
         # 第32版1.25節の分節境界。値ではなく、起動時交換順序で立てた
         # EXCHANGE3_REQUEST_ACTIVEと観測件数だけを使う。
+        # 第223版: run継続ループ側の同じ判定もここへ合流する（容量のため）。
+        a.label("_recv_dispatch_exchange3_check")
         a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
         a.or_a()
         a.jr_z("_recv_dispatch_after_first_progress")
@@ -2747,21 +2814,13 @@ def build_subrom(break_write_ack=False,
             a.label("_recv_dispatch_after_cont_bulk_check")
             # 最初の受信と同じ2/5/1境界判定。2件後はアイドルへ戻り、
             # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
-            a.ld_a_mem(EXCHANGE3_REQUEST_ACTIVE)
-            a.or_a()
-            a.jr_z("_recv_dispatch_after_exchange3_progress")
-            a.ld_a_mem(RUN_LEN)
-            a.cp_n(2)
-            a.jp_z("IDLE_DISPATCH")
-            a.cp_n(7)
-            a.jr_z("_exchange3_prepare_sector")
-            a.cp_n(8)
-            a.jp_z("_exchange3_request_done")
-            a.jr("_recv_dispatch_continue")       # bit1が先に立つまで受信を続ける
-            a.label("_recv_dispatch_after_exchange3_progress")
-            # 最初の受信後と同じ完了表・交換状態判定へ合流する。
-            # 二重実装を避けるだけで、状態は変更しない。
-            a.jr("_recv_dispatch_after_first_progress")
+            # 第223版: この判定は最初の受信後の判定と命令列が同一（分岐先も
+            # 同じ。break_run_continuation の版はここを通らない）だったので、
+            # 容量のためそちらへ合流する。合流先で交換#3が無効なら
+            # _recv_dispatch_after_first_progress へ進み、交換#14の12件目判定を
+            # もう一度行うが、直前の判定と同じ値を見るので結果は変わらない
+            # （旧版も同じ順でそこへ合流していた）。
+            a.jr("_recv_dispatch_exchange3_check")
 
     if not break_fixed_byte_cutoff:
         # ---- 第69版・m7bw: m7buで終端列が一意だった9種を結線。
@@ -2892,32 +2951,42 @@ def build_subrom(break_write_ack=False,
         # 既存入力位置へ正規化してから共通ラベルへ入る。
         a.label("_exchange6_prepare_sector")
         a.ld_a(0x02)
-        a.ld_mem_a(BOOT_READ_PAIR_STAGE)
-        # 第223版: 容量のため座標の置き直しを_read_request_decodeに共有した。
-        # 要求は [0x02, P1, D, T, R]（1.36節・1.36a節）で、起動時は0x17を
-        # 受ける前なので C=T・H=0（旧実装の転記と同じ値）。
-        a.call("_read_request_decode")
-        # m7fy（docs/notes/m7fy-exchange6-drive-bit-preregistration.md）:
-        # 転記2組が終わった直後・jrの直前。REQ_HDR+2は転記元として使い
-        # 終わっており、REQ_HDR+4（C、目的シリンダ）へは既に転記済みの
-        # ため、ここで注入してもREQ_HDR+4には影響しない。REQ_HDR+2の
-        # bit0はFDC_SEEK/FDC_SENSE_DRIVE_STATUSがドライブ指定伝播として
-        # 別途読むため、ドライブ指定だけを独立に動かせる。
-        if break_exchange6_drive_bit_clear:
-            # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
-            a.ld_hl_imm(REQ_HDR + 2)
-            a.res0_hl()
-        if break_exchange6_drive_bit_set:
-            # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
-            a.ld_hl_imm(REQ_HDR + 2)
-            a.set0_hl()
-        if break_exchange6_cylinder:
-            # 陽性対照: 転記済みのREQ_HDR+4（C、目的シリンダ）を
-            # INC (HL)で1増やし、末端に必ず差が出ることを
-            # 確認するための注入。
-            a.ld_hl_imm(REQ_HDR + 4)
-            a.inc_hl_mem()
-        a.jr("_exchange3_prepare_sector")
+        # 第223版: 容量のため、注入・探針の無い版では交換#11と同じ列へ合流する
+        # （段階値の格納→_read_request_decode→_exchange3_prepare_sector。
+        # 命令列は交換#11側と同一で、違いは段階値だけ）。
+        _share_exchange6_11 = not (break_exchange6_drive_bit_clear
+                                   or break_exchange6_drive_bit_set
+                                   or break_exchange6_cylinder
+                                   or probe_site == "exchange11_fallthrough")
+        if _share_exchange6_11:
+            a.jr("_exchange6_11_prepare_sector")
+        else:
+            a.ld_mem_a(BOOT_READ_PAIR_STAGE)
+            # 第223版: 容量のため座標の置き直しを_read_request_decodeに共有した。
+            # 要求は [0x02, P1, D, T, R]（1.36節・1.36a節）で、起動時は0x17を
+            # 受ける前なので C=T・H=0（旧実装の転記と同じ値）。
+            a.call("_read_request_decode")
+            # m7fy（docs/notes/m7fy-exchange6-drive-bit-preregistration.md）:
+            # 転記2組が終わった直後・jrの直前。REQ_HDR+2は転記元として使い
+            # 終わっており、REQ_HDR+4（C、目的シリンダ）へは既に転記済みの
+            # ため、ここで注入してもREQ_HDR+4には影響しない。REQ_HDR+2の
+            # bit0はFDC_SEEK/FDC_SENSE_DRIVE_STATUSがドライブ指定伝播として
+            # 別途読むため、ドライブ指定だけを独立に動かせる。
+            if break_exchange6_drive_bit_clear:
+                # RES 0,(HL): Z80の定義済み命令（オペコード0xCB 0x86）。
+                a.ld_hl_imm(REQ_HDR + 2)
+                a.res0_hl()
+            if break_exchange6_drive_bit_set:
+                # SET 0,(HL): Z80の定義済み命令（オペコード0xCB 0xC6）。
+                a.ld_hl_imm(REQ_HDR + 2)
+                a.set0_hl()
+            if break_exchange6_cylinder:
+                # 陽性対照: 転記済みのREQ_HDR+4（C、目的シリンダ）を
+                # INC (HL)で1増やし、末端に必ず差が出ることを
+                # 確認するための注入。
+                a.ld_hl_imm(REQ_HDR + 4)
+                a.inc_hl_mem()
+            a.jr("_exchange3_prepare_sector")
 
         # 第42版1.33節: 交換#11は要求位置3をSEEK/C/H、位置5をR/EOTへ
         # 転記し、unit/headをHから公開FDC符号化で作る。
@@ -2925,6 +2994,7 @@ def build_subrom(break_write_ack=False,
         # 交換#3/#6と同じ569件の準備経路を共有する。
         a.label("_exchange11_prepare_sector")
         a.ld_a(0x04)
+        a.label("_exchange6_11_prepare_sector")
         a.ld_mem_a(BOOT_READ_PAIR_STAGE)
         a.call("_read_request_decode")
         # m7gc事前登録（exchange11_fallthrough）: _exchange3_prepare_sectorへの
@@ -3029,6 +3099,7 @@ def build_subrom(break_write_ack=False,
         a.label("_post_read_received_12")
         a.ld_a(0xFF)
         a.ld_mem_a(POST_BULK_ACTIVE)
+        a.ld_mem_a(DATA_RESPONSE_CLOSED)   # 第223版: 送り終えたら以後は渡さない
         a.jr("_post_read_activate_response")
 
     # ---- 第44版1.14節・1.34節: 高速バルク入口と5635件の定常周期。
@@ -3211,6 +3282,11 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
     a.jr_nz("_send_dispatch_buffer")
+    # 第223版・1.36b節: 一般READのデータ（256×P1）を送り終えたあとは、
+    # mainが続けて受け取ろうとしても何も送らない（次の受信まで）。
+    a.ld_a_mem(DATA_RESPONSE_CLOSED)
+    a.or_a()
+    a.jr_nz("_boot_read_pair_stage_done")   # 直後の jp IDLE_DISPATCH（容量のため共有）
 
     # 第37版1.30節: 交換#3の単発応答を送り終え、READデータが保持済みの
     # 状態で次のSEND要求へ来た時点が交換#4応答開始である。RECV側のrun長は
@@ -3241,10 +3317,12 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_hl(RESP_PTR)
     a.out_imm(0xFF, PH_SEND_DATA_CLR)
     a.call("WAIT_FE_SEND_STATUS_CLEAR")
-    a.ld_de_imm(SECTOR_BUF + 256)
-    a.or_a()
-    a.sbc_hl_de()                     # RESP_PTR(更新後) - (SECTOR_BUF+256)
-    a.jp_nz("IDLE_DISPATCH")          # まだ256バイト送り終えていない（遠方分岐のためJP）
+    # 第223版・1.36b節: 直前READで読んだ 256×セクタ数 バイトを送り終えたか。
+    # SECTOR_BUF は256境界に整列し、送信位置は2ずつ進むので、上位バイトが
+    # READ_END_HI に達した時点（下位は0）でちょうど送り終えている。
+    a.ld_a_mem(READ_END_HI)
+    a.cp_h()
+    a.jp_nz("IDLE_DISPATCH")          # まだ送り終えていない（遠方分岐のためJP）
 
     # 256バイト送り終えた: 応答フェーズを終了する
     a.xor_a()
