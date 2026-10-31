@@ -83,19 +83,20 @@ else:
 default_rom, default_used = subrom.build()
 candidate_rom0, candidate_used0 = subrom.build(error_response_candidate=0)
 candidate_rom1, candidate_used1 = subrom.build(error_response_candidate=1)
+candidate_default_rom, candidate_default_used = subrom.build(error_response_candidate=0x81)
 diffs = [pos for pos, (left, right) in enumerate(zip(candidate_rom0, candidate_rom1))
          if left != right]
 # 2026-09-10: 絶対値2042の直書きをやめた。見たいのは「既定版と候補版が
 # 同サイズ」＝候補の切り替えが即値1セルしか動かさないことと、窓内であること。
-if default_used == candidate_used0 == candidate_used1 \
+if default_used == candidate_used0 == candidate_used1 == candidate_default_used \
         and candidate_used0 <= subrom.SUB_ROM_FETCH_WINDOW:
     ok(f"既定版・候補版とも同サイズ（{default_used}バイト）でフェッチ窓内")
 else:
     ng("生成コードサイズまたはフェッチ窓制約が不正")
-if default_rom == candidate_rom0:
-    ok("既定値0x00は候補0で再現できる")
+if default_rom == candidate_default_rom:
+    ok("既定値0x81は候補0x81で再現できる")
 else:
-    ng("既定値を候補0で再現できない")
+    ng("既定値を候補0x81で再現できない")
 if len(diffs) == 1 and candidate_rom0[diffs[0]] == 0 \
         and candidate_rom1[diffs[0]] == 1:
     ok("候補0/1の生成ROM差分は候補即値セル1バイトだけ")

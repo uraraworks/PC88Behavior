@@ -1217,9 +1217,7 @@ def build_subrom(break_write_ack=False,
     ために使う。3つとも既定（False）では1バイトも影響しない。
 
     break_error_response_bit6: unreadable_diskの帰属回帰専用。探索で末端挙動を
-    分けたbit6を、既定の0から1へ倒す。測定が決めたのはbit6=0だけであり、
-    既定値0x00の残る7ビットは自作側で便宜上0を選んだもの。公式と同じ値だと
-    いう主張ではない。
+    分けたbit6を、既定の0から1へ倒す。第227版の既定値0x81を0xC1に変える。
 
     intervene_no_disk_wait: no_diskのmainタイムアウト仮説を実走するためだけの
     介入。一般読み出し要求へ入ったら応答を返さず、B-unitへ伝播済みの
