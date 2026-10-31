@@ -65,6 +65,7 @@
 #include "q88h_memlog.h"
 #include "q88h_boundary.h"
 #include "q88h_sub_boundary.h"
+#include "q88h_sub_read.h"
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
@@ -182,6 +183,10 @@ static q88h_boundary_t *(*p_sub_boundary)(void);
 static void (*p_sub_boundary_reset)(void);
 static void (*p_sub_boundary_set_enabled)(int);
 static bool g_sub_boundary_available;
+static q88h_sub_read_t *(*p_sub_read)(void);
+static void (*p_sub_read_reset)(void);
+static void (*p_sub_read_set_enabled)(int);
+static bool g_sub_read_available;
 
 /* 交換run介入。既存コアでも通常測定は続けられるが、オプション指定時は
  * シンボル・命中・実変更をすべて必須にして「指定したが効かなかった」を落とす。 */
@@ -748,6 +753,10 @@ static bool load_core(const char *path)
     *(void **)(&p_sub_boundary_reset) = dlsym(h, "retro_q88h_sub_boundary_reset");
     *(void **)(&p_sub_boundary_set_enabled) = dlsym(h, "retro_q88h_sub_boundary_set_enabled");
     g_sub_boundary_available = p_sub_boundary && p_sub_boundary_reset && p_sub_boundary_set_enabled;
+    *(void **)(&p_sub_read) = dlsym(h, "retro_q88h_sub_read");
+    *(void **)(&p_sub_read_reset) = dlsym(h, "retro_q88h_sub_read_reset");
+    *(void **)(&p_sub_read_set_enabled) = dlsym(h, "retro_q88h_sub_read_set_enabled");
+    g_sub_read_available = p_sub_read && p_sub_read_reset && p_sub_read_set_enabled;
     *(void **)(&p_boundary)             = dlsym(h, "retro_q88h_boundary");
     *(void **)(&p_boundary_reset)       = dlsym(h, "retro_q88h_boundary_reset");
     *(void **)(&p_boundary_set_enabled) = dlsym(h, "retro_q88h_boundary_set_enabled");
@@ -1530,7 +1539,7 @@ static void usage(void)
         "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
-        "                   [--boundary-log FILE] [--sub-boundary-log FILE]\n"
+        "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
         "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n"
@@ -1636,6 +1645,7 @@ int main(int argc, char **argv)
     const char *mem_write_log_path = NULL;
     const char *boundary_log_path = NULL;
     const char *sub_boundary_log_path = NULL;
+    const char *sub_read_log_path = NULL;
     unsigned    mem_write_range_lo = 0, mem_write_range_hi = 0;
     bool        mem_write_range_set = false;
     unsigned    mem_write_from_frame = 0;
@@ -1986,6 +1996,8 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-read-log") && i + 1 < argc)
+            sub_read_log_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-boundary-log") && i + 1 < argc)
             sub_boundary_log_path = argv[++i];
         else if (!strcmp(argv[i], "--boundary-log") && i + 1 < argc)
@@ -2230,6 +2242,7 @@ int main(int argc, char **argv)
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
+    if (sub_read_log_path && reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
     if (sub_boundary_log_path && reject_if_unsafe_output_path("--sub-boundary-log", sub_boundary_log_path)) return 1;
     if (boundary_log_path && reject_if_unsafe_output_path("--boundary-log", boundary_log_path))
         return 1;
@@ -2506,6 +2519,10 @@ int main(int argc, char **argv)
         }
     }
 
+    if (sub_read_log_path) {
+        if (!g_sub_read_available) { fprintf(stderr, "[q88measure] --sub-read-log はコアにありません\n"); return 1; }
+        p_sub_read_reset(); p_sub_read_set_enabled(1);
+    }
     if (sub_boundary_log_path) {
         if (!g_sub_boundary_available)
             fprintf(stderr, "[q88measure] --sub-boundary-log は無効: コアに機能がありません\n");
@@ -2907,6 +2924,20 @@ int main(int argc, char **argv)
                 fprintf(stderr, "[q88measure] I/O記録を書き出した: %s"
                                 " (main: %u件/取りこぼし%u件, sub: %u件/取りこぼし%u件)\n",
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
+            }
+
+            if (sub_read_log_path && g_sub_read_available) {
+                static const char *names[] = {"rom", "unwritten", "rom-written", "ram-written"};
+                q88h_sub_read_t *r = p_sub_read();
+                unsigned a, k;
+                FILE *fp;
+                if (reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
+                fp = fopen(sub_read_log_path, "w");
+                if (!fp) { perror(sub_read_log_path); return 1; }
+                for (k = 0; k < Q88H_SR_CLASSES; ++k)
+                    for (a = 0; a < 65536; ++a)
+                        if (r->counts[k][a]) fprintf(fp, "R %04X %s %llu\n", a, names[k], (unsigned long long)r->counts[k][a]);
+                if (fclose(fp)) { perror(sub_read_log_path); return 1; }
             }
 
             if (sub_boundary_log_path && g_sub_boundary_available) {
