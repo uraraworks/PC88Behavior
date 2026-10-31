@@ -1,0 +1,100 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -60,6 +60,7 @@
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_memlog.c \
+    $(CORE_DIR)/q88h_boundary.c \
++   $(CORE_DIR)/q88h_sub_boundary.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_main_in_force.c \
+    $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -394,6 +394,7 @@
+ #include "q88h_trace.h"
+ #include "q88h_trap.h"
+ #include "q88h_iolog.h"
++#include "q88h_sub_boundary.h"
+ 
+ /* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
+  * サブROMの範囲は 0x0000-0x07FF なので、trap.map もその範囲だけを使う想定。 */
+@@ -402,6 +403,7 @@
+  * （z80sub_cpu.PC_prev は常に 0000 のまま更新されず使えない）。 */
+ 
+ static byte (*q88h_sub_inner_fetch)( word );
++static int q88h_sub_pending;
+ static word  q88h_sub_prev_fetch;   /* 直前に fetch() で要求された番地 */
+ 
+ /* fetch した番地の実体が ROM (DISK.ROM) か RAM かを判定する。
+@@ -424,6 +426,15 @@
+   word          prev_fetch = q88h_sub_prev_fetch;   /* トラップ判定より前に控える */
+   byte          ret;
+ 
++  q88h_boundary_t *b = retro_q88h_sub_boundary();
++  int start = q88h_sub_pending == 0;
++  if( b->enabled && start ) {
++    int cls = addr < 0x2000 ? Q88H_BND_ROM : Q88H_BND_RAM;
++    word sp = z80sub_cpu.SP.W, top = 0;
++    if( cls == Q88H_BND_ROM && b->last_class == Q88H_BND_RAM )
++      top = sub_mem_read(sp) | (sub_mem_read((word)(sp+1)) << 8);
++    q88h_boundary_on_instr(b, addr, cls, sp, top, 0);
++  }
+   t->mem_exec[addr] = 1;
+   if( q88h_sub_addr_is_rom( addr ) ) t->mem_exec_rom[addr] = 1;
+   else                                t->mem_exec_ram[addr] = 1;
+@@ -459,6 +470,15 @@
+   }
+ 
+   ret = q88h_sub_inner_fetch( addr );
++  if( b->enabled ) {
++    if( start ) {
++      if( ret == 0xcb || ret == 0xed ) q88h_sub_pending = 1;
++      else if( ret == 0xdd || ret == 0xfd ) q88h_sub_pending = 2;
++    } else if( q88h_sub_pending == 2 ) {
++      if( ret == 0xdd || ret == 0xfd ) q88h_sub_pending = 2;
++      else q88h_sub_pending = ret == 0xcb ? 1 : 0;
++    } else q88h_sub_pending = 0;
++  }
+   q88h_sub_prev_fetch = addr;
+   return ret;
+ }
+@@ -490,6 +510,11 @@
+ static void q88h_sub_mem_write( word addr, byte data )
+ {
+   q88h_trace_t *t = retro_q88h_trace_sub();
++  q88h_boundary_t *b = retro_q88h_sub_boundary();
++  if( b->enabled && addr >= 0x4000 && (addr & 0x4000) ) {
++    if( b->cur_class == Q88H_BND_ROM ) b->shared[Q88H_BND_ROM_WRITE][addr]++;
++    else if( b->cur_class == Q88H_BND_RAM ) b->shared[Q88H_BND_RAM_WRITE][addr]++;
++  }
+   t->mem_write[addr] = 1;
+   t->n_write++;
+   sub_mem_write( addr, data );
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -97,6 +97,7 @@
+ #include "pc88cpu.h"
+ #include "q88h_intlog.h"
+ #include "q88h_boundary.h"
++#include "q88h_sub_boundary.h"
+ #include "q88h_sub_interrupt_intervention.h"
+ #include "q88h_main_interrupt_intervention.h"
+ 
+@@ -763,6 +764,8 @@
+      * アクセスではないので記録から外し、次の命令先頭 fetch に
+      * 「割り込み受理直後」の印を引き継ぐ。main CPU のみ。 */
+     q88h_boundary_t *q88h_bd = (z80 == &z80main_cpu) ? retro_q88h_boundary() : NULL;
++    if( z80 == &z80sub_cpu && retro_q88h_sub_boundary()->enabled )
++      q88h_boundary_int_begin(retro_q88h_sub_boundary(), (uint16_t)z80->SP.W);
+     if( q88h_bd && q88h_bd->enabled )
+       q88h_boundary_int_begin( q88h_bd, (uint16_t)z80->SP.W );
+ 
+@@ -801,6 +804,8 @@
+     /* handler_pc（分岐後のPC＝ハンドラ入口）はここで確定する。
+      * level は case 2 (IM2) の中でベクタ読み出し位置として書き換えられて
+      * いるため、記録には switch 前に退避した q88h_level を使う。 */
++    if( z80 == &z80sub_cpu && retro_q88h_sub_boundary()->enabled )
++      q88h_boundary_int_end(retro_q88h_sub_boundary());
+     if( q88h_bd && q88h_bd->enabled ) q88h_boundary_int_end( q88h_bd );
+ 
+     if( q88h_il && q88h_il->enabled ){

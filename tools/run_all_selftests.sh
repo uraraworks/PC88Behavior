@@ -163,6 +163,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/vram_dump_selftest.sh:0"
   "tools/harness/mem_write_log_selftest.sh:0"
   "tools/harness/boundary_selftest.sh:0"
+  "tools/harness/sub_boundary_selftest.sh:0"
   "tools/harness/b2_boot_probe_selftest.sh:0"
   "tools/harness/key_matrix_selftest.sh:0"
   "tools/harness/type_untypable_selftest.sh:0"
