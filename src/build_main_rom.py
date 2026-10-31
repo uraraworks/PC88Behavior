@@ -1382,6 +1382,13 @@ def b17_boot(row: int) -> str:
         return f"    LD HL,{name}\n    LD B,0{len(values):02X}h\n    CALL _b17_send\n    JP C,_b17_timeout\n"
     def load_and_run(addr, marker, length, run=True, offset=0):
         code = [0x3e, 0x5a, 0x32, marker & 255, marker >> 8, 0xc3, 0xc1, 0]
+        if row == 6:
+            # 第229版のA=0・BC=000D・SP=8000でも確実な陰性対照にする。
+            # 旧+3入口はDJNZで未初期化RAMへ出て、一周後に正しい入口を
+            # 実行し得た。+0は印を書き、+3はIN $FEのループに留まる。
+            # I/Oのないループでは古いコアがmainへ切り替わらないので、
+            # 読み捨てだけ行う。要求の長さは他の対照と同じ16バイト。
+            code = [0x18, 0x05, 0x00, 0xdb, 0xfe, 0x18, 0xfc] + code
         text = send([0x0c,addr >> 8,addr & 255,length >> 8,length & 255] + code)
         text += f"    LD B,0{length-len(code):02X}h\n_b17_pad_{marker:04x}:\n    XOR A\n    CALL MAIN_SUB_SEND_REQUEST_CONT\n    JP C,_b17_timeout\n    CALL _b17_count\n    DJNZ _b17_pad_{marker:04x}\n"
         if run: text += send([0x0d,addr >> 8,(addr+offset) & 255])
