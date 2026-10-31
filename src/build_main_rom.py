@@ -1447,6 +1447,71 @@ _b17_done:
     RET
 """ + helper + "".join(tables)
 
+# B24: 受信値は main RAM に置き、測定時に比較する。
+def b24_boot(row: int) -> str:
+    length = {1:16, 2:1, 3:16, 4:256, 5:256, 6:512, 7:0, 8:16}[row]
+    addr = {3:0x7808, 5:0x5000, 6:0x5000, 8:0x7801}.get(row, 0x7800)
+    setup = [2, 2 if row == 6 else 1, 0, 0, 1] if row in (5, 6) else [12, 0x78, 0, 1 if row == 4 else 0, 0 if row == 4 else 64]
+    def sends(values):
+        return ''.join(f'    LD A,0{v:02X}h\n    CALL {"MAIN_SUB_SEND" if i == 0 else "MAIN_SUB_SEND_REQUEST_CONT"}\n    JP C,_b24_timeout\n' for i,v in enumerate(values))
+    prefix = b16_boot(1).split('    JP _b16_done')[0].replace('_b16_', '_b24_')
+    prefix = prefix.replace('    LD (0DF50h),A\n    LD (0DF52h),A\n    LD (0DF53h),A', '    LD (0DE00h),A\n    LD (0DE01h),A')
+    text = "_b24_begin:\n    LD A,05Ah\n    LD (0DE04h),A\n    XOR A\n    LD (0DE00h),A\n    LD (0DE01h),A\n" + sends(setup)
+    if row not in (5,6):
+        size = 256 if row == 4 else 64
+        text += f"    LD A,00Dh\n    LD (0DE02h),A\n    LD DE,0{size:04X}h\n_b24_write:\n    LD A,(0DE02h)\n    PUSH DE\n    CALL MAIN_SUB_SEND_REQUEST_CONT\n    POP DE\n    JP C,_b24_timeout\n    LD A,(0DE02h)\n    ADD A,007h\n    LD (0DE02h),A\n    DEC DE\n    LD A,D\n    OR E\n    JR NZ,_b24_write\n"
+    else:
+        text += '    LD A,006h\n    CALL MAIN_SUB_SEND\n    JP C,_b24_timeout\n    CALL MAIN_SUB_RECV\n    JP C,_b24_timeout\n'
+    text += sends([0x15,addr>>8,addr&255,length>>8,length&255])
+    text += f'''    LD A,0A5h
+    LD (0DE03h),A
+    LD HL,0E000h
+    LD DE,0{length+8:04X}h
+_b24_pair:
+    LD A,00Bh
+    OUT (0FFh),A
+    LD C,001h
+    PUSH DE
+    CALL MAIN_SUB_WAIT_SET
+    POP DE
+    JR C,_b24_timeout
+    LD A,00Ah
+    OUT (0FFh),A
+    IN A,(0FCh)
+    LD (HL),A
+    INC HL
+    DEC DE
+    LD A,D
+    OR E
+    JR Z,_b24_done
+    LD A,00Dh
+    OUT (0FFh),A
+    LD C,001h
+    PUSH DE
+    CALL MAIN_SUB_WAIT_CLEAR
+    POP DE
+    JR C,_b24_timeout
+    IN A,(0FCh)
+    LD (HL),A
+    INC HL
+    DEC DE
+    LD A,00Ch
+    OUT (0FFh),A
+    LD A,D
+    OR E
+    JR NZ,_b24_pair
+    JR _b24_done
+_b24_timeout:
+    LD A,001h
+    LD (0DE00h),A
+_b24_done:
+    LD A,001h
+    LD (0DE01h),A
+    RET
+_b24_end:
+'''
+    return prefix + text
+
 # B21: 自作コードをサブへ送り、応答を main 側の領域に記録する。
 def b21_payload(row: int) -> list[int]:
     if row not in (6, 7):
@@ -1724,6 +1789,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_b17_row: int | None = None,
                         inject_b19_row: int | None = None,
                         inject_b21_row: int | None = None,
+                        inject_b24_row: int | None = None,
                         enable_boot_sector: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -2061,6 +2127,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         m6ib_variants.append((inject_b17_row is not None, b17_boot(inject_b17_row) if inject_b17_row is not None else "", "b17"))
         m6ib_variants.append((inject_b19_row is not None, b19_boot(inject_b19_row) if inject_b19_row is not None else "", "b19"))
         m6ib_variants.append((inject_b21_row is not None, b21_boot(inject_b21_row) if inject_b21_row is not None else "", "b21"))
+        m6ib_variants.append((inject_b24_row is not None, b24_boot(inject_b24_row) if inject_b24_row is not None else "", "b24"))
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
             raise SystemExit("m6i-b/m6i-h/m6i-i main介入は1つだけ指定する")
@@ -2412,6 +2479,7 @@ def main():
                     help="m6i-k 測定専用の腕")
     ap.add_argument("--inject-b10-row", type=int, choices=range(1, 12))
     ap.add_argument("--inject-b17-row", type=int, choices=range(1, 8))
+    ap.add_argument("--inject-b24-row", type=int, choices=range(1, 9))
     ap.add_argument("--inject-b21-row", type=int, choices=range(1, 8))
     ap.add_argument("--inject-b19-row", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b16-row", type=int, choices=range(1, 16))
@@ -2441,7 +2509,7 @@ def main():
                          args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only, args.inject_m6ii_sweep,
-                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None)
+                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None, args.inject_b24_row is not None)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
     if sum(bool(value) for value in m6ii_fault_flags) > 1:
@@ -2456,7 +2524,7 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ii_sweep or args.inject_m6ik_arm is not None
-        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None
+        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None or args.inject_b24_row is not None
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     if args.disable_main_sub_read and any((args.enable_main_sub_read,
                                            args.enable_disk_read_retry,
@@ -2550,6 +2618,7 @@ def main():
                                        inject_b17_row=args.inject_b17_row,
                                        inject_b19_row=args.inject_b19_row,
                                        inject_b21_row=args.inject_b21_row,
+                                       inject_b24_row=args.inject_b24_row,
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
