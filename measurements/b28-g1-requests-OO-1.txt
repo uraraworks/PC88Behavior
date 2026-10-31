@@ -1,0 +1,13 @@
+# 識別子: G1
+# 走: OO-1
+hi-start: yes
+request 1 02 length=10 before
+request 2 0C length=709 after
+request 3 0D length=3 after
+request 4 0C length=21 after
+request 5 0D length=3 after
+request 6 0D length=24 after
+request 7 0D length=3 after
+request 8 0D length=24 after
+request 9 0D length=3 after
+totals before=1 after=13 bytes=857
