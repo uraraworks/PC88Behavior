@@ -100,8 +100,15 @@ def selftest():
         disk = Path(tmp) / 'synthetic.d88'
         disk.write_bytes(image)
         sectors = D88Reader(disk.read_bytes())._sectors
+        # 後続像だけにあるブロックが座標に出ないことを確認する。
+        later = bytearray(image)
+        missing = bytes((i * 13 + 17) % 256 for i in range(256))
+        later[image.index(a):image.index(a) + len(a)] = missing
+        disk.write_bytes(bytes(image) + bytes(later))
+        combined = disk.read_bytes()
+        first_size = int.from_bytes(combined[28:32], 'little')
+        combined_sectors = D88Reader(combined[:first_size])._sectors
     shifted = b[100:] + c[:56]
-    missing = bytes((i * 13 + 17) % 256 for i in range(256))
     blocks = [a, shifted, missing, bytes([0xA5]) * 256] + [a] * 11
     def log(fc, fe):
         events = [('IN', '00FC', v, 'C000') for v in fc]
@@ -114,6 +121,9 @@ def selftest():
     def verify(lines):
         assert lines[2:6] == expected
     verify(out)
+    combined_out = coordinates(fc, combined_sectors, 'OO')
+    verify(combined_out)
+    assert combined_out[4] == 'block 2 none'
     faulty = out.copy(); faulty[2] = 'block 0 sector 2 0 3 matches=2'
     try:
         verify(faulty)
@@ -121,6 +131,9 @@ def selftest():
         pass
     else:
         raise AssertionError
+    oversized = bytearray(image)
+    struct.pack_into('<I', oversized, 28, len(oversized) + 1)
+    assert int.from_bytes(oversized[28:32], 'little') > len(oversized)
     fe = raw[('IN', '00FE', 'collapsed')]
     other = parse_log(log(b'', [1, 2, 4]))[('IN', '00FE', 'collapsed')]
     bits = fe_bits(fe, other, other)
@@ -166,7 +179,12 @@ def main():
         if args.command == 'coordinates':
             raw = read_log(args.log)
             with open(args.d88, 'rb') as f:
-                sectors = D88Reader(f.read())._sectors
+                image = f.read()
+            total_size = int.from_bytes(image[28:32], 'little')
+            if total_size > len(image):
+                raise ValueError
+            # コアが最初に使う先頭の像だけを読む。
+            sectors = D88Reader(image[:total_size])._sectors
             values = [item[0][0] for item in raw[('IN', '00FC', 'raw')]]
             lines = coordinates(values, sectors, args.arm)
         elif args.command == 'fe-bits':
