@@ -1,0 +1,17 @@
+# 識別子: G1
+fe-bit OS 0 differ=0 compared=7724
+fe-bit OS 1 differ=7681 compared=7724
+fe-bit OS 2 differ=0 compared=7724
+fe-bit OS 3 differ=0 compared=7724
+fe-bit OS 4 differ=0 compared=7724
+fe-bit OS 5 differ=0 compared=7724
+fe-bit OS 6 differ=0 compared=7724
+fe-bit OS 7 differ=0 compared=7724
+fe-bit SS 0 differ=0 compared=7724
+fe-bit SS 1 differ=7681 compared=7724
+fe-bit SS 2 differ=0 compared=7724
+fe-bit SS 3 differ=0 compared=7724
+fe-bit SS 4 differ=0 compared=7724
+fe-bit SS 5 differ=0 compared=7724
+fe-bit SS 6 differ=0 compared=7724
+fe-bit SS 7 differ=0 compared=7724
