@@ -1,0 +1,94 @@
+fdc 1 specify lo - - - - -
+fdc 2 recalibrate lo - - - - -
+fdc 3 sense_interrupt lo - - - - -
+fdc 4 seek lo - - - - -
+fdc 5 sense_interrupt lo - - - - -
+fdc 6 recalibrate lo - - - - -
+fdc 7 sense_interrupt lo - - - - -
+fdc 8 recalibrate lo - - - - -
+fdc 9 sense_interrupt lo - - - - -
+fdc 10 seek lo - - - - -
+fdc 11 sense_interrupt lo - - - - -
+fdc 12 recalibrate lo - - - - -
+fdc 13 sense_interrupt lo - - - - -
+fdc 14 recalibrate lo - - - - -
+fdc 15 sense_interrupt lo - - - - -
+fdc 16 seek lo - - - - -
+fdc 17 sense_interrupt lo - - - - -
+fdc 18 sense_drive_status lo - - - - -
+fdc 19 read_data lo 0 0 1 1 16
+fdc 20 seek lo - - - - -
+fdc 21 sense_interrupt lo - - - - -
+fdc 22 sense_drive_status lo - - - - -
+fdc 23 read_data lo 0 0 2 1 16
+fdc 24 seek hi - - - - -
+fdc 25 sense_interrupt hi - - - - -
+fdc 26 read_data hi 0 1 1 3 5
+fdc 27 seek hi - - - - -
+fdc 28 sense_interrupt hi - - - - -
+fdc 29 read_data hi 33 0 1 3 5
+fdc 30 seek hi - - - - -
+fdc 31 sense_interrupt hi - - - - -
+fdc 32 read_data hi 33 1 1 3 5
+fdc 33 seek hi - - - - -
+fdc 34 sense_interrupt hi - - - - -
+fdc 35 read_data hi 33 1 1 3 5
+fdc 36 seek hi - - - - -
+fdc 37 sense_interrupt hi - - - - -
+fdc 38 read_data hi 34 0 1 3 5
+fdc 39 seek hi - - - - -
+fdc 40 sense_interrupt hi - - - - -
+fdc 41 read_data hi 34 1 1 3 5
+fdc 42 seek hi - - - - -
+fdc 43 sense_interrupt hi - - - - -
+fdc 44 read_data hi 35 0 1 3 5
+fdc 45 seek hi - - - - -
+fdc 46 sense_interrupt hi - - - - -
+fdc 47 read_data hi 35 1 1 3 5
+fdc 48 seek hi - - - - -
+fdc 49 sense_interrupt hi - - - - -
+fdc 50 read_data hi 36 0 1 3 5
+fdc 51 seek hi - - - - -
+fdc 52 sense_interrupt hi - - - - -
+fdc 53 read_data hi 36 0 1 3 5
+fdc 54 seek hi - - - - -
+fdc 55 sense_interrupt hi - - - - -
+fdc 56 read_data hi 36 1 1 3 5
+fdc 57 seek hi - - - - -
+fdc 58 sense_interrupt hi - - - - -
+fdc 59 read_data hi 36 1 1 3 5
+fdc 60 seek hi - - - - -
+fdc 61 sense_interrupt hi - - - - -
+fdc 62 read_data hi 37 0 1 3 5
+fdc 63 seek hi - - - - -
+fdc 64 sense_interrupt hi - - - - -
+fdc 65 read_data hi 37 0 1 3 5
+fdc 66 seek hi - - - - -
+fdc 67 sense_interrupt hi - - - - -
+fdc 68 read_data hi 37 1 1 3 5
+count read_data hi 15
+count read_data lo 2
+count recalibrate lo 5
+count seek hi 15
+count seek lo 4
+count sense_drive_status lo 2
+count sense_interrupt hi 15
+count sense_interrupt lo 9
+count specify lo 1
+port IN 00F8 hi 15
+port IN 00F8 lo 2
+port IN 00FA hi 77205
+port IN 00FA lo 4209
+port IN 00FB hi 76935
+port IN 00FB lo 4130
+port IN 00FC lo 875
+port IN 00FE hi 132125
+port IN 00FE lo 17598
+port OUT 00F7 lo 3
+port OUT 00F8 lo 6
+port OUT 00FB hi 195
+port OUT 00FB lo 56
+port OUT 00FD hi 44032
+port OUT 00FD lo 4113
+port OUT 00FF hi 44032
+port OUT 00FF lo 7619

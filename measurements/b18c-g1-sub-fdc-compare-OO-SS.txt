@@ -1,0 +1,3 @@
+first-difference: 27
+A: fdc 27 seek hi - - - - -
+B: fdc 27 sense_drive_status lo - - - - -
