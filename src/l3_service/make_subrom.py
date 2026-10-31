@@ -734,6 +734,7 @@ class Asm:
 _ASM_TEMPLATES = {
     "di": lambda: "DI",
     "ei": lambda: "EI",
+    "im0": lambda: "IM 0",
     "im1": lambda: "IM 1",
     "reti": lambda: "RETI",
     "ret": lambda: "RET",

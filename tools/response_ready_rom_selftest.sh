@@ -31,10 +31,11 @@ def assembled(fast=False):
 control_rom, control_used = subrom.build()
 fast_rom, fast_used = subrom.build(fast_no_disk_response_ready=True)
 # 2026-09-10: 絶対値(2042/2045)の直書きをやめた。理由はearly_response_rom_selftest.sh
-# と同じ。見たいのは「fast版がcontrol版よりちょうど3バイト大きい」ことと窓内であること。
-if fast_used - control_used != 3:
+# と同じ。見たいのは「fast版がcontrol版よりちょうど4バイト大きい」ことと窓内であること。
+# fast版は通常版の末尾経路に SCF (1) と JP (3) を追加する。
+if fast_used - control_used != 4:
     raise SystemExit(
-        f"NG: fast版とcontrol版の差が3バイトでない: {control_used}/{fast_used}")
+        f"NG: fast版とcontrol版の差が4バイトでない: {control_used}/{fast_used}")
 if max(control_used, fast_used) > subrom.SUB_ROM_FETCH_WINDOW:
     raise SystemExit(f"NG: フェッチ窓を超えた: {control_used}/{fast_used}")
 changed = tuple(i for i, pair in enumerate(zip(control_rom, fast_rom))
@@ -44,7 +45,7 @@ validated = search.validate_rom_intervention_bytes(
 if changed != validated:
     raise SystemExit("NG: ROM preflight did not return the actual offsets")
 print(f"OK: control/fast ROM size={control_used}/{fast_used}"
-      f"（差3バイト・窓内）and {len(changed)}-byte diff")
+      f"（差4バイト・窓内）and {len(changed)}-byte diff")
 
 inflated_default = (bytes(control_rom[:0x0100]) + b"\x00\x00\x00" +
                     bytes(control_rom[0x0100:-3]))
@@ -118,6 +119,9 @@ def run_tracked_to_ready(a, count, *, fault_ready_to_default=False):
         elif op == 0xFE:  # CP n
             value = code[pc + 1]
             z = a_reg == value; carry = a_reg < value; pc += 2; cost = 7
+        elif op == 0x18:  # JR e
+            delta = code[pc + 1] - 256 if code[pc + 1] >= 128 else code[pc + 1]
+            pc = pc + 2 + delta; cost = 12
         elif op == 0x20:  # JR NZ,e
             delta = code[pc + 1] - 256 if code[pc + 1] >= 128 else code[pc + 1]
             taken = not z; pc = pc + 2 + delta if taken else pc + 2
@@ -169,13 +173,14 @@ control = assembled(False)
 fast = assembled(True)
 control_t, control_io, _ = run_tracked_to_ready(control, 4)
 fast_t, fast_io, _ = run_tracked_to_ready(fast, 4)
-if (control_t, fast_t, control_t - fast_t) != (164, 85, 79):
-    raise SystemExit(f"NG: tracked path is not 164T -> 85T: {control_t}/{fast_t}")
+# 配置変更後の通常経路は JR を通り、OUT まで 166T。
+if (control_t, fast_t, control_t - fast_t) != (166, 85, 81):
+    raise SystemExit(f"NG: tracked path is not 166T -> 85T: {control_t}/{fast_t}")
 if control_io != [("IN", 0xFE), ("OUT", 0xFD)]:
     raise SystemExit(f"NG: default tracked I/O path is unexpected: {control_io}")
 if fast_io != [("OUT", 0xFD)]:
     raise SystemExit(f"NG: fast tracked I/O path is unexpected: {fast_io}")
-print("OK: tracked path removes one duplicate IN $FE (164T -> 85T)")
+print("OK: tracked path removes one duplicate IN $FE (166T -> 85T)")
 
 for startup_count in (0, 1, 2):
     _t, startup_io, ram = run_tracked_to_ready(fast, startup_count)
