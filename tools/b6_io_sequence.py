@@ -16,7 +16,7 @@ COMPARE = [re.compile(p) for p in (
     r"result: (?:same|self-ends-first|official-ends-first|diverged)",
     rf"position: {N}",
     rf"context (?:official|self) (?:-[1-8]|\+?[0-8]) {KEY} {N}")]
-ROW = re.compile(r"\s*\d+\s+\d+\s+main\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+\S+\s+([0-9A-Fa-f]{4})\s*")
+ROW = re.compile(r"\s*\d+\s+\d+\s+\d+\s+main\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+\S+\s+([0-9A-Fa-f]{4})\s*")
 END = re.compile(r"\s*#\s*取りこぼし:\s*(\d+)件\s*/\s*総イベント数:\s*(\d+)件\s*")
 
 
@@ -128,13 +128,20 @@ def write(path, lines):
 
 
 def selftest():
-    raw = ["# main", "0 0 main IN 0010 A5 C123", "1 0 main IN 0020 A5 C001",
-           "2 0 main IN 0020 A5 C002", "3 0 main OUT 0030 -- 1234",
+    raw = ["# main", "0 0 0 main IN 0010 A5 C123", "1 1 0 main IN 0020 A5 C001",
+           "2 2 0 main IN 0020 A5 C002", "3 3 0 main OUT 0030 -- 1234",
            "# 取りこぼし: 2件 / 総イベント数: 4件", "# sub"]
     mode, totals, runs = parse_log(raw)
     assert mode == "boot-sector" and totals == (2, 4) and [x[1] for x in runs] == [2, 1]
     mode2, _, _ = parse_log([s.replace("C001", "9001").replace("C002", "9002") for s in raw])
     assert mode2 == "first-hi"
+    try:
+        parse_log(["# main", "0 0 main IN 0010 A5 C123",
+                   "# 取りこぼし: 0件 / 総イベント数: 1件", "# sub"])
+    except ValueError:
+        pass
+    else:
+        assert False, "2項目形式は拒否される"
     lines = summary(mode, totals, runs, "self-1") + seq_lines(runs) + compare(runs, runs)
     assert all("A5" not in s and "C001" not in s and "C002" not in s for s in lines)
     assert checked(summary(mode, totals, runs, "self-1"), SUMMARY)
