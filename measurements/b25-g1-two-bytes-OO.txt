@@ -1,0 +1,5 @@
+# 識別子: G1
+# 走: OO-1
+fc 3839 sub_fd=4100 last=lo new_fd=1 out_ff=3 in_fe=4
+fc 3840 sub_fd=4101 last=lo new_fd=1 out_ff=1 in_fe=2
+fc 3841 sub_fd=4102 last=lo new_fd=1 out_ff=2140 in_fe=4262
