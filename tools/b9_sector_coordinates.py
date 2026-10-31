@@ -24,19 +24,24 @@ def checked(lines):
 
 def read_sectors(image):
     """先頭のトラック表に記載されたセクタだけを読み取る。"""
-    table_limit = 32 + 164 * 4
-    if len(image) < 32 + 160 * 4:
+    if len(image) < 32 + 4:
         raise ValueError
     total_size = int.from_bytes(image[28:32], 'little')
     image_end = min(total_size, len(image)) if total_size else len(image)
-    offsets = sorted(set(int.from_bytes(image[i:i + 4], 'little')
-                         for i in range(32, min(table_limit, image_end - 3), 4)) - {0})
-    if not offsets or offsets[0] <= 32 or offsets[0] > image_end:
-        raise ValueError
-    table_count = min((offsets[0] - 32) // 4, 164)
-    table_end = 32 + table_count * 4
+    # 表は最小のオフセットの手前で終わる。その先はトラックの本体なので読まない。
+    first = image_end
+    table_end = 32
+    while table_end < min(first, 32 + 164 * 4) and table_end + 4 <= image_end:
+        value = int.from_bytes(image[table_end:table_end + 4], 'little')
+        table_end += 4
+        if value:
+            if value <= 32:
+                raise ValueError
+            first = min(first, value)
     offsets = sorted(set(int.from_bytes(image[i:i + 4], 'little')
                          for i in range(32, table_end, 4)) - {0})
+    if not offsets:
+        raise ValueError
     sectors = {}
     for index, start in enumerate(offsets):
         if start < table_end or start >= image_end:
@@ -142,9 +147,12 @@ def selftest():
         real_header = bytearray(672)
         struct.pack_into('<I', real_header, 32, 672)
         real_header.extend(image[688:])
-        real_header[32 + 160 * 4:32 + 160 * 4 + 3] = bytes((0, 0, 1))
-        struct.pack_into('<I', real_header, 32, 672 + 16)
         struct.pack_into('<I', real_header, 28, len(real_header))
+        # 表の直後の見出しを小さいオフセットとして読むと、ここで止まるか座標が狂う。
+        real_header[672:676] = bytes((16, 0, 0, 0))
+        real_sectors = read_sectors(real_header)
+        assert (16, 0, 0) in real_sectors and len(real_sectors) == len(sectors)
+        real_header[672:676] = image[688:692]
         assert read_sectors(real_header) == sectors
         # 後続像だけにあるブロックが座標に出ないことを確認する。
         later = bytearray(image)
@@ -155,7 +163,8 @@ def selftest():
         combined_sectors = read_sectors(combined)
         small = bytearray(image)
         struct.pack_into('<I', small, 28, 688)
-        assert read_sectors(small) == sectors
+        # 総サイズより先は別の像とみなして読まない。
+        assert read_sectors(small) == {}
         assert read_sectors(image[:-1]) == dict(list(sectors.items())[:-1])
         duplicate = bytearray(image)
         duplicate[688 + 16 + len(a):688 + 16 + len(a) + 3] = bytes(entries[0][0])
