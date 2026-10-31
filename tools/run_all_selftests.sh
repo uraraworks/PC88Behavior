@@ -88,6 +88,7 @@ SCRIPTS_EXPECTED=(
   "tools/b8_io_values_selftest.sh:0"
   "tools/b22_differing_replies_selftest.sh:0"
   "tools/b32_differing_block_selftest.sh:0"
+  "tools/b33_rom_origin_selftest.sh:0"
   "tools/b9_sector_coordinates_selftest.sh:0"
   "tools/check_cleanroom.sh:0"
   "tools/cmp_io_selftest.sh:0"
