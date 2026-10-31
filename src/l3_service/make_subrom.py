@@ -606,6 +606,7 @@ class Asm:
     def im1(self):        self.db(0xED, 0x56)
     def reti(self):       self.db(0xED, 0x4D)
     def ret(self):        self.db(0xC9)
+    def ex_de_hl(self):   self.db(0xEB)
     def nop(self):        self.db(0x00)
     def inc_hl(self):     self.db(0x23)
     def dec_b(self):      self.db(0x05)
@@ -635,6 +636,7 @@ class Asm:
     def cp_h(self):       self.db(0xBC)   # CP H（第223版）
     def srl_b(self):      self.db(0xCB, 0x38)   # SRL B（第223版）
     def rlca(self):       self.db(0x07)   # RLCA
+    def rrca(self):       self.db(0x0F)   # RRCA
     def rra(self):        self.db(0x1F)   # RRA（第56版・m7ax: 論理トラック>>1）
     def ld_b_n(self, n):  self.db(0x06, n)  # LD B,n（ld_bと同義の明示名）
     def inc_de(self):     self.db(0x13)   # INC DE
@@ -660,6 +662,7 @@ class Asm:
     def res0_hl(self):     self.db(0xCB, 0x86)   # RES 0,(HL)
     def set0_hl(self):     self.db(0xCB, 0xC6)   # SET 0,(HL)
     def inc_hl_mem(self):  self.db(0x34)         # INC (HL)
+    def dec_hl_mem(self):  self.db(0x35)         # DEC (HL)
     def ld_a_l(self):      self.db(0x7D)         # LD A,L
     def ld_h_a(self):      self.db(0x67)         # LD H,A
     def dec_l(self):       self.db(0x2D)         # DEC L
@@ -729,6 +732,7 @@ _ASM_TEMPLATES = {
     "im1": lambda: "IM 1",
     "reti": lambda: "RETI",
     "ret": lambda: "RET",
+    "ex_de_hl": lambda: "EX DE,HL",
     "ret_nz": lambda: "RET NZ",
     "nop": lambda: "NOP",
     "inc_hl": lambda: "INC HL",
@@ -932,6 +936,7 @@ READ_END_HI = 0x4328
 # 第223版・1.36b節「main が 256×P1 を超えて受け取ろうとしても、それ以上は
 # 渡らない」: 一般READのデータ応答（1.37節の 0x12 で開始）を始めたら非0に
 # する。非0の間は、データを送り終えたあとの main の受信要求に何も送らない。
+# 1.36cのLOAD完了・RAMコードからの復帰にも、余分な単発応答の抑止として使う。
 # 次に main から受信したとき（RESET_HDR_RUN）0に戻す。
 DATA_RESPONSE_CLOSED = 0x4329
 # 第223版・1.36a節: 0x17,m で受けた m をそのまま保持する（0=未受信）。
@@ -1369,12 +1374,6 @@ def build_subrom(break_write_ack=False,
     a.pop_af()
     a.reti()
 
-    # リセットベクタ〜IM 1ベクタの固定配置を崩さないよう、B1 gate本体は
-    # 0x0038ハンドラの後へ置き、リセット側は同じ3バイトJPの行先だけ変える。
-    if inject_m6ib_b1:
-        _emit_m6ib_release_gate("M6IB_B1_RESET_GATE")
-        a.jp("BOOT_HANDSHAKE")
-
     # ---- RECV_FIRST_ARMED: RECVの手順2〜6だけを行う。
     # 第69版・m7bzで公式mainのWRITEは位置6以降を2件一組で送ると確定した。
     # 1件目のあと手順7を出さず、2件目を直接読むWRITE専用経路と、通常の
@@ -1412,13 +1411,14 @@ def build_subrom(break_write_ack=False,
     # WRITE_PREVは「データ部256バイトの直前の1バイト」になる——1.35節の
     # 位置対応でR（セクタ番号）が全15件でその位置に一致した。
     # runの長さを事前に知らなくても、末尾256とその直前1バイトが取れる。
-    a.ld_mem_a(WRITE_TMP)             # 受信バイトを一時退避（DEを壊さないため）
-    a.push_hl()
+    # 呼び出し側が使い続けるBC/DEを保存し、戻り値を使わないA/HLを作業用にする。
+    a.push_bc()
+    a.ld_c_a()                        # 受信値をCに保ち、BCは呼び出し元へ戻す
     a.ld_hl_mem(WINDOW_RUN_POS)       # L=位置、H=先頭（連続2バイト）
     a.ld_a_l()
     a.or_a()
     a.jr_nz("_hdr_window_head_done")
-    a.ld_a_mem(WRITE_TMP)
+    a.ld_a_c()
     a.ld_h_a()                        # 位置0でだけ先頭を記録
     a.label("_hdr_window_head_done")
     a.inc_l()
@@ -1431,35 +1431,29 @@ def build_subrom(break_write_ack=False,
     a.ld_h_n(WRITE_BUF >> 8)
     a.inc_a()
     a.ld_mem_a(WRITE_IDX)             # 次の位置へ（256で自然に巻き戻る）
-    a.push_bc()
     a.ld_a_mem(WRITE_PREV)
     a.ld_b_a()                        # 1つ前に追い出した値を退避
     a.ld_a_hl()                       # いま追い出される値
     a.ld_mem_a(WRITE_PREV)
     a.ld_a_b()
     a.ld_mem_a(WRITE_PREV2)           # 2バイトぶんのシフトレジスタになる
-    a.pop_bc()
-    a.ld_a_mem(WRITE_TMP)
+    a.ld_a_c()
     a.ld_hl_a()                       # WRITE_BUF[WRITE_IDX] <- 受信バイト
-    a.pop_hl()                        # HLを元に戻す（AだけがこのRAM操作で変わる）
-    a.push_af()                       # 受け取ったバイトを退避
     a.ld_a_mem(RUN_LEN)
     a.cp_n(REQ_HDR_CAPACITY)
     a.jr_nc("_hdr_store_skip")        # RUN_LEN >= CAPACITY: もう格納しない
-    a.pop_af()
-    a.push_af()
+    a.ld_a_c()
     a.ld_hl_mem(HDR_PTR)
     a.ld_hl_a()
     a.inc_hl()
     a.ld_mem_hl(HDR_PTR)
     a.label("_hdr_store_skip")
-    a.pop_af()                        # スタック平衡のため復元（以降Aは未使用）
-    a.ld_a_mem(RUN_LEN)
-    a.cp_n(0xFF)
-    a.jr_z("_hdr_run_len_done")       # 0xFFで飽和、これ以上は増やさない
-    a.inc_a()
-    a.ld_mem_a(RUN_LEN)
+    a.ld_hl_imm(RUN_LEN)
+    a.inc_hl_mem()
+    a.jr_nz("_hdr_run_len_done")
+    a.dec_hl_mem()                    # 0xFFから桁あふれした場合は戻して飽和
     a.label("_hdr_run_len_done")
+    a.pop_bc()
     a.ret()
 
     # ---- SEND_BYTE: main の RECV に応答して1バイト送る。引数は A ----
@@ -1488,12 +1482,32 @@ def build_subrom(break_write_ack=False,
     # による後続分岐）はここでは使わない。呼び出し元(IDLE_DISPATCH)が
     # 改めて$FEを読んで次の動作を決めるため、読み捨ててよい。
 
-    # ---- SEND_BOOT_SINGLE_TRACKED: 起動時の単発応答を1件送り、交換順序を
-    #      数える。第32版1.25節の分節開始は要求値ではなく、交換#0〜#2の
-    #      3応答を完遂したという外部構造だけで決める。引数Aは送信値。 ----
-    # 介入版の分岐終端は既定より3バイト長く、介入版の後続ラベルは
-    # その分だけ移動する。既定版にパディングは追加せず、HEADと同じ
-    # 2042バイトの命令列を保つ。介入版の差分数と位置は実測前関門で照合する。
+    # 1.36c: 番地・長さは上位が先。RECV_BYTEはHL/BC/DEを保存する。
+    a.label("RECV_WORD_BE")
+    a.call("RECV_BYTE")
+    a.ld_h_a()
+    a.call("RECV_BYTE")
+    a.ld_l_a()
+    a.ret()
+    a.label("FDC_OUT_THEN_N1")
+    # m7lp: A(=直前のパラメータ)を送り、続けてN=1を送る列。WRITE・単発READ・バルクREADの
+    # 3箇所に一字一句同一で置かれていたものを集約した。末尾はjpで抜ける。FDC_OUTはAFを
+    # 保存して戻るので、戻った時点のA=1・フラグは元の列と同じ。
+    a.call("FDC_OUT")
+    a.ld_a(0x01)
+    a.jp("FDC_OUT")
+    if a.pc > 0x00C1:
+        raise SystemExit("要求待ち復帰入口の前段が0x00C1を超えた")
+    while a.pc < 0x00C1:
+        a.data(0)
+    # RAMコードからの公開入口。次の受信でHDR_PTR/RUN_LENも初期化される。
+    a.label("SUB_REQUEST_RETURN")
+    a.label("_window_run_reset")
+    a.xor_a()
+    a.ld_mem_a(WINDOW_RUN_POS)
+    a.jp("IDLE_DISPATCH")
+
+    # 起動時の単発応答を数える。通常構成ではSEND_BYTEへ末尾JRする。
     a.label("SEND_BOOT_SINGLE_TRACKED")
     if fast_no_disk_response_ready:
         a.ld_b_a()                          # Aを保存し、CPのcarryを終端へ渡す
@@ -1526,7 +1540,7 @@ def build_subrom(break_write_ack=False,
         a.jp("SEND_BYTE_READY")             # 4件目以降だけ重複IN $FEを省く
     else:
         a.pop_af()
-        a.jp("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
+        a.jr("SEND_BYTE")                 # 末尾呼び出し: calleeから元の呼び出し元へ直接戻る
 
     # ====================================================================
     # 起動順序（仕様書 1.16節。4条件で1バイトも違わず一致した手順を
@@ -1544,6 +1558,11 @@ def build_subrom(break_write_ack=False,
     # 6節12項（判別条件は未確定）に従い、手順5で受け取ったバイトの値を
     # 見て分岐すること（推測によるディスパッチ）はしない——結果は捨てる。
     # ====================================================================
+    # 固定入口0x0038/0x00C1を動かさず、B1介入本体をその後ろに置く。
+    if inject_m6ib_b1:
+        _emit_m6ib_release_gate("M6IB_B1_RESET_GATE")
+        a.jp("BOOT_HANDSHAKE")
+
     a.label("BOOT_HANDSHAKE")
     a.out_imm(P_STROBE, BOOT_F7_VALUE)     # 手順1: OUT $F7,0x08
     a.out_imm(0xFF, BOOT_FF_VALUE)         # 手順2: OUT $FF,0x91
@@ -1972,7 +1991,9 @@ def build_subrom(break_write_ack=False,
     #      無い。振る舞いは不変（各呼び出し元でA・フラグへの依存が無いことを
     #      m7fvで確認済み）。 ----
     a.label("_seek_sense_f7_shared")
-    a.ld_e(0x00)
+    # 通常のFDC_SEEKは要求からEを設定するため、重複するE=0は要らない。
+    if break_drive_selector:
+        a.ld_e(0x00)
     a.call("FDC_SEEK")
     a.call("FDC_SENSE_DRIVE_STATUS")
     a.out_imm(P_STROBE, BOOT_F7_VALUE)
@@ -1986,7 +2007,7 @@ def build_subrom(break_write_ack=False,
     # 一般READ・交換#3の各所でも同一だったので、ここから入れるようにした。
     a.label("_read_sector_ready")
     a.call("FDC_READ_SECTOR")
-    a.label("_sector_ready_set")       # 第223版: 複数セクタの一般READもここから入る
+    a.label("_sector_ready_set")       # 起動時READの遅延応答を準備する
     a.ld_a(0x01)
     a.ld_mem_a(SECTOR_READY)
     a.ret()
@@ -2113,10 +2134,8 @@ def build_subrom(break_write_ack=False,
     a.ld_hl("_window_run_lengths")
     a.add_hl_de()
     a.ld_a_hl()
-    a.or_a()
-    a.jr_nz("_window_run_known")
-    a.inc_a()                          # 未観測種はNZで返す
-    a.ret()
+    # 呼び出しは受信・格納後だけなので位置は1以上。
+    # 未観測種の長さ0とも同じ比較でNZ・C=0となる。
     a.label("_window_run_known")
     a.ld_b_a()
     a.ld_a_mem(WINDOW_RUN_POS)
@@ -2129,6 +2148,33 @@ def build_subrom(break_write_ack=False,
               0x06: 1, 0x07: 1, 0x0B: 5,
               0x0D: 4, 0x0E: 7, REQUEST_KIND_WRITE: 5,
               0x12: 1, 0x14: 2, 0x17: 2}.get(_head, 0))
+
+    # 1.36c: ヘッダと本体を直接受信するため、16バイトの要求バッファの
+    # 上限・run長の飽和に依存しない。既存RAM配置は変えない。
+    a.label("_general_load_run")
+    a.call("RECV_WORD_BE")             # HL=実行/書き込み先
+    a.push_hl()
+    a.ld_a_b()
+    # LOAD/RUNには応答を保留しない。要求値はどちらも非0なので、
+    # 次の要求のRESET_HDR_RUNまで、完了・RAMコード復帰後の送信を閉じる。
+    a.ld_mem_a(DATA_RESPONSE_CLOSED)
+    a.cp_n(0x0D)
+    a.ret_z()                          # 要求0x0D: 積んだ番地へ制御を移す
+    a.label("_general_load")
+    a.call("RECV_WORD_BE")
+    a.ex_de_hl()                       # DE=長さ
+    a.pop_hl()
+    a.jr("_general_load_check")
+    a.label("_general_load_byte")
+    a.call("RECV_BYTE")
+    a.ld_hl_a()
+    a.inc_hl()
+    a.dec_de()
+    a.label("_general_load_check")
+    a.ld_a_d()
+    a.or_e()
+    a.jr_nz("_general_load_byte")
+    a.jp("SUB_REQUEST_RETURN")
 
     # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
     # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
@@ -2158,7 +2204,8 @@ def build_subrom(break_write_ack=False,
         a.call("FDC_SENSE_DRIVE_STATUS")
         a.jr("_general_read_request")
     a.call("_read_request_decode")     # 第223版: 1.36a節の論理トラック解釈（A=C）
-    a.ld_e(0x00)
+    if break_drive_selector:
+        a.ld_e(0x00)
     # m7gc事前登録（general_read_request）: FDC_SEEK直前・A=C(目的シリンダ)
     # のまま。cylはこのAを直接動かす陽性対照。
     _emit_probe("general_read_request")
@@ -2191,7 +2238,8 @@ def build_subrom(break_write_ack=False,
     a.add_a_n((SECTOR_BUF >> 8) + 1)
     a.ld_d_a()                         # 読み終わり = SECTOR_BUF + 256×セクタ数
     a.call("FDC_READ_SECTORS")
-    a.call("_sector_ready_set")
+    # 一般READは0x12で明示的に接続する。起動時の交換#4用の
+    # SECTOR_READYは立てず、残った受信準備bitによる早期接続を避ける。
     # 第68版・1.37節: 一般READを完了するたび、結果263件の直後にはまだ
     # ackを送らず、POST_BULK_ACTIVEを「次に待つ受信値=0x06」へ再アーム
     # してアイドル受信へ戻る。1.37節が実測したのはバルク後最初のREAD
@@ -2199,6 +2247,7 @@ def build_subrom(break_write_ack=False,
     # 越えた実装上の選択である。
     a.ld_a(0x06)
     a.ld_mem_a(POST_BULK_ACTIVE)
+    a.ld_mem_a(DATA_RESPONSE_CLOSED)   # 0x06を受信するまで応答を閉じる
     a.jp("IDLE_DISPATCH")
 
 
@@ -2312,7 +2361,8 @@ def build_subrom(break_write_ack=False,
     a.ld_l_a()                           # 下位バイトの差し替えだけで足りる
     a.ld_a_hl()
     a.ld_mem_a(BULK_C)
-    a.ld_e(0x00)
+    if break_drive_selector:
+        a.ld_e(0x00)
     # m7gc事前登録（bulk_read_do）: FDC_SEEK直前。
     _emit_probe("bulk_read_do")
     a.call("FDC_SEEK")
@@ -2490,13 +2540,6 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(SECTOR_READY)
     a.ret()
-    a.label("FDC_OUT_THEN_N1")
-    # m7lp: A(=直前のパラメータ)を送り、続けてN=1を送る列。WRITE・単発READ・バルクREADの
-    # 3箇所に一字一句同一で置かれていたものを集約した。末尾はjpで抜ける。FDC_OUTはAFを
-    # 保存して戻るので、戻った時点のA=1・フラグは元の列と同じ。
-    a.call("FDC_OUT")
-    a.ld_a(0x01)
-    a.jp("FDC_OUT")
     a.label("FDC_READ_BULK")
     a.ld_a(0x46); a.call("FDC_BEGIN")
     a.ld_a_mem(BULK_UNIT_HEAD); a.call("FDC_OUT")
@@ -2507,6 +2550,8 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(BULK_EOT); a.call("FDC_OUT_EOT_GPL_DTL")   # GPL・DTLは共有列
     # 第118版・m7fc: 単発READと同じN=1短GAP分類をバルクREADにも適用する。
     a.ld_hl_mem(BULK_DEST)
+    a.ld_a_mem(BULK_SECTORS)
+    a.ld_c_a()
     a.label("_bulk_read_sector")
     a.ld_b(0x00)
     a.label("_bulk_read_byte")
@@ -2514,9 +2559,7 @@ def build_subrom(break_write_ack=False,
     a.ld_hl_a()
     a.inc_hl()
     a.djnz("_bulk_read_byte")
-    a.ld_a_mem(BULK_SECTORS)
-    a.dec_a()
-    a.ld_mem_a(BULK_SECTORS)
+    a.dec_c()
     a.jr_nz("_bulk_read_sector")
     a.call("FDC_IN_7")
     a.jp("FDC_TC")                    # 末尾呼び出し（第69版容量圧縮）
@@ -2604,9 +2647,7 @@ def build_subrom(break_write_ack=False,
     # ====================================================================
     a.label("MAIN_LOOP")
     # 進行状態を初期化する（起動直後の1回だけ）。第13版でRUN_LENを追加。
-    a.ld_hl_imm(REQ_HDR)
-    a.ld_mem_hl(HDR_PTR)
-    a.xor_a()
+    a.call("RESET_HDR_RUN")
     a.ld_mem_a(LAST_ST0)            # m7lm: 最初のREAD DATAより前に9件後の応答の判定を通っても、
                                     # 初期化されていない値で判定しない（0=正常終了として扱う）
     a.ld_mem_a(LOGICAL_TRACK_FLAGS) # 第223版: 0x17を受けるまでは論理トラック変換なし
@@ -2660,15 +2701,12 @@ def build_subrom(break_write_ack=False,
     # 汎用RECV優先では同時成立する過渡bitで次要求へ再入してしまう。
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
-    a.jr_z("_idle_dispatch_generic")
-    a.ld_a_b()
-    a.and_a(FE_BIT_IDLE_SEND)
-    a.jp_nz("SEND_DISPATCH")
-    a.jr("IDLE_DISPATCH")
+    a.jr_nz("_idle_dispatch_send")
     a.label("_idle_dispatch_generic")
     a.ld_a_b()
     a.and_a(FE_BIT_IDLE_RECV)        # bit3=1なら確定済みのRECV分岐
     a.jr_nz("RECV_DISPATCH")
+    a.label("_idle_dispatch_send")
     a.ld_a_b()
     a.and_a(FE_BIT_IDLE_SEND)        # bit1=1なら未確定のSEND分岐(判定方式のみビット化)
     a.jp_nz("SEND_DISPATCH")
@@ -2720,6 +2758,20 @@ def build_subrom(break_write_ack=False,
         a.cp_n(0x12)
         a.jp_z("_post_read_received_12")
         a.label("_recv_dispatch_store_received")
+        # 0x0Dは起動時の交換#14にも現れる。未完了のその段階だけは
+        # 従来の4バイト要求を優先し、それ以外は一般のLOAD/RUNへ渡す。
+        a.ld_a_b()
+        a.cp_n(0x0C)
+        a.jp_z("_general_load_run")
+        a.cp_n(0x0D)
+        a.jr_nz("_recv_dispatch_ordinary")
+        a.ld_a_mem(POST_BULK_ACTIVE)
+        a.or_a()
+        a.jp_nz("_general_load_run")
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(5)
+        a.jp_nz("_general_load_run")
+        a.label("_recv_dispatch_ordinary")
         a.ld_a_b()
     a.call("HDR_STORE_AND_CHECK")     # REQ_HDRへ格納しRUN_LENを進める
     if not break_fixed_byte_cutoff:
@@ -2753,6 +2805,14 @@ def build_subrom(break_write_ack=False,
         a.label("_recv_dispatch_after_first_bulk_check")
         a.call("WINDOW_RUN_COMPLETE")
         a.jr_z("_recv_dispatch_window_done")
+        if not break_run_continuation:
+            # 読み要求0x02は5バイト。先頭は表引き時のEに残っている。
+            # READ応答の受信準備bitが残っていても、途中で要求を切らない。
+            a.ld_a_e()
+            a.cp_n(0x02)
+            a.jr_nz("_recv_dispatch_continue")
+            a.call("RECV_BYTE")
+            a.jr("_recv_dispatch_store_continued")
 
     if break_fixed_byte_cutoff:
         # tools/verify_l3.sh の`--fixed-byte-cutoff-test`回帰テストが
@@ -2795,6 +2855,7 @@ def build_subrom(break_write_ack=False,
         a.and_a(FE_BIT_RECV_DATA_READY)       # bit0: 相手が続けてデータを書いた(runが続いている)合図
         a.jr_z("_recv_dispatch_poll")
         a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜7を続ける
+        a.label("_recv_dispatch_store_continued")
         a.call("HDR_STORE_AND_CHECK")
         if break_fixed_byte_cutoff:
             a.ld_hl_mem(HDR_PTR)
@@ -2804,22 +2865,8 @@ def build_subrom(break_write_ack=False,
             a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: ポーリングを繰り返す
             # Z: 8バイト到達。そのまま_recv_dispatch_hdr_doneへ落ちる
         else:
-            # 第44版: 交換#14累積12件目はrun終了待ちへ戻さず直接バルク入口。
-            a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-            a.cp_n(0x05)
-            a.jr_nz("_recv_dispatch_after_cont_bulk_check")
-            a.ld_a_mem(RUN_LEN)
-            a.cp_n(12)
-            a.jp_z("BULK_SEND")
-            a.label("_recv_dispatch_after_cont_bulk_check")
-            # 最初の受信と同じ2/5/1境界判定。2件後はアイドルへ戻り、
-            # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
-            # 第223版: この判定は最初の受信後の判定と命令列が同一（分岐先も
-            # 同じ。break_run_continuation の版はここを通らない）だったので、
-            # 容量のためそちらへ合流する。合流先で交換#3が無効なら
-            # _recv_dispatch_after_first_progress へ進み、交換#14の12件目判定を
-            # もう一度行うが、直前の判定と同じ値を見るので結果は変わらない
-            # （旧版も同じ順でそこへ合流していた）。
+            # 仕様書1.25・1.34節: 最初の受信と同じ進行判定へ合流する。
+            # 合流先が交換#14の12件目も検査するため、重複判定は不要。
             a.jr("_recv_dispatch_exchange3_check")
 
     if not break_fixed_byte_cutoff:
@@ -2911,7 +2958,8 @@ def build_subrom(break_write_ack=False,
     # RESP_ACTIVEを立てない。応答は下のEXCHANGE3_RESPONSE_PENDING経路で
     # 内部状態1バイトだけを返す。
     a.ld_a_mem(REQ_HDR + 4)
-    a.ld_e(0x00)
+    if break_drive_selector:
+        a.ld_e(0x00)
     # m7gc事前登録（recv_dispatch_hdr_done）: FDC_SEEK直前。到達自体が
     # 不確かな箇所（m7fx「到達するかも不明」）なので、cylが差を出すかで
     # まず到達を判定する。
@@ -3008,7 +3056,7 @@ def build_subrom(break_write_ack=False,
         a.label("_logical_track_flags_set")
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(LOGICAL_TRACK_FLAGS)
-        a.jr("_window_run_reset")
+        a.jp("_window_run_reset")
         # 長さ2のrun `0x14, D`（第223版1.35a節）: SはDと同じ値。応答1バイトを返す。
         # 応答値は1.35a節から決まらない。conform_l3 の混成腕（LOAD・シーケンシャル
         # ファイル出力入力・KILL・NAME・BSAVE・ランダムアクセスPUT/GET・削除済みLOAD
@@ -3024,10 +3072,7 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(REQ_HDR + 2)
         a.call("FDC_SENSE_DRIVE_STATUS")
         a.call("SEND_BYTE")
-        a.label("_window_run_reset")
-        a.xor_a()
-        a.ld_mem_a(WINDOW_RUN_POS)        # 次のバイトを新しいrunの先頭として数える
-        a.jp("IDLE_DISPATCH")             # RECV_DISPATCHがHDR_PTR・RUN_LENを初期化する
+        a.jp("_window_run_reset")
 
         # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
         # 従って準備する。unit/head・Rは要求位置4に直接一致し、C/Hは
@@ -3086,8 +3131,8 @@ def build_subrom(break_write_ack=False,
         a.call("ACTIVATE_SECTOR_RESPONSE")   # m7lp: RESP_PTR←HL・RESP_ACTIVE←1・SECTOR_READY←0（共有列）
         a.jp("IDLE_DISPATCH")
 
-        # 0x06受信後はack 0xC0を既存の単発応答経路へ1件だけ保留する。
-        # SECTOR_READYは維持するため、この時点では256件送信を開始しない。
+        # 0x06受信後はackを既存の単発応答経路へ1件だけ保留する。
+        # データ応答は次の0x12で接続する。
         a.label("_post_read_received_06")
         # この0x06は汎用応答表を通らない。次のWRITEの前置Sとして保持する。
         a.ld_mem_a(WRITE_LAST_S)
@@ -3157,16 +3202,13 @@ def build_subrom(break_write_ack=False,
     a.call("BULK_SEND_POSITION2")
     a.ld_hl_imm(BULK_DATA + 4 * 256)
     a.call("BULK_SEND_POSITION3")
-    a.ld_a(21)
-    a.ld_mem_a(BULK_BLOCKS)
+    a.ld_c(21)                       # BULK_SEND_ONEと待機ルーチンはCを保存する
     a.label("_bulk_block")
     a.ld_b(0x00)                       # DJNZで256周期
     a.label("_bulk_block_item")
     a.call("BULK_SEND_ONE")
     a.djnz("_bulk_block_item")
-    a.ld_a_mem(BULK_BLOCKS)
-    a.dec_a()
-    a.ld_mem_a(BULK_BLOCKS)
+    a.dec_c()
     a.jr_nz("_bulk_block")
     a.ld_b(255)                       # 21*256+255=5631組
     a.label("_bulk_tail_item")
@@ -3197,7 +3239,7 @@ def build_subrom(break_write_ack=False,
     # 第67版・1.36節: bulkが実際にここまで完走した時点で初めて立てる。
     # これより前（交換#3/#6/#7/#11/#12/#14自身の受信中）はPOST_BULK_ACTIVE=0
     # のままなので、1.36節の先頭バイト0x02打ち切りはここより後にしか効かない。
-    a.ld_a(0x01)
+    a.inc_a()                         # RESET_HDR_RUN以降A=0のまま
     a.ld_mem_a(POST_BULK_ACTIVE)
     a.jp("IDLE_DISPATCH")
 
@@ -3247,8 +3289,7 @@ def build_subrom(break_write_ack=False,
     a.jr("BULK_SEND_CONST")
 
     a.label("BULK_SEND_POSITION2")
-    a.ld_a(5632 // 256)                # 第46版: 定常転送組数
-    a.jr("BULK_SEND_CONST")
+    a.ld_a(5632 // 256)                # 第46版: 定常転送組数（直下へ合流）
 
     # ---- 第71版容量圧縮: 上の5入口で同一だった開始・終了I/O列を共有する。
     # POSITION1/2はさらに、Aで渡す定数以外が同一なので本体も共有する。 ----
@@ -3331,12 +3372,12 @@ def build_subrom(break_write_ack=False,
     # 第41版1.33節: 0→1で交換#6待ち、2→3で交換#11待ち、
     # 4→5で三組目完了となる。
     a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-    a.or_a()                        # CP 0相当（Zだけを見る。容量1バイト）
-    a.jr_z("_advance_boot_read_pair_stage")
-    a.cp_n(0x02)
-    a.jr_z("_advance_boot_read_pair_stage")
-    a.cp_n(0x04)
-    a.jr_nz("_boot_read_pair_stage_done")
+    # RRCA後に3未満なのは元が0/2/4の場合だけ。奇数はbit7が立つ。
+    # 比較3回を同値な範囲判定へまとめ、該当時だけ元の段階を復元する。
+    a.rrca()
+    a.cp_n(3)
+    a.jr_nc("_boot_read_pair_stage_done")
+    a.rlca()
     a.label("_advance_boot_read_pair_stage")
     a.inc_a()
     a.ld_mem_a(BOOT_READ_PAIR_STAGE)
@@ -3386,7 +3427,12 @@ def build_subrom(break_write_ack=False,
     a.label("_exchange3_normal_response")
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
     a.label("_exchange3_send_response")
+    a.label("_send_byte_idle")
     a.call("SEND_BYTE")
+    # 起動後の単発応答を閉じ、次の要求（READでは0x12）まで待つ。
+    # 起動中のPOST_BULK_ACTIVE=0では従来の交換#4への接続を保つ。
+    a.ld_a_mem(POST_BULK_ACTIVE)
+    a.ld_mem_a(DATA_RESPONSE_CLOSED)
     a.jp("IDLE_DISPATCH")
 
     a.label("SEND_DISPATCH_IDLE")
@@ -3398,6 +3444,7 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     a.ld_a(ROUND0_OBSERVED_RESPONSE)
+    a.label("_send_tracked_idle")
     a.call("SEND_BOOT_SINGLE_TRACKED")
     if inject_m6ib_b5:
         _emit_m6ib_release_gate("M6IB_B5_AFTER_ROUND0_GATE")
@@ -3505,11 +3552,13 @@ def build_subrom(break_write_ack=False,
     a.and_a(0x80)
     a.ld_a_hl()                      # LD A,(HL)はフラグを変えない
     a.jr_nz("_osbr_send_tracked")
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")
+    a.jr("_send_byte_idle")
     a.label("_osbr_send_tracked")
-    a.call("SEND_BOOT_SINGLE_TRACKED")
-    a.jp("IDLE_DISPATCH")
+    if inject_m6ib_b5 or inject_m6ie_single_read or inject_m6ie_nops_only:
+        a.call("SEND_BOOT_SINGLE_TRACKED")
+        a.jp("IDLE_DISPATCH")
+    else:
+        a.jr("_send_tracked_idle")
     a.label("_osbr_skip")            # HL -> 未照合の期待値、B = 残り件数
     a.inc_hl()
     a.djnz("_osbr_skip")
@@ -3559,8 +3608,7 @@ def build_subrom(break_write_ack=False,
     # それは承知の上で許容する——適合条件はmain側のデータ列であり、
     # sub側のI/O列一致はそもそも目標に含まれていない。
     a.call("FDC_SENSE_DRIVE_STATUS")
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
+    a.jp("_send_byte_idle")
 
     return a
 
