@@ -1,0 +1,27 @@
+# 識別子: G1
+# 走: official-2
+# 開始: boot-sector
+events: 3706126
+dropped: 0
+runs: 941113
+port IN 0009 hi 2666441
+port IN 0032 hi 1
+port IN 0044 hi 145276
+port IN 0045 hi 1
+port IN 00FC hi 47884
+port IN 00FE hi 148818
+port OUT 0030 hi 1
+port OUT 0031 hi 3
+port OUT 0032 hi 1
+port OUT 0044 hi 72638
+port OUT 0045 hi 72637
+port OUT 0051 hi 1
+port OUT 0053 hi 1
+port OUT 005C hi 65448
+port OUT 005D hi 65430
+port OUT 005E hi 65511
+port OUT 005F hi 195466
+port OUT 00E4 hi 52268
+port OUT 00E6 hi 1
+port OUT 00FD hi 857
+port OUT 00FF hi 98405
