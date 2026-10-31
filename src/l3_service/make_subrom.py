@@ -1524,6 +1524,13 @@ def build_subrom(break_write_ack=False,
     if not (break_dispatch_return or break_fixed_byte_cutoff
             or restore_request_kind_length6):
         a.call("RESET_HDR_RUN")           # HL=REQ_HDR、RUN_LEN=0
+        # LOAD/RUNはSEND_BYTEを通らないため、次の要求に備えて受信窓も畳む。
+        a.ld_mem_a(WINDOW_RUN_POS)
+        # 第227版: 公開入口へ戻ったあとは起動用応答や先行READの応答を残さない。
+        a.ld_mem_a(ROUND0_RESPONSE_PENDING)
+        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
+        a.inc_a()
+        a.ld_mem_a(POST_BULK_ACTIVE)       # 先行READの0x06/0x12待ちも終了
         a.call("RECV_BYTE")
         a.ld_b_a()
         a.cp_n(0x02)
@@ -2159,7 +2166,8 @@ def build_subrom(break_write_ack=False,
     # 完了後は公開入口で直接受信するため、応答抑止フラグは不要。
     a.rra()                            # bit0をキャリーへ移す
     a.jr_nc("_general_load")
-    a.di()                             # 1.36c: 実行先へ移る前に割り込み禁止
+    # 通常はFDC処理がDI済み。EIして公開入口へ戻った場合は、その状態を
+    # 次のLOAD/RUNでも維持する（1.36c、第225版の復帰入口）。
     a.im0()                            # 1.36c: 実行先ではモード0
     a.ret()
     a.label("_general_load")
@@ -2692,15 +2700,13 @@ def build_subrom(break_write_ack=False,
     # 汎用RECV優先では同時成立する過渡bitで次要求へ再入してしまう。
     a.ld_a_mem(RESP_ACTIVE)
     a.or_a()
-    a.jr_z("_idle_dispatch_generic")
-    a.ld_a_b()
-    a.and_a(FE_BIT_IDLE_SEND)
-    a.jp_nz("SEND_DISPATCH")
-    a.jr("IDLE_DISPATCH")
+    # 第227版容量圧縮: SEND待ちの同一判定を通常経路と共有する。
+    a.jr_nz("_idle_dispatch_send_check")
     a.label("_idle_dispatch_generic")
     a.ld_a_b()
     a.and_a(FE_BIT_IDLE_RECV)        # bit3=1なら確定済みのRECV分岐
     a.jr_nz("RECV_DISPATCH")
+    a.label("_idle_dispatch_send_check")
     a.ld_a_b()
     a.and_a(FE_BIT_IDLE_SEND)        # bit1=1なら未確定のSEND分岐(判定方式のみビット化)
     a.jp_nz("SEND_DISPATCH")
@@ -2746,7 +2752,12 @@ def build_subrom(break_write_ack=False,
         a.ld_b_a()
         a.ld_a_mem(POST_BULK_ACTIVE)
         a.cp_b()
+        a.jr_z("_recv_dispatch_post_read_match")
+        # 第227版: 0x12でデータを渡す前は、0x06の再照会にも同じ状態を返す。
+        a.cp_n(0x12)
         a.jr_nz("_recv_dispatch_store_received")
+        a.ld_a_b()
+        a.label("_recv_dispatch_post_read_match")
         a.cp_n(0x06)
         a.jp_z("_post_read_received_06")
         a.cp_n(0x12)
@@ -2850,22 +2861,9 @@ def build_subrom(break_write_ack=False,
             a.jr_nz("_recv_dispatch_continue")    # まだ8バイト未満: ポーリングを繰り返す
             # Z: 8バイト到達。そのまま_recv_dispatch_hdr_doneへ落ちる
         else:
-            # 第44版: 交換#14累積12件目はrun終了待ちへ戻さず直接バルク入口。
-            a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-            a.cp_n(0x05)
-            a.jr_nz("_recv_dispatch_after_cont_bulk_check")
-            a.ld_a_mem(RUN_LEN)
-            a.cp_n(12)
-            a.jp_z("BULK_SEND")
+            # 第227版容量圧縮: 合流先の交換#3判定と交換#14の12件判定を共有。
+            # 段階5では交換#3は完了済みなので、ここでの重複判定は不要。
             a.label("_recv_dispatch_after_cont_bulk_check")
-            # 最初の受信と同じ2/5/1境界判定。2件後はアイドルへ戻り、
-            # 7件後はFDCデータを準備し、8件後に単発応答を保留する。
-            # 第223版: この判定は最初の受信後の判定と命令列が同一（分岐先も
-            # 同じ。break_run_continuation の版はここを通らない）だったので、
-            # 容量のためそちらへ合流する。合流先で交換#3が無効なら
-            # _recv_dispatch_after_first_progress へ進み、交換#14の12件目判定を
-            # もう一度行うが、直前の判定と同じ値を見るので結果は変わらない
-            # （旧版も同じ順でそこへ合流していた）。
             a.jr("_recv_dispatch_exchange3_check")
 
     if not break_fixed_byte_cutoff:
@@ -3070,8 +3068,8 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(WRITE_LAST_S)
         a.ld_mem_a(REQ_HDR + 2)
         a.call("FDC_SENSE_DRIVE_STATUS")
-        a.call("SEND_BYTE")
-        a.jp("_window_run_reset")
+        # SEND_BYTE自身がWINDOW_RUN_POSを畳むため、同じ送信末尾へ合流する。
+        a.jp("_exchange3_send_response")
 
         # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
         # 従って準備する。unit/head・Rは要求位置4に直接一致し、C/Hは
@@ -3422,11 +3420,10 @@ def build_subrom(break_write_ack=False,
     a.label("_exchange3_st0_ready")
     a.and_a(0xC0)                   # Interrupt Code。00=正常終了
     a.jr_z("_exchange3_normal_response")
-    # 全256候補の探索で末端一致群はbit6=0とだけ確定した。既定0x00は、
-    # 未確定の残る7ビットを自作側の選択として0にした値であり、公式の
-    # 応答値と同じだとは主張しない。候補指定は探索再現用に優先する。
+    # 1.36c第227版: 読み失敗への0x06応答は0x81。
+    # 候補指定とbit6故障注入は従来の検出力確認用に残す。
     error_response = (error_response_candidate if error_response_candidate is not None
-                      else (0x40 if break_error_response_bit6 else 0x00))
+                      else (0xC1 if break_error_response_bit6 else 0x81))
     a.ld_a(error_response)
     a.jr("_exchange3_send_response")
     a.label("_exchange3_normal_response")
@@ -3551,8 +3548,7 @@ def build_subrom(break_write_ack=False,
     a.and_a(0x80)
     a.ld_a_hl()                      # LD A,(HL)はフラグを変えない
     a.jr_nz("_osbr_send_tracked")
-    a.call("SEND_BYTE")
-    a.jr("_osbr_sent")
+    a.jp("_exchange3_send_response")   # 第227版: 1バイト送信とアイドル復帰を共有
     a.label("_osbr_send_tracked")
     a.call("SEND_BOOT_SINGLE_TRACKED")
     a.label("_osbr_sent")
@@ -3606,8 +3602,7 @@ def build_subrom(break_write_ack=False,
     # それは承知の上で許容する——適合条件はmain側のデータ列であり、
     # sub側のI/O列一致はそもそも目標に含まれていない。
     a.call("FDC_SENSE_DRIVE_STATUS")
-    a.call("SEND_BYTE")
-    a.jp("IDLE_DISPATCH")   # 遠方分岐のためJP
+    a.jp("_exchange3_send_response")   # 第227版: 同一の送信末尾を共有
 
     return a
 
@@ -3917,7 +3912,7 @@ def main():
                     metavar="N",
                     help="READ DATA結果がST0 IC=異常終了かつST1 MISSING ADDRESS "
                          "MARKのとき、交換#3型1バイト応答をNへ差し替える探索用"
-                         "候補（0〜255）。未指定時は自作既定値0x00。")
+                         "候補（0〜255）。未指定時は仕様1.36cの0x81。")
     ap.add_argument("--probe-site",
                     choices=(
                         "general_read_request",
