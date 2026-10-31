@@ -53,6 +53,7 @@ class MiniZ80:
         self.a = self.b = self.c = 0
         self.d = self.e = self.h = self.l = 0
         self.zf = False
+        self.cf = False
         self.pc = 0
         self.short_compare = short_compare
 
@@ -88,6 +89,7 @@ class MiniZ80:
 
     def _cp(self, v):
         self.zf = (self.a == v)
+        self.cf = (self.a < v)
 
     def run(self, start, max_steps=100000):
         """(停止理由, A) を返す。"""
@@ -123,9 +125,14 @@ class MiniZ80:
                 self._set_de(self._de() + 1)
             elif op == 0xB7:  # OR A
                 self.zf = (self.a == 0)
+                self.cf = False
+            elif op == 0x07:  # RLCA。Zは保存し、旧bit7をcarryへ移す
+                self.cf = bool(self.a & 0x80)
+                self.a = ((self.a << 1) | int(self.cf)) & 0xFF
             elif op == 0xE6:  # AND n
                 self.a &= self._imm8()
                 self.zf = (self.a == 0)
+                self.cf = False
             elif op == 0xFE:  # CP n
                 self._cp(self._imm8())
             elif op == 0xB8:  # CP B
@@ -158,6 +165,10 @@ class MiniZ80:
             elif op == 0x20:  # JR NZ,e
                 t = self._rel()
                 if not self.zf:
+                    self.pc = t
+            elif op == 0x38:  # JR C,e
+                t = self._rel()
+                if self.cf:
                     self.pc = t
             elif op == 0x10:  # DJNZ e
                 t = self._rel()

@@ -698,6 +698,7 @@ class Asm:
     def call(self, name):    self.db(0xCD); self._abs(name)
     def call_z(self, name):  self.db(0xCC); self._abs(name)
     def jp(self, name):      self.db(0xC3); self._abs(name)
+    def jp_hl(self):         self.db(0xE9)   # JP (HL)
     def jp_nz(self, name):   self.db(0xC2); self._abs(name)   # JP NZ,nn（第13版で追加。相対ジャンプが届かない遠方分岐用）
     def jp_z(self, name):    self.db(0xCA); self._abs(name)   # JP Z,nn
     def jr(self, name):      self.db(0x18); self._rel(name)
@@ -812,6 +813,7 @@ _ASM_TEMPLATES = {
     "ld_hl": lambda name: f"LD HL,{name}",
     "call": lambda name: f"CALL {name}",
     "jp": lambda name: f"JP {name}",
+    "jp_hl": lambda: "JP (HL)",
     "jp_nz": lambda name: f"JP NZ,{name}",
     "jp_z": lambda name: f"JP Z,{name}",
     "jr": lambda name: f"JR {name}",
@@ -1616,7 +1618,7 @@ def build_subrom(break_write_ack=False,
     # 固定入口0x0038/0x00C1を動かさず、B1介入本体をその後ろに置く。
     if inject_m6ib_b1:
         _emit_m6ib_release_gate("M6IB_B1_RESET_GATE")
-        a.jp("BOOT_HANDSHAKE")
+        # 解除後は直後の起動入口へ落ちる。固定入口・ゲートのI/Oは不変。
 
     a.label("BOOT_HANDSHAKE")
     a.out_imm(P_STROBE, BOOT_F7_VALUE)     # 手順1: OUT $F7,0x08
@@ -2165,7 +2167,7 @@ def build_subrom(break_write_ack=False,
     # 通常はFDC処理がDI済み。EIして公開入口へ戻った場合は、その状態を
     # 次のLOAD/RUNでも維持する（1.36c、第225版の復帰入口）。
     a.im0()                            # 1.36c: 実行先ではモード0
-    a.db(0xE9)                         # JP (HL)
+    a.jp_hl()
     a.label("_general_load")
     a.ex_de_hl()                       # DE=番地を保ったまま長さを受信
     a.call("RECV_WORD_BE")
@@ -3444,6 +3446,7 @@ def build_subrom(break_write_ack=False,
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
     a.label("_exchange3_send_response")
     a.call("SEND_BYTE")
+    a.label("_single_response_sent")
     a.jp("IDLE_DISPATCH")
 
     a.label("SEND_DISPATCH_IDLE")
@@ -3465,7 +3468,7 @@ def build_subrom(break_write_ack=False,
     elif inject_m6ie_nops_only:
         for _ in range(6):
             a.nop()
-    a.jp("IDLE_DISPATCH")
+    a.jr("_single_response_sent")    # 共通の戻り先を使い、フェッチ窓の余白を確保
 
     # m7hの要求グループ→応答グループ決定関数。意味未特定の観測応答であり、
     # 意味が判明した場合は要求の意味に基づくルール生成へ差し替える。
@@ -3566,7 +3569,7 @@ def build_subrom(break_write_ack=False,
     a.label("_osbr_send_tracked")
     a.call("SEND_BOOT_SINGLE_TRACKED")
     a.label("_osbr_sent")
-    a.jp("IDLE_DISPATCH")
+    a.jr("_single_response_sent")    # 送信種別・I/O手順はそのまま
     a.label("_osbr_skip")            # HL -> 未照合の期待値、B = 残り件数
     a.inc_hl()
     a.djnz("_osbr_skip")
