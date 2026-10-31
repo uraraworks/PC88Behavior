@@ -1313,6 +1313,64 @@ _b10_no_stamp:
     RET
 """
 
+# B16 の各行は独立起動。件数は要求先頭以降の送信成功数。
+B16_ROWS = ((), (0x0c,0,0,0,0), (0x0c,1,0,0,0),
+            (0x0c,0,1,0,0), (0x0c,0,0,1,0), (0x0c,0,0,0,1),
+            (0x0c,0x10,0,0,0x78), (0x0c,0,0x78,0x10,0),
+            (0x0c,0x78,0,0,0x10), (0x0c,0x10,0,0x78,0),
+            (0x0c,0,0x78,0,0x10), (0x0d,0,0,0,0),
+            (0x0d,0,0x78,0x10,0), (0x0d,0x10,0,0,0x78),
+            (0x0c,0,0x78,0x20,0))
+
+def b16_boot(row: int) -> str:
+    data = B16_ROWS[row-1]
+    sends = ''
+    for i, value in enumerate(data):
+        routine = 'MAIN_SUB_SEND' if i == 0 else 'MAIN_SUB_SEND_REQUEST_CONT'
+        sends += f"    LD A,0{value:02X}h\n    CALL {routine}\n    JP C,_b16_timeout\n    LD A,(0DF50h)\n    INC A\n    LD (0DF50h),A\n"
+    if data:
+        sends += """    LD B,040h
+_b16_padding:
+    LD A,055h
+    CALL MAIN_SUB_SEND_REQUEST_CONT
+    JP C,_b16_timeout
+    LD A,(0DF50h)
+    INC A
+    LD (0DF50h),A
+    DJNZ _b16_padding
+"""
+    return """MAIN_SUB_READ_INIT:
+    XOR A
+    LD (MAIN_SUB_BOOT_DONE),A
+    LD (0DF50h),A
+    LD (0DF52h),A
+    LD (0DF53h),A
+    RET
+MAIN_SUB_READ_BOOT_ONCE:
+    LD A,(MAIN_SUB_BOOT_DONE)
+    OR A
+    RET NZ
+    INC A
+    LD (MAIN_SUB_BOOT_DONE),A
+    XOR A
+    CALL MAIN_SUB_SEND
+    JP C,_b16_timeout
+    LD A,017h
+    CALL MAIN_SUB_SEND
+    JP C,_b16_timeout
+    LD A,00Fh
+    CALL MAIN_SUB_SEND_REQUEST_CONT
+    JP C,_b16_timeout
+""" + sends + """    JP _b16_done
+_b16_timeout:
+    LD A,001h
+    LD (0DF52h),A
+_b16_done:
+    LD A,001h
+    LD (0DF53h),A
+    RET
+"""
+
 # B12 は B10 と同じ送受信手順を使い、各要求の記録領域を分ける。
 B12_ROWS = ((0,1,1),(2,1,1),(2,1,2),(2,1,5),(2,2,4),
             (2,5,1),(2,5,2),(2,1,6),(2,1,0),(3,1,4),(2,2,1))
@@ -1485,6 +1543,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_m6ik_arm: str | None = None,
                         inject_b10_row: int | None = None,
                         inject_b12_row: int | None = None,
+                        inject_b16_row: int | None = None,
                         enable_boot_sector: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
     rom, used, n_out = make_ipl_rom.build_n88(stop_after=None, font_sample=False)
@@ -1818,6 +1877,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         ]
         m6ib_variants.append((inject_b10_row is not None, b10_boot(inject_b10_row) if inject_b10_row is not None else "", "b10"))
         m6ib_variants.append((inject_b12_row is not None, b12_boot(inject_b12_row) if inject_b12_row is not None else "", "b12"))
+        m6ib_variants.append((inject_b16_row is not None, b16_boot(inject_b16_row) if inject_b16_row is not None else "", "b16"))
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
         if len(enabled_m6ib) > 1:
             raise SystemExit("m6i-b/m6i-h/m6i-i main介入は1つだけ指定する")
@@ -2168,6 +2228,7 @@ def main():
     ap.add_argument("--inject-m6ik-arm", choices=M6IK_ARMS,
                     help="m6i-k 測定専用の腕")
     ap.add_argument("--inject-b10-row", type=int, choices=range(1, 12))
+    ap.add_argument("--inject-b16-row", type=int, choices=range(1, 16))
     ap.add_argument("--inject-b12-row", type=int, choices=range(1, 13))
     ap.add_argument("--inject-m6ie-single-read", action="store_true",
                     help="m6i-e E2: B5と同じmainでsubへIN $FEとNOP 4個を挿入する")
@@ -2194,7 +2255,7 @@ def main():
                          args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only, args.inject_m6ii_sweep,
-                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None)
+                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
     if sum(bool(value) for value in m6ii_fault_flags) > 1:
@@ -2209,7 +2270,7 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ii_sweep or args.inject_m6ik_arm is not None
-        or args.inject_b10_row is not None or args.inject_b12_row is not None
+        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     if args.disable_main_sub_read and any((args.enable_main_sub_read,
                                            args.enable_disk_read_retry,
@@ -2299,6 +2360,7 @@ def main():
                                        inject_m6ik_arm=args.inject_m6ik_arm,
                                        inject_b10_row=args.inject_b10_row,
                                        inject_b12_row=args.inject_b12_row,
+                                       inject_b16_row=args.inject_b16_row,
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
