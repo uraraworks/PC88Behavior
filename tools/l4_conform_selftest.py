@@ -16,6 +16,39 @@ from unittest.mock import patch
 import l4_conform_self as runner
 
 
+def residual_selftest(root):
+    expected = {
+        'rnd': {'add1:add1-negative-1e-10', 'add3:add3-negative-1e20'},
+        'randfile': {'loc-after-get', 'mkd-0', 'mks-0', 'put-large', 'put-two'},
+        'editinv': {'missing-resume', 'missing-resume-goto'},
+    }
+    assert runner.DOCUMENTED_RESIDUALS == expected
+    for name, arms in expected.items():
+        def verdict(ids, gate=(), value='NG', **extra):
+            detail = dict(mismatch=list(ids), gate=list(gate), **extra)
+            result = runner.residual_status(name, value, detail)
+            return result, detail
+        assert verdict(arms)[0] == 'KNOWN'
+        assert verdict(arms | {'extra'})[0] == 'NG'
+        result, detail = verdict(arms - {next(iter(arms))})
+        assert result == 'NG' and detail['residual_update']
+        assert verdict(next(v for k, v in expected.items() if k != name))[0] == 'NG'
+        assert verdict(arms, ['failed'])[0] == 'NG'
+        assert verdict(arms, exception='Error')[0] == 'NG'
+        assert verdict(set(), value='OK')[0] == 'NG'
+    # measure非0でも診断が揃えば出口で読み替える。
+    import l4_randfile_measure as mod
+    row = next(r for r in runner.ROWS if r[0] == 'randfile')
+    out = root/'measured.tsv'; out.touch()
+    with patch.object(runner, 'run_silent', return_value=1), \
+         patch.object(runner, 'expected', return_value=root/'expected-rand.tsv'), \
+         patch.object(mod, 'check', return_value=(0, sorted(expected['randfile']))), \
+         patch.object(runner, 'gates', return_value=[]):
+        (root/'expected-rand.tsv').write_text('exclusions\n{}\n')
+        assert runner.execute_worker(row, root/'rom', root, root/'residual-result') == 0
+        assert json.loads((root/'residual-result').read_text())['status'] == 'KNOWN'
+
+
 def cache_selftest(root):
     repo = root/'synthetic'; tools = repo/'tools'
     tools.mkdir(parents=True)
@@ -410,6 +443,7 @@ def selftest(work):
              redirect_stdout(io.StringIO()):
             runner.table()
         diagnostic_selftest(root)
+        residual_selftest(root)
         check_route_selftest(root)
         cache_selftest(root)
         env = runner.clean_env(root)
