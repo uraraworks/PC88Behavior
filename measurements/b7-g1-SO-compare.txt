@@ -1,0 +1,27 @@
+result: self-ends-first
+position: 215451
+context official -8 OUT 005F hi 1
+context official -7 OUT 005E hi 1
+context official -6 OUT 005F hi 2
+context official -5 OUT 005C hi 1
+context official -4 OUT 005D hi 1
+context official -3 OUT 005E hi 1
+context official -2 OUT 005F hi 1
+context official -1 IN 0044 hi 1
+context official +0 OUT 0044 hi 1
+context official +1 IN 0044 hi 1
+context official +2 OUT 0045 hi 1
+context official +3 IN 0044 hi 1
+context official +4 OUT 0044 hi 1
+context official +5 IN 0044 hi 1
+context official +6 OUT 0045 hi 1
+context official +7 IN 0044 hi 1
+context official +8 OUT 0044 hi 1
+context self -8 OUT 005F hi 1
+context self -7 OUT 005E hi 1
+context self -6 OUT 005F hi 2
+context self -5 OUT 005C hi 1
+context self -4 OUT 005D hi 1
+context self -3 OUT 005E hi 1
+context self -2 OUT 005F hi 1
+context self -1 IN 0044 hi 8077161
