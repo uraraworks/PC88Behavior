@@ -82,6 +82,7 @@ cd "$REPO"
 # 各行は "script:期待rc"。期待rc=0 が「成功が正常」、それ以外は
 # 「その終了コードが正常」という明示的な宣言。
 SCRIPTS_EXPECTED=(
+  "tools/b6_io_sequence_selftest.sh:0"
   "tools/check_cleanroom.sh:0"
   "tools/cmp_io_selftest.sh:0"
   "tools/cmp_fdc_sectors_selftest.sh:0"
