@@ -241,6 +241,7 @@ SCRIPTS_EXPECTED=(
   "tools/b21_selftest.sh:0"
   "tools/b24_selftest.sh:0"
   "tools/b35_selftest.sh:0"
+  "tools/b36_sub_port_values_selftest.sh:0"
   "tools/b26_selftest.sh:0"
   "tools/b19_selftest.sh:0"
   "tools/b20_sub_interrupts_selftest.sh:0"
