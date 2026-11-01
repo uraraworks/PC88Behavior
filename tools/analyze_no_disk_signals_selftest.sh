@@ -312,7 +312,10 @@ expected_loop = bytes((0xCD, sense & 0xFF, sense >> 8, 0x18, 0xFB))
 if not (default_rom == explicit_default_rom and default_used == explicit_default_used
         and wait_used == default_used + 5
         and bytes(wait_asm.code[entry:entry + 5]) == expected_loop
-        and wait_used < subrom.SUB_ROM_FETCH_WINDOW):
+        and entry + 5 < subrom.SUB_ROM_FETCH_WINDOW
+        and wait_used <= subrom.SUB_ROM_FETCH_WINDOW
+        and not subrom.find_fetch_window_straddles(subrom._LAST_ASM)
+        and not subrom.find_out_of_window_blocks(subrom._LAST_ASM)):
     print("NG: no_disk待ち介入の既定不変・5バイトループ・フェッチ窓検査に失敗")
     raise SystemExit(1)
 print("OK: 待ち介入は指定時だけSENSE反復5バイトを追加し、既定ROMは不変")

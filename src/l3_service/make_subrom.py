@@ -3135,6 +3135,7 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(WRITE_LAST_S)
         a.ld_mem_a(REQ_HDR + 2)
+        a.label("_sense_and_send_response")
         a.call("FDC_SENSE_DRIVE_STATUS")
         # SEND_BYTE自身がWINDOW_RUN_POSを畳むため、同じ送信末尾へ合流する。
         a.jp("_exchange3_send_response")
@@ -3666,8 +3667,13 @@ def build_subrom(break_write_ack=False,
     # （このSEND_DISPATCH_IDLEでFDCへOUT $FB×2/IN $FBが発生する）。
     # それは承知の上で許容する——適合条件はmain側のデータ列であり、
     # sub側のI/O列一致はそもそも目標に含まれていない。
-    a.call("FDC_SENSE_DRIVE_STATUS")
-    a.jp("_exchange3_send_response")   # 第227版: 同一の送信末尾を共有
+    if any((inject_m6ib_b1, inject_m6ib_b2, inject_m6ib_b3,
+            inject_m6ib_b4, inject_m6ib_b5)):
+        # 測定版のみ同一のSENSE・送信末尾へ合流して窓内に収める。
+        a.jp("_sense_and_send_response")
+    else:
+        a.call("FDC_SENSE_DRIVE_STATUS")
+        a.jp("_exchange3_send_response")
 
     return a
 
