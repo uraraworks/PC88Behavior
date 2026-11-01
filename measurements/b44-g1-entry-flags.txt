@@ -1,0 +1,1 @@
+row self fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
