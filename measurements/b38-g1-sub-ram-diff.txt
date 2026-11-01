@@ -1,0 +1,34 @@
+# 識別子: G1
+D 7B00-7B04 unwritten rom-written 5
+D 7B06-7B06 unwritten rom-written 1
+D 7C00-7C18 unwritten rom-written 25
+D 7C1A-7C21 unwritten rom-written 8
+D 7C23-7D0B unwritten rom-written 233
+D 7F00-7F08 rom-written unwritten 9
+D 7F0A-7F15 rom-written unwritten 12
+D 7F17-7F17 rom-written unwritten 1
+D 7F1B-7F1B rom-written unwritten 1
+D 7F20-7F22 rom-written unwritten 3
+D 7F42-7F42 rom-written unwritten 1
+D 7FEA-7FED rom-written unwritten 4
+REG AF same
+REG BC differ
+REG DE same
+REG HL differ
+REG IX same
+REG IY same
+REG PC same
+REG SP same
+REG AF1 same
+REG BC1 same
+REG DE1 same
+REG HL1 same
+REG I same
+REG R differ
+REG IFF same
+REG IFF2 same
+REG IM same
+REG HALT same
+total differ=303
+control OO W=3280
+control SS W=17101
