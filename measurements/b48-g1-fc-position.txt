@@ -1,0 +1,32 @@
+at 76300 ok=76562 sk=76558 ok-issuer=A047 sk-issuer=A047
+at 76560 ok=76822 sk=76818 ok-issuer=A047 sk-issuer=A047
+at 76561 ok=76823 sk=76819 ok-issuer=A055 sk-issuer=A055
+at 76562 ok=76824 sk=76820 ok-issuer=A047 sk-issuer=A047
+at 76563 ok=76825 sk=76821 ok-issuer=A055 sk-issuer=A055
+at 76564 ok=76826 sk=76822 ok-issuer=A047 sk-issuer=A047
+at 76565 ok=76827 sk=76823 ok-issuer=A055 sk-issuer=A055
+at 76566 ok=76828 sk=76824 ok-issuer=A047 sk-issuer=A047
+at 76567 ok=76829 sk=76825 ok-issuer=A055 sk-issuer=A055
+at 76568 ok=76830 sk=76826 ok-issuer=A047 sk-issuer=A047
+at 76569 ok=76831 sk=76827 ok-issuer=A055 sk-issuer=A055
+at 76570 ok=76832 sk=76828 ok-issuer=rom sk-issuer=rom
+at 76571 ok=76833 sk=76828 ok-issuer=rom sk-issuer=rom
+at 76572 ok=76834 sk=76829 ok-issuer=rom sk-issuer=rom
+at 76573 ok=76835 sk=76830 ok-issuer=rom sk-issuer=rom
+at 76574 ok=76836 sk=76831 ok-issuer=rom sk-issuer=rom
+at 76575 ok=76837 sk=76832 ok-issuer=rom sk-issuer=rom
+at 76576 ok=76838 sk=76833 ok-issuer=rom sk-issuer=rom
+at 76577 ok=76839 sk=76834 ok-issuer=rom sk-issuer=rom
+at 76578 ok=76840 sk=76835 ok-issuer=rom sk-issuer=rom
+at 76579 ok=76841 sk=76836 ok-issuer=rom sk-issuer=rom
+at 76580 ok=76842 sk=76837 ok-issuer=rom sk-issuer=rom
+at 76826 ok=77088 sk=77083 ok-issuer=rom sk-issuer=rom
+at 76827 ok=77089 sk=77084 ok-issuer=rom sk-issuer=rom
+offset-change 0 4
+offset-change 76571 5
+step arm=OO range=all 0=0 1=112425 2=0 other=0
+step arm=OO range=76315-76827 0=0 1=512 2=0 other=0
+issuer arm=OO range=76570-76827 rom=258 ram=0
+step arm=SS range=all 0=1 1=76826 2=0 other=0
+step arm=SS range=76315-76827 0=1 1=511 2=0 other=0
+issuer arm=SS range=76570-76827 rom=258 ram=0
