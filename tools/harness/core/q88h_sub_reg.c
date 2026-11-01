@@ -1,7 +1,7 @@
 #include "q88h_sub_reg.h"
 static FILE *out;
 static int last = -1;
-static uint16_t origin;
+static uint16_t origin, origin_sp;
 int retro_q88h_sub_reg_open(const char *path) {
     out = fopen(path, "wb"); last = -1;
     return out && fputs("Q88REG1\n", out) >= 0;
@@ -14,11 +14,15 @@ int retro_q88h_sub_reg_close(void) {
     out = NULL; return ok;
 }
 int q88h_sub_reg_enabled(void) { return out != NULL; }
-void q88h_sub_reg_instr(uint16_t pc) {
+void q88h_sub_reg_instr(uint16_t pc, uint16_t sp) {
     int cls = pc >= 0x2000;
     if (!out) return;
+    if (last == 0 && cls) {
+        q88h_sub_reg_capture('C', pc);
+        fprintf(out, "X %04X %04X\n", origin, origin_sp);
+    }
     origin = pc;
-    if (last == 0 && cls) q88h_sub_reg_capture('C', pc);
+    origin_sp = sp;
     last = cls;
 }
 void q88h_sub_reg_fc(void) { if (out) q88h_sub_reg_capture('F', 0); }

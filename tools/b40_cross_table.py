@@ -29,6 +29,8 @@ def read(path):
                         raise ValueError('不正な記録')
                     regs = tuple(v for x in row[:4] for v in (x >> 8, x & 255)) + row[4:6] + row[7:12] + (row[12],) + row[14:18]
                     crosses.append((row[6], fc, regs))
+            elif len(p) == 3 and p[0] == 'X' and all(re.fullmatch(r'[0-9A-F]{4}', x) for x in p[1:]):
+                pass
             elif not (len(p) == 3 and p[0] == 'O' and p[1] in ('R', 'I') and re.fullmatch(r'[0-9A-F]{4}', p[2]) and int(p[2], 16) >= 0x2000):
                 raise ValueError('不正な記録')
     raise ValueError('不完全な記録')

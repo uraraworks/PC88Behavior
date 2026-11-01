@@ -1,0 +1,11 @@
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -435,7 +435,7 @@
+   q88h_boundary_t *b = retro_q88h_sub_boundary();
+   int start = q88h_sub_pending == 0;
+   if( retro_q88h_sub_read()->enabled && start ) q88h_sub_read_instr(addr);
+-  if( start ) { q88h_srr_instr(addr); if (q88h_sub_reg_enabled()) q88h_sub_reg_instr(addr); }
++  if( start ) { q88h_srr_instr(addr); if (q88h_sub_reg_enabled()) q88h_sub_reg_instr(addr, z80sub_cpu.SP.W); }
+   if( b->enabled && start ) {
+     int cls = addr < 0x2000 ? Q88H_BND_ROM : Q88H_BND_RAM;
+     word sp = z80sub_cpu.SP.W, top = 0;

@@ -22,6 +22,8 @@ def read(path):
                 row = tuple(int(x, 16) for x in parts[1:])
                 if parts[0] == 'C' and row[6] < 0x2000: raise ValueError('不正な記録')
                 events[parts[0]].append(row)
+            elif len(parts) == 3 and parts[0] == 'X' and all(re.fullmatch(r'[0-9A-F]{4}', x) for x in parts[1:]):
+                pass
             elif len(parts) == 3 and parts[0] == 'O' and parts[1] in ('R', 'I') and re.fullmatch(r'[0-9A-F]{4}', parts[2]) and int(parts[2], 16) >= 0x2000:
                 events[parts[1]].append(int(parts[2], 16))
             else:

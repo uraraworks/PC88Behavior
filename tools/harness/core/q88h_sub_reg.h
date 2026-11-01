@@ -5,7 +5,7 @@
 int retro_q88h_sub_reg_open(const char *path);
 int retro_q88h_sub_reg_close(void);
 int q88h_sub_reg_enabled(void);
-void q88h_sub_reg_instr(uint16_t pc);
+void q88h_sub_reg_instr(uint16_t pc, uint16_t sp);
 void q88h_sub_reg_fc(void);
 void q88h_sub_reg_opcode(int opcode);
 void q88h_sub_reg_capture(char kind, uint16_t pc);
