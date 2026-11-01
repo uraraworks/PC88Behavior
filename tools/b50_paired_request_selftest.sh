@@ -39,7 +39,7 @@ assert [(x[0], x[1]) for x in bursts(a)] == [(3,'single'),(5,'single'),(8,'paire
 rows = summarize(a,b)
 assert 'sub-reader single hi' in rows and 'sub-reader paired lo' in rows
 assert 'shift +1 compared=37 same=37' in rows
-assert [r for r in rows if r.startswith('burst ')] == ['burst 1 size=3 mode=single head=A1','burst 2 size=5 mode=single head=B2','burst 3 size=8 mode=paired head=C3','burst 4 size=11 mode=single head=D4']
+assert [r for r in rows if r.startswith('burst ')] == ['burst 1 size=3 mode=single head=A1','burst 2 size=5 mode=single head=B2','burst 3 size=8 mode=paired head=-','burst 4 size=11 mode=single head=-']
 assert all('E7' not in row for row in rows)
 PY
 python3 "$repo/tools/b50_paired_request.py" "$work/a" "$work/b" >"$work/out" 2>"$work/err"

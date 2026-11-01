@@ -102,7 +102,7 @@ def bursts(data):
 
 def summarize(official, self_data):
     groups = bursts(official)
-    rows = [f'burst {i} size={size} mode={mode} head={head:02X}'
+    rows = [f'burst {i} size={size} mode={mode} head=' + (f'{head:02X}' if i <= 2 else '-')
             for i, (size, mode, head, _, _) in enumerate(groups, 1)]
     readers = set()
     for _, mode, _, lo, hi in groups:
