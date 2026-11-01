@@ -1,7 +1,7 @@
 # B50: 2 バイトずつ受け取る要求の形を確かめる — 事前登録
 
 記録日: 2026-11-01
-位置づけ: [B49](b49-g1-handshake-order-results.md) の次段。[方針追補3](goal-b-policy-addendum3-g1-request-head-2026-10-31.md) の範囲で、要求の先頭バイトと長さだけを記録する。**このノートは測定より先にコミットする。**
+位置づけ: [B49](b49-g1-handshake-order-results.md) の次段。[方針追補3](goal-b-policy-addendum3-request-headers-2026-10-31.md) の範囲で、要求の先頭バイトと長さだけを記録する。**このノートは測定より先にコミットする。**
 
 ## 1. 問い
 
