@@ -1,0 +1,10 @@
+row none fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 1 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 8 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 16 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 24 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 32 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 48 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 64 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 128 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
+row 255 fc-diff=257 first=76570 run=132 left=112426 right=76828 cross=30 screen=differ
