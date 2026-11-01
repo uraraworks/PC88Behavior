@@ -1,0 +1,59 @@
+# 識別子: G1
+cross count 71 30
+cross first-pc-differ 29
+cross first-reg-differ AF 0 790E
+cross first-reg-differ BC none none
+cross first-reg-differ DE 5 7812
+cross first-reg-differ HL 29 7800
+cross first-reg-differ IX none none
+cross first-reg-differ IY none none
+cross first-reg-differ PC 29 7800
+cross first-reg-differ SP none none
+cross first-reg-differ AF1 none none
+cross first-reg-differ BC1 none none
+cross first-reg-differ DE1 none none
+cross first-reg-differ HL1 none none
+cross first-reg-differ I none none
+cross first-reg-differ IFF none none
+cross first-reg-differ IFF2 none none
+cross first-reg-differ IM none none
+cross first-reg-differ HALT none none
+fc count 112687 77085
+fc first-reg-differ AF 0 pc-differ
+fc first-reg-differ BC 0 pc-differ
+fc first-reg-differ DE 0 pc-differ
+fc first-reg-differ HL 0 pc-differ
+fc first-reg-differ IX none none
+fc first-reg-differ IY none none
+fc first-reg-differ PC 0 pc-differ
+fc first-reg-differ SP 0 pc-differ
+fc first-reg-differ AF1 4097 pc-differ
+fc first-reg-differ BC1 none none
+fc first-reg-differ DE1 none none
+fc first-reg-differ HL1 none none
+fc first-reg-differ I none none
+fc first-reg-differ IFF none none
+fc first-reg-differ IFF2 none none
+fc first-reg-differ IM 0 pc-differ
+fc first-reg-differ HALT none none
+fc first-reg-differ-same-pc AF 4103
+fc first-reg-differ-same-pc BC 4103
+fc first-reg-differ-same-pc DE 11271
+fc first-reg-differ-same-pc HL 4103
+fc first-reg-differ-same-pc IX none
+fc first-reg-differ-same-pc IY none
+fc first-reg-differ-same-pc PC none
+fc first-reg-differ-same-pc SP none
+fc first-reg-differ-same-pc AF1 none
+fc first-reg-differ-same-pc BC1 none
+fc first-reg-differ-same-pc DE1 none
+fc first-reg-differ-same-pc HL1 none
+fc first-reg-differ-same-pc I none
+fc first-reg-differ-same-pc IFF none
+fc first-reg-differ-same-pc IFF2 none
+fc first-reg-differ-same-pc IM none
+fc first-reg-differ-same-pc HALT none
+fc last-reg-same-before BC none
+fc last-reg-same-before HL none
+opcode LD_A_R 0 0 none none
+opcode LD_A_I 0 0 none none
