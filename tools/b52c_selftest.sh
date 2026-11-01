@@ -31,5 +31,20 @@ fc = [x for x in lines if len(x) >= 8 and x[3:6] == ['main', 'IN', '00FC']]
 assert len(fc) == 2 and int(fc[0][7], 16) == first
 PY
 done
+# 第231版: 公式と同じ先頭2バイトの変更を、作業域・スタックを除くRAMで検査。
+PYTHONPATH="$REPO/tools" python3 - "$work/run" <<'PYTEST'
+import pathlib, sys
+from b38_sub_snapshot_compare import read
+root = pathlib.Path(sys.argv[1])
+for run in (1, 2):
+    control = read(root / f'5-{run}.snap')[0]
+    for row in range(1, 6):
+        subject = read(root / f'{row}-{run}.snap')[0]
+        address = 0x6000 if row == 3 else 0x7810
+        expected = {} if row == 5 else {address: 0x41, address + 1: 0x44}
+        changed = {i + 0x4000: b for i, (a, b) in enumerate(zip(control, subject))
+                   if i + 0x4000 < 0x7B00 and a != b}
+        assert changed == expected, (row, run)
+PYTEST
 cmp "$work/result/b52c-self-1.txt" "$work/result/b52c-self-2.txt"
 printf 'B52c 自己検査 PASS\n'

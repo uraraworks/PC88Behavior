@@ -256,6 +256,7 @@ SCRIPTS_EXPECTED=(
   "tools/b52_selftest.sh:0"
   "tools/b52b_selftest.sh:0"
   "tools/b52c_selftest.sh:0"
+  "tools/b53_selftest.sh:0"
   "tools/b35_selftest.sh:0"
   "tools/b43_selftest.sh:0"
   "tools/b36_sub_port_values_selftest.sh:0"

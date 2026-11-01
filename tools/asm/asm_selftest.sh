@@ -45,8 +45,8 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # shallow checkout・ソース配布でも履歴なしで同じ検出力を持たせる。
 # 旧値 d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070
 # は1.36a以前の出力。現行は1.36a〜c（LOAD/RUN/0x15を含む）と、
-# 送信後の戻り先共有による2バイト短縮を含む。仕様とバイト再組み立ては別途照合する。
-EXPECT_SUBROM_DISK_SHA="08fa07c073c2350d28b2a7ae22f3cf24158b428b0cbd9f0f0af53877eb7cad3d"
+# 第231版の0x16と容量圧縮を含む。履歴の凍結値は別の検査で維持する。
+EXPECT_SUBROM_DISK_SHA="d214149993d0905fca5ce478168faf8b290b938e8a2e6147734c5726070e191e"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then

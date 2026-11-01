@@ -9,6 +9,8 @@ from build_main_rom import b52_boot
 from judge_b52 import FIELDS,load,judge
 from analyze_b52 import analyze,LENGTHS
 root=pathlib.Path(sys.argv[1]); paths=[]
+# B52測定時点の事前登録対照（自作未実装）の判定器は履歴として維持する。
+# 現行の自作ROMの期待は、下の実走で公開済み公式の行と照合する。
 for kind in ('official','self'):
  for run in (1,2):
   path=root/f'{kind}-{run}.tsv';paths.append(path)
@@ -30,12 +32,15 @@ a[1,2]['match']='0';assert not judge(a,b)['controls_passed']
 PY
 python3 "$REPO/src/l3_service/make_subrom.py" "$work/sub" > /dev/null
 "$REPO/tools/measure_b52.sh" --work "$work/run" --dry-run-sub-rom "$work/sub/DISK.ROM" --output-dir "$work/results"
-python3 - "$work/results" <<'PY'
+python3 - "$work/results" "$REPO/measurements/b52-official-1.tsv" <<'PY'
 import csv,pathlib,sys
 files=list(pathlib.Path(sys.argv[1]).glob('b52-self-*.tsv'))
 assert len(files)==2
 for p in files:
  with p.open() as f: rows=list(csv.DictReader(f,delimiter='\t'))
- assert len(rows)==8 and all(r['complete']=='1' for r in rows),rows
+ assert len(rows)==8
+ # 第231版: 行7は先頭2バイトだけのコードを実行し、読み返しまで戻らない。
+ with open(sys.argv[2]) as f: expected=list(csv.DictReader(f,delimiter='\t'))
+ assert all(all(r[k]==e[k] for k in r if k!='run') for r,e in zip(rows,expected)),rows
 print('B52 自己検査 OK')
 PY
