@@ -66,6 +66,7 @@
 #include "q88h_boundary.h"
 #include "q88h_sub_boundary.h"
 #include "q88h_sub_read.h"
+#include "q88h_sub_rom_read.h"
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
@@ -187,6 +188,9 @@ static q88h_sub_read_t *(*p_sub_read)(void);
 static void (*p_sub_read_reset)(void);
 static void (*p_sub_read_set_enabled)(int);
 static bool g_sub_read_available;
+static q88h_sub_rom_read_t *(*p_srr)(void);
+static void (*p_srr_reset)(void);
+static void (*p_srr_config)(uint64_t, uint64_t);
 
 /* 交換run介入。既存コアでも通常測定は続けられるが、オプション指定時は
  * シンボル・命中・実変更をすべて必須にして「指定したが効かなかった」を落とす。 */
@@ -757,6 +761,9 @@ static bool load_core(const char *path)
     *(void **)(&p_sub_read_reset) = dlsym(h, "retro_q88h_sub_read_reset");
     *(void **)(&p_sub_read_set_enabled) = dlsym(h, "retro_q88h_sub_read_set_enabled");
     g_sub_read_available = p_sub_read && p_sub_read_reset && p_sub_read_set_enabled;
+    *(void **)(&p_srr) = dlsym(h, "retro_q88h_sub_rom_read");
+    *(void **)(&p_srr_reset) = dlsym(h, "retro_q88h_sub_rom_read_reset");
+    *(void **)(&p_srr_config) = dlsym(h, "retro_q88h_sub_rom_read_config");
     *(void **)(&p_boundary)             = dlsym(h, "retro_q88h_boundary");
     *(void **)(&p_boundary_reset)       = dlsym(h, "retro_q88h_boundary_reset");
     *(void **)(&p_boundary_set_enabled) = dlsym(h, "retro_q88h_boundary_set_enabled");
@@ -1540,6 +1547,7 @@ static void usage(void)
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
+        "                   [--sub-rom-read-log FILE] [--sub-rom-read-window FROM,TO]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
         "                   [--vram-dump PATH --vram-dump-at FRAME] (最大%d組)\n"
@@ -1646,6 +1654,9 @@ int main(int argc, char **argv)
     const char *boundary_log_path = NULL;
     const char *sub_boundary_log_path = NULL;
     const char *sub_read_log_path = NULL;
+    const char *srr_path = NULL;
+    uint64_t srr_from = 0, srr_to = UINT64_MAX - 1;
+    int srr_window = 0;
     unsigned    mem_write_range_lo = 0, mem_write_range_hi = 0;
     bool        mem_write_range_set = false;
     unsigned    mem_write_from_frame = 0;
@@ -1996,6 +2007,17 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-rom-read-log") && i + 1 < argc)
+            srr_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-rom-read-window") && i + 1 < argc) {
+            char *end, *end2; const char *v = argv[++i];
+            if (*v < '0' || *v > '9') return 2;
+            errno = 0; srr_from = strtoull(v, &end, 10);
+            if (errno || *end != ',' || end[1] < '0' || end[1] > '9') return 2;
+            errno = 0; srr_to = strtoull(end + 1, &end2, 10);
+            if (errno || *end2 || srr_from > srr_to || srr_to == UINT64_MAX) return 2;
+            srr_window = 1;
+        }
         else if (!strcmp(argv[i], "--sub-read-log") && i + 1 < argc)
             sub_read_log_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-boundary-log") && i + 1 < argc)
@@ -2242,6 +2264,8 @@ int main(int argc, char **argv)
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
+    if (srr_window && !srr_path) return 2;
+    if (srr_path && reject_if_unsafe_output_path("--sub-rom-read-log", srr_path)) return 1;
     if (sub_read_log_path && reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
     if (sub_boundary_log_path && reject_if_unsafe_output_path("--sub-boundary-log", sub_boundary_log_path)) return 1;
     if (boundary_log_path && reject_if_unsafe_output_path("--boundary-log", boundary_log_path))
@@ -2519,6 +2543,10 @@ int main(int argc, char **argv)
         }
     }
 
+    if (srr_path) {
+        if (!p_srr || !p_srr_reset || !p_srr_config) { fprintf(stderr, "[q88measure] --sub-rom-read-log はコアにありません\n"); return 1; }
+        p_srr_reset(); p_srr_config(srr_from, srr_to);
+    }
     if (sub_read_log_path) {
         if (!g_sub_read_available) { fprintf(stderr, "[q88measure] --sub-read-log はコアにありません\n"); return 1; }
         p_sub_read_reset(); p_sub_read_set_enabled(1);
@@ -2926,6 +2954,29 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (srr_path) {
+                static const char *names[] = {"unwritten", "rom-written", "ram-written"};
+                q88h_sub_rom_read_t *r = p_srr();
+                uint32_t i = 0; FILE *fp;
+                if (reject_if_unsafe_output_path("--sub-rom-read-log", srr_path)) return 1;
+                fp = fopen(srr_path, "w"); if (!fp) { perror(srr_path); return 1; }
+                while (i < r->count) {
+                    q88h_srr_event *e = &r->events[i];
+                    uint16_t last = e->addr; uint32_t n = 1; int direction = -1;
+                    while (i + n < r->count) {
+                        q88h_srr_event *next = &r->events[i+n]; int d;
+                        if (next->fc != e->fc || next->writer != e->writer) break;
+                        d = next->addr == last ? 0 : (last != 0xffff && next->addr == last + 1 ? 1 : -1);
+                        if (d < 0 || (direction >= 0 && d != direction)) break;
+                        direction = d; last = next->addr; ++n;
+                    }
+                    fprintf(fp, "W %llu %04X-%04X %s %s %u\n", (unsigned long long)e->fc,
+                            e->addr, last, names[e->writer], direction == 1 ? "増える" : "同じ", n);
+                    i += n;
+                }
+                fprintf(fp, "dropped=%llu complete=%d\n", (unsigned long long)r->dropped, r->dropped == 0);
+                if (fclose(fp)) { perror(srr_path); return 1; }
+            }
             if (sub_read_log_path && g_sub_read_available) {
                 static const char *names[] = {"rom", "unwritten", "rom-written", "ram-written"};
                 q88h_sub_read_t *r = p_sub_read();
