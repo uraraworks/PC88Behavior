@@ -1,0 +1,93 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -65,6 +65,7 @@
+    $(CORE_DIR)/q88h_sub_rom_read.c \
+    $(CORE_DIR)/q88h_sub_snapshot.c \
+    $(CORE_DIR)/q88h_sub_event.c \
++   $(CORE_DIR)/q88h_sub_rom_access.c \
+    $(CORE_DIR)/q88h_sub_reg.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_main_in_force.c \
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -400,6 +400,7 @@
+ #include "q88h_sub_snapshot.h"
+ #include "q88h_sub_reg.h"
+ #include "q88h_sub_event.h"
++#include "q88h_sub_rom_access.h"
+ extern FILE *q88h_sub_reg_file(void);
+ #include <string.h>
+ 
+@@ -436,6 +437,7 @@
+   q88h_boundary_t *b = retro_q88h_sub_boundary();
+   int start = q88h_sub_pending == 0;
+   if( retro_q88h_sub_read()->enabled && start ) q88h_sub_read_instr(addr);
++  if( start ) q88h_sra_instr(addr);
+   if( start && q88h_sub_event_enabled() ) q88h_sub_event_instr(addr);
+   if( start ) { q88h_srr_instr(addr); if (q88h_sub_reg_enabled()) q88h_sub_reg_instr(addr, z80sub_cpu.SP.W); }
+   if( b->enabled && start ) {
+@@ -480,7 +482,7 @@
+   }
+ 
+   ret = q88h_sub_inner_fetch( addr );
+-  if( b->enabled || retro_q88h_sub_read()->enabled || retro_q88h_sub_rom_read()->enabled || q88h_sub_reg_enabled() || q88h_sub_event_enabled() ) {
++  if( b->enabled || retro_q88h_sub_read()->enabled || retro_q88h_sub_rom_read()->enabled || q88h_sub_reg_enabled() || q88h_sub_event_enabled() || retro_q88h_sub_rom_access()->enabled ) {
+     if( start ) {
+       if( ret == 0xcb || ret == 0xed ) q88h_sub_pending = 1;
+       else if( ret == 0xdd || ret == 0xfd ) q88h_sub_pending = 2;
+@@ -499,6 +501,7 @@
+   q88h_trap_t  *tp = retro_q88h_trap_sub();
+   byte          v;
+ 
++  q88h_sra_record('R', addr);
+   q88h_sub_read_data(addr);
+   q88h_srr_data(addr);
+   t->mem_read[addr] = 1;
+@@ -525,6 +528,7 @@
+   q88h_trace_t *t = retro_q88h_trace_sub();
+   q88h_boundary_t *b = retro_q88h_sub_boundary();
+   q88h_sub_event_record('W', addr, data );
++  q88h_sra_record('W', addr);
+   q88h_sub_read_write(addr);
+   q88h_srr_write(addr);
+   if( b->enabled && addr >= 0x4000 && (addr & 0x4000) ) {
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2963,6 +2963,7 @@
+ #include "q88h_sub_snapshot.h"
+ #include "q88h_sub_reg.h"
+ #include "q88h_sub_event.h"
++#include "q88h_sub_rom_access.h"
+ #include "q88h_exchange_intervention.h"
+ #include "q88h_main_in_force.h"
+ #include "q88h_memlog.h"
+@@ -3310,6 +3311,7 @@
+     q88h_srr_fc();
+     q88h_sub_reg_fc();
+     q88h_sub_event_fc();
++    q88h_sra_fc();
+     if (retro_q88h_sub_snapshot()->enabled) q88h_sub_snapshot_capture();
+   }
+ 
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -102,6 +102,7 @@
+ #include "q88h_sub_rom_read.h"
+ #include "q88h_sub_reg.h"
+ #include "q88h_sub_event.h"
++#include "q88h_sub_rom_access.h"
+ #include "q88h_sub_interrupt_intervention.h"
+ #include "q88h_main_interrupt_intervention.h"
+ 
+@@ -142,9 +143,9 @@
+ static byte q88h_insn_read(z80arch *z80, word addr)
+ {
+   byte result;
+-  if (z80 == &z80sub_cpu) { q88h_sub_read_suppress(1); q88h_srr_suppress(1); q88h_sub_event_suppress(1); }
++  if (z80 == &z80sub_cpu) { q88h_sub_read_suppress(1); q88h_srr_suppress(1); q88h_sub_event_suppress(1); q88h_sra_suppress(1); }
+   result = (z80->mem_read)(addr);
+-  if (z80 == &z80sub_cpu) { q88h_sub_read_suppress(0); q88h_srr_suppress(0); q88h_sub_event_suppress(0); }
++  if (z80 == &z80sub_cpu) { q88h_sub_read_suppress(0); q88h_srr_suppress(0); q88h_sub_event_suppress(0); q88h_sra_suppress(0); }
+   return result;
+ }
+ 

@@ -67,6 +67,7 @@
 #include "q88h_sub_boundary.h"
 #include "q88h_sub_read.h"
 #include "q88h_sub_rom_read.h"
+#include "q88h_sub_rom_access.h"
 #include "q88h_sub_snapshot.h"
 #include "q88h_sub_reg.h"
 #include "q88h_exchange_intervention.h"
@@ -196,6 +197,9 @@ static int (*p_reg_open)(const char *);
 static int (*p_reg_close)(void);
 static q88h_sub_snapshot_t *(*p_snapshot)(void);
 static void (*p_snapshot_config)(uint64_t);
+static q88h_sub_rom_access_t *(*p_sra)(void);
+static void (*p_sra_reset)(void);
+static void (*p_sra_config)(uint64_t, uint64_t);
 static q88h_sub_rom_read_t *(*p_srr)(void);
 static void (*p_srr_reset)(void);
 static void (*p_srr_config)(uint64_t, uint64_t);
@@ -775,6 +779,9 @@ static bool load_core(const char *path)
     *(void **)(&p_reg_close) = dlsym(h, "retro_q88h_sub_reg_close");
     *(void **)(&p_snapshot) = dlsym(h, "retro_q88h_sub_snapshot");
     *(void **)(&p_snapshot_config) = dlsym(h, "retro_q88h_sub_snapshot_config");
+    *(void **)(&p_sra) = dlsym(h, "retro_q88h_sub_rom_access");
+    *(void **)(&p_sra_reset) = dlsym(h, "retro_q88h_sub_rom_access_reset");
+    *(void **)(&p_sra_config) = dlsym(h, "retro_q88h_sub_rom_access_config");
     *(void **)(&p_srr) = dlsym(h, "retro_q88h_sub_rom_read");
     *(void **)(&p_srr_reset) = dlsym(h, "retro_q88h_sub_rom_read_reset");
     *(void **)(&p_srr_config) = dlsym(h, "retro_q88h_sub_rom_read_config");
@@ -1562,6 +1569,7 @@ static void usage(void)
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
         "                   [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
+        "                   [--sub-rom-access-log FILE] [--sub-rom-access-window FROM,TO]\n"
         "                   [--sub-rom-read-log FILE] [--sub-rom-read-window FROM,TO]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
@@ -1674,6 +1682,9 @@ int main(int argc, char **argv)
     const char *snapshot_path = NULL;
     uint64_t snapshot_at = 0;
     int snapshot_at_set = 0;
+    const char *sra_path = NULL;
+    uint64_t sra_from = 0, sra_to = UINT64_MAX - 1;
+    int sra_window = 0;
     const char *srr_path = NULL;
     uint64_t srr_from = 0, srr_to = UINT64_MAX - 1;
     int srr_window = 0;
@@ -2037,6 +2048,17 @@ int main(int argc, char **argv)
             if (errno || *end || snapshot_at == UINT64_MAX) return 2;
             snapshot_at_set = 1;
         }
+        else if (!strcmp(argv[i], "--sub-rom-access-log") && i + 1 < argc)
+            sra_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-rom-access-window") && i + 1 < argc) {
+            char *end, *end2; const char *v = argv[++i];
+            if (*v < '0' || *v > '9') return 2;
+            errno = 0; sra_from = strtoull(v, &end, 10);
+            if (errno || *end != ',' || end[1] < '0' || end[1] > '9') return 2;
+            errno = 0; sra_to = strtoull(end + 1, &end2, 10);
+            if (errno || *end2 || sra_from > sra_to || sra_to == UINT64_MAX) return 2;
+            sra_window = 1;
+        }
         else if (!strcmp(argv[i], "--sub-rom-read-log") && i + 1 < argc)
             srr_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-rom-read-window") && i + 1 < argc) {
@@ -2298,6 +2320,8 @@ int main(int argc, char **argv)
     if (reg_path && reject_if_unsafe_output_path("--sub-reg-log", reg_path)) return 1;
     if (!!snapshot_path != !!snapshot_at_set) return 2;
     if (snapshot_path && reject_if_unsafe_output_path("--sub-snapshot", snapshot_path)) return 1;
+    if (sra_window && !sra_path) return 2;
+    if (sra_path && reject_if_unsafe_output_path("--sub-rom-access-log", sra_path)) return 1;
     if (srr_window && !srr_path) return 2;
     if (srr_path && reject_if_unsafe_output_path("--sub-rom-read-log", srr_path)) return 1;
     if (sub_read_log_path && reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
@@ -2579,6 +2603,10 @@ int main(int argc, char **argv)
 
     if (event_path && (!p_event_open || !p_event_close || !p_event_open(event_path))) { fprintf(stderr, "[q88measure] sub-event 記録を開始できません\n"); return 1; }
     if (reg_path && (!p_reg_open || !p_reg_close || !p_reg_open(reg_path))) { fprintf(stderr, "[q88measure] sub-reg 記録を開始できません\n"); return 1; }
+    if (sra_path) {
+        if (!p_sra || !p_sra_reset || !p_sra_config) { fprintf(stderr, "[q88measure] sub-rom-access はコアにありません\n"); return 1; }
+        p_sra_reset(); p_sra_config(sra_from, sra_to);
+    }
     if (srr_path || snapshot_path) {
         if (!p_srr || !p_srr_reset || !p_srr_config) { fprintf(stderr, "[q88measure] --sub-rom-read-log はコアにありません\n"); return 1; }
         p_srr_reset();
@@ -3009,6 +3037,25 @@ int main(int argc, char **argv)
                 for (i = 0; i < Q88H_SNAPSHOT_REGS; i++) {
                     if (fputc(s->regs[i] & 255, fp) == EOF || fputc(s->regs[i] >> 8, fp) == EOF) { fclose(fp); return 1; }
                 }
+                if (fclose(fp)) return 1;
+            }
+            if (sra_path) {
+                q88h_sub_rom_access_t *r = p_sra(); uint32_t i = 0; FILE *fp;
+                if (reject_if_unsafe_output_path("--sub-rom-access-log", sra_path)) return 1;
+                fp = fopen(sra_path, "w"); if (!fp) { perror(sra_path); return 1; }
+                while (i < r->count) {
+                    q88h_sra_event *e = &r->events[i]; uint16_t last = e->addr; uint32_t n = 1; int direction = -1;
+                    while (i + n < r->count) {
+                        q88h_sra_event *next = &r->events[i+n]; int d;
+                        if (next->fc != e->fc || next->kind != e->kind) break;
+                        d = next->addr == last ? 0 : (last != 0xffff && next->addr == last + 1 ? 1 : -1);
+                        if (d < 0 || (direction >= 0 && d != direction)) break;
+                        direction = d; last = next->addr; ++n;
+                    }
+                    fprintf(fp, "A %c %04X-%04X %s %u %llu\n", e->kind, e->addr, last, direction == 1 ? "増える" : "同じ", n, (unsigned long long)e->fc);
+                    i += n;
+                }
+                fprintf(fp, "dropped=%llu complete=%d\n", (unsigned long long)r->dropped, r->dropped == 0);
                 if (fclose(fp)) return 1;
             }
             if (srr_path) {
