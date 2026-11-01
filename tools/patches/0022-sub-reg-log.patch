@@ -1,0 +1,94 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -64,6 +64,7 @@
+    $(CORE_DIR)/q88h_sub_read.c \
+    $(CORE_DIR)/q88h_sub_rom_read.c \
+    $(CORE_DIR)/q88h_sub_snapshot.c \
++   $(CORE_DIR)/q88h_sub_reg.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_main_in_force.c \
+    $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2961,6 +2961,7 @@
+ #include "q88h_iolog.h"
+ #include "q88h_sub_rom_read.h"
+ #include "q88h_sub_snapshot.h"
++#include "q88h_sub_reg.h"
+ #include "q88h_exchange_intervention.h"
+ #include "q88h_main_in_force.h"
+ #include "q88h_memlog.h"
+@@ -3306,6 +3307,7 @@
+   v = main_io_in( port );
+   if (port == 0xfc) {
+     q88h_srr_fc();
++    q88h_sub_reg_fc();
+     if (retro_q88h_sub_snapshot()->enabled) q88h_sub_snapshot_capture();
+   }
+ 
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -398,6 +398,8 @@
+ #include "q88h_sub_read.h"
+ #include "q88h_sub_rom_read.h"
+ #include "q88h_sub_snapshot.h"
++#include "q88h_sub_reg.h"
++extern FILE *q88h_sub_reg_file(void);
+ #include <string.h>
+ 
+ /* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
+@@ -433,7 +435,7 @@
+   q88h_boundary_t *b = retro_q88h_sub_boundary();
+   int start = q88h_sub_pending == 0;
+   if( retro_q88h_sub_read()->enabled && start ) q88h_sub_read_instr(addr);
+-  if( start ) q88h_srr_instr(addr);
++  if( start ) { q88h_srr_instr(addr); if (q88h_sub_reg_enabled()) q88h_sub_reg_instr(addr); }
+   if( b->enabled && start ) {
+     int cls = addr < 0x2000 ? Q88H_BND_ROM : Q88H_BND_RAM;
+     word sp = z80sub_cpu.SP.W, top = 0;
+@@ -476,7 +478,7 @@
+   }
+ 
+   ret = q88h_sub_inner_fetch( addr );
+-  if( b->enabled || retro_q88h_sub_read()->enabled || retro_q88h_sub_rom_read()->enabled ) {
++  if( b->enabled || retro_q88h_sub_read()->enabled || retro_q88h_sub_rom_read()->enabled || q88h_sub_reg_enabled() ) {
+     if( start ) {
+       if( ret == 0xcb || ret == 0xed ) q88h_sub_pending = 1;
+       else if( ret == 0xdd || ret == 0xfd ) q88h_sub_pending = 2;
+@@ -654,3 +656,18 @@
+   memcpy(s->regs, regs, sizeof(regs));
+   s->captured = 1;
+ }
++
++void q88h_sub_reg_capture(char kind, uint16_t pc) {
++  unsigned i;
++  uint16_t r[Q88H_SNAPSHOT_REGS] = {
++    z80sub_cpu.AF.W, z80sub_cpu.BC.W, z80sub_cpu.DE.W, z80sub_cpu.HL.W,
++    z80sub_cpu.IX.W, z80sub_cpu.IY.W, kind == 'C' ? pc : z80sub_cpu.PC.W, z80sub_cpu.SP.W,
++    z80sub_cpu.AF1.W, z80sub_cpu.BC1.W, z80sub_cpu.DE1.W, z80sub_cpu.HL1.W,
++    z80sub_cpu.I, (z80sub_cpu.R & 0x7f) | (z80sub_cpu.R_saved & 0x80),
++    z80sub_cpu.IFF, z80sub_cpu.IFF2, z80sub_cpu.IM, z80sub_cpu.HALT
++  };
++  FILE *f = q88h_sub_reg_file();
++  fprintf(f, "%c", kind);
++  for (i = 0; i < Q88H_SNAPSHOT_REGS; i++) fprintf(f, " %04X", r[i]);
++  fputc('\n', f);
++}
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -100,6 +100,7 @@
+ #include "q88h_sub_boundary.h"
+ #include "q88h_sub_read.h"
+ #include "q88h_sub_rom_read.h"
++#include "q88h_sub_reg.h"
+ #include "q88h_sub_interrupt_intervention.h"
+ #include "q88h_main_interrupt_intervention.h"
+ 
+@@ -604,6 +605,7 @@
+ 
+   opcode = M_FETCH( z80->PC.W++ );
+   z80->R ++;
++  if (z80 == &z80sub_cpu && q88h_sub_reg_enabled()) q88h_sub_reg_opcode(opcode);
+   z80->state0 += state_ED_table[ opcode ];
+ 
+   switch( opcode ){
