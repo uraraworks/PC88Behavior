@@ -1,0 +1,9 @@
+row	run	complete	timeout	count	written	before	after	match	executed
+1	1	1	0	64	0	16	40	0	-
+2	1	1	0	64	0	16	46	0	-
+3	1	1	0	64	0	16	32	0	-
+4	1	1	0	64	0	32	24	0	-
+5	1	1	0	64	0	16	39	0	-
+6	1	1	0	64	0	16	48	0	-
+7	1	1	0	64	0	16	39	0	0
+8	1	1	0	64	0	16	40	0	-
