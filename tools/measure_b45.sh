@@ -9,7 +9,7 @@ work="$(cd "$PC88_B45_WORK" && pwd)"
 core="${PC88_B45_CORE:-$(ls "$REPO"/../vendor/quasi88-libretro/quasi88_libretro.* 2>/dev/null | head -1)}"
 [[ -f "$core" ]] || exit 1
 mkdir "$work/source"
-git -C "$REPO" archive 62254d3 | tar -x -C "$work/source"
+git -C "$REPO" archive HEAD | tar -x -C "$work/source"
 TMPDIR="$work" python3 "$work/source/src/build_main_rom.py" "$work/self" >"$work/build.log" 2>&1
 cc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -I"${PC88_B45_CORE_SRC:-$REPO/../vendor/quasi88-libretro/src}/LIBRETRO/libretro-common/include" -I"$REPO/tools/harness/core" "$REPO/tools/harness/frontend/main.c" -ldl -o "$work/front" >"$work/frontend-build.log" 2>&1
 run_one() {
