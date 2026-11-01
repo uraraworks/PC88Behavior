@@ -1,0 +1,66 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -63,6 +63,7 @@
+    $(CORE_DIR)/q88h_sub_boundary.c \
+    $(CORE_DIR)/q88h_sub_read.c \
+    $(CORE_DIR)/q88h_sub_rom_read.c \
++   $(CORE_DIR)/q88h_sub_snapshot.c \
+    $(CORE_DIR)/q88h_exchange_intervention.c \
+    $(CORE_DIR)/q88h_main_in_force.c \
+    $(CORE_DIR)/q88h_sub_interrupt_intervention.c \
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2960,6 +2960,7 @@
+ #include "q88h_trap.h"
+ #include "q88h_iolog.h"
+ #include "q88h_sub_rom_read.h"
++#include "q88h_sub_snapshot.h"
+ #include "q88h_exchange_intervention.h"
+ #include "q88h_main_in_force.h"
+ #include "q88h_memlog.h"
+@@ -3303,7 +3304,10 @@
+   q88h_exchange_ready_handoff_before_main_io(
+       Q88H_IOLOG_IN, port, (word)(z80main_cpu.PC.W - 2));
+   v = main_io_in( port );
+-  if (port == 0xfc) q88h_srr_fc();
++  if (port == 0xfc) {
++    q88h_srr_fc();
++    if (retro_q88h_sub_snapshot()->enabled) q88h_sub_snapshot_capture();
++  }
+ 
+   v = q88h_exchange_intervention_process( Q88H_IOLOG_IN, port,
+                                             (word)(z80main_cpu.PC.W - 2), v );
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -397,6 +397,8 @@
+ #include "q88h_sub_boundary.h"
+ #include "q88h_sub_read.h"
+ #include "q88h_sub_rom_read.h"
++#include "q88h_sub_snapshot.h"
++#include <string.h>
+ 
+ /* トラップROM足場（M2）。考え方は pc88main.c の q88h_fetch / q88h_mem_read と同じ。
+  * サブROMの範囲は 0x0000-0x07FF なので、trap.map もその範囲だけを使う想定。 */
+@@ -633,4 +635,22 @@
+ {
+   if( stateload_table( SID, suspend_pc88sub_work ) == STATE_OK ) return TRUE;
+   else                                                           return FALSE;
++}
++
++void q88h_sub_snapshot_capture(void)
++{
++  q88h_sub_snapshot_t *s = retro_q88h_sub_snapshot();
++  q88h_sub_rom_read_t *r = retro_q88h_sub_rom_read();
++  uint16_t regs[Q88H_SNAPSHOT_REGS] = {
++    z80sub_cpu.AF.W, z80sub_cpu.BC.W, z80sub_cpu.DE.W, z80sub_cpu.HL.W,
++    z80sub_cpu.IX.W, z80sub_cpu.IY.W, z80sub_cpu.PC.W, z80sub_cpu.SP.W,
++    z80sub_cpu.AF1.W, z80sub_cpu.BC1.W, z80sub_cpu.DE1.W, z80sub_cpu.HL1.W,
++    z80sub_cpu.I, (z80sub_cpu.R & 0x7f) | (z80sub_cpu.R_saved & 0x80),
++    z80sub_cpu.IFF, z80sub_cpu.IFF2, z80sub_cpu.IM, z80sub_cpu.HALT
++  };
++  if (!s->enabled || s->captured || r->current_fc != s->target) return;
++  memcpy(s->ram, sub_romram + 0x4000, sizeof(s->ram));
++  memcpy(s->writer, r->writer + 0x4000, sizeof(s->writer));
++  memcpy(s->regs, regs, sizeof(regs));
++  s->captured = 1;
+ }

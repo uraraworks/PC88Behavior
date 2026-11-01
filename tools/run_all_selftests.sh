@@ -171,6 +171,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/sub_boundary_selftest.sh:0"
   "tools/harness/sub_read_selftest.sh:0"
   "tools/b37_sub_rom_reads_selftest.sh:0"
+  "tools/b38_sub_snapshot_selftest.sh:0"
   "tools/harness/b2_boot_probe_selftest.sh:0"
   "tools/harness/key_matrix_selftest.sh:0"
   "tools/harness/type_untypable_selftest.sh:0"

@@ -67,6 +67,7 @@
 #include "q88h_sub_boundary.h"
 #include "q88h_sub_read.h"
 #include "q88h_sub_rom_read.h"
+#include "q88h_sub_snapshot.h"
 #include "q88h_exchange_intervention.h"
 #include "q88h_sub_interrupt_intervention.h"
 #include "q88h_main_interrupt_intervention.h"
@@ -188,6 +189,8 @@ static q88h_sub_read_t *(*p_sub_read)(void);
 static void (*p_sub_read_reset)(void);
 static void (*p_sub_read_set_enabled)(int);
 static bool g_sub_read_available;
+static q88h_sub_snapshot_t *(*p_snapshot)(void);
+static void (*p_snapshot_config)(uint64_t);
 static q88h_sub_rom_read_t *(*p_srr)(void);
 static void (*p_srr_reset)(void);
 static void (*p_srr_config)(uint64_t, uint64_t);
@@ -761,6 +764,8 @@ static bool load_core(const char *path)
     *(void **)(&p_sub_read_reset) = dlsym(h, "retro_q88h_sub_read_reset");
     *(void **)(&p_sub_read_set_enabled) = dlsym(h, "retro_q88h_sub_read_set_enabled");
     g_sub_read_available = p_sub_read && p_sub_read_reset && p_sub_read_set_enabled;
+    *(void **)(&p_snapshot) = dlsym(h, "retro_q88h_sub_snapshot");
+    *(void **)(&p_snapshot_config) = dlsym(h, "retro_q88h_sub_snapshot_config");
     *(void **)(&p_srr) = dlsym(h, "retro_q88h_sub_rom_read");
     *(void **)(&p_srr_reset) = dlsym(h, "retro_q88h_sub_rom_read_reset");
     *(void **)(&p_srr_config) = dlsym(h, "retro_q88h_sub_rom_read_config");
@@ -1547,6 +1552,7 @@ static void usage(void)
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
+        "                   [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
         "                   [--sub-rom-read-log FILE] [--sub-rom-read-window FROM,TO]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
@@ -1654,6 +1660,9 @@ int main(int argc, char **argv)
     const char *boundary_log_path = NULL;
     const char *sub_boundary_log_path = NULL;
     const char *sub_read_log_path = NULL;
+    const char *snapshot_path = NULL;
+    uint64_t snapshot_at = 0;
+    int snapshot_at_set = 0;
     const char *srr_path = NULL;
     uint64_t srr_from = 0, srr_to = UINT64_MAX - 1;
     int srr_window = 0;
@@ -2007,6 +2016,14 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-snapshot") && i + 1 < argc) snapshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-snapshot-at-fc") && i + 1 < argc) {
+            char *end; const char *v = argv[++i];
+            if (*v < '0' || *v > '9') return 2;
+            errno = 0; snapshot_at = strtoull(v, &end, 10);
+            if (errno || *end || snapshot_at == UINT64_MAX) return 2;
+            snapshot_at_set = 1;
+        }
         else if (!strcmp(argv[i], "--sub-rom-read-log") && i + 1 < argc)
             srr_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-rom-read-window") && i + 1 < argc) {
@@ -2264,6 +2281,8 @@ int main(int argc, char **argv)
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
+    if (!!snapshot_path != !!snapshot_at_set) return 2;
+    if (snapshot_path && reject_if_unsafe_output_path("--sub-snapshot", snapshot_path)) return 1;
     if (srr_window && !srr_path) return 2;
     if (srr_path && reject_if_unsafe_output_path("--sub-rom-read-log", srr_path)) return 1;
     if (sub_read_log_path && reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
@@ -2543,9 +2562,15 @@ int main(int argc, char **argv)
         }
     }
 
-    if (srr_path) {
+    if (srr_path || snapshot_path) {
         if (!p_srr || !p_srr_reset || !p_srr_config) { fprintf(stderr, "[q88measure] --sub-rom-read-log はコアにありません\n"); return 1; }
-        p_srr_reset(); p_srr_config(srr_from, srr_to);
+        p_srr_reset();
+        if (srr_path) p_srr_config(srr_from, srr_to);
+        else p_srr_config(UINT64_MAX, UINT64_MAX);
+    }
+    if (snapshot_path) {
+        if (!p_snapshot || !p_snapshot_config) { fprintf(stderr, "[q88measure] snapshot はコアにありません\n"); return 1; }
+        p_snapshot_config(snapshot_at);
     }
     if (sub_read_log_path) {
         if (!g_sub_read_available) { fprintf(stderr, "[q88measure] --sub-read-log はコアにありません\n"); return 1; }
@@ -2954,6 +2979,19 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (snapshot_path) {
+                q88h_sub_snapshot_t *s = p_snapshot(); FILE *fp; unsigned i;
+                if (!s->captured) { fprintf(stderr, "[q88measure] snapshot 未取得\n"); return 1; }
+                if (reject_if_unsafe_output_path("--sub-snapshot", snapshot_path)) return 1;
+                fp = fopen(snapshot_path, "wb"); if (!fp) { fprintf(stderr, "snapshot 書込失敗\n"); return 1; }
+                if (fwrite("Q88SNAP1", 1, 8, fp) != 8 ||
+                    fwrite(s->ram, 1, sizeof(s->ram), fp) != sizeof(s->ram) ||
+                    fwrite(s->writer, 1, sizeof(s->writer), fp) != sizeof(s->writer)) { fclose(fp); return 1; }
+                for (i = 0; i < Q88H_SNAPSHOT_REGS; i++) {
+                    if (fputc(s->regs[i] & 255, fp) == EOF || fputc(s->regs[i] >> 8, fp) == EOF) { fclose(fp); return 1; }
+                }
+                if (fclose(fp)) return 1;
+            }
             if (srr_path) {
                 static const char *names[] = {"unwritten", "rom-written", "ram-written"};
                 q88h_sub_rom_read_t *r = p_srr();
