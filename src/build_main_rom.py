@@ -1712,18 +1712,23 @@ _b24_end:
 '''
     return prefix + text
 
-def b52_boot(row: int) -> str:
+def b52_boot(row: int, b52c: bool = False) -> str:
     # B52 の書き込みと読み返し
     length = (8, 2, 16, 8, 9, 0, 8, 8)[row-1]
     address = 0x7820 if row == 4 else 0x7811 if row == 8 else 0x7810
     payload = bytes([0x3e,0x5a,0x32,0x3f,0x78,0xc3,0xc1,0]) if row == 7 else bytes((0xa0+i for i in range(length)))
+    if b52c:
+        length = (8, 16, 8, 256, 0)[row-1]
+        address = 0x6000 if row == 3 else 0x7810
+        payload = bytes((i * 3 + 0x41) & 255 for i in range(length))
     prefix = b16_boot(1).split('    JP _b16_done')[0].replace('_b16_', '_b52_')
     prefix = prefix.replace('    LD (0DF50h),A\n    LD (0DF52h),A\n    LD (0DF53h),A', '    LD (0DE00h),A\n    LD (0DE01h),A')
     def send(values):
         return ''.join(f'    LD A,0{v:02X}h\n    CALL {"MAIN_SUB_SEND" if i == 0 else "MAIN_SUB_SEND_REQUEST_CONT"}\n    JP C,_b52_timeout\n' for i,v in enumerate(values))
     t = '_b52_begin:\n    LD A,05Ah\n    LD (0DE04h),A\n    XOR A\n    LD (0DE00h),A\n    LD (0DE01h),A\n'
-    t += send([12,0x78,0,0,0x40])
-    t += '''    LD A,00Dh
+    if not b52c:
+        t += send([12,0x78,0,0,0x40])
+        t += '''    LD A,00Dh
     LD (0DE02h),A
     LD B,040h
 _b52_prepare:
@@ -1735,7 +1740,8 @@ _b52_prepare:
     LD (0DE02h),A
     DJNZ _b52_prepare
 '''
-    t += send([0x16,address>>8,address&255,0,length])
+    if not b52c or row != 5:
+        t += send([0x16,address>>8,address&255,length >> 8,length & 255])
     if length:
         padded = payload + (b'\0' if length % 2 else b'')
         t += f"    LD HL,_b52_payload\n    LD B,0{len(padded)//2:02X}h\n_b52_send_pair:\n"
@@ -1766,7 +1772,7 @@ _b52_prepare:
 '''
     if row == 7:
         t += send([13,0x78,0x10])
-    t += send([0x15,0x78,0,0,0x40])
+    t += send([0x15,0x78,0,0,2] if b52c else [0x15,0x78,0,0,0x40])
     t += '''    LD A,0A5h
     LD (0DE03h),A
     LD HL,0E000h
@@ -1779,6 +1785,7 @@ _b52_receive:
     JP C,_b52_timeout
     LD A,00Ah
     OUT (0FFh),A
+_b52_first_fc:
     IN A,(0FCh)
     LD (HL),A
     INC HL
@@ -1803,7 +1810,13 @@ _b52_done:
     RET
 _b52_end:
 '''
-    if length:
+    if b52c and length:
+        t = t.replace("    LD HL,_b52_payload\n", "    LD A,041h\n    LD (0DE02h),A\n")
+        t = t.replace("    LD A,(HL)\n    INC HL\n    OUT (0FDh),A",
+                      "    LD A,(0DE02h)\n    OUT (0FDh),A\n    ADD A,003h\n    LD (0DE02h),A")
+    if b52c:
+        t = t.replace("    LD B,020h\n_b52_receive:", "    LD B,001h\n_b52_receive:")
+    if length and not b52c:
         t += "_b52_payload:\n    DB " + ",".join(f"0{x:02X}h" for x in padded) + "\n"
     return prefix+t
 
@@ -2187,6 +2200,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_b43_row: int | None = None,
                         inject_b24_row: int | None = None,
                         inject_b52_row: int | None = None,
+                        inject_b52c_row: int | None = None,
                         inject_b26_row: int | None = None,
                         enable_boot_sector: bool = False) -> str:
     """IPL(L1)のアセンブリ + 画面出力(L3)のアセンブリを1本に組む。"""
@@ -2528,6 +2542,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         m6ib_variants.append((inject_b35_row is not None, b35_boot(inject_b35_row) if inject_b35_row is not None else "", "b35"))
         m6ib_variants.append((inject_b43_row is not None, b43_boot(inject_b43_row) if inject_b43_row is not None else "", "b43"))
         m6ib_variants.append((inject_b24_row is not None, b24_boot(inject_b24_row) if inject_b24_row is not None else "", "b24"))
+        m6ib_variants.append((inject_b52c_row is not None, b52_boot(inject_b52c_row, True) if inject_b52c_row is not None else "", "b52c"))
         m6ib_variants.append((inject_b52_row is not None, b52_boot(inject_b52_row) if inject_b52_row is not None else "", "b52"))
         m6ib_variants.append((inject_b26_row is not None, b26_boot(inject_b26_row) if inject_b26_row is not None else "", "b26"))
         enabled_m6ib = [(text, arm) for enabled, text, arm in m6ib_variants if enabled]
@@ -2890,6 +2905,7 @@ def main():
     ap.add_argument("--inject-b35-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b43-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b24-row", type=int, choices=range(1, 9))
+    ap.add_argument("--inject-b52c-row", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b52-row", type=int, choices=range(1, 9))
     ap.add_argument("--inject-b26-row", type=int, choices=range(1, 8))
     ap.add_argument("--inject-b21-row", type=int, choices=range(1, 8))
@@ -2922,7 +2938,7 @@ def main():
                          args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only, args.inject_m6ii_sweep,
-                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None, args.inject_b35_row is not None or args.inject_b43_row is not None, args.inject_b24_row is not None, args.inject_b26_row is not None, args.inject_b52_row is not None)
+                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None, args.inject_b35_row is not None or args.inject_b43_row is not None, args.inject_b24_row is not None, args.inject_b26_row is not None, args.inject_b52_row is not None, args.inject_b52c_row is not None)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
     if sum(bool(value) for value in m6ii_fault_flags) > 1:
@@ -2937,7 +2953,7 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ii_sweep or args.inject_m6ik_arm is not None
-        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None or args.inject_b35_row is not None or args.inject_b43_row is not None or args.inject_b24_row is not None or args.inject_b26_row is not None or args.inject_b52_row is not None
+        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None or args.inject_b35_row is not None or args.inject_b43_row is not None or args.inject_b24_row is not None or args.inject_b26_row is not None or args.inject_b52_row is not None or args.inject_b52c_row is not None
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     if args.disable_main_sub_read and any((args.enable_main_sub_read,
                                            args.enable_disk_read_retry,
@@ -3035,6 +3051,7 @@ def main():
                                        inject_b43_row=args.inject_b43_row,
                                        inject_b24_row=args.inject_b24_row,
                                        inject_b52_row=args.inject_b52_row,
+                                       inject_b52c_row=args.inject_b52c_row,
                                        inject_b26_row=args.inject_b26_row,
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
