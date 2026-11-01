@@ -89,6 +89,7 @@ SCRIPTS_EXPECTED=(
   "tools/b45_sub_out_stream_selftest.sh:0"
   "tools/b47_pio_handoff_selftest.sh:0"
   "tools/b48_fc_position_selftest.sh:0"
+  "tools/b49_handshake_order_selftest.sh:0"
   "tools/b22_differing_replies_selftest.sh:0"
   "tools/b32_differing_block_selftest.sh:0"
   "tools/b33_rom_origin_selftest.sh:0"
