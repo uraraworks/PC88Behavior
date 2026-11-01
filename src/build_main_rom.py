@@ -2520,7 +2520,8 @@ def check_ext_bank_callable_labels_below_window(asm: "z80text.Assembler"):
 
 def build_disk_rom(outdir: pathlib.Path, m6ib_arm: str | None = None,
                    inject_m6ie_single_read: bool = False,
-                   inject_m6ie_nops_only: bool = False):
+                   inject_m6ie_nops_only: bool = False,
+                   dry_run_sub_entry_delay: int | None = None):
     cmd = [sys.executable, str(REPO / "src" / "l3_service" / "make_subrom.py"), str(outdir)]
     if m6ib_arm is not None:
         cmd.append(f"--inject-m6ib-{m6ib_arm.lower()}")
@@ -2528,6 +2529,8 @@ def build_disk_rom(outdir: pathlib.Path, m6ib_arm: str | None = None,
         cmd.append("--inject-m6ie-single-read")
     if inject_m6ie_nops_only:
         cmd.append("--inject-m6ie-nops-only")
+    if dry_run_sub_entry_delay is not None:
+        cmd.extend(("--dry-run-sub-entry-delay", str(dry_run_sub_entry_delay)))
     subprocess.run(
         cmd,
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -2710,6 +2713,7 @@ def main():
     ap.add_argument("--labels-out", type=pathlib.Path,
                      help="このビルドのN88.ROMのラベル番地とSHA-256をJSONで書き出す"
                           "（自己検査が実際に走らせるROMと同じ配置から番地を求めるため）")
+    ap.add_argument("--dry-run-sub-entry-delay", type=int, choices=range(1, 256))
     args = ap.parse_args()
 
     m6ib_flags = (args.inject_m6ib_b1, args.inject_m6ib_b2,
@@ -2845,7 +2849,8 @@ def main():
                 "labels": dict(asm.labels)}, ensure_ascii=False), encoding="utf-8")
         build_disk_rom(args.outdir, m6ib_arm=m6ib_arm,
                        inject_m6ie_single_read=args.inject_m6ie_single_read,
-                       inject_m6ie_nops_only=args.inject_m6ie_nops_only)
+                       inject_m6ie_nops_only=args.inject_m6ie_nops_only,
+                       dry_run_sub_entry_delay=args.dry_run_sub_entry_delay)
         build_font_rom(args.outdir, args.unscii_hex, args.misaki_bdf)
         mbf_add_addr = asm.labels.get("MBF_ADD")
         if args.inject_ext_bank_mbf_addr_fault and mbf_add_addr is not None:

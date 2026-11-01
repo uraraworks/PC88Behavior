@@ -175,6 +175,7 @@ SCRIPTS_EXPECTED=(
   "tools/b39_sub_reg_selftest.sh:0"
   "tools/b40_cross_table_selftest.sh:0"
   "tools/b41_cross_origin_selftest.sh:0"
+  "tools/b42_sub_entry_delay_selftest.sh:0"
   "tools/harness/b2_boot_probe_selftest.sh:0"
   "tools/harness/key_matrix_selftest.sh:0"
   "tools/harness/type_untypable_selftest.sh:0"

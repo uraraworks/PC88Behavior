@@ -1113,7 +1113,7 @@ def build_subrom(break_write_ack=False,
                   inject_m6ib_b5=False,
                   inject_m6ie_single_read=False,
                   inject_m6ie_nops_only=False,
-                  align_padding_bytes=0):
+                  align_padding_bytes=0, dry_run_sub_entry_delay=None):
     """break_response: 検証器（tools/verify_l3.sh）をわざと壊すためのフラグ。
     応答256バイトの先頭1バイトを1ビットだけ反転させる。verify_l3.sh の
     「わざと壊して検出できるか確認する」手順で使う。ここで壊す1ビットは
@@ -2171,6 +2171,10 @@ def build_subrom(break_write_ack=False,
     # IX・IY・Iには触れない。通常のFDC経路はDI済み。EIして公開入口へ
     # 戻った場合の許可状態は、従来どおり次のLOAD/RUNでも維持する。
     a.im0()                            # 1.36c: 実行先ではモード0
+    if dry_run_sub_entry_delay is not None:
+        a.ld_b_n(dry_run_sub_entry_delay)
+        a.label("_sub_entry_delay")
+        a.djnz("_sub_entry_delay")
     a.ld_c_a()                        # 比較を通ったA=0x0D
     a.xor_a()
     a.ld_b_a()
@@ -3760,12 +3764,14 @@ def build(break_write_ack=False,
           inject_m6ib_b5=False,
           inject_m6ie_single_read=False,
           inject_m6ie_nops_only=False,
-          metadata=None):
+          metadata=None, dry_run_sub_entry_delay=None):
     # m7an: SUB_ROM_FETCH_WINDOW(0x0800)を跨ぐ命令が無くなるまで、
     # align_padding_bytesを0から1バイトずつ増やして再アセンブルする
     # （find_fetch_window_straddlesのdocstring参照）。跨ぎが無い状態
     # （LIMIT=1/2の既定コードなど）ではalign_padding_bytes=0のまま
     # 1回で終わり、既存の出力に一切影響しない。
+    if dry_run_sub_entry_delay is not None and not 1 <= dry_run_sub_entry_delay <= 255:
+        raise ValueError("待ちは1〜255で指定する")
     align_padding_bytes = 0
     a = None
     for _attempt in range(MAX_ALIGN_PADDING_ATTEMPTS + 1):
@@ -3801,7 +3807,8 @@ def build(break_write_ack=False,
                           inject_m6ib_b5=inject_m6ib_b5,
                           inject_m6ie_single_read=inject_m6ie_single_read,
                           inject_m6ie_nops_only=inject_m6ie_nops_only,
-                          align_padding_bytes=align_padding_bytes)
+                          align_padding_bytes=align_padding_bytes,
+                          dry_run_sub_entry_delay=dry_run_sub_entry_delay)
         a.resolve()
         # 既定引数ではなく呼び出し時にモジュール定数を読む（selftestが
         # SUB_ROM_FETCH_WINDOWを差し替えて検出力を確認できるようにするため）。
@@ -3982,6 +3989,7 @@ def main():
                     help="M7段階0: 発行した命令を .asm として書き出す"
                          "（tools/asm/z80text.py で組み直せる）。既定の"
                          "ROM出力バイトには影響しない。")
+    ap.add_argument("--dry-run-sub-entry-delay", type=int, choices=range(1, 256))
     args = ap.parse_args()
     if sum((args.inject_m6ib_b1, args.inject_m6ib_b2, args.inject_m6ib_b3,
             args.inject_m6ib_b4, args.inject_m6ib_b5,
@@ -4038,7 +4046,7 @@ def main():
                        inject_m6ib_b5=args.inject_m6ib_b5,
                        inject_m6ie_single_read=args.inject_m6ie_single_read,
                        inject_m6ie_nops_only=args.inject_m6ie_nops_only,
-                       metadata=metadata)
+                       metadata=metadata, dry_run_sub_entry_delay=args.dry_run_sub_entry_delay)
     d = pathlib.Path(args.outdir)
     d.mkdir(parents=True, exist_ok=True)
     (d / "DISK.ROM").write_bytes(rom)
