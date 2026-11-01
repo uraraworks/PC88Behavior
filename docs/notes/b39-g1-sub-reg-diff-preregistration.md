@@ -25,6 +25,8 @@
 - `cross first-reg-differ <レジスタ名> <N|none> <PCが4桁16進|none>`（レジスタごと、`R` を除く）
 - `fc count <左> <右>`
 - `fc first-reg-differ <レジスタ名> <N|none> <pc-same|pc-differ|none>`（レジスタごと、`R` を除く）
+- `fc first-reg-differ-same-pc <レジスタ名> <N|none>`（両方の `PC` が同じで `0x2000` 以上の行だけで比べる。レジスタごと、`R` を除く）
+- `fc last-reg-same-before <レジスタ名> <N|none>`（同じ行のうち、番号 76569 以下で値が同じ最後の番号。`BC`・`HL` だけ）
 - `opcode <LD_A_R|LD_A_I> <左の回数> <右の回数> <左の最初のPC|none> <右の最初のPC|none>`
 
 器具は G1 なしで自己検査する。陽性対照は移る時点のレジスタの違い、`IN $FC` の時点の違い、`LD A,R`・`LD A,I` の検出。陰性対照は同じ走で違いが出ないこと、発行元 `0x2000` 未満の `LD A,R` を数えないこと、値が出力へ出ないこと、無効時の動作が変わらないこと。
@@ -43,6 +45,7 @@
 
 - `cross first-reg-differ` が `none` でなければ、ROM から移る時点の問題の候補とし、番号とレジスタを書く
 - すべて `none` で `fc first-reg-differ` が `none` でなければ、RAM 上のコードの中で生じたとし、番号を B30 の 76570 と並べる
+- サブは ROM の違いで実行位置がずれるので、最初の違いが `pc-differ` なら分かれ目と読まない。RAM 上のコードの分かれ目は `same-pc` の行と `last-reg-same-before` で読む
 - `LD A,R` が RAM 上のコードにあれば、そのことを書く。公式との違いが R によるかは、この記録だけでは断定しない
 - 原因は断定しない
 
