@@ -87,6 +87,7 @@ SCRIPTS_EXPECTED=(
   "tools/b6_io_sequence_selftest.sh:0"
   "tools/b8_io_values_selftest.sh:0"
   "tools/b45_sub_out_stream_selftest.sh:0"
+  "tools/b47_pio_handoff_selftest.sh:0"
   "tools/b22_differing_replies_selftest.sh:0"
   "tools/b32_differing_block_selftest.sh:0"
   "tools/b33_rom_origin_selftest.sh:0"
