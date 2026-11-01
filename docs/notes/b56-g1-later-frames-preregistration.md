@@ -21,7 +21,9 @@
 
 ## 3. 記録の白リスト
 
-`arm <腕> frames=<N> image=<same|differ> text=<same|differ> fc-diff=<N> first=<N|none> left=<N> right=<N> oo=<same|differ> ss=<same|differ>`
+`arm <腕> frames=<N> image=<same|differ> text=<same|differ> fc-diff=<N|na> first=<N|none|na> left=<N|na> right=<N|na> oo=<same|differ> ss=<same|differ>`
+
+測定前の修正（2026-11-01）: 1 回目は長い走の `--io-log` があふれて止まった。あふれた腕は `IN $FC` の比較を `na` にして、画像とテキストだけで判定する。
 
 画像は B29 と同じく一致かどうかだけを見て、どこへも置かず、開かず、判定のあとで消す。**値は出さない。**
 

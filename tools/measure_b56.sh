@@ -45,7 +45,7 @@ def fc(name):
     lines = (w / (name + '.io')).read_text(encoding='utf-8', errors='replace').splitlines(keepends=True)
     main = lines[lines.index('# main\n') + 1:lines.index('# sub\n')]
     if not any('# 取りこぼし: 0件' in x for x in main):
-        raise ValueError('記録が不完全')
+        return None
     return parse_log(lines)[('IN', '00FC', 'raw')]
 def image(a, b):
     return (w / (a + '.png')).read_bytes() == (w / (b + '.png')).read_bytes()
@@ -64,9 +64,9 @@ for arm, frames in [('F', 7200), ('H', 14400), ('I', 28800), ('E', 7200), ('G', 
     img = image(oo1, ss1)
     txt = screen(oo1, ss1)
     a, b = fc(oo1), fc(ss1)
-    diffs = [i for i, (x, y) in enumerate(zip(a, b)) if x[0] != y[0]]
-    first = diffs[0] if diffs else 'none'
-    rows.append(f'arm {arm} frames={frames} image={label(img)} text={label(txt)} fc-diff={len(diffs)} first={first} left={len(a)} right={len(b)} oo={label(oo)} ss={label(ss)}')
+    diffs = [] if a is None or b is None else [i for i, (x, y) in enumerate(zip(a, b)) if x[0] != y[0]]
+    first = 'na' if a is None or b is None else (diffs[0] if diffs else 'none')
+    rows.append(f'arm {arm} frames={frames} image={label(img)} text={label(txt)} fc-diff={len(diffs) if a is not None and b is not None else "na"} first={first} left={len(a) if a is not None else "na"} right={len(b) if b is not None else "na"} oo={label(oo)} ss={label(ss)}')
     for name in (oo1, oo2, ss1, ss2):
         (w / (name + '.png')).unlink()
 (w / 'result').write_text('\n'.join(rows) + '\n', encoding='utf-8')
