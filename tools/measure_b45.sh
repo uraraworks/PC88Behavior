@@ -10,7 +10,7 @@ core="${PC88_B45_CORE:-$(ls "$REPO"/../vendor/quasi88-libretro/quasi88_libretro.
 [[ -f "$core" ]] || exit 1
 mkdir "$work/source"
 git -C "$REPO" archive HEAD | tar -x -C "$work/source"
-TMPDIR="$work" python3 "$work/source/src/build_main_rom.py" "$work/self" >"$work/build.log" 2>&1
+TMPDIR="$work" python3 "$work/source/src/build_main_rom.py" "$work/self" --unscii-hex "${PC88_VENDOR_DIR:-$REPO/../vendor}/unscii/unscii-8.hex" --misaki-bdf "${PC88_VENDOR_DIR:-$REPO/../vendor}/misaki/misaki_gothic.bdf" >"$work/build.log" 2>&1
 cc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -I"${PC88_B45_CORE_SRC:-$REPO/../vendor/quasi88-libretro/src}/LIBRETRO/libretro-common/include" -I"$REPO/tools/harness/core" "$REPO/tools/harness/frontend/main.c" -ldl -o "$work/front" >"$work/frontend-build.log" 2>&1
 run_one() {
   local name="$1" rom="$2" prefix="$work/$1" run_dir="$work/run-$1"
