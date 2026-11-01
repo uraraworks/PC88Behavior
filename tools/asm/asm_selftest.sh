@@ -46,7 +46,7 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # 旧値 d8b2e64bc27465f955fd308719228f21b06aa07fd780081a88124a52e6d76070
 # は1.36a以前の出力。現行は1.36a〜c（LOAD/RUN/0x15を含む）と、
 # 送信後の戻り先共有による2バイト短縮を含む。仕様とバイト再組み立ては別途照合する。
-EXPECT_SUBROM_DISK_SHA="d27b1749adf1233c8582904f5ef209aae503ce9d2581507dd1ecfe53514a0292"
+EXPECT_SUBROM_DISK_SHA="08fa07c073c2350d28b2a7ae22f3cf24158b428b0cbd9f0f0af53877eb7cad3d"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then
@@ -276,7 +276,7 @@ fi
 SUB_INJECT_OUT="$WORK/sub_inject_out"
 SUB_INJECT_ASM="$WORK/sub_inject.asm"
 mkdir -p "$SUB_INJECT_OUT"
-if PC88_ASM_INJECT_RAW_DB=1 python3 src/l3_service/make_subrom.py "$SUB_INJECT_OUT" \
+if PC88_BULK_READ_INTERVENTION_LIMIT=3 PC88_ASM_INJECT_RAW_DB=1 python3 src/l3_service/make_subrom.py "$SUB_INJECT_OUT" \
         --probe-site general_read_request --probe-mode clear \
         --emit-asm "$SUB_INJECT_ASM" > "$WORK/sub_inject.log" 2>&1; then
     inject_sub_raw="$(sed -n 's/.*raw=\([0-9]*\).*/\1/p' "$WORK/sub_inject.log")"

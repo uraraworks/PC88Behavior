@@ -36,7 +36,7 @@ import csv, pathlib, sys
 for path in sorted(pathlib.Path(sys.argv[1]).glob('b43-self-*.tsv')):
     with path.open() as f:
         rows = list(csv.DictReader(f, delimiter='\t'))
-    assert len(rows) == 6 and all(r['complete'] == '1' and r['f'] == '44' for r in rows), rows
+    assert len(rows) == 6 and all(r['complete'] == '1' and r['f'] == 'C1' for r in rows), rows
 assert len(list(pathlib.Path(sys.argv[1]).glob('b43-self-*.tsv'))) == 2
-print('B43 自己検査 OK: F=44')
+print('B43 自己検査 OK: F=C1')
 PY

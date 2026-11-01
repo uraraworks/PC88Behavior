@@ -15,7 +15,11 @@ def analyze(row,run,events,memory,lines,drops=0):
     if complete:
         address={4:0x6000,5:0x7900}.get(row,0x7800)
         length=256 if row==5 else 16
-        def payload(marker): return [0x3e,0x5a,0x32,marker&255,marker>>8,0xc3,0xc1,0]+[0]*(length-8)
+        def payload(marker):
+            code = [0x3e,0x5a,0x32,marker&255,marker>>8,0xc3,0xc1,0]
+            if row == 6:
+                code = [0x18,0x05,0x00,0xdb,0xfe,0x18,0xfc] + code
+            return code + [0]*(length-len(code))
         marker={4:0x6010,5:0x7a10}.get(row,0x7810)
         phases=[[12,address>>8,address&255,length>>8,length&255]+payload(marker)]
         if row!=1: phases.append([13,address>>8,(address+(3 if row==6 else 0))&255])

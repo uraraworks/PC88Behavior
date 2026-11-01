@@ -623,6 +623,9 @@ class Asm:
     def ld_a_c(self):     self.db(0x79)
     def ld_b_a(self):     self.db(0x47)
     def ld_c_a(self):     self.db(0x4F)
+    def ld_c_n(self, n):  self.db(0x0E, n)
+    def ld_d_b(self):     self.db(0x50)
+    def ld_e_b(self):     self.db(0x58)
     def cp_b(self):       self.db(0xB8)   # CP B（第68版: 1.37節の待受値照合）
     # ---- 第52版・m7ap: 要求グループ決定関数のテーブル駆動化で使う命令 ----
     def ld_a_de(self):    self.db(0x1A)   # LD A,(DE)
@@ -756,6 +759,9 @@ _ASM_TEMPLATES = {
     "ld_a_c": lambda: "LD A,C",
     "ld_b_a": lambda: "LD B,A",
     "ld_c_a": lambda: "LD C,A",
+    "ld_c_n": lambda n: f"LD C,{hex8(n)}",
+    "ld_d_b": lambda: "LD D,B",
+    "ld_e_b": lambda: "LD E,B",
     "cp_b": lambda: "CP B",
     "ld_a_de": lambda: "LD A,(DE)",
     "cp_hl": lambda: "CP (HL)",
@@ -2175,12 +2181,14 @@ def build_subrom(break_write_ack=False,
         a.ld_b_n(dry_run_sub_entry_delay)
         a.label("_sub_entry_delay")
         a.djnz("_sub_entry_delay")
-    a.ld_c_a()                        # 比較を通ったA=0x0D
-    a.xor_a()
-    a.ld_b_a()
-    a.ld_d_a()
-    a.ld_e_a()
+    # 第230版: POP AFでフラグを設定し、その後はフラグを変更しない。
     a.ld_sp(0x8000)
+    a.ld_bc_imm(0x00C1)
+    a.push_bc()
+    a.pop_af()
+    a.ld_c_n(0x0D)
+    a.ld_d_b()
+    a.ld_e_b()
     a.jp_hl()
     a.label("_general_load")
     a.ex_de_hl()                       # DE=番地を保ったまま長さを受信
@@ -2923,7 +2931,7 @@ def build_subrom(break_write_ack=False,
         # SECTOR_READYが残っており、下の汎用経路は長さ2を交換#4のデータ要求と
         # 取り違えて256バイトを送るため、応答せずアイドルへ戻す。
         a.cp_n(0x14)
-        a.jp_z("_write_prefix_response")
+        a.jr_z("_write_prefix_response")  # 近距離分岐で容量を節約
         a.cp_n(0x02)
         a.jr_nz("_recv_dispatch_run_done")
         if early_response_after is not None:
@@ -2979,7 +2987,7 @@ def build_subrom(break_write_ack=False,
         a.label("_recv_dispatch_after_exchange14_check")
         a.ld_a_mem(SECTOR_READY)
         a.or_a()
-        a.jp_nz("_recv_dispatch_maybe_exchange4")
+        a.jr_nz("_recv_dispatch_maybe_exchange4")  # 同上
 
         # 交換#3: 固定8バイト要求。ここではFDC実データ応答を開始しない。
         a.ld_a_mem(RUN_LEN)

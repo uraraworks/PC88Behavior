@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-PYTHONPATH="$REPO/tools" python3 - <<'PY'
+PYTHONPATH="$REPO/tools:$REPO/src" python3 - <<'PY'
 import io
 from types import SimpleNamespace as E
 from judge_b17 import FIELDS,load,judge
@@ -47,6 +47,16 @@ m=[E(addr=x,value=0) for x in (0xdf50,0xdf51,0xdf52,0xdf54,0xdf55,0xdf56,0xdf57)
 ev=[E(cpu='main',kind='OUT',port='00FD',value=x) for x in (0,0x17,0x0f)]
 v=analyze(1,1,ev,m,['W 7EFF rom 1','W 7F00 rom 1','A 00C1 1 0 1 0 0']);assert v[5]=='7EFF-7EFF:1' and v[7]=='7F00-7F00:1'
 v=analyze(1,1,[],[],['W 7800 ram 1'],2);assert v[2:5]==['0','-','-']
+# 行6は異なる入口に入るとI/Oを読むループへ留まる。
+from build_main_rom import b17_boot
+boot = b17_boot(6)
+assert '018h,005h,000h,0DBh,0FEh,018h,0FCh' in boot
+payload=[0x18,5,0,0xdb,0xfe,0x18,0xfc,0x3e,0x5a,0x32,0x10,0x78,0xc3,0xc1,0,0]
+seq=[0,0x17,0x0f,12,0x78,0,0,16]+payload+[13,0x78,3]
+ev6=[E(cpu='main',kind='OUT',port='00FD',value=x) for x in seq]
+m6=[E(addr=x,value=v) for x,v in ((0xdf50,0),(0xdf51,0),(0xdf52,0),(0xdf53,1),(0xdf54,24),(0xdf55,0),(0xdf56,0),(0xdf57,0))]
+assert analyze(6,1,ev6,m6,[])[2]=='1'
+
 for lines in (['secret'],['W 7800 rom 1','W 7800 rom 1']):
     try:analyze(1,1,ev,m,lines)
     except ValueError:pass
