@@ -1,0 +1,2 @@
+# 識別子: G1
+dropped=0 complete=1
