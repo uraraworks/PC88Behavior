@@ -253,6 +253,7 @@ SCRIPTS_EXPECTED=(
   "tools/b17_selftest.sh:0"
   "tools/b21_selftest.sh:0"
   "tools/b24_selftest.sh:0"
+  "tools/b52_selftest.sh:0"
   "tools/b35_selftest.sh:0"
   "tools/b43_selftest.sh:0"
   "tools/b36_sub_port_values_selftest.sh:0"
