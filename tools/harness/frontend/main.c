@@ -190,6 +190,8 @@ static q88h_sub_read_t *(*p_sub_read)(void);
 static void (*p_sub_read_reset)(void);
 static void (*p_sub_read_set_enabled)(int);
 static bool g_sub_read_available;
+static int (*p_event_open)(const char *);
+static int (*p_event_close)(void);
 static int (*p_reg_open)(const char *);
 static int (*p_reg_close)(void);
 static q88h_sub_snapshot_t *(*p_snapshot)(void);
@@ -767,6 +769,8 @@ static bool load_core(const char *path)
     *(void **)(&p_sub_read_reset) = dlsym(h, "retro_q88h_sub_read_reset");
     *(void **)(&p_sub_read_set_enabled) = dlsym(h, "retro_q88h_sub_read_set_enabled");
     g_sub_read_available = p_sub_read && p_sub_read_reset && p_sub_read_set_enabled;
+    *(void **)(&p_event_open) = dlsym(h, "retro_q88h_sub_event_open");
+    *(void **)(&p_event_close) = dlsym(h, "retro_q88h_sub_event_close");
     *(void **)(&p_reg_open) = dlsym(h, "retro_q88h_sub_reg_open");
     *(void **)(&p_reg_close) = dlsym(h, "retro_q88h_sub_reg_close");
     *(void **)(&p_snapshot) = dlsym(h, "retro_q88h_sub_snapshot");
@@ -1557,7 +1561,7 @@ static void usage(void)
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
-        "                   [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
+        "                   [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
         "                   [--sub-rom-read-log FILE] [--sub-rom-read-window FROM,TO]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
         "                    [--mem-write-from-frame N]]\n"
@@ -1665,6 +1669,7 @@ int main(int argc, char **argv)
     const char *boundary_log_path = NULL;
     const char *sub_boundary_log_path = NULL;
     const char *sub_read_log_path = NULL;
+    const char *event_path = NULL;
     const char *reg_path = NULL;
     const char *snapshot_path = NULL;
     uint64_t snapshot_at = 0;
@@ -2022,6 +2027,7 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--sub-event-log") && i + 1 < argc) event_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-reg-log") && i + 1 < argc) reg_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-snapshot") && i + 1 < argc) snapshot_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-snapshot-at-fc") && i + 1 < argc) {
@@ -2288,6 +2294,7 @@ int main(int argc, char **argv)
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
+    if (event_path && reject_if_unsafe_output_path("--sub-event-log", event_path)) return 1;
     if (reg_path && reject_if_unsafe_output_path("--sub-reg-log", reg_path)) return 1;
     if (!!snapshot_path != !!snapshot_at_set) return 2;
     if (snapshot_path && reject_if_unsafe_output_path("--sub-snapshot", snapshot_path)) return 1;
@@ -2570,6 +2577,7 @@ int main(int argc, char **argv)
         }
     }
 
+    if (event_path && (!p_event_open || !p_event_close || !p_event_open(event_path))) { fprintf(stderr, "[q88measure] sub-event 記録を開始できません\n"); return 1; }
     if (reg_path && (!p_reg_open || !p_reg_close || !p_reg_open(reg_path))) { fprintf(stderr, "[q88measure] sub-reg 記録を開始できません\n"); return 1; }
     if (srr_path || snapshot_path) {
         if (!p_srr || !p_srr_reset || !p_srr_config) { fprintf(stderr, "[q88measure] --sub-rom-read-log はコアにありません\n"); return 1; }
@@ -2988,6 +2996,7 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (event_path && !p_event_close()) { fprintf(stderr, "[q88measure] sub-event 記録の書込失敗\n"); return 1; }
             if (reg_path && !p_reg_close()) { fprintf(stderr, "[q88measure] sub-reg 記録の書込失敗\n"); return 1; }
             if (snapshot_path) {
                 q88h_sub_snapshot_t *s = p_snapshot(); FILE *fp; unsigned i;

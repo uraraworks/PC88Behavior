@@ -174,6 +174,7 @@ SCRIPTS_EXPECTED=(
   "tools/b37_sub_rom_reads_selftest.sh:0"
   "tools/b38_sub_snapshot_selftest.sh:0"
   "tools/b39_sub_reg_selftest.sh:0"
+  "tools/b46_sub_event_selftest.sh:0"
   "tools/b40_cross_table_selftest.sh:0"
   "tools/b41_cross_origin_selftest.sh:0"
   "tools/b42_sub_entry_delay_selftest.sh:0"
