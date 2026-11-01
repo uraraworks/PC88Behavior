@@ -57,11 +57,13 @@ candidate_rom, candidate_used = subrom.build(early_response_after=5)
 # 2026-09-10: 絶対値(2042/2044)を直に書いていたが、2026-09-03の意図的な圧縮
 # (abf6d02が18バイト空けた)と、その後の実装追加で既定が2039へ動き、以後
 # 赤のまま放置されていた。この検査が本来見たいのは「介入版が既定版より
-# ちょうど2バイト大きい」ことと「どちらもフェッチ窓に収まる」ことなので、
+# ちょうど3バイト大きい」ことと「どちらもフェッチ窓に収まる」ことなので、
 # そちらを直接書く。既定サイズが動いても腐らない。
-if candidate_used - default_used != 2:
+# 2026-11-01: 3774436で既定側のPOST_BULK_ACTIVE判定の分岐をJPからJRへ縮めた
+# (既定側の判定列6バイト、介入側9バイト)ので、差は2から3になった。
+if candidate_used - default_used != 3:
     raise SystemExit(
-        f"NG: 介入版と既定版の差が2バイトでない: {default_used}/{candidate_used}")
+        f"NG: 介入版と既定版の差が3バイトでない: {default_used}/{candidate_used}")
 if max(default_used, candidate_used) > subrom.SUB_ROM_FETCH_WINDOW:
     raise SystemExit(
         f"NG: フェッチ窓を超えた: {default_used}/{candidate_used}")
