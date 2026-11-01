@@ -17,12 +17,12 @@ def make(path, shifted=False):
         (main if cpu == 'main' else sub).append((clock, kind, port, value, pc))
     for i in range(76570):
         event('main', 'IN', 0xFC, (i * 17) % 251, 0xC000)
-    for group, size in enumerate((3, 5, 8, 11)):
+    for group, size in enumerate((3, 13, 3, 3, 5)):
         for i in range(size):
-            event('main', 'OUT', 0xFD, [0xA1, 0xB2, 0xC3, 0xD4][group] if i == 0 else 0xE7, 0x8100 + group * 16 + (i % 2 if group == 2 else 0))
-            event('main', 'OUT', 0xFF, 0xE7, 0x8200 + group * 16 + (i % 2 if group == 2 else 0))
-            event('sub', 'IN', 0xFC, 0xE7, 0x1000 if group == 2 else 0x3000)
-            if group == 2 and i % 2 == 0:
+            event('main', 'OUT', 0xFD, [0xA1, 0xB2, 0xC3, 0xD4, 0xF5][group] if i == 0 else 0xE7, 0x8100)
+            event('sub', 'IN', 0xFC, 0xE7, 0x1000 if group == 1 and i < 8 else 0x3000)
+            event('main', 'OUT', 0xFF, 0x01 if i == size - 1 else 0xE0, 0x8200)
+            if group == 1 and i < 8 and i % 2 == 0:
                 event('main', 'IN', 0xFE, 0xE7, 0x8300)
     for i in range(40):
         event('main', 'IN', 0xFC, ((i - (1 if shifted else 0)) * 23) % 251, 0xC000)
@@ -35,11 +35,11 @@ def make(path, shifted=False):
 make(work/'a')
 make(work/'b', True)
 a, b = read(work/'a'), read(work/'b')
-assert [(x[0], x[1]) for x in bursts(a)] == [(3,'single'),(5,'single'),(8,'paired'),(11,'single')]
+assert [(x[0], x[1]) for x in bursts(a)] == [(3,'3s'),(13,'5s+8p'),(3,'3s'),(3,'3s'),(5,'5s')]
 rows = summarize(a,b)
 assert 'sub-reader single hi' in rows and 'sub-reader paired lo' in rows
 assert 'shift +1 compared=37 same=37' in rows
-assert [r for r in rows if r.startswith('burst ')] == ['burst 1 size=3 mode=single head=A1','burst 2 size=5 mode=single head=B2','burst 3 size=8 mode=paired head=-','burst 4 size=11 mode=single head=-']
+assert [r for r in rows if r.startswith('burst ')] == ['burst 1 size=3 shape=3s head=A1', 'burst 2 size=13 shape=5s+8p head=B2', 'burst 3 size=3 shape=3s head=C3', 'burst 4 size=3 shape=3s head=D4', 'burst 5 size=5 shape=5s head=F5']
 assert all('E7' not in row for row in rows)
 PY
 python3 "$repo/tools/b50_paired_request.py" "$work/a" "$work/b" >"$work/out" 2>"$work/err"

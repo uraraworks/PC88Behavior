@@ -59,56 +59,57 @@ def bursts(data):
     sections, fc = data
     main = [e for e in sections['main'] if fc[76569][0] < e[0] < fc[76570][0]
             and e[1:3] in (('OUT', 0xFD), ('OUT', 0xFF), ('IN', 0xFE))]
-    # 各 FD に続く FF の発行元を組にする。途中の FE は無視する。
-    fdpos = [i for i, e in enumerate(main) if e[1:3] == ('OUT', 0xFD)]
-    units = []
-    for n, pos in enumerate(fdpos):
-        end = fdpos[n + 1] if n + 1 < len(fdpos) else len(main)
-        following = [e for e in main[pos + 1:end] if e[1:3] == ('OUT', 0xFF)]
-        if not following:
-            raise ValueError()
-        units.append((pos, end, (main[pos][4], following[0][4])))
-    transfers = []
-    n = 0
-    while n < len(units):
-        pos, end, key = units[n]
-        controls = [e[1:3] for e in main[pos + 1:end]]
-        paired = False
-        if n + 1 < len(units):
-            next_pos, next_end, next_key = units[n + 1]
-            following = [e[1:3] for e in main[next_pos + 1:next_end]]
-            paired = (bool(controls) and controls[0] == ('OUT', 0xFF)
-                      and ('IN', 0xFE) in controls[1:]
-                      and following.count(('OUT', 0xFF)) == 1)
-        if paired:
-            transfers.append(('paired', (key, next_key), pos, next_end, 2))
-            n += 2
-        else:
-            transfers.append(('single', (key,), pos, end, 1))
-            n += 1
-    groups = []
-    for mode, key, pos, end, size in transfers:
-        if groups and groups[-1][0:2] == (mode, key):
-            old = groups[-1]
-            groups[-1] = (mode, key, old[2], end, old[4] + size)
-        else:
-            groups.append((mode, key, pos, end, size))
+    # FF の下位 4 ビットが 1 の書き込みで要求を区切る。
+    requests, request = [], []
+    for event in main:
+        request.append(event)
+        if event[1:3] == ('OUT', 0xFF) and event[3] & 0x0F == 1:
+            requests.append(request)
+            request = []
+    if request:
+        raise ValueError()
     result = []
-    for mode, key, pos, end, size in groups:
-        result.append((size, mode, main[pos][3], main[pos][0],
-                       main[end][0] if end < len(main) else fc[76570][0]))
+    for request in requests:
+        fdpos = [i for i, e in enumerate(request) if e[1:3] == ('OUT', 0xFD)]
+        if not fdpos:
+            raise ValueError()
+        units = []
+        for n, pos in enumerate(fdpos):
+            end = fdpos[n + 1] if n + 1 < len(fdpos) else len(request)
+            controls = [e[1:3] for e in request[pos + 1:end]]
+            if ('OUT', 0xFF) not in controls:
+                raise ValueError()
+            units.append((pos, end, controls))
+        transfers = []
+        n = 0
+        while n < len(units):
+            pos, end, controls = units[n]
+            paired = (n + 1 < len(units) and controls[0] == ('OUT', 0xFF)
+                      and ('IN', 0xFE) in controls[1:]
+                      and units[n + 1][2].count(('OUT', 0xFF)) == 1)
+            if paired:
+                end = units[n + 1][1]
+            transfers.append(('paired' if paired else 'single', request[pos][0],
+                              request[end][0] if end < len(request) else request[-1][0] + 1))
+            n += 2 if paired else 1
+        single = sum(1 for mode, _, _ in transfers if mode == 'single')
+        paired = len(fdpos) - single
+        shape = '+'.join(part for part in (f'{single}s' if single else '',
+                                            f'{paired}p' if paired else '') if part)
+        result.append((len(fdpos), shape, request[fdpos[0]][3], transfers))
     return result
 
 
 def summarize(official, self_data):
     groups = bursts(official)
-    rows = [f'burst {i} size={size} mode={mode} head=' + (f'{head:02X}' if i <= 2 else '-')
-            for i, (size, mode, head, _, _) in enumerate(groups, 1)]
+    rows = [f'burst {i} size={size} shape={shape} head={head:02X}'
+            for i, (size, shape, head, _) in enumerate(groups, 1)]
     readers = set()
-    for _, mode, _, lo, hi in groups:
-        for e in official[0]['sub']:
-            if lo < e[0] < hi and e[1:3] == ('IN', 0xFC):
-                readers.add((mode, 'hi' if e[4] >= 0x2000 else 'lo'))
+    for _, _, _, transfers in groups:
+        for mode, lo, hi in transfers:
+            for e in official[0]['sub']:
+                if lo < e[0] < hi and e[1:3] == ('IN', 0xFC):
+                    readers.add((mode, 'hi' if e[4] >= 0x2000 else 'lo'))
     for mode in ('single', 'paired'):
         for region in ('hi', 'lo'):
             if (mode, region) in readers:

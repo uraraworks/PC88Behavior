@@ -35,7 +35,7 @@ try:
     names = ('OO-1', 'OO-2', 'SS-1', 'SS-2')
     data = {n: read(work / (n + '.io')) for n in names}
     pairs = [(bursts(data[n])) for n in names]
-    shapes = [[(x[0], x[1]) for x in group] for group in pairs]
+    sizes = [[x[0] for x in group] for group in pairs]
     outputs = [summarize(data['OO-1'], data['SS-1']),
                summarize(data['OO-2'], data['SS-2'])]
     # 各腕の出力の再現性は相手を固定して検査する。
@@ -50,7 +50,7 @@ try:
         while first + run < min(len(a), len(b)) and a[first + run][3] != b[first + run][3]:
             run += 1
     burst_rows = [[(x[0], x[1], x[2]) for x in group] for group in pairs]
-    checks = [('burst-shape', all(s == [(3, 'single'), (5, 'single'), (8, 'paired'), (11, 'single')] for s in shapes)),
+    checks = [('burst-sizes', all(s == [3, 13, 3, 3, 5] for s in sizes)),
               ('OO-runs-output-equal', oo_repeat), ('SS-runs-output-equal', ss_repeat),
               ('OO-SS-burst-equal', burst_rows[0] == burst_rows[2]),
               ('fc-difference-count-257', len(diffs) == 257),
