@@ -62,12 +62,13 @@ def bursts(data):
     # FF の下位 4 ビットが 1 の書き込みで要求を区切る。
     requests, request = [], []
     for event in main:
-        request.append(event)
         if event[1:3] == ('OUT', 0xFF) and event[3] & 0x0F == 1:
-            requests.append(request)
+            if any(e[1:3] == ('OUT', 0xFD) for e in request):
+                requests.append(request)
             request = []
-    if request:
-        raise ValueError()
+        request.append(event)
+    if any(e[1:3] == ('OUT', 0xFD) for e in request):
+        requests.append(request)
     result = []
     for request in requests:
         fdpos = [i for i, e in enumerate(request) if e[1:3] == ('OUT', 0xFD)]

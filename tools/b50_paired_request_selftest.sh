@@ -18,10 +18,11 @@ def make(path, shifted=False):
     for i in range(76570):
         event('main', 'IN', 0xFC, (i * 17) % 251, 0xC000)
     for group, size in enumerate((3, 13, 3, 3, 5)):
+        event('main', 'OUT', 0xFF, 0x01, 0x8200)
         for i in range(size):
             event('main', 'OUT', 0xFD, [0xA1, 0xB2, 0xC3, 0xD4, 0xF5][group] if i == 0 else 0xE7, 0x8100)
             event('sub', 'IN', 0xFC, 0xE7, 0x1000 if group == 1 and i < 8 else 0x3000)
-            event('main', 'OUT', 0xFF, 0x01 if i == size - 1 else 0xE0, 0x8200)
+            event('main', 'OUT', 0xFF, 0xE0, 0x8200)
             if group == 1 and i < 8 and i % 2 == 0:
                 event('main', 'IN', 0xFE, 0xE7, 0x8300)
     for i in range(40):
