@@ -1,0 +1,5 @@
+arm F frames=7200 image=same text=same fc-diff=0 first=none left=112426 right=112426 oo=same ss=same
+arm H frames=14400 image=same text=same fc-diff=0 first=none left=112426 right=112426 oo=same ss=same
+arm I frames=28800 image=same text=same fc-diff=0 first=none left=112426 right=112426 oo=same ss=same
+arm E frames=7200 image=same text=same fc-diff=0 first=none left=47884 right=47884 oo=same ss=same
+arm G frames=14400 image=same text=same fc-diff=na first=na left=na right=na oo=same ss=same
