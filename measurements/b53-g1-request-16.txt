@@ -1,0 +1,8 @@
+OO-runs-io-equal true
+OO-runs-reg-equal true
+OO-runs-screen-equal true
+SS-runs-io-equal true
+SS-runs-reg-equal true
+SS-runs-screen-equal true
+OO-fc-count-112426 true
+row self fc-diff=18679 first=76571 run=140 left=112426 right=95522 cross=47 screen=differ
