@@ -1,0 +1,1 @@
+row self fc-diff=0 first=none run=0 left=112426 right=112426 cross=71 screen=same
