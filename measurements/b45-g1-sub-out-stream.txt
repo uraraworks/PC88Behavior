@@ -1,0 +1,10 @@
+port OUT 00F7 compared=3 differ=0 first=none left=0 right=0
+port OUT 00F8 compared=6 differ=0 first=none left=0 right=0
+port OUT 00FB compared=370 differ=18 first=1 left=141 right=0
+port OUT 00FD compared=77084 differ=72858 first=0 left=35603 right=0
+port OUT 00FF compared=81060 differ=1286 first=9 left=46797 right=0
+first-out-difference: 00FB 1 lo lo lo lo
+block 左 self-match none
+block 左 other-match none
+block 右 self-match none
+block 右 other-match none
