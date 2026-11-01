@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 自作main・媒体・subだけを実行し、公開済みB52の集計値と照合する。
+# 自作main・媒体・subだけを実行し、公開済みB52dの集計値と照合する。
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
@@ -31,25 +31,25 @@ out = pathlib.Path(sys.argv[1]); out.mkdir()
 (out/'DISK.ROM').write_bytes(rom)
 PY
 for variant in sub fault; do
-  "$REPO/tools/measure_b52.sh" --work "$work/run-$variant" \
+  "$REPO/tools/measure_b52d.sh" --work "$work/run-$variant" \
     --dry-run-sub-rom "$work/$variant/DISK.ROM" --output-dir "$work/results-$variant"
 done
-python3 - "$REPO/measurements/b52-official-1.tsv" "$work" <<'PY'
+python3 - "$REPO/measurements/b52d-official-1.tsv" "$work" <<'PY'
 import csv, pathlib, sys
 def read(path):
     with open(path) as f:
         return {int(r['row']): r for r in csv.DictReader(f, delimiter='\t')}
 expected = read(sys.argv[1]); root = pathlib.Path(sys.argv[2])
-fields = ('written', 'before', 'after', 'match')
+fields = ('layout', 'before', 'after', 'executed')
 def agrees(rows):
     return all(rows[n]['complete'] == '1' and rows[n]['timeout'] == '0'
                and rows[n]['count'] == '64'
                and all(rows[n][k] == expected[n][k] for k in fields)
-               for n in range(1, 7))
+               for n in (1, 2, 3, 4, 6, 7))
 for run in (1, 2):
-    assert agrees(read(root / f'results-sub/b52-self-{run}.tsv')), '通常版が不一致'
-    fault = read(root / f'results-fault/b52-self-{run}.tsv')
+    assert agrees(read(root / f'results-sub/b52d-self-{run}.tsv')), '通常版が不一致'
+    fault = read(root / f'results-fault/b52d-self-{run}.tsv')
     assert not agrees(fault), '立ち上がり読出しの故障を見逃した'
-    assert fault[2]['complete'] == '1' and fault[2]['written'] != expected[2]['written'], '故障原因が違う'
-print('B53 自己検査 OK（行1〜6一致・立ち上がり読出し故障を検出）')
+    assert fault[2]['complete'] == '1' and fault[2]['layout'] != expected[2]['layout'], '故障原因が違う'
+print('B53 自己検査 OK（行1〜4、6、7一致・立ち上がり読出し故障を検出）')
 PY

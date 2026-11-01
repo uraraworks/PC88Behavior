@@ -2224,7 +2224,7 @@ def build_subrom(break_write_ack=False,
     a.label("_general_load_pair_second")
     a.in_port(P_PIO_A)
     a.ld_hl_a()
-    a.ld_h_n(0)                       # 以後はROMへ書いて捨てる（書き込みは無視）
+    a.inc_hl()                         # 次の本体バイトへ進む
     a.jr("_general_load_check")
 
     # 第228版: 読み応答の既存2件送信を共用。I/Oと待ちの順は不変。
