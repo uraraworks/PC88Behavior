@@ -1,0 +1,24 @@
+burst 1 size=3 shape=3s head=0D
+burst 2 size=13 shape=5s+8p head=16
+burst 3 size=3 shape=3s head=0D
+burst 4 size=3 shape=3s head=0D
+burst 5 size=5 shape=5s head=15
+sub-reader single lo
+sub-reader paired lo
+shift -8 compared=264 same=1
+shift -7 compared=263 same=3
+shift -6 compared=262 same=2
+shift -5 compared=261 same=2
+shift -4 compared=260 same=4
+shift -3 compared=259 same=1
+shift -2 compared=258 same=2
+shift -1 compared=257 same=2
+shift +0 compared=256 same=1
+shift +1 compared=255 same=1
+shift +2 compared=254 same=0
+shift +3 compared=253 same=2
+shift +4 compared=252 same=0
+shift +5 compared=251 same=4
+shift +6 compared=250 same=0
+shift +7 compared=249 same=3
+shift +8 compared=248 same=1
