@@ -191,6 +191,9 @@ static q88h_sub_read_t *(*p_sub_read)(void);
 static void (*p_sub_read_reset)(void);
 static void (*p_sub_read_set_enabled)(int);
 static bool g_sub_read_available;
+static int (*p_main_event_open)(const char *);
+static int (*p_main_event_close)(void);
+static void (*p_main_event_set_frame)(uint32_t);
 static int (*p_event_open)(const char *);
 static int (*p_event_close)(void);
 static int (*p_reg_open)(const char *);
@@ -929,6 +932,9 @@ static bool load_core(const char *path)
     *(void **)(&p_sub_read_reset) = dlsym(h, "retro_q88h_sub_read_reset");
     *(void **)(&p_sub_read_set_enabled) = dlsym(h, "retro_q88h_sub_read_set_enabled");
     g_sub_read_available = p_sub_read && p_sub_read_reset && p_sub_read_set_enabled;
+    *(void **)(&p_main_event_open) = dlsym(h, "retro_q88h_main_event_open");
+    *(void **)(&p_main_event_close) = dlsym(h, "retro_q88h_main_event_close");
+    *(void **)(&p_main_event_set_frame) = dlsym(h, "retro_q88h_main_event_set_frame");
     *(void **)(&p_event_open) = dlsym(h, "retro_q88h_sub_event_open");
     *(void **)(&p_event_close) = dlsym(h, "retro_q88h_sub_event_close");
     *(void **)(&p_reg_open) = dlsym(h, "retro_q88h_sub_reg_open");
@@ -1725,7 +1731,7 @@ static void usage(void)
         "                   [--int-log FILE] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
-        "                   [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
+        "                   [--main-event-log FILE] [--main-event-from-frame N] [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
         "                   [--sub-rom-access-log FILE] [--sub-rom-access-window FROM,TO]\n"
         "                   [--sub-rom-read-log FILE] [--sub-rom-read-window FROM,TO]\n"
         "                   [--mem-write-log FILE --mem-write-range LO-HI\n"
@@ -1835,6 +1841,8 @@ int main(int argc, char **argv)
     const char *sub_boundary_log_path = NULL;
     const char *sub_read_log_path = NULL;
     const char *event_path = NULL;
+    const char *main_event_path = NULL;
+    unsigned main_event_from_frame = 0;
     const char *reg_path = NULL;
     const char *snapshot_path = NULL;
     uint64_t snapshot_at = 0;
@@ -2214,6 +2222,8 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--main-event-log") && i + 1 < argc) main_event_path = argv[++i];
+        else if (!strcmp(argv[i], "--main-event-from-frame") && i + 1 < argc) main_event_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--sub-event-log") && i + 1 < argc) event_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-reg-log") && i + 1 < argc) reg_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-snapshot") && i + 1 < argc) snapshot_path = argv[++i];
@@ -2492,6 +2502,8 @@ int main(int argc, char **argv)
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
+    if (main_event_path && reject_if_unsafe_output_path("--main-event-log", main_event_path)) return 1;
+    if (main_event_path && main_event_from_frame >= frames) return 1;
     if (event_path && reject_if_unsafe_output_path("--sub-event-log", event_path)) return 1;
     if (reg_path && reject_if_unsafe_output_path("--sub-reg-log", reg_path)) return 1;
     if (!!snapshot_path != !!snapshot_at_set) return 2;
@@ -2777,6 +2789,7 @@ int main(int argc, char **argv)
         }
     }
 
+    if (main_event_path && (!p_main_event_open || !p_main_event_close || !p_main_event_set_frame)) return 1;
     if (event_path && (!p_event_open || !p_event_close || !p_event_open(event_path))) { fprintf(stderr, "[q88measure] sub-event 記録を開始できません\n"); return 1; }
     if (reg_path && (!p_reg_open || !p_reg_close || !p_reg_open(reg_path))) { fprintf(stderr, "[q88measure] sub-reg 記録を開始できません\n"); return 1; }
     if (sra_path) {
@@ -2878,6 +2891,8 @@ int main(int argc, char **argv)
         capture_screen_signatures_at(screen_signatures, n_screen_signatures, g_frame);
         /* イベントに frame を載せるため、走らせる前に必ず今のフレーム番号を
          * コア側へ渡す。有効化されていなくても呼ぶコスト自体は軽い。 */
+        if (main_event_path && g_frame == main_event_from_frame && !p_main_event_open(main_event_path)) return 1;
+        if (main_event_path && g_frame >= main_event_from_frame) p_main_event_set_frame(g_frame);
         if (g_iolog_available) p_iolog_set_frame(g_frame);
         if (g_intlog_available) p_intlog_set_frame(g_frame);
         if (io_log_path && g_iolog_available && g_frame == io_log_from_frame)
@@ -3200,6 +3215,7 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (main_event_path && !p_main_event_close()) return 1;
             if (event_path && !p_event_close()) { fprintf(stderr, "[q88measure] sub-event 記録の書込失敗\n"); return 1; }
             if (reg_path && !p_reg_close()) { fprintf(stderr, "[q88measure] sub-reg 記録の書込失敗\n"); return 1; }
             if (snapshot_path) {
