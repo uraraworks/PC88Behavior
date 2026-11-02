@@ -1,0 +1,576 @@
+pair 2 o0 s0 image=differ text=same
+pair 2 o0 s1 image=differ text=same
+pair 2 o0 s2 image=same text=same
+pair 2 o0 s3 image=same text=same
+pair 2 o0 s4 image=same text=same
+pair 2 o0 s5 image=same text=same
+pair 2 o0 s6 image=differ text=same
+pair 2 o0 s7 image=differ text=same
+pair 2 o0 s8 image=same text=same
+pair 2 o0 s9 image=same text=same
+pair 2 o0 s10 image=same text=same
+pair 2 o0 s11 image=same text=same
+pair 2 o0 s12 image=differ text=same
+pair 2 o0 s13 image=same text=same
+pair 2 o0 s14 image=same text=same
+pair 2 o0 s15 image=same text=same
+pair 2 o1 s0 image=differ text=same
+pair 2 o1 s1 image=differ text=same
+pair 2 o1 s2 image=same text=same
+pair 2 o1 s3 image=same text=same
+pair 2 o1 s4 image=same text=same
+pair 2 o1 s5 image=same text=same
+pair 2 o1 s6 image=differ text=same
+pair 2 o1 s7 image=differ text=same
+pair 2 o1 s8 image=same text=same
+pair 2 o1 s9 image=same text=same
+pair 2 o1 s10 image=same text=same
+pair 2 o1 s11 image=same text=same
+pair 2 o1 s12 image=differ text=same
+pair 2 o1 s13 image=same text=same
+pair 2 o1 s14 image=same text=same
+pair 2 o1 s15 image=same text=same
+pair 2 o2 s0 image=same text=same
+pair 2 o2 s1 image=same text=same
+pair 2 o2 s2 image=differ text=same
+pair 2 o2 s3 image=differ text=same
+pair 2 o2 s4 image=differ text=same
+pair 2 o2 s5 image=differ text=same
+pair 2 o2 s6 image=same text=same
+pair 2 o2 s7 image=same text=same
+pair 2 o2 s8 image=differ text=same
+pair 2 o2 s9 image=differ text=same
+pair 2 o2 s10 image=differ text=same
+pair 2 o2 s11 image=differ text=same
+pair 2 o2 s12 image=same text=same
+pair 2 o2 s13 image=differ text=same
+pair 2 o2 s14 image=differ text=same
+pair 2 o2 s15 image=differ text=same
+pair 2 o3 s0 image=differ text=same
+pair 2 o3 s1 image=differ text=same
+pair 2 o3 s2 image=same text=same
+pair 2 o3 s3 image=same text=same
+pair 2 o3 s4 image=same text=same
+pair 2 o3 s5 image=same text=same
+pair 2 o3 s6 image=differ text=same
+pair 2 o3 s7 image=differ text=same
+pair 2 o3 s8 image=same text=same
+pair 2 o3 s9 image=same text=same
+pair 2 o3 s10 image=same text=same
+pair 2 o3 s11 image=same text=same
+pair 2 o3 s12 image=differ text=same
+pair 2 o3 s13 image=same text=same
+pair 2 o3 s14 image=same text=same
+pair 2 o3 s15 image=same text=same
+pair 2 o4 s0 image=differ text=same
+pair 2 o4 s1 image=differ text=same
+pair 2 o4 s2 image=same text=same
+pair 2 o4 s3 image=same text=same
+pair 2 o4 s4 image=same text=same
+pair 2 o4 s5 image=same text=same
+pair 2 o4 s6 image=differ text=same
+pair 2 o4 s7 image=differ text=same
+pair 2 o4 s8 image=same text=same
+pair 2 o4 s9 image=same text=same
+pair 2 o4 s10 image=same text=same
+pair 2 o4 s11 image=same text=same
+pair 2 o4 s12 image=differ text=same
+pair 2 o4 s13 image=same text=same
+pair 2 o4 s14 image=same text=same
+pair 2 o4 s15 image=same text=same
+pair 2 o5 s0 image=differ text=same
+pair 2 o5 s1 image=differ text=same
+pair 2 o5 s2 image=same text=same
+pair 2 o5 s3 image=same text=same
+pair 2 o5 s4 image=same text=same
+pair 2 o5 s5 image=same text=same
+pair 2 o5 s6 image=differ text=same
+pair 2 o5 s7 image=differ text=same
+pair 2 o5 s8 image=same text=same
+pair 2 o5 s9 image=same text=same
+pair 2 o5 s10 image=same text=same
+pair 2 o5 s11 image=same text=same
+pair 2 o5 s12 image=differ text=same
+pair 2 o5 s13 image=same text=same
+pair 2 o5 s14 image=same text=same
+pair 2 o5 s15 image=same text=same
+pair 2 o6 s0 image=differ text=same
+pair 2 o6 s1 image=differ text=same
+pair 2 o6 s2 image=same text=same
+pair 2 o6 s3 image=same text=same
+pair 2 o6 s4 image=same text=same
+pair 2 o6 s5 image=same text=same
+pair 2 o6 s6 image=differ text=same
+pair 2 o6 s7 image=differ text=same
+pair 2 o6 s8 image=same text=same
+pair 2 o6 s9 image=same text=same
+pair 2 o6 s10 image=same text=same
+pair 2 o6 s11 image=same text=same
+pair 2 o6 s12 image=differ text=same
+pair 2 o6 s13 image=same text=same
+pair 2 o6 s14 image=same text=same
+pair 2 o6 s15 image=same text=same
+pair 2 o7 s0 image=same text=same
+pair 2 o7 s1 image=same text=same
+pair 2 o7 s2 image=differ text=same
+pair 2 o7 s3 image=differ text=same
+pair 2 o7 s4 image=differ text=same
+pair 2 o7 s5 image=differ text=same
+pair 2 o7 s6 image=same text=same
+pair 2 o7 s7 image=same text=same
+pair 2 o7 s8 image=differ text=same
+pair 2 o7 s9 image=differ text=same
+pair 2 o7 s10 image=differ text=same
+pair 2 o7 s11 image=differ text=same
+pair 2 o7 s12 image=same text=same
+pair 2 o7 s13 image=differ text=same
+pair 2 o7 s14 image=differ text=same
+pair 2 o7 s15 image=differ text=same
+pair 2 o8 s0 image=same text=same
+pair 2 o8 s1 image=same text=same
+pair 2 o8 s2 image=differ text=same
+pair 2 o8 s3 image=differ text=same
+pair 2 o8 s4 image=differ text=same
+pair 2 o8 s5 image=differ text=same
+pair 2 o8 s6 image=same text=same
+pair 2 o8 s7 image=same text=same
+pair 2 o8 s8 image=differ text=same
+pair 2 o8 s9 image=differ text=same
+pair 2 o8 s10 image=differ text=same
+pair 2 o8 s11 image=differ text=same
+pair 2 o8 s12 image=same text=same
+pair 2 o8 s13 image=differ text=same
+pair 2 o8 s14 image=differ text=same
+pair 2 o8 s15 image=differ text=same
+pair 2 o9 s0 image=differ text=same
+pair 2 o9 s1 image=differ text=same
+pair 2 o9 s2 image=same text=same
+pair 2 o9 s3 image=same text=same
+pair 2 o9 s4 image=same text=same
+pair 2 o9 s5 image=same text=same
+pair 2 o9 s6 image=differ text=same
+pair 2 o9 s7 image=differ text=same
+pair 2 o9 s8 image=same text=same
+pair 2 o9 s9 image=same text=same
+pair 2 o9 s10 image=same text=same
+pair 2 o9 s11 image=same text=same
+pair 2 o9 s12 image=differ text=same
+pair 2 o9 s13 image=same text=same
+pair 2 o9 s14 image=same text=same
+pair 2 o9 s15 image=same text=same
+pair 2 o10 s0 image=differ text=same
+pair 2 o10 s1 image=differ text=same
+pair 2 o10 s2 image=same text=same
+pair 2 o10 s3 image=same text=same
+pair 2 o10 s4 image=same text=same
+pair 2 o10 s5 image=same text=same
+pair 2 o10 s6 image=differ text=same
+pair 2 o10 s7 image=differ text=same
+pair 2 o10 s8 image=same text=same
+pair 2 o10 s9 image=same text=same
+pair 2 o10 s10 image=same text=same
+pair 2 o10 s11 image=same text=same
+pair 2 o10 s12 image=differ text=same
+pair 2 o10 s13 image=same text=same
+pair 2 o10 s14 image=same text=same
+pair 2 o10 s15 image=same text=same
+pair 2 o11 s0 image=differ text=same
+pair 2 o11 s1 image=differ text=same
+pair 2 o11 s2 image=same text=same
+pair 2 o11 s3 image=same text=same
+pair 2 o11 s4 image=same text=same
+pair 2 o11 s5 image=same text=same
+pair 2 o11 s6 image=differ text=same
+pair 2 o11 s7 image=differ text=same
+pair 2 o11 s8 image=same text=same
+pair 2 o11 s9 image=same text=same
+pair 2 o11 s10 image=same text=same
+pair 2 o11 s11 image=same text=same
+pair 2 o11 s12 image=differ text=same
+pair 2 o11 s13 image=same text=same
+pair 2 o11 s14 image=same text=same
+pair 2 o11 s15 image=same text=same
+pair 2 o12 s0 image=differ text=same
+pair 2 o12 s1 image=differ text=same
+pair 2 o12 s2 image=same text=same
+pair 2 o12 s3 image=same text=same
+pair 2 o12 s4 image=same text=same
+pair 2 o12 s5 image=same text=same
+pair 2 o12 s6 image=differ text=same
+pair 2 o12 s7 image=differ text=same
+pair 2 o12 s8 image=same text=same
+pair 2 o12 s9 image=same text=same
+pair 2 o12 s10 image=same text=same
+pair 2 o12 s11 image=same text=same
+pair 2 o12 s12 image=differ text=same
+pair 2 o12 s13 image=same text=same
+pair 2 o12 s14 image=same text=same
+pair 2 o12 s15 image=same text=same
+pair 2 o13 s0 image=same text=same
+pair 2 o13 s1 image=same text=same
+pair 2 o13 s2 image=differ text=same
+pair 2 o13 s3 image=differ text=same
+pair 2 o13 s4 image=differ text=same
+pair 2 o13 s5 image=differ text=same
+pair 2 o13 s6 image=same text=same
+pair 2 o13 s7 image=same text=same
+pair 2 o13 s8 image=differ text=same
+pair 2 o13 s9 image=differ text=same
+pair 2 o13 s10 image=differ text=same
+pair 2 o13 s11 image=differ text=same
+pair 2 o13 s12 image=same text=same
+pair 2 o13 s13 image=differ text=same
+pair 2 o13 s14 image=differ text=same
+pair 2 o13 s15 image=differ text=same
+pair 2 o14 s0 image=same text=same
+pair 2 o14 s1 image=same text=same
+pair 2 o14 s2 image=differ text=same
+pair 2 o14 s3 image=differ text=same
+pair 2 o14 s4 image=differ text=same
+pair 2 o14 s5 image=differ text=same
+pair 2 o14 s6 image=same text=same
+pair 2 o14 s7 image=same text=same
+pair 2 o14 s8 image=differ text=same
+pair 2 o14 s9 image=differ text=same
+pair 2 o14 s10 image=differ text=same
+pair 2 o14 s11 image=differ text=same
+pair 2 o14 s12 image=same text=same
+pair 2 o14 s13 image=differ text=same
+pair 2 o14 s14 image=differ text=same
+pair 2 o14 s15 image=differ text=same
+pair 2 o15 s0 image=differ text=same
+pair 2 o15 s1 image=differ text=same
+pair 2 o15 s2 image=same text=same
+pair 2 o15 s3 image=same text=same
+pair 2 o15 s4 image=same text=same
+pair 2 o15 s5 image=same text=same
+pair 2 o15 s6 image=differ text=same
+pair 2 o15 s7 image=differ text=same
+pair 2 o15 s8 image=same text=same
+pair 2 o15 s9 image=same text=same
+pair 2 o15 s10 image=same text=same
+pair 2 o15 s11 image=same text=same
+pair 2 o15 s12 image=differ text=same
+pair 2 o15 s13 image=same text=same
+pair 2 o15 s14 image=same text=same
+pair 2 o15 s15 image=same text=same
+run 2 o0 cross=71 fc=112687
+run 2 o1 cross=71 fc=112687
+run 2 o2 cross=71 fc=112687
+run 2 o3 cross=71 fc=112687
+run 2 o4 cross=71 fc=112687
+run 2 o5 cross=71 fc=112687
+run 2 o6 cross=71 fc=112687
+run 2 o7 cross=71 fc=112687
+run 2 o8 cross=71 fc=112687
+run 2 o9 cross=71 fc=112687
+run 2 o10 cross=71 fc=112687
+run 2 o11 cross=71 fc=112687
+run 2 o12 cross=71 fc=112687
+run 2 o13 cross=71 fc=112687
+run 2 o14 cross=71 fc=112687
+run 2 o15 cross=71 fc=112687
+run 2 s0 cross=71 fc=112683
+run 2 s1 cross=71 fc=112683
+run 2 s2 cross=71 fc=112683
+run 2 s3 cross=71 fc=112683
+run 2 s4 cross=71 fc=112683
+run 2 s5 cross=71 fc=112683
+run 2 s6 cross=71 fc=112683
+run 2 s7 cross=71 fc=112683
+run 2 s8 cross=71 fc=112683
+run 2 s9 cross=71 fc=112683
+run 2 s10 cross=71 fc=112683
+run 2 s11 cross=71 fc=112683
+run 2 s12 cross=71 fc=112683
+run 2 s13 cross=71 fc=112683
+run 2 s14 cross=71 fc=112683
+run 2 s15 cross=71 fc=112683
+pair i o0 s0 image=differ text=same
+pair i o0 s1 image=differ text=same
+pair i o0 s2 image=same text=same
+pair i o0 s3 image=same text=same
+pair i o0 s4 image=same text=same
+pair i o0 s5 image=same text=same
+pair i o0 s6 image=differ text=same
+pair i o0 s7 image=differ text=same
+pair i o0 s8 image=same text=same
+pair i o0 s9 image=same text=same
+pair i o0 s10 image=same text=same
+pair i o0 s11 image=same text=same
+pair i o0 s12 image=differ text=same
+pair i o0 s13 image=same text=same
+pair i o0 s14 image=same text=same
+pair i o0 s15 image=same text=same
+pair i o1 s0 image=differ text=same
+pair i o1 s1 image=differ text=same
+pair i o1 s2 image=same text=same
+pair i o1 s3 image=same text=same
+pair i o1 s4 image=same text=same
+pair i o1 s5 image=same text=same
+pair i o1 s6 image=differ text=same
+pair i o1 s7 image=differ text=same
+pair i o1 s8 image=same text=same
+pair i o1 s9 image=same text=same
+pair i o1 s10 image=same text=same
+pair i o1 s11 image=same text=same
+pair i o1 s12 image=differ text=same
+pair i o1 s13 image=same text=same
+pair i o1 s14 image=same text=same
+pair i o1 s15 image=same text=same
+pair i o2 s0 image=same text=same
+pair i o2 s1 image=same text=same
+pair i o2 s2 image=differ text=same
+pair i o2 s3 image=differ text=same
+pair i o2 s4 image=differ text=same
+pair i o2 s5 image=differ text=same
+pair i o2 s6 image=same text=same
+pair i o2 s7 image=same text=same
+pair i o2 s8 image=differ text=same
+pair i o2 s9 image=differ text=same
+pair i o2 s10 image=differ text=same
+pair i o2 s11 image=differ text=same
+pair i o2 s12 image=same text=same
+pair i o2 s13 image=differ text=same
+pair i o2 s14 image=differ text=same
+pair i o2 s15 image=differ text=same
+pair i o3 s0 image=differ text=same
+pair i o3 s1 image=differ text=same
+pair i o3 s2 image=same text=same
+pair i o3 s3 image=same text=same
+pair i o3 s4 image=same text=same
+pair i o3 s5 image=same text=same
+pair i o3 s6 image=differ text=same
+pair i o3 s7 image=differ text=same
+pair i o3 s8 image=same text=same
+pair i o3 s9 image=same text=same
+pair i o3 s10 image=same text=same
+pair i o3 s11 image=same text=same
+pair i o3 s12 image=differ text=same
+pair i o3 s13 image=same text=same
+pair i o3 s14 image=same text=same
+pair i o3 s15 image=same text=same
+pair i o4 s0 image=differ text=same
+pair i o4 s1 image=differ text=same
+pair i o4 s2 image=same text=same
+pair i o4 s3 image=same text=same
+pair i o4 s4 image=same text=same
+pair i o4 s5 image=same text=same
+pair i o4 s6 image=differ text=same
+pair i o4 s7 image=differ text=same
+pair i o4 s8 image=same text=same
+pair i o4 s9 image=same text=same
+pair i o4 s10 image=same text=same
+pair i o4 s11 image=same text=same
+pair i o4 s12 image=differ text=same
+pair i o4 s13 image=same text=same
+pair i o4 s14 image=same text=same
+pair i o4 s15 image=same text=same
+pair i o5 s0 image=differ text=same
+pair i o5 s1 image=differ text=same
+pair i o5 s2 image=same text=same
+pair i o5 s3 image=same text=same
+pair i o5 s4 image=same text=same
+pair i o5 s5 image=same text=same
+pair i o5 s6 image=differ text=same
+pair i o5 s7 image=differ text=same
+pair i o5 s8 image=same text=same
+pair i o5 s9 image=same text=same
+pair i o5 s10 image=same text=same
+pair i o5 s11 image=same text=same
+pair i o5 s12 image=differ text=same
+pair i o5 s13 image=same text=same
+pair i o5 s14 image=same text=same
+pair i o5 s15 image=same text=same
+pair i o6 s0 image=differ text=same
+pair i o6 s1 image=differ text=same
+pair i o6 s2 image=same text=same
+pair i o6 s3 image=same text=same
+pair i o6 s4 image=same text=same
+pair i o6 s5 image=same text=same
+pair i o6 s6 image=differ text=same
+pair i o6 s7 image=differ text=same
+pair i o6 s8 image=same text=same
+pair i o6 s9 image=same text=same
+pair i o6 s10 image=same text=same
+pair i o6 s11 image=same text=same
+pair i o6 s12 image=differ text=same
+pair i o6 s13 image=same text=same
+pair i o6 s14 image=same text=same
+pair i o6 s15 image=same text=same
+pair i o7 s0 image=same text=same
+pair i o7 s1 image=same text=same
+pair i o7 s2 image=differ text=same
+pair i o7 s3 image=differ text=same
+pair i o7 s4 image=differ text=same
+pair i o7 s5 image=differ text=same
+pair i o7 s6 image=same text=same
+pair i o7 s7 image=same text=same
+pair i o7 s8 image=differ text=same
+pair i o7 s9 image=differ text=same
+pair i o7 s10 image=differ text=same
+pair i o7 s11 image=differ text=same
+pair i o7 s12 image=same text=same
+pair i o7 s13 image=differ text=same
+pair i o7 s14 image=differ text=same
+pair i o7 s15 image=differ text=same
+pair i o8 s0 image=same text=same
+pair i o8 s1 image=same text=same
+pair i o8 s2 image=differ text=same
+pair i o8 s3 image=differ text=same
+pair i o8 s4 image=differ text=same
+pair i o8 s5 image=differ text=same
+pair i o8 s6 image=same text=same
+pair i o8 s7 image=same text=same
+pair i o8 s8 image=differ text=same
+pair i o8 s9 image=differ text=same
+pair i o8 s10 image=differ text=same
+pair i o8 s11 image=differ text=same
+pair i o8 s12 image=same text=same
+pair i o8 s13 image=differ text=same
+pair i o8 s14 image=differ text=same
+pair i o8 s15 image=differ text=same
+pair i o9 s0 image=differ text=same
+pair i o9 s1 image=differ text=same
+pair i o9 s2 image=same text=same
+pair i o9 s3 image=same text=same
+pair i o9 s4 image=same text=same
+pair i o9 s5 image=same text=same
+pair i o9 s6 image=differ text=same
+pair i o9 s7 image=differ text=same
+pair i o9 s8 image=same text=same
+pair i o9 s9 image=same text=same
+pair i o9 s10 image=same text=same
+pair i o9 s11 image=same text=same
+pair i o9 s12 image=differ text=same
+pair i o9 s13 image=same text=same
+pair i o9 s14 image=same text=same
+pair i o9 s15 image=same text=same
+pair i o10 s0 image=differ text=same
+pair i o10 s1 image=differ text=same
+pair i o10 s2 image=same text=same
+pair i o10 s3 image=same text=same
+pair i o10 s4 image=same text=same
+pair i o10 s5 image=same text=same
+pair i o10 s6 image=differ text=same
+pair i o10 s7 image=differ text=same
+pair i o10 s8 image=same text=same
+pair i o10 s9 image=same text=same
+pair i o10 s10 image=same text=same
+pair i o10 s11 image=same text=same
+pair i o10 s12 image=differ text=same
+pair i o10 s13 image=same text=same
+pair i o10 s14 image=same text=same
+pair i o10 s15 image=same text=same
+pair i o11 s0 image=differ text=same
+pair i o11 s1 image=differ text=same
+pair i o11 s2 image=same text=same
+pair i o11 s3 image=same text=same
+pair i o11 s4 image=same text=same
+pair i o11 s5 image=same text=same
+pair i o11 s6 image=differ text=same
+pair i o11 s7 image=differ text=same
+pair i o11 s8 image=same text=same
+pair i o11 s9 image=same text=same
+pair i o11 s10 image=same text=same
+pair i o11 s11 image=same text=same
+pair i o11 s12 image=differ text=same
+pair i o11 s13 image=same text=same
+pair i o11 s14 image=same text=same
+pair i o11 s15 image=same text=same
+pair i o12 s0 image=differ text=same
+pair i o12 s1 image=differ text=same
+pair i o12 s2 image=same text=same
+pair i o12 s3 image=same text=same
+pair i o12 s4 image=same text=same
+pair i o12 s5 image=same text=same
+pair i o12 s6 image=differ text=same
+pair i o12 s7 image=differ text=same
+pair i o12 s8 image=same text=same
+pair i o12 s9 image=same text=same
+pair i o12 s10 image=same text=same
+pair i o12 s11 image=same text=same
+pair i o12 s12 image=differ text=same
+pair i o12 s13 image=same text=same
+pair i o12 s14 image=same text=same
+pair i o12 s15 image=same text=same
+pair i o13 s0 image=same text=same
+pair i o13 s1 image=same text=same
+pair i o13 s2 image=differ text=same
+pair i o13 s3 image=differ text=same
+pair i o13 s4 image=differ text=same
+pair i o13 s5 image=differ text=same
+pair i o13 s6 image=same text=same
+pair i o13 s7 image=same text=same
+pair i o13 s8 image=differ text=same
+pair i o13 s9 image=differ text=same
+pair i o13 s10 image=differ text=same
+pair i o13 s11 image=differ text=same
+pair i o13 s12 image=same text=same
+pair i o13 s13 image=differ text=same
+pair i o13 s14 image=differ text=same
+pair i o13 s15 image=differ text=same
+pair i o14 s0 image=same text=same
+pair i o14 s1 image=same text=same
+pair i o14 s2 image=differ text=same
+pair i o14 s3 image=differ text=same
+pair i o14 s4 image=differ text=same
+pair i o14 s5 image=differ text=same
+pair i o14 s6 image=same text=same
+pair i o14 s7 image=same text=same
+pair i o14 s8 image=differ text=same
+pair i o14 s9 image=differ text=same
+pair i o14 s10 image=differ text=same
+pair i o14 s11 image=differ text=same
+pair i o14 s12 image=same text=same
+pair i o14 s13 image=differ text=same
+pair i o14 s14 image=differ text=same
+pair i o14 s15 image=differ text=same
+pair i o15 s0 image=differ text=same
+pair i o15 s1 image=differ text=same
+pair i o15 s2 image=same text=same
+pair i o15 s3 image=same text=same
+pair i o15 s4 image=same text=same
+pair i o15 s5 image=same text=same
+pair i o15 s6 image=differ text=same
+pair i o15 s7 image=differ text=same
+pair i o15 s8 image=same text=same
+pair i o15 s9 image=same text=same
+pair i o15 s10 image=same text=same
+pair i o15 s11 image=same text=same
+pair i o15 s12 image=differ text=same
+pair i o15 s13 image=same text=same
+pair i o15 s14 image=same text=same
+pair i o15 s15 image=same text=same
+run i o0 cross=87 fc=124725
+run i o1 cross=87 fc=124725
+run i o2 cross=71 fc=112687
+run i o3 cross=87 fc=124725
+run i o4 cross=87 fc=124725
+run i o5 cross=87 fc=124725
+run i o6 cross=87 fc=124725
+run i o7 cross=71 fc=112687
+run i o8 cross=71 fc=112687
+run i o9 cross=87 fc=124725
+run i o10 cross=87 fc=124725
+run i o11 cross=87 fc=124725
+run i o12 cross=87 fc=124725
+run i o13 cross=71 fc=112687
+run i o14 cross=71 fc=112687
+run i o15 cross=87 fc=124725
+run i s0 cross=71 fc=112683
+run i s1 cross=71 fc=112683
+run i s2 cross=87 fc=124721
+run i s3 cross=87 fc=124721
+run i s4 cross=87 fc=124721
+run i s5 cross=87 fc=124721
+run i s6 cross=71 fc=112683
+run i s7 cross=71 fc=112683
+run i s8 cross=87 fc=124721
+run i s9 cross=87 fc=124721
+run i s10 cross=87 fc=124721
+run i s11 cross=87 fc=124721
+run i s12 cross=71 fc=112683
+run i s13 cross=87 fc=124721
+run i s14 cross=87 fc=124721
+run i s15 cross=87 fc=124721

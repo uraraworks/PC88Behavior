@@ -1,0 +1,4 @@
+images=3
+arm A oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm B oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm C oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
