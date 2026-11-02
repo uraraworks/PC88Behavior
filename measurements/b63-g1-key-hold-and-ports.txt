@@ -1,0 +1,39 @@
+hold i oo=same image=same text=same cross=87 87 fc=124725 124721
+hold F1 oo=same image=same text=same cross=72 72 fc=112689 112685
+hold 2 oo=same image=differ text=same cross=71 71 fc=112687 112683
+hold none oo=same image=same text=same cross=71 71 fc=112687 112683
+port 30 out-count=4 4 last=same
+port 31 out-count=14 104 last=same
+port 32 out-count=24 88 last=same
+port 40 out-count=6 6 last=same
+port 44 out-count=72638 72111 last=same
+port 45 out-count=72637 72110 last=same
+port 50 out-count=14 102 last=same
+port 51 out-count=9 53 last=same
+port 53 out-count=4 4 last=same
+port 54 out-count=8 8 last=same
+port 55 out-count=4 4 last=same
+port 56 out-count=4 4 last=same
+port 57 out-count=4 4 last=same
+port 58 out-count=4 4 last=same
+port 59 out-count=4 4 last=same
+port 5A out-count=4 4 last=same
+port 5B out-count=4 4 last=same
+port 5C out-count=65449 65449 last=same
+port 5D out-count=65431 65431 last=same
+port 5E out-count=65512 65512 last=same
+port 5F out-count=195469 195469 last=same
+port 64 out-count=4 4 last=same
+port 65 out-count=4 4 last=same
+port 68 out-count=4 4 last=same
+port 71 out-count=27 124 last=same
+port C1 out-count=6 6 last=same
+port C3 out-count=6 6 last=same
+port C8 out-count=1 1 last=same
+port CA out-count=1 1 last=same
+port E4 out-count=52275 51930 last=same
+port E6 out-count=6 6 last=same
+port EB out-count=1 1 last=same
+port F8 out-count=2 2 last=same
+port FD out-count=876 867 last=same
+port FF out-count=99001 98956 last=same
