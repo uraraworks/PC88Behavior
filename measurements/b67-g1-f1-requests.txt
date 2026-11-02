@@ -1,0 +1,8 @@
+window 12000-19800 cross=74 72 complete=1 0
+req O 12000 1 head=0E size=7 shape=7s fc=112689
+req O 12000 2 head=15 size=5 shape=5s fc=112689
+req O 12000 3 head=0D size=3 shape=3s fc=112817
+req O 12000 4 head=0D size=3 shape=3s fc=112817
+window 19800-27600 cross=74 72 complete=1 0
+window 27600-35400 cross=74 72 complete=1 0
+window 35400-43200 cross=74 72 complete=1 0
