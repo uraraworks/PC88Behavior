@@ -71,13 +71,13 @@ def fdc(events):
     return ';'.join(commands)
 
 
-def ram_lines(control, subject, row):
+def ram_lines(control, subject, row, disk2=False):
     a, b = read(control)[0], read(subject)[0]
     stamps = {}
     for i in range(len(b)-3):
-        if b[i] == 0xa1 and b[i+1] < 40 and b[i+2] < 2 and 1 <= b[i+3] <= 16:
+        if (b[i] == 0xa1 or (disk2 and b[i] == 0xa2)) and b[i+1] < 40 and b[i+2] < 2 and 1 <= b[i+3] <= 16:
             for offset in range(4):
-                stamps[i+offset] = (b[i+1], b[i+2], b[i+3], offset)
+                stamps[i+offset] = (b[i+1], b[i+2], b[i+3], offset, b[i])
     i = 0
     while i < len(b):
         if a[i] == b[i]:
@@ -91,10 +91,12 @@ def ram_lines(control, subject, row):
             if stamp is None:
                 if next_stamp is not None:
                     break
-            elif next_stamp != (stamp[0], stamp[1], stamp[2], stamp[3] + i - start):
+            elif next_stamp != (stamp[0], stamp[1], stamp[2], stamp[3] + i - start, stamp[4]):
                 break
             i += 1
         desc = '?' if stamp is None else f'{stamp[0]}/{stamp[1]}/{stamp[2]}+{stamp[3]}'
+        if disk2 and stamp is not None:
+            desc = f'd{1 if stamp[4] == 0xa1 else 2}:' + desc
         yield f'row {row} ram {start+0x4000:04X}-{i+0x3fff:04X} {desc}'
 
 
@@ -105,6 +107,7 @@ def main():
     p.add_argument('control', type=Path)
     p.add_argument('snapshot', type=Path)
     p.add_argument('labels', type=Path)
+    p.add_argument('--disk2', action='store_true')
     p.add_argument('--count-only', action='store_true')
     p.add_argument('--fc-info', action='store_true')
     try:
@@ -121,7 +124,7 @@ def main():
             return 0
         commands = fdc(read_events(a.log))
         lines = [f'row {a.row} fdc={commands}', f'row {a.row} reply={n} timeout={int(a.row != 8 and n < 2)}']
-        lines.extend(ram_lines(a.control, a.snapshot, a.row))
+        lines.extend(ram_lines(a.control, a.snapshot, a.row, a.disk2))
         print('\n'.join(lines))
         return 0
     except (OSError, UnicodeError, ValueError, KeyError, IndexError, json.JSONDecodeError):
