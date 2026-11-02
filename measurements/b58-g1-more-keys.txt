@@ -1,0 +1,6 @@
+arm D untypable=0 oo=same image=differ text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm L untypable=0 oo=same image=differ text=same cross=71 87 fc=112687 124721 first-cross-pc=none
+arm C untypable=0 oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm F untypable=0 oo=same image=differ text=same cross=72 72 fc=112689 112685 first-cross-pc=none
+arm E untypable=0 oo=same image=differ text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm T untypable=0 oo=same image=differ text=same cross=71 71 fc=112687 112683 first-cross-pc=none
