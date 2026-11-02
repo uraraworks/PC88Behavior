@@ -405,6 +405,162 @@ static uint16_t ascii_to_retrok(char c, int *need_shift)
     return 0;
 }
 
+/* libretro のキー名を、コア側の対応状況とは独立に解決する。 */
+static int named_key(const char *name, uint16_t *key)
+{
+    static const struct { const char *name; uint16_t key; } names[] = {
+#define KEY_NAME(n) { #n, n }
+    KEY_NAME(RETROK_UNKNOWN),
+    KEY_NAME(RETROK_FIRST),
+    KEY_NAME(RETROK_BACKSPACE),
+    KEY_NAME(RETROK_TAB),
+    KEY_NAME(RETROK_CLEAR),
+    KEY_NAME(RETROK_RETURN),
+    KEY_NAME(RETROK_PAUSE),
+    KEY_NAME(RETROK_ESCAPE),
+    KEY_NAME(RETROK_SPACE),
+    KEY_NAME(RETROK_EXCLAIM),
+    KEY_NAME(RETROK_QUOTEDBL),
+    KEY_NAME(RETROK_HASH),
+    KEY_NAME(RETROK_DOLLAR),
+    KEY_NAME(RETROK_AMPERSAND),
+    KEY_NAME(RETROK_QUOTE),
+    KEY_NAME(RETROK_LEFTPAREN),
+    KEY_NAME(RETROK_RIGHTPAREN),
+    KEY_NAME(RETROK_ASTERISK),
+    KEY_NAME(RETROK_PLUS),
+    KEY_NAME(RETROK_COMMA),
+    KEY_NAME(RETROK_MINUS),
+    KEY_NAME(RETROK_PERIOD),
+    KEY_NAME(RETROK_SLASH),
+    KEY_NAME(RETROK_0),
+    KEY_NAME(RETROK_1),
+    KEY_NAME(RETROK_2),
+    KEY_NAME(RETROK_3),
+    KEY_NAME(RETROK_4),
+    KEY_NAME(RETROK_5),
+    KEY_NAME(RETROK_6),
+    KEY_NAME(RETROK_7),
+    KEY_NAME(RETROK_8),
+    KEY_NAME(RETROK_9),
+    KEY_NAME(RETROK_COLON),
+    KEY_NAME(RETROK_SEMICOLON),
+    KEY_NAME(RETROK_LESS),
+    KEY_NAME(RETROK_EQUALS),
+    KEY_NAME(RETROK_GREATER),
+    KEY_NAME(RETROK_QUESTION),
+    KEY_NAME(RETROK_AT),
+    KEY_NAME(RETROK_LEFTBRACKET),
+    KEY_NAME(RETROK_BACKSLASH),
+    KEY_NAME(RETROK_RIGHTBRACKET),
+    KEY_NAME(RETROK_CARET),
+    KEY_NAME(RETROK_UNDERSCORE),
+    KEY_NAME(RETROK_BACKQUOTE),
+    KEY_NAME(RETROK_a),
+    KEY_NAME(RETROK_b),
+    KEY_NAME(RETROK_c),
+    KEY_NAME(RETROK_d),
+    KEY_NAME(RETROK_e),
+    KEY_NAME(RETROK_f),
+    KEY_NAME(RETROK_g),
+    KEY_NAME(RETROK_h),
+    KEY_NAME(RETROK_i),
+    KEY_NAME(RETROK_j),
+    KEY_NAME(RETROK_k),
+    KEY_NAME(RETROK_l),
+    KEY_NAME(RETROK_m),
+    KEY_NAME(RETROK_n),
+    KEY_NAME(RETROK_o),
+    KEY_NAME(RETROK_p),
+    KEY_NAME(RETROK_q),
+    KEY_NAME(RETROK_r),
+    KEY_NAME(RETROK_s),
+    KEY_NAME(RETROK_t),
+    KEY_NAME(RETROK_u),
+    KEY_NAME(RETROK_v),
+    KEY_NAME(RETROK_w),
+    KEY_NAME(RETROK_x),
+    KEY_NAME(RETROK_y),
+    KEY_NAME(RETROK_z),
+    KEY_NAME(RETROK_LEFTBRACE),
+    KEY_NAME(RETROK_BAR),
+    KEY_NAME(RETROK_RIGHTBRACE),
+    KEY_NAME(RETROK_TILDE),
+    KEY_NAME(RETROK_DELETE),
+    KEY_NAME(RETROK_KP0),
+    KEY_NAME(RETROK_KP1),
+    KEY_NAME(RETROK_KP2),
+    KEY_NAME(RETROK_KP3),
+    KEY_NAME(RETROK_KP4),
+    KEY_NAME(RETROK_KP5),
+    KEY_NAME(RETROK_KP6),
+    KEY_NAME(RETROK_KP7),
+    KEY_NAME(RETROK_KP8),
+    KEY_NAME(RETROK_KP9),
+    KEY_NAME(RETROK_KP_PERIOD),
+    KEY_NAME(RETROK_KP_DIVIDE),
+    KEY_NAME(RETROK_KP_MULTIPLY),
+    KEY_NAME(RETROK_KP_MINUS),
+    KEY_NAME(RETROK_KP_PLUS),
+    KEY_NAME(RETROK_KP_ENTER),
+    KEY_NAME(RETROK_KP_EQUALS),
+    KEY_NAME(RETROK_UP),
+    KEY_NAME(RETROK_DOWN),
+    KEY_NAME(RETROK_RIGHT),
+    KEY_NAME(RETROK_LEFT),
+    KEY_NAME(RETROK_INSERT),
+    KEY_NAME(RETROK_HOME),
+    KEY_NAME(RETROK_END),
+    KEY_NAME(RETROK_PAGEUP),
+    KEY_NAME(RETROK_PAGEDOWN),
+    KEY_NAME(RETROK_F1),
+    KEY_NAME(RETROK_F2),
+    KEY_NAME(RETROK_F3),
+    KEY_NAME(RETROK_F4),
+    KEY_NAME(RETROK_F5),
+    KEY_NAME(RETROK_F6),
+    KEY_NAME(RETROK_F7),
+    KEY_NAME(RETROK_F8),
+    KEY_NAME(RETROK_F9),
+    KEY_NAME(RETROK_F10),
+    KEY_NAME(RETROK_F11),
+    KEY_NAME(RETROK_F12),
+    KEY_NAME(RETROK_F13),
+    KEY_NAME(RETROK_F14),
+    KEY_NAME(RETROK_F15),
+    KEY_NAME(RETROK_NUMLOCK),
+    KEY_NAME(RETROK_CAPSLOCK),
+    KEY_NAME(RETROK_SCROLLOCK),
+    KEY_NAME(RETROK_RSHIFT),
+    KEY_NAME(RETROK_LSHIFT),
+    KEY_NAME(RETROK_RCTRL),
+    KEY_NAME(RETROK_LCTRL),
+    KEY_NAME(RETROK_RALT),
+    KEY_NAME(RETROK_LALT),
+    KEY_NAME(RETROK_RMETA),
+    KEY_NAME(RETROK_LMETA),
+    KEY_NAME(RETROK_LSUPER),
+    KEY_NAME(RETROK_RSUPER),
+    KEY_NAME(RETROK_MODE),
+    KEY_NAME(RETROK_COMPOSE),
+    KEY_NAME(RETROK_HELP),
+    KEY_NAME(RETROK_PRINT),
+    KEY_NAME(RETROK_SYSREQ),
+    KEY_NAME(RETROK_BREAK),
+    KEY_NAME(RETROK_MENU),
+    KEY_NAME(RETROK_POWER),
+    KEY_NAME(RETROK_EURO),
+    KEY_NAME(RETROK_UNDO),
+    KEY_NAME(RETROK_OEM_102),
+#undef KEY_NAME
+    };
+    size_t i;
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (!strcmp(name, names[i].name)) { *key = names[i].key; return 1; }
+    }
+    return 0;
+}
+
 /* 打鍵列を組み立てる。hold フレーム押して gap フレーム離す。
  *
  * 打てない文字（ascii_to_retrok が0を返す文字）は、既定では走行を
@@ -1546,6 +1702,7 @@ static void usage(void)
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
         "                   [--save-to-disk-image]\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
+        "                   [--key-at FRAME] [--key RETROK_NAME]\n"
         "                   [--allow-untypable] (--typeより前に指定。既定は\n"
         "                    打てない文字があれば走行前にrc!=0で止まる)\n"
         "                   [--key-hold N] [--key-gap N]\n"
@@ -1624,7 +1781,7 @@ static void capture_screen_signatures_at(q88_screen_signature_t *items, int coun
 int main(int argc, char **argv)
 {
     const char *core = NULL, *disk = NULL, *disk2 = NULL, *out = NULL;
-    unsigned frames = 600, next_at = 180, key_hold = 4, key_gap = 4;
+    unsigned frames = 600, next_at = 180, key_at = 180, key_hold = 4, key_gap = 4;
     unsigned reset_at = UINT32_MAX;
     unsigned io_log_from_frame = 0;
     static char typed[1024]; size_t typed_len = 0;
@@ -1777,6 +1934,25 @@ int main(int argc, char **argv)
          * 何度でも繰り返せる。起動時の "How many files" のような
          * 途中のプロンプトを挟む場合に要る（実際に必要だった）。 */
         else if (!strcmp(argv[i], "--type-at")   && i + 1 < argc) next_at = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--key-at") && i + 1 < argc) key_at = (unsigned)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--key") && i + 1 < argc) {
+            uint16_t key;
+            const char *name = argv[++i];
+            if (!named_key(name, &key)) {
+                fprintf(stderr, "[q88measure] 不明なキー名: %s\n", name);
+                return 1;
+            }
+            if (g_n_keyev >= (getenv("M6FH_LONG_TYPING") ? MAX_KEYSTROKES : DEFAULT_KEYSTROKES)) {
+                fprintf(stderr, "[q88measure] 打鍵列が長すぎる\n");
+                return 1;
+            }
+            g_keyev[g_n_keyev].start = key_at;
+            g_keyev[g_n_keyev].end = key_at + key_hold;
+            g_keyev[g_n_keyev].key = key;
+            g_keyev[g_n_keyev].shift = 0;
+            g_n_keyev++;
+            key_at += key_hold + key_gap;
+        }
         else if (!strcmp(argv[i], "--allow-untypable")) g_allow_untypable = true;
         else if (!strcmp(argv[i], "--type")      && i + 1 < argc) {
             const char *txt = argv[++i];
