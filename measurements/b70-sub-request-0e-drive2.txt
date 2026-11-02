@@ -1,0 +1,95 @@
+row 1 O fdc=specify(218,25);recalibrate(0);sense_interrupt();seek(0,10);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,10);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,1);sense_interrupt();sense_drive_status(1);read_data(1,1,0,3,1,16,14,255)
+row 1 O reply=0 timeout=1
+row 1 O ram 6000-6003 d2:1/0/3+0
+row 1 O ram 6004-60FF ?
+row 1 O ram 7F0A-7F0A ?
+row 1 O ram 7F0C-7F14 ?
+row 1 O ram 7F21-7F21 ?
+row 1 O ram 7FEA-7FEE ?
+row 1 O ram 7FF0-7FF6 ?
+row 2 O fdc=specify(218,25);recalibrate(0);sense_interrupt();seek(0,10);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,10);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,2);sense_interrupt();sense_drive_status(1);read_data(5,2,1,3,1,16,14,255)
+row 2 O reply=0 timeout=1
+row 2 O ram 6000-6003 d2:2/1/3+0
+row 2 O ram 6004-60E7 ?
+row 2 O ram 60E9-60FF ?
+row 2 O ram 6100-6103 d2:2/1/4+0
+row 2 O ram 6104-6128 ?
+row 2 O ram 612A-61FF ?
+row 2 O ram 7F0A-7F0A ?
+row 2 O ram 7F0C-7F14 ?
+row 2 O ram 7F21-7F21 ?
+row 2 O ram 7FEA-7FF6 ?
+row 3 O fdc=specify(218,25);recalibrate(0);sense_interrupt();seek(0,10);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,10);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,2);sense_interrupt();sense_drive_status(1);read_data(1,2,0,3,1,16,14,255)
+row 3 O reply=0 timeout=1
+row 3 O ram 6000-6003 d2:2/0/3+0
+row 3 O ram 6004-60A8 ?
+row 3 O ram 60AA-60FF ?
+row 3 O ram 7F0A-7F0A ?
+row 3 O ram 7F0C-7F14 ?
+row 3 O ram 7F21-7F21 ?
+row 3 O ram 7FEA-7FEE ?
+row 3 O ram 7FF0-7FF6 ?
+row 4 O reply=0 timeout=1
+row 5 O fdc=specify(218,25);recalibrate(0);sense_interrupt();seek(0,10);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,10);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(0,1);sense_interrupt();sense_drive_status(0);read_data(0,1,0,3,1,16,14,255)
+row 5 O reply=0 timeout=1
+row 5 O ram 6000-6003 d1:1/0/3+0
+row 5 O ram 6004-60A4 ?
+row 5 O ram 60A6-60FF ?
+row 5 O ram 7F0A-7F0A ?
+row 5 O ram 7F0C-7F14 ?
+row 5 O ram 7F21-7F21 ?
+row 5 O ram 7FEA-7FEE ?
+row 5 O ram 7FF0-7FF6 ?
+row 1 S fdc=specify(223,2);recalibrate(0);sense_interrupt();seek(0,0);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,0);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,1);sense_interrupt();sense_drive_status(1);read_data(1,1,0,3,1,16,14,255)
+row 1 S reply=0 timeout=1
+row 1 S ram 6000-6003 d2:1/0/3+0
+row 1 S ram 6004-60FF ?
+row 1 S ram 7B00-7B01 ?
+row 1 S ram 7B03-7B06 ?
+row 1 S ram 7C0E-7C0E ?
+row 1 S ram 7C18-7C18 ?
+row 1 S ram 7C24-7C25 ?
+row 1 S ram 7C28-7C28 ?
+row 1 S ram 7D02-7D08 ?
+row 1 S ram 7FF0-7FF3 ?
+row 2 S fdc=specify(223,2);recalibrate(0);sense_interrupt();seek(0,0);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,0);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,2);sense_interrupt();sense_drive_status(1);read_data(5,2,1,3,1,16,14,255)
+row 2 S reply=0 timeout=1
+row 2 S ram 6000-6003 d2:2/1/3+0
+row 2 S ram 6004-60E7 ?
+row 2 S ram 60E9-60FF ?
+row 2 S ram 6100-6103 d2:2/1/4+0
+row 2 S ram 6104-6128 ?
+row 2 S ram 612A-61FF ?
+row 2 S ram 7B00-7B01 ?
+row 2 S ram 7B03-7B06 ?
+row 2 S ram 7C0D-7C0E ?
+row 2 S ram 7C18-7C18 ?
+row 2 S ram 7C24-7C25 ?
+row 2 S ram 7C28-7C28 ?
+row 2 S ram 7D02-7D08 ?
+row 2 S ram 7FF0-7FF3 ?
+row 3 S fdc=specify(223,2);recalibrate(0);sense_interrupt();seek(0,0);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,0);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(1,2);sense_interrupt();sense_drive_status(1);read_data(1,2,0,3,1,16,14,255)
+row 3 S reply=0 timeout=1
+row 3 S ram 6000-6003 d2:2/0/3+0
+row 3 S ram 6004-60A8 ?
+row 3 S ram 60AA-60FF ?
+row 3 S ram 7B00-7B00 ?
+row 3 S ram 7B03-7B06 ?
+row 3 S ram 7C0E-7C0E ?
+row 3 S ram 7C18-7C18 ?
+row 3 S ram 7C24-7C25 ?
+row 3 S ram 7C28-7C28 ?
+row 3 S ram 7D02-7D08 ?
+row 3 S ram 7FF0-7FF3 ?
+row 4 S reply=0 timeout=1
+row 5 S fdc=specify(223,2);recalibrate(0);sense_interrupt();seek(0,0);sense_interrupt();recalibrate(0);sense_interrupt();recalibrate(1);sense_interrupt();seek(1,0);sense_interrupt();recalibrate(1);sense_interrupt();recalibrate(2);sense_interrupt();seek(0,1);sense_interrupt();sense_drive_status(0);read_data(0,1,0,3,1,16,14,255)
+row 5 S reply=0 timeout=1
+row 5 S ram 6000-6003 d1:1/0/3+0
+row 5 S ram 6004-60A4 ?
+row 5 S ram 60A6-60FF ?
+row 5 S ram 7B00-7B06 ?
+row 5 S ram 7C18-7C18 ?
+row 5 S ram 7C24-7C24 ?
+row 5 S ram 7C28-7C28 ?
+row 5 S ram 7D02-7D08 ?
+row 5 S ram 7FF0-7FF3 ?
