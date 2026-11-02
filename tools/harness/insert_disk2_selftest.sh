@@ -20,14 +20,32 @@ sha256_file() {
   fi
 }
 
-CORE="$(find "$VENDOR" -maxdepth 1 -type f -name 'quasi88_libretro.*' -print | head -1)"
+CORE="${PC88_SUB_READ_CORE:-$(find "$VENDOR" -maxdepth 1 -type f -name 'quasi88_libretro.*' -print | head -1)}"
 [ -n "$CORE" ] || ng "コア成果物が無い"
 
-make -s -C "$FRONTEND_DIR"
+make -s -C "$FRONTEND_DIR" CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$VENDOR/src}"
 mkdir -p "$WORK/rom"
 python3 "$REPO/tools/harness/make_test_rom.py" "$WORK/rom"
 python3 "$REPO/tools/make_n88_blank_disk.py" "$WORK/disk1.d88" >/dev/null
 python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/disk2.d88" >/dev/null
+
+
+# 自作の異なる刻印を持つ2像を連結し、コアが選んだ像のセクタを読む。
+python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/image0.d88" --content-rule coord-header --disk-id 0x31 >/dev/null
+python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/image1.d88" --content-rule coord-header --disk-id 0x72 >/dev/null
+cat "$WORK/image0.d88" "$WORK/image1.d88" > "$WORK/two-images.d88"
+core_src="${PC88_SUB_READ_CORE_SRC:-$VENDOR/src}"
+cc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -DQ88MEASURE_TEST_IMAGE \
+  -I"$core_src" -I"$core_src/LIBRETRO/libretro-common/include" -I"$REPO/tools/harness/core" \
+  -include "$REPO/tools/harness/test_image_stamp.h" "$FRONTEND_DIR/main.c" -ldl -o "$WORK/image-front"
+for image in 0 1; do
+  "$WORK/image-front" --core "$CORE" --rom-dir "$WORK/rom" --disk "$WORK/disk1.d88" \
+    --frames 10 --insert-disk2 "$WORK/two-images.d88" --insert-disk2-at 5 --insert-disk2-image "$image" \
+    >"$WORK/image-$image.stdout" 2>"$WORK/image-$image.stderr" || { echo '像番号の走行失敗' >&2; exit 1; }
+done
+grep -q 'test-image-stamp=31000001' "$WORK/image-0.stderr" || { echo '像0の刻印不一致' >&2; exit 1; }
+grep -q 'test-image-stamp=72000001' "$WORK/image-1.stderr" || { echo '像1の刻印不一致' >&2; exit 1; }
+ok "像0と像1のセクタ刻印を確認"
 
 # --- 陽性: 挿入ありの走行でOKになり、レポートへinsert2行が正しく残る ---
 "$FRONTEND" --core "$CORE" --rom-dir "$WORK/rom" \
@@ -91,7 +109,7 @@ ok "--insert-disk2-atが--frames以上だとエラーになる"
 # ハッシュ差を先に要求し、注入が成果物へ入らない空振りを排除してから検出を見る。
 cc -O2 -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L \
   -DQ88MEASURE_FAULT_SKIP_INSERT_DISK2 \
-  -I"$VENDOR/src/LIBRETRO/libretro-common/include" \
+  -I"${PC88_SUB_READ_CORE_SRC:-$VENDOR/src}/LIBRETRO/libretro-common/include" \
   -I"$REPO/tools/harness/core" \
   -o "$WORK/q88measure-fault" "$FRONTEND_DIR/main.c" -ldl
 normal_sha="$(sha256_file "$FRONTEND")"

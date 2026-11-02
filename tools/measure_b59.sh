@@ -2,8 +2,31 @@
 # 生記録と画像は作業場に留め、結果には事前登録の行だけを書く。
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-: "${PC88_REF_ROM_DIR:?}" "${PC88_G1_DISK:?}" "${PC88_G1_DISK2:?}" "${PC88_B59_WORK:?}"
-[[ ! -e "$PC88_B59_WORK" && -f "$PC88_G1_DISK" && -f "$PC88_G1_DISK2" ]] || exit 2
+: "${PC88_REF_ROM_DIR:?}" "${PC88_G1_DISK:?}" "${PC88_B59_WORK:?}"
+[[ ! -e "$PC88_B59_WORK" && -f "$PC88_G1_DISK" ]] || exit 2
+images="$(python3 - "$PC88_G1_DISK" <<'PYCOUNT'
+import os, sys
+try:
+    with open(sys.argv[1], 'rb') as f:
+        end = os.fstat(f.fileno()).st_size
+        offset = count = 0
+        while offset < end:
+            f.seek(offset + 28)
+            field = f.read(4)
+            if len(field) != 4:
+                raise ValueError
+            size = int.from_bytes(field, 'little')
+            if size < 32 or offset + size > end:
+                raise ValueError
+            offset += size
+            count += 1
+        print(count)
+except (OSError, ValueError):
+    sys.exit(1)
+PYCOUNT
+)" || exit 1
+printf 'images=%s\n' "$images"
+(( images >= 2 )) || exit 1
 mkdir -p "$PC88_B59_WORK"
 work="$(cd "$PC88_B59_WORK" && pwd)"
 vendor="${PC88_VENDOR_DIR:-$REPO/../vendor}"
@@ -24,15 +47,14 @@ run_one() {
   done
   local -a disk_args=()
   case "$arm" in
-    A) disk_args=(--disk2 "$run_dir/G1-2.d88") ;;
-    B) disk_args=(--insert-disk2 "$run_dir/G1-2.d88" --insert-disk2-at 7200) ;;
-    C) disk_args=(--swap-disk1 "$run_dir/G1-2.d88" --swap-disk1-at 7200) ;;
+    A) disk_args=(--insert-disk2 "$run_dir/G1-1.d88" --insert-disk2-at 1 --insert-disk2-image 1) ;;
+    B) disk_args=(--insert-disk2 "$run_dir/G1-1.d88" --insert-disk2-at 7200 --insert-disk2-image 1) ;;
+    C) disk_args=(--swap-disk1 "$run_dir/G1-1.d88" --swap-disk1-at 7200 --swap-disk1-image 1) ;;
   esac
   mkdir -p "$run_dir/rom"
   cp -RL "$rom/." "$run_dir/rom/"
   find "$run_dir" -name '*.srm' -type f -delete
   cp "$PC88_G1_DISK" "$run_dir/G1-1.d88"
-  cp "$PC88_G1_DISK2" "$run_dir/G1-2.d88"
   "$work/front" --core "$core" --rom-dir "$run_dir/rom" --disk "$run_dir/G1-1.d88" --frames 36000 "${disk_args[@]}" "${keys[@]}" --sub-reg-log "$prefix.reg" --out "$prefix.out" --screenshot "$prefix.png" >"$prefix.stdout" 2>"$prefix.stderr" || rc=$?
   rm -rf "$run_dir"
   if rg -q '打てない文字を無視' "$prefix.stderr"; then
@@ -49,7 +71,7 @@ for arm in A B C; do
   run_one "$arm-OO-2" "$PC88_REF_ROM_DIR" "$arm"
   run_one "$arm-SS-1" "$work/self" "$arm"
 done
-PYTHONPATH="$REPO/tools" python3 - "$work" <<'PY'
+PYTHONPATH="$REPO/tools" python3 - "$work" "$images" <<'PY'
 import contextlib
 import io
 import pathlib
@@ -65,7 +87,7 @@ def screen(a, b):
         return compare_rows(read_screen(w / (a + '.out')), read_screen(w / (b + '.out')))
 def label(value):
     return 'same' if value else 'differ'
-rows = []
+rows = [f'images={sys.argv[2]}']
 for arm in ('A', 'B', 'C'):
     oo1, oo2, ss1 = (f'{arm}-{x}' for x in ('OO-1', 'OO-2', 'SS-1'))
     a, b = read(w / (oo1 + '.reg')), read(w / (ss1 + '.reg'))

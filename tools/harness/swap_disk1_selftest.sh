@@ -38,10 +38,10 @@ ok() { printf 'OK: %s\n' "$1"; }
 ng() { printf 'NG: %s\n' "$1" >&2; FAILED=1; }
 ng_fatal() { printf 'NG: %s\n' "$1" >&2; exit 1; }
 
-CORE="$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
+CORE="${PC88_SUB_READ_CORE:-$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)}"
 [ -n "$CORE" ] || ng_fatal "コア成果物が無い。先に tools/setup_harness.sh を実行すること"
 
-make -s -C "$FRONTEND_DIR" || ng_fatal "q88measure のビルドが失敗"
+make -s -C "$FRONTEND_DIR" CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$VENDOR/src}" || ng_fatal "q88measure のビルドが失敗"
 
 python3 "$BUILD_ROM" "$WORK/rom" >"$WORK/build_rom.log" 2>&1 \
   || ng_fatal "build_main_rom.py が失敗(ログ: $WORK/build_rom.log)"
@@ -58,6 +58,24 @@ DISK1_SWAP="$WORK/media/D1.d88"      # --swap-disk1で差し替える先
 
 sha256_of() { python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
 SWAP_SHA="$(sha256_of "$DISK1_SWAP")"
+
+
+# 自作の異なる刻印を持つ2像を連結し、コアが選んだ像のセクタを読む。
+python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/image0.d88" --content-rule coord-header --disk-id 0x31 >/dev/null
+python3 "$REPO/tools/make_l3_testdisk.py" "$WORK/image1.d88" --content-rule coord-header --disk-id 0x72 >/dev/null
+cat "$WORK/image0.d88" "$WORK/image1.d88" > "$WORK/two-images.d88"
+core_src="${PC88_SUB_READ_CORE_SRC:-$VENDOR/src}"
+cc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -DQ88MEASURE_TEST_IMAGE \
+  -I"$core_src" -I"$core_src/LIBRETRO/libretro-common/include" -I"$REPO/tools/harness/core" \
+  -include "$REPO/tools/harness/test_image_stamp.h" "$FRONTEND_DIR/main.c" -ldl -o "$WORK/image-front"
+for image in 0 1; do
+  "$WORK/image-front" --core "$CORE" --rom-dir "$WORK/rom" --disk "$DISK1_INITIAL" \
+    --frames 10 --swap-disk1 "$WORK/two-images.d88" --swap-disk1-at 5 --swap-disk1-image "$image" \
+    >"$WORK/image-$image.stdout" 2>"$WORK/image-$image.stderr" || { echo '像番号の走行失敗' >&2; exit 1; }
+done
+grep -q 'test-image-stamp=31000001' "$WORK/image-0.stderr" || { echo '像0の刻印不一致' >&2; exit 1; }
+grep -q 'test-image-stamp=72000001' "$WORK/image-1.stderr" || { echo '像1の刻印不一致' >&2; exit 1; }
+ok "像0と像1のセクタ刻印を確認"
 
 # --- 1. 陽性: frame=30で差し替え、stderr/reportの両方で確認 ----------------
 POS_OUT="$WORK/pos.report.txt"

@@ -1698,8 +1698,8 @@ static void usage(void)
     fprintf(stderr,
         "使い方: q88measure --core <path> [--rom-dir <dir>] [--disk <path>]\n"
         "                   [--disk2 <path>] [--expect-disk2-empty]\n"
-        "                   [--insert-disk2 <path> --insert-disk2-at FRAME]\n"
-        "                   [--swap-disk1 <path> --swap-disk1-at FRAME]\n"
+        "                   [--insert-disk2 <path> --insert-disk2-at FRAME --insert-disk2-image N]\n"
+        "                   [--swap-disk1 <path> --swap-disk1-at FRAME --swap-disk1-image N]\n"
         "                   [--insert-disk1 <path> --insert-disk1-at FRAME]\n"
         "                   [--frames N] [--out <file>] [--verbose]\n"
         "                   [--screen-signature-only\n"
@@ -1797,6 +1797,7 @@ int main(int argc, char **argv)
     int n_screen_signatures = 0;
     bool expect_disk2_empty = false;
     const char *insert_disk2 = NULL;
+    int insert_disk2_image = 0;
     unsigned insert_disk2_at = 0;
     bool insert_disk2_at_set = false;
     bool insert2_done = false;
@@ -1806,6 +1807,7 @@ int main(int argc, char **argv)
      * 対象がDRIVE_2ではなくDRIVE_1（起動時に--diskで入れた媒体）である点
      * だけが違う。 */
     const char *swap_disk1 = NULL;
+    int swap_disk1_image = 0;
     unsigned swap_disk1_at = 0;
     bool swap_disk1_at_set = false;
     bool swap1_done = false;
@@ -1907,11 +1909,13 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--disk2")   && i + 1 < argc) disk2 = argv[++i];
         else if (!strcmp(argv[i], "--expect-disk2-empty")) expect_disk2_empty = true;
         else if (!strcmp(argv[i], "--insert-disk2") && i + 1 < argc) insert_disk2 = argv[++i];
+        else if (!strcmp(argv[i], "--insert-disk2-image") && i + 1 < argc) insert_disk2_image = (int)strtol(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--insert-disk2-at") && i + 1 < argc) {
             insert_disk2_at = (unsigned)strtoul(argv[++i], NULL, 0);
             insert_disk2_at_set = true;
         }
         else if (!strcmp(argv[i], "--swap-disk1") && i + 1 < argc) swap_disk1 = argv[++i];
+        else if (!strcmp(argv[i], "--swap-disk1-image") && i + 1 < argc) swap_disk1_image = (int)strtol(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--swap-disk1-at") && i + 1 < argc) {
             swap_disk1_at = (unsigned)strtoul(argv[++i], NULL, 0);
             swap_disk1_at_set = true;
@@ -3005,7 +3009,10 @@ int main(int argc, char **argv)
              * 通常ビルドには入らない。 */
             insert2_rc = 1;
 #else
-            insert2_rc = p_quasi88_disk_insert(Q88_DRIVE_2, insert_disk2, 0, 0);
+            insert2_rc = p_quasi88_disk_insert(Q88_DRIVE_2, insert_disk2, insert_disk2_image, 0);
+#endif
+#ifdef Q88MEASURE_TEST_IMAGE
+            if (!test_image_stamp(core, 1)) return 1;
 #endif
             insert2_actual = p_filename_get_disk(1);
             insert2_done = true;
@@ -3032,7 +3039,10 @@ int main(int argc, char **argv)
              * 通常ビルドには入らない。 */
             swap1_rc = 1;
 #else
-            swap1_rc = p_quasi88_disk_insert(Q88_DRIVE_1, swap_disk1, 0, 0);
+            swap1_rc = p_quasi88_disk_insert(Q88_DRIVE_1, swap_disk1, swap_disk1_image, 0);
+#endif
+#ifdef Q88MEASURE_TEST_IMAGE
+            if (!test_image_stamp(core, 0)) return 1;
 #endif
             swap1_actual = p_filename_get_disk(0);
             swap1_done = true;
