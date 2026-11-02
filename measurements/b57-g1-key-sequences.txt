@@ -1,0 +1,6 @@
+arm R oo=same image=same text=same cross=18 18 fc=48145 48141 first-cross-pc=none
+arm S oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
+arm 1 oo=same image=same text=same cross=18 18 fc=48145 48141 first-cross-pc=none
+arm 2 oo=same image=same text=same cross=18 18 fc=48145 48141 first-cross-pc=none
+arm Y oo=same image=same text=same cross=18 18 fc=48145 48141 first-cross-pc=none
+arm M oo=same image=same text=same cross=71 71 fc=112687 112683 first-cross-pc=none
