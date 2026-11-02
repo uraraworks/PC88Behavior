@@ -1902,6 +1902,61 @@ _b68_done:
 """
     return prefix + text
 
+def b72_boot(row: int) -> str:
+    """B68 の 0E と B24 の時間切れ付き受信を組み合わせる。"""
+    prefix = b16_boot(1).split('    JP _b16_done')[0].replace('_b16_', '_b72_')
+    prefix = prefix.replace('    LD (0DF50h),A\n    LD (0DF52h),A\n    LD (0DF53h),A', '    LD (0DE00h),A\n    LD (0DE01h),A').replace('_b72_timeout', '_b72_fatal')
+    def send(values):
+        return ''.join(f'    LD A,0{v:02X}h\n    CALL {"MAIN_SUB_SEND" if i == 0 else "MAIN_SUB_SEND_REQUEST_CONT"}\n    JP C,_b72_fatal\n' for i, v in enumerate(values))
+    t = '_b72_begin:\n    LD A,05Ah\n    LD (0DE04h),A\n    XOR A\n    LD (0DE00h),A\n    LD (0DE01h),A\n'
+    if row == 3:
+        payload = [0x3e,0x5a,0x32,0x3f,0x78,0xc3,0xc1,0]
+        t += send([12,0x78,0x10,0,len(payload)])
+        t += '''    LD HL,_b72_payload
+    LD B,008h
+_b72_write:
+    LD A,(HL)
+    PUSH HL
+    PUSH BC
+    CALL MAIN_SUB_SEND_REQUEST_CONT
+    POP BC
+    POP HL
+    JP C,_b72_fatal
+    INC HL
+    DJNZ _b72_write
+'''
+    if row != 4:
+        t += send([14,16,0,2,1,0x40,0] if row == 2 else [14,1,0,2,3,0x60,0])
+        t += """    LD A,00Bh
+    OUT (0FFh),A
+    LD C,001h
+    CALL MAIN_SUB_WAIT_SET
+    JR C,_b72_no_reply
+    LD A,00Ah
+    OUT (0FFh),A
+    IN A,(0FCh)
+    LD A,00Dh
+    OUT (0FFh),A
+    LD C,001h
+    CALL MAIN_SUB_WAIT_CLEAR
+    JR C,_b72_no_reply
+    IN A,(0FCh)
+_b72_no_reply:
+    LD A,00Ch
+    OUT (0FFh),A
+"""
+    if row == 3:
+        t += send([13,0x78,0x10])
+    addr, length = ((0x6000,2),(0x4000,128),(0x783e,2),(0x6000,2))[row-1]
+    t += send([0x15,addr>>8,addr&255,length>>8,length&255])
+    receive = b24_boot(1).split('    LD A,0A5h\n    LD (0DE03h),A',1)[1]
+    receive = '    LD A,0A5h\n    LD (0DE03h),A' + receive
+    receive = receive.replace('00018h','0%04Xh' % length).replace('_b24_', '_b72_')
+    t += receive.replace('_b72_timeout', '_b72_fatal')
+    if row == 3:
+        t += "_b72_payload:\n    DB " + ",".join(f"0{v:02X}h" for v in payload) + "\n"
+    return prefix + t
+
 def b70_boot(row: int, control: bool = False) -> str:
     requests = ([14,1,1,2,3,0x60,0], [14,2,1,5,3,0x60,0],
                 [14,1,1,2,3,0x60,0], [14,1,1,2,3,0x60,0],
@@ -2292,6 +2347,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                         inject_b52c_row: int | None = None,
                         inject_b52d_row: int | None = None,
                         inject_b68_row: int | None = None,
+                        inject_b72_row: int | None = None,
                         inject_b70_row: int | None = None,
                         inject_b70_control: int | None = None,
                         inject_b26_row: int | None = None,
@@ -2635,6 +2691,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         m6ib_variants.append((inject_b35_row is not None, b35_boot(inject_b35_row) if inject_b35_row is not None else "", "b35"))
         m6ib_variants.append((inject_b43_row is not None, b43_boot(inject_b43_row) if inject_b43_row is not None else "", "b43"))
         m6ib_variants.append((inject_b24_row is not None, b24_boot(inject_b24_row) if inject_b24_row is not None else "", "b24"))
+        m6ib_variants.append((inject_b72_row is not None, b72_boot(inject_b72_row) if inject_b72_row is not None else "", "b72"))
         m6ib_variants.append((inject_b70_row is not None or inject_b70_control is not None, b70_boot(inject_b70_row or inject_b70_control, inject_b70_control is not None) if inject_b70_row or inject_b70_control else "", "b70"))
         m6ib_variants.append((inject_b68_row is not None, b68_boot(inject_b68_row) if inject_b68_row is not None else "", "b68"))
         m6ib_variants.append((inject_b52d_row is not None, b52d_boot(inject_b52d_row) if inject_b52d_row is not None else "", "b52d"))
@@ -3001,6 +3058,7 @@ def main():
     ap.add_argument("--inject-b35-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b43-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b24-row", type=int, choices=range(1, 9))
+    ap.add_argument("--inject-b72-row", type=int, choices=range(1, 5))
     ap.add_argument("--inject-b70-row", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b70-control", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b68-row", type=int, choices=range(1, 9))
@@ -3038,7 +3096,7 @@ def main():
                          args.inject_m6ii_fault_r, args.inject_m6ii_fault_retry)
     insertion_flags = (*m6ib_flags, *m6ih_flags, args.inject_m6ie_single_read,
                        args.inject_m6ie_nops_only, args.inject_m6ii_sweep,
-                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None, args.inject_b35_row is not None or args.inject_b43_row is not None, args.inject_b24_row is not None, args.inject_b26_row is not None, args.inject_b52_row is not None, args.inject_b52c_row is not None, args.inject_b52d_row is not None, args.inject_b68_row is not None, args.inject_b70_row is not None, args.inject_b70_control is not None)
+                       args.inject_m6ik_arm is not None, args.inject_b10_row is not None, args.inject_b12_row is not None, args.inject_b16_row is not None, args.inject_b17_row is not None, args.inject_b19_row is not None, args.inject_b21_row is not None, args.inject_b35_row is not None or args.inject_b43_row is not None, args.inject_b24_row is not None, args.inject_b26_row is not None, args.inject_b52_row is not None, args.inject_b52c_row is not None, args.inject_b52d_row is not None, args.inject_b68_row is not None, args.inject_b72_row is not None, args.inject_b70_row is not None, args.inject_b70_control is not None)
     if sum(bool(value) for value in insertion_flags) > 1:
         ap.error("m6i-b/m6i-e/m6i-h/m6i-iの挿入フラグは併用不可")
     if sum(bool(value) for value in m6ii_fault_flags) > 1:
@@ -3053,7 +3111,7 @@ def main():
         or args.inject_main_sub_pair_fault or m6ib_arm is not None
         or any(m6ih_flags)
         or args.inject_m6ii_sweep or args.inject_m6ik_arm is not None
-        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None or args.inject_b35_row is not None or args.inject_b43_row is not None or args.inject_b24_row is not None or args.inject_b26_row is not None or args.inject_b52_row is not None or args.inject_b52c_row is not None or args.inject_b52d_row is not None or args.inject_b68_row is not None or args.inject_b70_row is not None or args.inject_b70_control is not None
+        or args.inject_b10_row is not None or args.inject_b12_row is not None or args.inject_b16_row is not None or args.inject_b17_row is not None or args.inject_b19_row is not None or args.inject_b21_row is not None or args.inject_b35_row is not None or args.inject_b43_row is not None or args.inject_b24_row is not None or args.inject_b26_row is not None or args.inject_b52_row is not None or args.inject_b52c_row is not None or args.inject_b52d_row is not None or args.inject_b68_row is not None or args.inject_b72_row is not None or args.inject_b70_row is not None or args.inject_b70_control is not None
         or args.inject_m6ie_single_read or args.inject_m6ie_nops_only)
     if args.disable_main_sub_read and any((args.enable_main_sub_read,
                                            args.enable_disk_read_retry,
@@ -3154,6 +3212,7 @@ def main():
                                        inject_b52c_row=args.inject_b52c_row,
                                        inject_b52d_row=args.inject_b52d_row,
                                        inject_b68_row=args.inject_b68_row,
+                                       inject_b72_row=args.inject_b72_row,
                                        inject_b70_row=args.inject_b70_row,
                                        inject_b70_control=args.inject_b70_control,
                                        inject_b26_row=args.inject_b26_row,
