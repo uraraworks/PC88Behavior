@@ -92,6 +92,7 @@ SCRIPTS_EXPECTED=(
   "tools/b48_fc_position_selftest.sh:0"
   "tools/b49_handshake_order_selftest.sh:0"
   "tools/b50_paired_request_selftest.sh:0"
+  "tools/b67_requests_selftest.sh:0"
   "tools/b22_differing_replies_selftest.sh:0"
   "tools/b32_differing_block_selftest.sh:0"
   "tools/b33_rom_origin_selftest.sh:0"
