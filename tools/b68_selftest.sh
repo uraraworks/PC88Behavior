@@ -70,4 +70,72 @@ for run in 1 2; do
 done
 test -s "$work/measure/8-1.snap"
 test -s "$work/measure/8-2.snap"
-printf 'B68 自己検査 PASS\n' 
+# 要求前の初期化は行8で差し引き、公式7Fxxと自作の宣言済み作業域はRAM比較から除く（配置が異なるため）。
+cat >"$work/compare.py" <<'PYCOMPARE'
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'src/l3_service'))
+import make_subrom as m
+
+def rows(path, self_rom=False):
+    result = {n: [] for n in range(1, 8)}
+    lines = pathlib.Path(path).read_text().splitlines()
+    boot = next(line.split('fdc=', 1)[1].split(';') for line in lines
+                if line.startswith('row 8 fdc='))
+    for line in lines:
+        fields = line.split()
+        n = int(fields[1])
+        if n == 8:
+            continue
+        if fields[2].startswith('fdc='):
+            commands = line.split('fdc=', 1)[1].split(';')
+            assert commands[:len(boot)] == boot, '要求前のFDC列が対照と不一致'
+            result[n].append('fdc=' + ';'.join(commands[len(boot):]))
+        elif fields[2] == 'ram':
+            start, end = (int(v, 16) for v in fields[3].split('-'))
+            if 0x7F00 <= start <= end <= 0x7FFF:
+                continue
+            if self_rom and any(lo <= start <= end < hi for lo, hi in (
+                    (m.REQ_HDR, m.REQ_HDR + m.REQ_HDR_CAPACITY),
+                    (m.HDR_PTR, m.HDR_PTR + 0x100),
+                    (m.WRITE_BUF, m.WRITE_BUF + 0x100))):
+                continue
+            result[n].append(' '.join(fields[2:]))
+        elif fields[2].startswith('reply='):
+            assert fields[2] == 'reply=0', '0x0Eに応答を返した'
+    return result
+
+expected = rows(pathlib.Path(sys.argv[1]) / 'measurements/b68-official-1.txt')
+actual = rows(sys.argv[2], True)
+assert all(expected[n] for n in (1, 2, 4, 5, 6, 7))
+if expected != actual:
+    print('B68 不一致行: ' + ','.join(str(n) for n in expected if expected[n] != actual[n]))
+    sys.exit(1)
+PYCOMPARE
+for run in 1 2; do
+  python3 "$work/compare.py" "$REPO" "$work/results/b68-official-$run.txt"
+done
+# 読み先だけ5000へ戻す故障。座標・P1・応答抑止は通常版と同じ。
+PYTHONPATH="$REPO/src/l3_service" python3 - "$work/fault" <<'PYFAULT'
+import pathlib, sys
+import make_subrom as m
+source = pathlib.Path(m.__file__).read_text()
+old = '        a.ld_hl_mem(REQ_HDR + 5)\n        a.ld_a_h()\n        a.ld_h_l()\n        a.ld_l_a()'
+assert source.count(old) == 1
+source = source.replace(old, '        a.ld_hl_imm(SECTOR_BUF)  # 故障: 読み先を5000に固定')
+ns = dict(m.__dict__)
+exec(compile(source, m.__file__, 'exec'), ns)
+rom, used = ns['build']()
+assert used <= m.SUB_ROM_FETCH_WINDOW
+out = pathlib.Path(sys.argv[1]); out.mkdir()
+(out / 'DISK.ROM').write_bytes(rom)
+PYFAULT
+PC88_B68_WORK="$work/fault-measure" PC88_REF_ROM_DIR="$work/fault" \
+  PC88_B68_OUTPUT_DIR="$work/fault-results" bash "$REPO/tools/measure_b68.sh"
+for run in 1 2; do
+  if python3 "$work/compare.py" "$REPO" "$work/fault-results/b68-official-$run.txt" >"$work/fault-$run.check"; then
+    printf 'B68 読み先5000固定の故障を見逃した\n' >&2
+    exit 1
+  fi
+  grep -q '^B68 不一致行: 1,2,4,5,6,7$' "$work/fault-$run.check"
+done
+printf 'B68 自己検査 PASS（行1〜7のRAM・要求FDC一致、5000固定故障を検出）\n'

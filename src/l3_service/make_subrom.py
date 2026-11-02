@@ -638,6 +638,8 @@ class Asm:
     def inc_de2(self):    self.db(0x13)   # INC DE（inc_deと同義。既存名の重複を避ける）
     def xor_b(self):      self.db(0xA8)   # XOR B
     def xor_a(self):      self.db(0xAF)   # XOR A（A=0。フェッチ窓予算の節約）
+    def add_a_h(self):    self.db(0x84)   # ADD A,H（任意番地の読み終端）
+    def ld_h_l(self):     self.db(0x65)   # LD H,L（受信番地のバイト順交換）
     def add_a_b(self):    self.db(0x80)   # ADD A,B
     def add_a_n(self, n): self.db(0xC6, n)  # ADD A,n（第223版: 読み終わり位置の上位バイト）
     def ld_a_h(self):     self.db(0x7C)   # LD A,H（第223版）
@@ -773,6 +775,8 @@ _ASM_TEMPLATES = {
     "xor_b": lambda: "XOR B",
     "xor_a": lambda: "XOR A",
     "add_a_b": lambda: "ADD A,B",
+    "add_a_h": lambda: "ADD A,H",
+    "ld_h_l": lambda: "LD H,L",
     "rlca": lambda: "RLCA",
     "rra": lambda: "RRA",
     "ld_b_n": lambda n: f"LD B,{hex8(n)}",
@@ -2269,8 +2273,19 @@ def build_subrom(break_write_ack=False,
         # FILES 2では既存のbyte2 bit0伝播によりB-unit/head0を問い合わせる。
         a.call("FDC_SENSE_DRIVE_STATUS")
         a.jr("_general_read_request")
+    a.ld_hl_imm(SECTOR_BUF)
+    a.call("_general_read_at")
+    # 0x02の応答手順は従来どおり、0x06/0x12を待つ。
+    a.ld_a(0x06)
+    a.ld_mem_a(POST_BULK_ACTIVE)
+    a.jp("IDLE_DISPATCH")
+
+    a.label("_general_read_at")
+    a.push_hl()                         # decode/SEEKがHLを使う間、読み先を保持
     a.call("_read_request_decode")     # 第223版: 1.36a節の論理トラック解釈（A=C）
-    a.ld_e(0x00)
+    # 第233版の既存処理圧縮(1/3): FDC_SEEKはEを要求から設定する。
+    if break_drive_selector:
+        a.ld_e(0x00)
     # m7gc事前登録（general_read_request）: FDC_SEEK直前・A=C(目的シリンダ)
     # のまま。cylはこのAを直接動かす陽性対照。
     _emit_probe("general_read_request")
@@ -2293,6 +2308,7 @@ def build_subrom(break_write_ack=False,
     # P1 >= 17 を 17 に丸めるのはバッファの大きさのための自作側の判断）。
     # EOT=16 は 1.36b節で測った 16 セクタ/トラックの媒体の値で、他の EOT は
     # 未測定（WRITE の EOT と同じく媒体形状の 16 を固定で使う）。
+    a.pop_hl()                         # 0x02は5000、0x0Eは受信したAH,AL
     a.ld_e(0x10)                       # EOT = 16（兼 P1-1 の上限）
     a.ld_a_mem(REQ_HDR + 1)            # P1
     a.dec_a()                          # P1-1（P1=0 は 0xFF になる）
@@ -2300,18 +2316,11 @@ def build_subrom(break_write_ack=False,
     a.jr_c("_general_read_count_ok")   # 1 <= P1 <= 16
     a.ld_a_e()                         # 範囲外は 17 セクタ
     a.label("_general_read_count_ok")
-    a.add_a_n((SECTOR_BUF >> 8) + 1)
-    a.ld_d_a()                         # 読み終わり = SECTOR_BUF + 256×セクタ数
+    a.inc_a()
+    a.add_a_h()                        # 下位は不変、上位にセクタ数を加える
+    a.ld_d_a()                         # 読み終わりの上位 = H + セクタ数
     a.call("FDC_READ_SECTORS")
-    a.call("_sector_ready_set")
-    # 第68版・1.37節: 一般READを完了するたび、結果263件の直後にはまだ
-    # ackを送らず、POST_BULK_ACTIVEを「次に待つ受信値=0x06」へ再アーム
-    # してアイドル受信へ戻る。1.37節が実測したのはバルク後最初のREAD
-    # 1回だけであり、後続READにも毎回同じ交換を適用するのは測定範囲を
-    # 越えた実装上の選択である。
-    a.ld_a(0x06)
-    a.ld_mem_a(POST_BULK_ACTIVE)
-    a.jp("IDLE_DISPATCH")
+    a.jp("_sector_ready_set")          # 共有末尾から呼出元へ戻る
 
 
     # 第223版・1.36a節: 読み要求 [0x02, P1, D, T, R] の座標をFDC共有位置へ置く。
@@ -2496,17 +2505,19 @@ def build_subrom(break_write_ack=False,
     # それまでこの実装は「観測に合わせただけ」であり、仕様として
     # 確定していない。
     #
-    # 第223版・1.36b節: 読むセクタの数を持てるようにした。入口は2つ。
+    # 第223版・1.36b節、第233版・1.36c節: 共通の読み経路。入口は2つ。
     #   FDC_READ_SECTOR  … 1セクタ。EOT = R、読み終わり = SECTOR_BUF+256（従来どおり）
-    #   FDC_READ_SECTORS … E = EOT、D = 読み終わり位置の上位バイト
-    #                      （SECTOR_BUF の上位 + 読むセクタの数）
-    # データは SECTOR_BUF から続けて格納し、上位バイトが D に達したら止めて
-    # 結果フェーズへ進む（FDC_IN_7 の先頭が TC）。D・E は FDC_BEGIN/OUT/IN が
-    # 保存するので、再試行をまたいで保たれる。
+    #   FDC_READ_SECTORS … HL = 読み先、E = EOT、D = 読み終わりの上位
+    #                      （HL の上位 + 読むセクタの数）
+    # 256バイトごとに上位をDと比べるため、下位が0でない読み先も扱える。
+    # 開始HLはスタック、D・EはFDC_BEGIN/OUT/INの保存規約で再試行をまたぐ。
+    # 結果フェーズへ進むFDC_IN_7の先頭がTC。
     a.ld_a_mem(REQ_HDR + 6)
     a.ld_e_a()                          # EOT = R（このセクタで終わり）
     a.ld_d_n((SECTOR_BUF >> 8) + 1)     # 1セクタ
+    a.ld_hl_imm(SECTOR_BUF)
     a.label("FDC_READ_SECTORS")
+    a.push_hl()                         # 再試行でも同じ読み先からやり直す
     a.ld_a_d()
     a.ld_mem_a(READ_END_HI)             # 応答の送り終わり（_send_dispatch_buffer）
     a.ld_c(9)                           # 最大9回（未確定。上記コメント参照）
@@ -2521,16 +2532,15 @@ def build_subrom(break_write_ack=False,
     # 第118版・m7fc: WRITE経路で確立済みの公開μPD765形式N=1短GAP分類を、
     # READ経路にも同じ生成規則として適用する。条件Oとの一致は事後の裏づけ。
 
-    # データ転送: 256×セクタ数バイト（第223版。HL の上位が D に達するまで）。
+    # データ転送: 256×セクタ数バイト（256件ごとにHLの上位とDを比較）。
     # FDC_IN は A を破壊するが、書き込み先(HL)・D・再試行カウンタ(C)は
     # 呼び出しの前後で保持される（FDC_IN は DE を退避し、BC/HL に触れない）。
-    # FDC が途中で結果フェーズへ進んだときは FDC_IN が FDC_ABORT を立て、
-    # 以降はポートに触れずに戻るので、ループは D までで必ず終わる。
-    a.ld_hl_imm(SECTOR_BUF)
+    # FDCが途中で結果フェーズへ進むとFDC_INがFDC_ABORTを立て、以降は
+    # ポートに触れずに戻る。Bで256件を数え、Dに達したセクタ末尾で終わる。
+    a.pop_hl()
+    a.push_hl()
     a.label("_read_loop")
-    a.call("FDC_IN")
-    a.ld_hl_a()          # (HL) <- A
-    a.inc_hl()
+    a.call("FDC_READ_256")              # 第233版容量圧縮: バルクと256件の入力を共有
     a.ld_a_h()
     a.cp_d()
     a.jr_nz("_read_loop")
@@ -2556,11 +2566,13 @@ def build_subrom(break_write_ack=False,
     a.jr_nz("_read_fail")
     a.ld_a_mem(FDC_ABORT)
     a.or_a()
-    a.jr_z("_read_done")                # FDC_ABORT=0かつIC=00: 成功。ここで止める
+    a.jr_z("_read_sector_done")         # FDC_ABORT=0かつIC=00: 成功。ここで止める
     a.label("_read_fail")
     a.dec_c()                           # 再試行カウンタ
     a.jr_nz("_read_retry")              # 9件に達するまで再試行
-    a.label("_read_done")
+    a.label("_read_sector_done")
+    a.pop_hl()
+    a.label("_read_done")               # バルク側は読み先をスタックへ積まない
     a.jp("FDC_TC")                    # 末尾呼び出し（第69版容量圧縮）
 
     # 交換#14専用の複数セクタREAD。公開FDCパラメータは上のBULK_*から取り、
@@ -2612,16 +2624,22 @@ def build_subrom(break_write_ack=False,
     a.ld_a_mem(BULK_SECTORS)
     a.ld_c_a()
     a.label("_bulk_read_sector")
-    a.ld_b(0x00)
+    a.call("FDC_READ_256")
+    a.dec_c()
+    a.jr_nz("_bulk_read_sector")
+    a.call("FDC_IN_7")
+    a.jr("_read_done")                  # 同じTC末尾を共有。読みのI/O順は不変
+
+    # 第233版の既存処理圧縮(2/3): 起動バルクと256件の入力列を共有。
+    # FDC_INはBC/HLを保存する。I/Oの順序・回数は変えない。
+    a.label("FDC_READ_256")
+    a.ld_b(0)
     a.label("_bulk_read_byte")
     a.call("FDC_IN")
     a.ld_hl_a()
     a.inc_hl()
     a.djnz("_bulk_read_byte")
-    a.dec_c()
-    a.jr_nz("_bulk_read_sector")
-    a.call("FDC_IN_7")
-    a.jr("_read_done")                  # 同じTC末尾を共有。読みのI/O順は不変
+    a.ret()
 
     if break_dispatch_return:
         # ====================================================================
@@ -3135,42 +3153,27 @@ def build_subrom(break_write_ack=False,
         a.ld_a_mem(REQ_HDR + 1)
         a.ld_mem_a(WRITE_LAST_S)
         a.ld_mem_a(REQ_HDR + 2)
-        a.label("_sense_and_send_response")
-        a.call("FDC_SENSE_DRIVE_STATUS")
-        # SEND_BYTE自身がWINDOW_RUN_POSを畳むため、同じ送信末尾へ合流する。
-        a.jp("_exchange3_send_response")
+        # 第233版容量圧縮: ROM末尾の同じSENSE・送信列へ合流する。
+        a.jp("_sense_and_send_response")
 
         a.label("_window_run_reset")
         a.xor_a()
         a.ld_mem_a(WINDOW_RUN_POS)
         a.jr("_post_read_idle")
 
-        # 第45版1.34節: 交換#14累積7件境界の第1 READだけを位置対応に
-        # 従って準備する。unit/head・Rは要求位置4に直接一致し、C/Hは
-        # 同値候補の位置1/10のうち既存規約どおり早い位置1を採る。
-        # この選択は交換#14第1 READ限定の介入候補であり一般化しない。
-        # EOTは値を推測せず、FDC_READ_SECTOR既存の1セクタ終端(Rと同値)
-        # を維持する。READ後は同じ12件runの残りを待つため、アイドルへ
-        # 戻らず継続ポーリングへ復帰する。
+        # 第233版・1.36c: BASICの交換#14も同じ7バイトの0x0E要求。
+        # 判別入口は保持し、固定番地への単発読みを0x02の経路へ共有する。
+        # decodeがREQ_HDR+6をRで上書きする前にAH,ALを取り出す。
         a.label("_exchange14_prepare_first_read")
-        a.ld_a_mem(REQ_HDR + 4)
-        a.ld_mem_a(REQ_UNIT_HEAD)
-        a.ld_mem_a(REQ_HDR + 6)
-        # m7fq: out_immをAへ目的シリンダを読み込む処理（直後のREQ_HDR+1→A→
-        # REQ_H→REQ_HDR+4の転記）より前に置く。FDC_SEEKは呼び出し直前のAを
-        # 目的シリンダとして送る仕様であり、out_imm(P_F8, F8_CONTROL_VALUE)
-        # は内部でLD A,nを含みAを破壊するため、この転記より後ろに置くと
-        # FDC_SEEKへ渡るAが目的シリンダではなくF8_CONTROL_VALUEになって
-        # しまう。2307行の_exchange3_prepare_sector経路と同じ順序にする
-        # （事前登録m7fl・実測m7fm・再検証m7fpの措置）。
-        a.out_imm(P_F8, F8_CONTROL_VALUE)
-        a.ld_a_mem(REQ_HDR + 1)
-        a.ld_mem_a(REQ_H)
-        a.ld_mem_a(REQ_HDR + 4)
-        # m7gc事前登録（exchange14_prepare_first_read）: 共有ルーチン
-        # 呼び出し直前。共有ルーチンはAを読み直さずFDC_SEEKへ渡す。
+        a.ld_mem_a(DATA_RESPONSE_CLOSED)   # 判別時のA=0x0E。応答なし
+        # 隣接するAH,ALを一度に読み、レジスタで交換。
+        a.ld_hl_mem(REQ_HDR + 5)
+        a.ld_a_h()
+        a.ld_h_l()
+        a.ld_l_a()
         _emit_probe("exchange14_prepare_first_read")
-        a.call("_seek_sense_f7_read_shared")
+        a.call("_general_read_at")
+        # BASICの交換#14では残りの要求を同じヘッダへ継続受信する。
         if break_run_continuation:
             a.jp("IDLE_DISPATCH")
         else:
@@ -3667,13 +3670,10 @@ def build_subrom(break_write_ack=False,
     # （このSEND_DISPATCH_IDLEでFDCへOUT $FB×2/IN $FBが発生する）。
     # それは承知の上で許容する——適合条件はmain側のデータ列であり、
     # sub側のI/O列一致はそもそも目標に含まれていない。
-    if any((inject_m6ib_b1, inject_m6ib_b2, inject_m6ib_b3,
-            inject_m6ib_b4, inject_m6ib_b5)):
-        # 測定版のみ同一のSENSE・送信末尾へ合流して窓内に収める。
-        a.jp("_sense_and_send_response")
-    else:
-        a.call("FDC_SENSE_DRIVE_STATUS")
-        a.jp("_exchange3_send_response")
+    # 第233版の既存処理圧縮(3/3): 同じSENSE・送信列へ合流する。
+    a.label("_sense_and_send_response")
+    a.call("FDC_SENSE_DRIVE_STATUS")
+    a.jp("_exchange3_send_response")
 
     return a
 
