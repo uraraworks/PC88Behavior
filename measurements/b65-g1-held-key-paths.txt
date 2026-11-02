@@ -1,0 +1,5 @@
+arm I1 oo=same image=differ text=same cross=93 93 fc=127799 127795 first-cross-pc=none
+arm I2 oo=same image=same text=same cross=87 87 fc=124725 124721 first-cross-pc=none
+arm I3 oo=same image=same text=same cross=87 87 fc=124725 124721 first-cross-pc=none
+arm S1 oo=same image=same text=same cross=76 76 fc=113713 113709 first-cross-pc=none
+arm F1 oo=same image=differ text=same cross=74 72 fc=112817 112813 first-cross-pc=none
