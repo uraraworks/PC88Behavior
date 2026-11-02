@@ -38,9 +38,19 @@ with tempfile.TemporaryDirectory() as directory:
     assert any('sub IN $FB 1 - x' in line or 'sub IN $FB 2 - x' in line for line in lines)
     assert all(secret not in result.stdout + result.stderr for secret in ('A7', 'B8', '1234', '5678', 'C000'))
     assert all(line.startswith('E OO ') for line in lines)
+    window = run('--arm', 'SS', '--event-window', '0', '300')
+    assert window.returncode == 0 and all(line.startswith('E SS ') for line in window.stdout.splitlines())
+    assert run('--arm', 'OO', '--before-first-main-fd-0e', '200').returncode == 1
+    add(main, 'main', 765900, 'OUT', 0xFD, 0x0E, 0x1234)
+    write()
+    before = run('--arm', 'OO', '--before-first-main-fd-0e', '200')
+    assert before.returncode == 0 and '$FD' in before.stdout and '0E' not in before.stdout
+    assert run('--arm', 'OO', '--event-window', '0', '999999').returncode == 1
     path.write_text(path.read_text().replace('取りこぼし: 0件', '取りこぼし: 1件', 1))
     bad = run('--arm', 'OO')
     assert bad.returncode == 1 and not bad.stdout and not bad.stderr
+    assert run('--arm', 'SS', '--event-window', '0', '300').returncode == 1
+    assert run('--arm', 'OO', '--before-first-main-fd-0e', '200').returncode == 1
     bad = run('--arm', 'invalid')
     assert bad.returncode == 1 and not bad.stdout and not bad.stderr
 print('B49 自己検査成功')

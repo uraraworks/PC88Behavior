@@ -7,7 +7,7 @@ import sys
 from b47_pio_handoff import ROW, END
 
 
-def read(path, offset=None, window=None, tail=0):
+def read(path, offset=None, window=None, tail=0, event_window=None, before_fd_0e=None):
     sections = {'main': [], 'sub': []}
     seen, clocks = set(), set()
     current, ended = None, False
@@ -45,6 +45,18 @@ def read(path, offset=None, window=None, tail=0):
     if seen != {'main', 'sub'} or not ended:
         raise ValueError()
     main = sections['main']
+    events = sorted(sections['main'] + sections['sub'])
+    if event_window is not None:
+        lo, hi = event_window
+        if lo < 0 or hi <= lo or hi > len(events):
+            raise ValueError()
+        return events[lo:hi]
+    if before_fd_0e is not None:
+        index = next((i for i, e in enumerate(events)
+                      if e[1:5] == ('main', 'OUT', 0xFD, 0x0E)), None)
+        if index is None or index < before_fd_0e:
+            raise ValueError()
+        return events[index - before_fd_0e:index]
     if window is not None:
         fc = [e for e in main if e[2:4] == ('IN', 0xFC)]
         lo_fc, hi_fc = window
@@ -108,10 +120,14 @@ def main():
         parser.add_argument('--offset', type=int)
         parser.add_argument('--window', nargs=2, type=int)
         parser.add_argument('--tail', type=int, default=0)
+        parser.add_argument('--event-window', nargs=2, type=int)
+        parser.add_argument('--before-first-main-fd-0e', type=int)
         args = parser.parse_args()
         if (args.window is None) != (args.offset is None) or args.tail < 0 or (args.window is None and args.tail):
             raise ValueError()
-        print('\n'.join(summarize(read(args.log, args.offset, args.window, args.tail), args.arm)))
+        if sum(x is not None for x in (args.window, args.event_window, args.before_first_main_fd_0e)) > 1 or (args.before_first_main_fd_0e is not None and args.before_first_main_fd_0e <= 0):
+            raise ValueError()
+        print('\n'.join(summarize(read(args.log, args.offset, args.window, args.tail, args.event_window, args.before_first_main_fd_0e), args.arm)))
         return 0
     except Exception:
         return 1
