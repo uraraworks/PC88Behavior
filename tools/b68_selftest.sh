@@ -2,8 +2,8 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d /tmp/b68-selftest.XXXXXX)"; trap 'rm -rf "$work"' EXIT
-export PC88_SUB_READ_CORE="${PC88_SUB_READ_CORE:-$REPO/tmp/b62-core/core/quasi88_libretro.dylib}"
-export PC88_SUB_READ_CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$REPO/tmp/b62-core/core/src}"
+export PC88_SUB_READ_CORE="${PC88_SUB_READ_CORE:-$(ls "$REPO"/../vendor/quasi88-libretro/quasi88_libretro.* 2>/dev/null | head -1)}"
+export PC88_SUB_READ_CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro/src}"
 PYTHONPATH="$REPO/tools" python3 - "$work" <<'PY'
 import json, pathlib, sys
 from analyze_b68 import fc_info, fdc, ram_lines, reply_count

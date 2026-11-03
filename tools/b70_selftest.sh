@@ -2,8 +2,8 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d /tmp/b70-selftest.XXXXXX)"; trap 'rm -rf "$work"' EXIT
-export PC88_SUB_READ_CORE="${PC88_SUB_READ_CORE:-$REPO/tmp/b62-core/core/quasi88_libretro.dylib}"
-export PC88_SUB_READ_CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$REPO/tmp/b62-core/core/src}"
+export PC88_SUB_READ_CORE="${PC88_SUB_READ_CORE:-$(ls "$REPO"/../vendor/quasi88-libretro/quasi88_libretro.* 2>/dev/null | head -1)}"
+export PC88_SUB_READ_CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro/src}"
 python3 "$REPO/src/l3_service/make_subrom.py" "$work/sub" >/dev/null
 PC88_B70_WORK="$work/measure" bash "$REPO/tools/measure_b70.sh" --dry-run-sub-rom "$work/sub/DISK.ROM" --output-dir "$work/results"
 python3 - "$work" <<'PY'

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-CORE="${PC88_SUB_READ_CORE:-}"
-CORE_SRC="${PC88_SUB_READ_CORE_SRC:-}"
+CORE="${PC88_SUB_READ_CORE:-$(ls "$REPO"/../vendor/quasi88-libretro/quasi88_libretro.* 2>/dev/null | head -1)}"
+CORE_SRC="${PC88_SUB_READ_CORE_SRC:-$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro/src}"
 [[ -f "$CORE" && -f "$CORE_SRC/LIBRETRO/libretro-common/include/libretro.h" ]] || exit 1
 mkdir -p "$REPO/tmp/b62-work"
 WORK="$(mktemp -d "$REPO/tmp/b62-work/selftest.XXXXXX")"
