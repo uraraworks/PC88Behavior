@@ -2879,13 +2879,8 @@ def build_subrom(break_write_ack=False,
         a.label("_recv_dispatch_after_first_progress")
         # 第44版1.34節・m7z第一実装診断: 交換#14は12件目の通常RECV完遂
         # 直後に入口へ進み、run終了bit1を待たない。
-        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-        a.cp_n(0x05)
-        a.jr_nz("_recv_dispatch_after_first_bulk_check")
-        a.ld_a_mem(RUN_LEN)
-        a.cp_n(12)
+        a.call("_exchange14_bulk_check")
         a.jp_z("BULK_SEND")
-        a.label("_recv_dispatch_after_first_bulk_check")
         a.call("WINDOW_RUN_COMPLETE")
         a.jr_z("_recv_dispatch_window_done")
 
@@ -3007,13 +3002,8 @@ def build_subrom(break_write_ack=False,
         # 第44版1.34節: 三組目のREAD対完了後に来る交換#14の12件要求だけを
         # 高速バルク入口へ接続する。要求値には触れず、観測済み交換順序と
         # run長だけで限定する。
-        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
-        a.cp_n(0x05)
-        a.jr_nz("_recv_dispatch_after_exchange14_check")
-        a.ld_a_mem(RUN_LEN)
-        a.cp_n(12)
+        a.call("_exchange14_bulk_check")
         a.jp_z("BULK_SEND")
-        a.label("_recv_dispatch_after_exchange14_check")
         a.ld_a_mem(SECTOR_READY)
         a.or_a()
         a.jr_nz("_recv_dispatch_maybe_exchange4")  # 同上
@@ -3173,7 +3163,10 @@ def build_subrom(break_write_ack=False,
         a.ld_l_a()
         _emit_probe("exchange14_prepare_first_read")
         a.call("_general_read_at")
-        # BASICの交換#14では残りの要求を同じヘッダへ継続受信する。
+        # バルク後の0x0Eは独立した要求。起動時の交換#14だけ継続する。
+        a.ld_a_mem(POST_BULK_ACTIVE)
+        a.or_a()
+        a.jr_nz("_window_run_reset")
         if break_run_continuation:
             a.jp("IDLE_DISPATCH")
         else:
@@ -3634,6 +3627,16 @@ def build_subrom(break_write_ack=False,
         _tracked = 0x80 if _i in OBSERVED_SINGLE_TRACKED_ENTRIES else 0
         a.data(len(_hdr) | _tracked, *_hdr, _resp)
     a.data(0x00)   # 表の終端
+
+    # 受信継続中とrun終了時の交換#14判定を共有する。
+    if not break_fixed_byte_cutoff:
+        a.label("_exchange14_bulk_check")
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(0x05)
+        a.ret_nz()
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(12)
+        a.ret()
 
     a.label("_observed_request_next_9")
     # 第22版で再訂正: 第20版→第21版の変遷は以下の通り。
