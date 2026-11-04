@@ -16,15 +16,15 @@ def write(name, events, dropped=0):
     (w / name).write_text('# main\n' + header + empty + rows + f'# 取りこぼし: {dropped}件 / 総イベント数: {len(events)}件\n\n# sub\n' + header + '# (記録されたイベントなし)\n# 取りこぼし: 0件 / 総イベント数: 0件\n', encoding='utf-8')
 write('a', [(2, 1, '1234'), (1, 0, '8000')])
 write('b', [(2, 1, '1234'), (1, 0, '8000'), (2, 1, '7FFF'), (2, 1, '9000')])
-assert summarize(w/'a', w/'b', 'O', '11400-11999') == ['int O 11400-11999 IM2-L1 9000 1', 'int O 11400-11999 IM2-L1 rom 1', 'total O 11400-11999 2']
-assert summarize(w/'a', w/'a', 'S', '12000-12599') == ['total S 12000-12599 0']
+assert summarize(w/'b', 'O', '11400-11999') == ['int O 11400-11999 IM1-L0 8000 1', 'int O 11400-11999 IM2-L1 9000 1', 'int O 11400-11999 IM2-L1 rom 2', 'total O 11400-11999 4']
+write('empty', [])
+assert summarize(w/'empty', 'S', '12000-12599') == ['total S 12000-12599 0']
 write('bad', [], 1)
-for a, b in (('a', 'bad'), ('b', 'a')):
-    try:
-        summarize(w/a, w/b, 'O', '11400-11999')
-    except ValueError:
-        pass
-    else:
-        raise AssertionError('不正な記録を受理')
+try:
+    summarize(w/'bad', 'O', '11400-11999')
+except ValueError:
+    pass
+else:
+    raise AssertionError('不正な記録を受理')
 print('OK: B77 合成記録')
 PY

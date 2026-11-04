@@ -1728,7 +1728,7 @@ static void usage(void)
         "                   [--sub-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--main-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--sub-cpu-mode 0|1|2]\n"
-        "                   [--int-log FILE] [--font-log FILE]\n"
+        "                   [--int-log FILE] [--int-log-from-frame FRAME] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
         "                   [--main-event-log FILE] [--main-event-from-frame N] [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
@@ -1789,7 +1789,8 @@ int main(int argc, char **argv)
     const char *core = NULL, *disk = NULL, *disk2 = NULL, *out = NULL;
     unsigned frames = 600, next_at = 180, key_at = 180, key_hold = 4, key_gap = 4;
     unsigned reset_at = UINT32_MAX;
-    unsigned io_log_from_frame = 0;
+    unsigned io_log_from_frame = 0, int_log_from_frame = 0;
+    bool int_log_from_frame_set = false;
     static char typed[1024]; size_t typed_len = 0;
     bool dump_text = false;
     bool screen_signature_only = false;
@@ -2222,6 +2223,10 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--int-log") && i + 1 < argc)
             int_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--int-log-from-frame") && i + 1 < argc) {
+            int_log_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
+            int_log_from_frame_set = true;
+        }
         else if (!strcmp(argv[i], "--font-log") && i + 1 < argc)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
@@ -2279,7 +2284,7 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--mem-write-from-frame") && i + 1 < argc)
             mem_write_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--vram-dump") && i + 1 < argc) {
-            if (vram_dump_pending_path) {
+    if (vram_dump_pending_path) {
                 fprintf(stderr, "[q88measure] --vram-dump は直前の --vram-dump に"
                                 "対応する --vram-dump-at が無いまま次を指定された: %s\n",
                         vram_dump_pending_path);
@@ -2458,6 +2463,10 @@ int main(int argc, char **argv)
                     insert_disk1);
             return 2;
         }
+    }
+    if (int_log_from_frame_set && int_log_from_frame >= frames) {
+        fprintf(stderr, "[q88measure] --int-log-from-frame は --frames 未満で指定すること\n");
+        return 2;
     }
     if (io_log_path && io_log_from_frame >= frames) {
         fprintf(stderr, "[q88measure] --io-log-from-frame は --frames 未満で指定すること\n");
@@ -2787,8 +2796,12 @@ int main(int argc, char **argv)
             fprintf(stderr, "[q88measure] 注記: --int-log が指定されたが、"
                             "このコアに割り込み受理ログが無いので無視する\n");
         } else {
-            p_intlog_reset();
-            p_intlog_set_enabled(1);
+            if (int_log_from_frame_set) {
+                p_intlog_set_enabled(0);
+            } else {
+                p_intlog_reset();
+                p_intlog_set_enabled(1);
+            }
             fprintf(stderr, "[q88measure] 割り込み受理ログ 有効: out=%s\n", int_log_path);
         }
     }
@@ -3107,6 +3120,12 @@ int main(int argc, char **argv)
                             " (frame=%u)\n", g_frame);
         }
 
+        if (int_log_path && g_intlog_available && int_log_from_frame_set &&
+            g_frame == int_log_from_frame) {
+            p_intlog_reset();
+            p_intlog_set_frame(g_frame);
+            p_intlog_set_enabled(1);
+        }
         p_run();
 
         if (g_trap_available && g_trap_map_path[0]) {

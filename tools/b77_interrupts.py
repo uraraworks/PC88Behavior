@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""二つの窓端の main 割り込み記録から、窓内の集計だけを出す。"""
+"""窓内の main 割り込み記録を集計する。"""
 import argparse
 from collections import Counter
 from pathlib import Path
@@ -46,28 +46,29 @@ def read(path):
         counts[(int(m[1]), int(m[2]), 'rom' if addr < 0x8000 else f'{addr:04X}')] += 1
     if not ended:
         raise ValueError('集計行がない')
+    sub_lines = lines[end + 1:]
+    sub_ends = [END.fullmatch(line) for line in sub_lines if END.fullmatch(line)]
+    sub_rows = [line for line in sub_lines if re.fullmatch(r'\s*\d+\s+\d+\s+\d+\s+sub\s+.*', line)]
+    if len(sub_ends) != 1 or int(sub_ends[0][1]) or int(sub_ends[0][2]) != len(sub_rows):
+        raise ValueError('sub 記録の欠落または件数不一致')
     return counts
 
 
-def summarize(before, after, arm, window):
-    a, b = read(before), read(after)
-    delta = {key: b[key] - a[key] for key in a.keys() | b.keys()}
-    if any(n < 0 for n in delta.values()):
-        raise ValueError('窓端の累計が減少')
+def summarize(path, arm, window):
+    counts = read(path)
     rows = [f'int {arm} {window} IM{im}-L{level} {addr} {n}'
-            for (im, level, addr), n in sorted(delta.items()) if n]
-    rows.append(f'total {arm} {window} {sum(delta.values())}')
+            for (im, level, addr), n in sorted(counts.items())]
+    rows.append(f'total {arm} {window} {sum(counts.values())}')
     return rows
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('before')
-    p.add_argument('after')
+    p.add_argument('path')
     p.add_argument('--arm', choices=('O', 'S'), required=True)
     p.add_argument('--window', choices=('11400-11999', '12000-12599', '12600-13199'), required=True)
     args = p.parse_args()
-    print('\n'.join(summarize(args.before, args.after, args.arm, args.window)))
+    print('\n'.join(summarize(args.path, args.arm, args.window)))
 
 
 if __name__ == '__main__':

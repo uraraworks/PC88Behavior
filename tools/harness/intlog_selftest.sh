@@ -37,7 +37,7 @@ WORK="${TMPDIR:-/tmp}/pc88h-intlog-selftest.$$"
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 trap 'rm -rf "$WORK"' EXIT
 
-CORE="$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)"
+CORE="${CORE:-$(ls "$VENDOR"/quasi88_libretro.* 2>/dev/null | head -1 || true)}"
 if [ -z "$CORE" ]; then
   echo "コアが無い。先に tools/setup_harness.sh を実行すること" >&2; exit 1
 fi
@@ -128,6 +128,24 @@ if ! grep -qE '取りこぼし: 0件' "$INTLOG"; then
   exit 1
 fi
 echo "OK: 取りこぼし 0件（main/sub とも）"
+
+say "途中からの記録を確認"
+"$REPO/tools/harness/frontend/q88measure" --core "$CORE" --rom-dir "$WORK/rom" \
+  --frames "$FRAMES" --out "$WORK/window-trace" --int-log "$WORK/window-int" \
+  --int-log-from-frame 30 > /dev/null 2> "$WORK/window-stderr"
+python3 - "$INTLOG" "$WORK/window-int" <<'PYTEST'
+import re, sys
+def frames(path):
+    return [int(m[1]) for line in open(path) if (m := re.match(r'\s*\d+\s+\d+\s+(\d+)\s+(?:main|sub)\s+', line))]
+full, window = map(frames, sys.argv[1:])
+assert any(f < 30 for f in full), '開始前の陽性対照がない'
+assert window and all(30 <= f < 60 for f in window), '窓外の記録または記録なし'
+assert len(window) == sum(f >= 30 for f in full), '窓内の件数が不一致'
+PYTEST
+if "$REPO/tools/harness/frontend/q88measure" --core "$CORE" --rom-dir "$WORK/rom" \
+  --frames 60 --int-log-from-frame 60 > /dev/null 2>&1; then
+  echo "NG: 開始フレームが範囲外" >&2; exit 1
+fi
 
 say "--int-log を付けない場合に記録ファイルが作られないことを確認（既定 off の確認）"
 "$REPO/tools/harness/frontend/q88measure" \
