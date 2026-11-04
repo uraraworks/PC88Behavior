@@ -1,0 +1,95 @@
+req O 12000 1 head=0E size=7 shape=7s fc=112689
+req O 12000 2 head=15 size=5 shape=5s fc=112689
+req O 12000 3 head=0D size=3 shape=3s fc=112817
+E OO 0 main OUT $45 1 -
+E OO 1 main OUT $E4 2 - x2
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main OUT $E4 2 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main OUT $E4 2 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+E OO 1 main IN $01 3 -
+E OO 1 main IN $00 3 -
+req S 12000 1 head=0E size=7 shape=7s fc=112685
+req S 12000 2 head=15 size=5 shape=5s fc=112685
+E SS 0 main IN $FE 1 2
+E SS 1 main IN $FE 1 2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
