@@ -1926,7 +1926,8 @@ _b72_write:
     DJNZ _b72_write
 '''
     if row != 4:
-        t += send([14,16,0,2,1,0x40,0] if row == 2 else [14,1,0,2,3,0x60,0])
+        t += send(([14,16,0,2,1,0x40,0] if row == 2 else [14,1,0,2,3,0x60,0]) if row <= 4 else
+                  ([14,16,1,2,1,0x40,0] if row == 5 else [14,1,1,2,3,0x60,0]))
         t += """    LD A,00Bh
     OUT (0FFh),A
     LD C,001h
@@ -1947,7 +1948,7 @@ _b72_no_reply:
 """
     if row == 3:
         t += send([13,0x78,0x10])
-    addr, length = ((0x6000,2),(0x4000,128),(0x783e,2),(0x6000,2))[row-1]
+    addr, length = ((0x6000,2),(0x4000,128),(0x783e,2),(0x6000,2),(0x4000,128),(0x6000,2))[row-1]
     t += send([0x15,addr>>8,addr&255,length>>8,length&255])
     receive = b24_boot(1).split('    LD A,0A5h\n    LD (0DE03h),A',1)[1]
     receive = '    LD A,0A5h\n    LD (0DE03h),A' + receive
@@ -3116,7 +3117,7 @@ def main():
     ap.add_argument("--inject-b43-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b24-row", type=int, choices=range(1, 9))
     ap.add_argument("--inject-b74-row", type=int, choices=range(1, 5))
-    ap.add_argument("--inject-b72-row", type=int, choices=range(1, 5))
+    ap.add_argument("--inject-b72-row", type=int, choices=range(1, 7))
     ap.add_argument("--inject-b70-row", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b70-control", type=int, choices=range(1, 6))
     ap.add_argument("--inject-b68-row", type=int, choices=range(1, 9))

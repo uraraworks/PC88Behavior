@@ -24,6 +24,6 @@ else:
     raise AssertionError('取りこぼしを検出できない')
 PY
 python3 "$REPO/src/l3_service/make_subrom.py" "$work/sub" >"$work/sub.log" 2>&1
-PC88_B72_WORK="$work/measure" bash "$REPO/tools/measure_b72.sh" --dry-run-sub-rom "$work/sub/DISK.ROM" --output-dir "$work/result"
+PC88_B72_WORK="$work/measure" bash "$REPO/tools/measure_b72.sh" --observational-extra-rows --dry-run-sub-rom "$work/sub/DISK.ROM" --output-dir "$work/result"
 grep -qx 'row 4 S reply=2 match=2 timeout=0 executed=-' "$work/result/b72-sub-request-0e-followups.txt"
 cat "$work/result/b72-sub-request-0e-followups.txt"

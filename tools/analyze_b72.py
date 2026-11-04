@@ -9,7 +9,7 @@ from make_l3_testdisk import coord_header_pattern
 
 
 def analyze(row, lines, pc_range):
-    length = (2, 128, 2, 2)[row - 1]
+    length = (2, 128, 2, 2, 128, 2)[row - 1]
     data = []
     state = {}
     active = receiving = False
@@ -44,7 +44,9 @@ def analyze(row, lines, pc_range):
         raise ValueError('incomplete')
     expected = (coord_header_pattern(0xa1, 1, 0, 3) if row == 1 else
                 coord_header_pattern(0xa1, 1, 0, 1) if row == 2 else
-                bytes((0xff, 0x5a)) if row == 3 else bytes((0xff, 0xff)))
+                bytes((0xff, 0x5a)) if row == 3 else
+                bytes((0xff, 0xff)) if row == 4 else
+                coord_header_pattern(0xa2, 1, 0, 1 if row == 5 else 3))
     match = 0
     for actual, want in zip(data, expected):
         if actual != want:
@@ -56,7 +58,7 @@ def analyze(row, lines, pc_range):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--row', type=int, choices=range(1, 5), required=True)
+    p.add_argument('--row', type=int, choices=range(1, 7), required=True)
     p.add_argument('--arm', choices=('O', 'S'), required=True)
     p.add_argument('--memlog', required=True)
     p.add_argument('--labels', required=True)
