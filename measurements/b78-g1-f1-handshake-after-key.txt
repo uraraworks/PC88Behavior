@@ -1,0 +1,601 @@
+E OO 0 main OUT $E4 1 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main OUT $E4 1 - x2
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $01 2 -
+E OO 1 main IN $02 2 -
+E OO 1 main IN $03 2 -
+E OO 1 main IN $04 2 -
+E OO 1 main OUT $E4 1 -
+E OO 1 main IN $05 2 -
+E OO 1 main IN $06 2 -
+E OO 1 main IN $07 2 -
+E OO 1 main IN $08 2 -
+E OO 1 main IN $09 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 4 -
+E OO 1 main IN $44 3 -
+E OO 1 main IN $45 5 -
+E OO 1 main IN $00 2 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $45 7 -
+E OO 1 main IN $44 3 -
+E OO 1 main OUT $44 6 -
+E SS 0 main IN $FE 1 2
+E SS 1 main IN $FE 1 2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main OUT $E4 3 -
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2 x2
+E SS 1 main IN $FE 1 2 x2
+E SS 1 sub IN $FE 2 2
