@@ -1,0 +1,5 @@
+arm I1 oo-fh=same pts=180 first-diff=20400 ndiff=12 oo=same image=same text=same cross=99 99 fc=152375 152371 first-cross-pc=none
+arm I2 oo-fh=same pts=180 first-diff=none ndiff=0 oo=same image=same text=same cross=87 87 fc=124725 124721 first-cross-pc=none
+arm I3 oo-fh=same pts=180 first-diff=none ndiff=0 oo=same image=same text=same cross=87 87 fc=124725 124721 first-cross-pc=none
+arm S1 oo-fh=same pts=180 first-diff=13200 ndiff=11 oo=same image=same text=same cross=82 82 fc=138289 138285 first-cross-pc=none
+arm F1 oo-fh=same pts=180 first-diff=16200 ndiff=8 oo=same image=same text=same cross=80 80 fc=137393 137389 first-cross-pc=none
