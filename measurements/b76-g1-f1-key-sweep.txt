@@ -1,0 +1,13 @@
+arm D0 cross=74 72 fc=112817 112685 image=differ text=same
+arm D1 cross=74 72 fc=112817 112685 image=differ text=same
+arm D2 cross=74 72 fc=112817 112685 image=differ text=same
+arm D3 cross=74 72 fc=112817 112685 image=differ text=same
+arm D4 cross=74 72 fc=112817 112685 image=differ text=same
+arm D5 cross=74 72 fc=112817 112685 image=differ text=same
+arm D6 cross=74 72 fc=112817 112685 image=differ text=same
+arm D7 cross=74 72 fc=112817 112685 image=differ text=same
+arm D8 cross=74 72 fc=112817 112685 image=differ text=same
+arm D9 cross=74 72 fc=112817 112685 image=differ text=same
+arm H120 cross=74 72 fc=112817 112685 image=differ text=same
+arm H300 cross=74 72 fc=112817 112685 image=differ text=same
+arm L1 cross=72 72 fc=112689 112685 image=same text=same
