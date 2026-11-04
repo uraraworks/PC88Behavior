@@ -1729,7 +1729,7 @@ static void usage(void)
         "                   [--main-interrupt-intervention FIRST:LAST:MODE]\n"
         "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--int-log-from-frame FRAME] [--font-log FILE]\n"
-        "                   [--screenshot FILE.ppm]\n"
+        "                   [--screenshot FILE.ppm] [--frame-hash-every N --frame-hash-log FILE]\n"
         "                   [--boundary-log FILE] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
         "                   [--main-event-log FILE] [--main-event-from-frame N] [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
         "                   [--sub-rom-access-log FILE] [--sub-rom-access-window FROM,TO]\n"
@@ -1837,6 +1837,10 @@ int main(int argc, char **argv)
     const char *int_log_path = NULL;
     const char *font_log_path = NULL;
     const char *screenshot_path = NULL;
+    const char *frame_hash_path = NULL;
+    unsigned frame_hash_every = 0;
+    bool frame_hash_every_set = false;
+    FILE *frame_hash_fp = NULL;
     /* 範囲指定の書き込み記録（M7器具2）。--mem-write-range は必須
      * （範囲を指定しないと何も記録しない設計 — q88h_memlog.h 参照）。 */
     const char *mem_write_log_path = NULL;
@@ -2231,6 +2235,16 @@ int main(int argc, char **argv)
             font_log_path = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
             screenshot_path = argv[++i];
+        else if (!strcmp(argv[i], "--frame-hash-every") && i + 1 < argc) {
+            char *end; const char *v = argv[++i]; unsigned long n;
+            if (*v < '0' || *v > '9') return 2;
+            errno = 0; n = strtoul(v, &end, 10);
+            if (errno || *end || n == 0 || n > UINT_MAX) return 2;
+            frame_hash_every = (unsigned)n;
+            frame_hash_every_set = true;
+        }
+        else if (!strcmp(argv[i], "--frame-hash-log") && i + 1 < argc)
+            frame_hash_path = argv[++i];
         else if (!strcmp(argv[i], "--main-event-log") && i + 1 < argc) main_event_path = argv[++i];
         else if (!strcmp(argv[i], "--main-event-from-frame") && i + 1 < argc) main_event_from_frame = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--sub-event-log") && i + 1 < argc) event_path = argv[++i];
@@ -2518,6 +2532,8 @@ int main(int argc, char **argv)
     if (main_event_path && reject_if_unsafe_output_path("--main-event-log", main_event_path)) return 1;
     if (main_event_path && main_event_from_frame >= frames) return 1;
     if (event_path && reject_if_unsafe_output_path("--sub-event-log", event_path)) return 1;
+    if (frame_hash_every_set != (frame_hash_path != NULL)) return 2;
+    if (frame_hash_path && reject_if_unsafe_output_path("--frame-hash-log", frame_hash_path)) return 1;
     if (reg_path && reject_if_unsafe_output_path("--sub-reg-log", reg_path)) return 1;
     if (!!snapshot_path != !!snapshot_at_set) return 2;
     if (snapshot_path && reject_if_unsafe_output_path("--sub-snapshot", snapshot_path)) return 1;
@@ -2553,6 +2569,10 @@ int main(int argc, char **argv)
                 insert_disk1, insert_disk1_at);
 
     if (!load_core(core)) return 1;
+    if (frame_hash_path && !g_screenshot_available) {
+        fprintf(stderr, "[q88measure] 画面ハッシュに必要なフックがない\n");
+        return 1;
+    }
     if ((disk2 || expect_disk2_empty || insert_disk2 || swap_disk1 || insert_disk1) && !p_filename_get_disk) {
         fprintf(stderr, "[q88measure] DRIVE_1/2末端状態を検査できないコア\n");
         return 2;
@@ -2880,8 +2900,8 @@ int main(int argc, char **argv)
 
     if (g_n_keyev) {
         unsigned last = g_keyev[g_n_keyev - 1].end;
-        g_typed = typed;
-        if (screen_signature_only)
+        g_typed = frame_hash_path ? NULL : typed;
+        if (screen_signature_only || frame_hash_path)
             fprintf(stderr, "[q88measure] 打鍵: 内容非表示 (%d キー, フレーム %u まで)\n",
                     g_n_keyev, last);
         else
@@ -2900,6 +2920,10 @@ int main(int argc, char **argv)
     }
 
     /* 測定区間はここから。ロード中のアクセスは数えない */
+    if (frame_hash_path) {
+        frame_hash_fp = fopen(frame_hash_path, "w");
+        if (!frame_hash_fp) { perror(frame_hash_path); return 1; }
+    }
     p_trace_reset();
     if (g_trap_available && g_trap_map_path[0]) p_trap_reset();
     for (g_frame = 0; g_frame < frames; g_frame++) {
@@ -3127,6 +3151,21 @@ int main(int argc, char **argv)
             p_intlog_set_enabled(1);
         }
         p_run();
+        if (frame_hash_fp && (g_frame + 1) % frame_hash_every == 0) {
+            q88h_screenshot_t *s = p_screenshot();
+            q88_sha256_t ctx; uint8_t digest[32]; char hex[65];
+            p_screenshot_capture();
+            if (!s || s->magic != Q88H_SCREENSHOT_MAGIC || !s->captured) {
+                fprintf(stderr, "[q88measure] 画面ハッシュの採取に失敗\n");
+                fclose(frame_hash_fp); return 1;
+            }
+            q88_sha256_init(&ctx);
+            q88_sha256_update(&ctx, s->rgb, sizeof(s->rgb));
+            q88_sha256_final(&ctx, digest); q88_sha256_hex(digest, hex);
+            if (fprintf(frame_hash_fp, "%u %s\n", g_frame + 1, hex) < 0) {
+                fclose(frame_hash_fp); return 1;
+            }
+        }
 
         if (g_trap_available && g_trap_map_path[0]) {
             q88h_trap_t *tp = p_trap(), *tps = p_trap_sub();
@@ -3149,6 +3188,7 @@ int main(int argc, char **argv)
         }
     }
 
+    if (frame_hash_fp && fclose(frame_hash_fp) != 0) return 1;
     capture_screen_signatures_at(screen_signatures, n_screen_signatures, g_frame);
 
     {

@@ -171,6 +171,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/main_in_force_selftest.sh:0"
   "tools/harness/fontsrc_selftest.sh:0"
   "tools/harness/intlog_selftest.sh:0"
+  "tools/harness/frame_hash_selftest.sh:0"
   "tools/harness/iolog_capacity_selftest.sh:0"
   "tools/harness/iolog_selftest.sh:0"
   "tools/harness/vram_dump_selftest.sh:0"
