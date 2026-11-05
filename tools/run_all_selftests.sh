@@ -66,7 +66,8 @@
 #   --no-cache      キャッシュを見ずに全部実行する（両ロケール）。合格は記録する
 #   --cache-off     キャッシュを一切使わない（見ない・書かない）。従来の動作
 #   --clear-cache   キャッシュを捨ててから実行する
-#   --part K/N      登録表を N 分割した K 番目だけ実行する（2時間制限のある環境で
+#   --part K/N      登録表を N 本おきに分けた K 番目だけ実行する（idx%N+1==K。重い検査が並ぶ所を
+#                   1つの組に固めないため。2時間制限のある環境で
 #                   分割して実行し、キャッシュを積み上げるため）
 # 環境変数: PC88_RUNALL_CACHE_DIR（既定 <repo>/../tmp/runall-cache）、
 #          PC88_RUNALL_NO_CACHE=1（--no-cache と同じ）
@@ -667,7 +668,7 @@ for entry in "${SCRIPTS_EXPECTED[@]}"; do
   s="${entry%%:*}"
   expected="${entry##*:}"
 
-  if [ "$PART_N" -gt 0 ] && [ $(( idx * PART_N / total_registered + 1 )) -ne "$PART_K" ]; then
+  if [ "$PART_N" -gt 0 ] && [ $(( idx % PART_N + 1 )) -ne "$PART_K" ]; then
     n_notpart=$((n_notpart+1))
     continue
   fi
