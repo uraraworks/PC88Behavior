@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""l4-t5（DELETE・TRON/TROFF）・l4-t6（INPUT$）の適合判定。
+"""l4-t5（DELETE・TRON/TROFF）・l4-t6（INPUT$）・l4-t7（AUTO・RENUM）・l4-t8（ファンクションキー・ON KEY）の適合判定。
 
 測定器具（tools/l4_t5_delete_measure.py・tools/l4_t6_inputdollar_measure.py）が出す
 測定JSONから、仕様に関わる項目だけを射影して比べる。全体の一致は求めない
@@ -12,6 +12,8 @@
   t5: 各腕の同定ラベル、DELETE腕の行の生存と goto の誤り、
       TRON腕は「打鍵行の次からプロンプトの前まで」の行の文字数と行署名、プロンプト行の相対位置
   t6: 各腕の印の書込み列（番地・値）、直接腕の応答の行数・文字数
+  t7: 操作の同定、候補番号ごとの印と応答、RUNの通り道、AUTOの番号行の署名
+  t8: 応答の同定と印の書込み列（既定割り当て腕は長さを除く）
 """
 import argparse
 import json
@@ -52,7 +54,40 @@ def project_t6(data):
     return out
 
 
-PROJECT = {'t5': project_t5, 't6': project_t6}
+def project_t7(data):
+    out = {}
+    for name, rec in sorted(data['records'].items()):
+        if not rec.get('gate'):
+            raise ValueError(f'{name}: 関門を通っていない')
+        res = rec.get('result') or {}
+        item = {'operation': res.get('operation')}
+        if 'probes' in res:
+            item['probes'] = {k: [v['marks'], v['response']] for k, v in res['probes'].items()}
+        for key in ('run_order_equal', 'after_run'):
+            if key in res:
+                item[key] = res[key]
+        if 'auto_screen' in res:
+            # 行7＝表示した行番号の行。番号の後ろの空白は署名の前に落ちる。
+            item['auto_number_row'] = res['auto_screen']['7']
+        out[name] = item
+    return out
+
+
+def project_t8(data):
+    out = {}
+    for name, rec in sorted(data['records'].items()):
+        if not rec.get('gate'):
+            raise ValueError(f'{name}: 関門を通っていない')
+        run = rec['runs'][0]
+        writes = run['writes']
+        if name == 'default':
+            # 既定の割り当ては自作の値を使う（l4-program 5.7.6）。長さと値は比べない。
+            writes = [w for w in writes if w[0] != 0xe010]
+        out[name] = {'response': rec.get('response'), 'writes': writes}
+    return out
+
+
+PROJECT = {'t5': project_t5, 't6': project_t6, 't7': project_t7, 't8': project_t8}
 
 
 def main():
