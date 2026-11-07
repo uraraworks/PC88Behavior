@@ -27,79 +27,9 @@ CTRL_CODE_TAB EQU 0x1787
 CAPS_CODE_TAB EQU 0x1787
 SHIFT_CODE_TAB EQU 0x1787
 
-; バンク3先頭の空きに配置し、6F20以降の既存配置予算を保つ。
-    ORG 0x6003
-; RUN開始時点の押下を既読とする。開始RETURNを混入させない。
-IK_INIT:
-    XOR A
-    LD (IK_HEAD),A
-    LD (IK_TAIL),A
-    LD (IK_COUNT),A
-    LD (IK_CHAR),A
-    LD (IK_TIMER),A
-    IN A,(040h)
-    AND 020h
-    LD (IK_VRTC),A
-    LD C,0
-    LD HL,IK_OLD
-ik_init_port:
-    IN A,(C)
-    LD (HL),A
-    INC HL
-    INC C
-    LD A,C
-    CP 12
-    JR NZ,ik_init_port
-    RET
-
-
-    ORG 0x6F00
-    JP IK_TRY
-    ORG 0x6F10
-    JP IK_INIT
+; スキャン入口。キュー初期化と読出しは主ROMに置く。
     ORG 0x6F20
     JP IK_SCAN
-
-IK_TRY:
-    LD HL,MM_IDENT_BUF              ; IDENT_BUF: 接尾辞はIDENT_KINDで判定済み
-    LD DE,IK_NAME
-    LD B,7
-ik_match:
-    LD A,(DE)
-    CP (HL)
-    JR NZ,ik_not_name
-    INC HL
-    INC DE
-    DJNZ ik_match
-    XOR A
-    LD (S9_TMP_LEN),A
-    LD A,(IK_COUNT)
-    OR A
-    JR Z,ik_read_done
-    DEC A
-    LD (IK_COUNT),A
-    LD A,(IK_HEAD)
-    LD E,A
-    LD D,0
-    LD HL,IK_BUF
-    ADD HL,DE
-    LD A,(HL)
-    LD (S9_TMP),A
-    LD A,(IK_HEAD)
-    INC A
-    AND 31
-    LD (IK_HEAD),A
-    LD A,1
-    LD (S9_TMP_LEN),A
-ik_read_done:
-    CALL S9_OK
-    LD A,1
-    RET
-ik_not_name:
-    XOR A
-    RET
-IK_NAME:
-    DB "INKEY",0,0
 
 ; 行列変化またはリピート期限で呼ぶ。時計はVSYNCの再入フックで減算する。
 ; 押下の取りこぼしを時計から分離し、全エッジをポート/ビット順にキューする。

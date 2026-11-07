@@ -69,6 +69,8 @@ PROGRAM_AREA       EQU MM_PROGRAM_AREA
 ;   （6dbd1dbの教訓どおり）。
 ; ---------------------------------------------------------------------
 PROGRAM_INIT:
+    XOR A
+    LD (MM_TRACE_ENABLED),A
     LD HL,MM_USER_LIMIT_DEFAULT
     LD (MM_USER_LIMIT),HL
     INC HL
@@ -520,6 +522,9 @@ NEW_STMT:
     LD (ERROR_FLAG),A
     RET
 _l4new_ok:
+    ; l4-program.md 9.2: NEWのみで解除し、LOADでは維持する。
+    XOR A
+    LD (MM_TRACE_ENABLED),A
     JP PROGRAM_CLEAR
 
 ; c1: 本体はbank1 0x7FA3。AF/BC/DE/HLは窓外中継で渡す。

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # tools/l4_token_table_selftest.sh — src/l4_basic/make_token_table.py の自己検査
 #
-# 入力は src/l4_basic/keywords.tsv（189語）のみ。外部の私物（マニュアル・ROM）
+# 入力は src/l4_basic/keywords.tsv と生成器内の INPUT$。外部の私物（マニュアル・ROM）
 # には一切依存しないので、SKIPは無い（常に実行できる）。
 #
 # 確認する項目:
 #   (a) 再実行しても同じ出力になる（決定的）
 #   (b) 再生成した出力がコミット済み src/l4_basic/tokens.{tsv,asm} と一致する
-#   (c) keywords.tsv の全語が表にある（過不足なし）
+#   (c) keywords.tsv の全語と INPUT$ が表にある（過不足なし）
 #   (d) 番号（トークン）に重複が無い
 #   (e) 表の並びが大文字ASCII辞書順であること
 #   (f) 0x80〜0xFE に127語、拡張(0xFF+)に残り全部が入っていること
@@ -88,6 +88,8 @@ def read_words(path):
             cols = line.split("\t")
             if cols and cols[0]:
                 words.append(cols[0])
+    # 実装追加の INPUT$ は観測語一覧ではなく生成器が加える。
+    words.append("INPUT$")
     return words
 
 def read_table(path):
@@ -116,7 +118,7 @@ if set(kw_words) != set(table_words) or len(kw_words) != len(table_words):
     print(f"NG - (c) keywords.tsvと表の語集合が一致しない（keywords={len(kw_words)}件, 表={len(table_words)}件）")
     fail = True
 else:
-    print(f"OK - (c) keywords.tsvの全語（{len(kw_words)}件）が表にあり過不足がない")
+    print(f"OK - (c) keywords.tsvとINPUT$の全語（{len(kw_words)}件）が表にあり過不足がない")
 
 # (d) 番号の重複が無い
 dups = [t for t in set(table_tokens) if table_tokens.count(t) > 1]

@@ -1,0 +1,32 @@
+; l4-basic.md 26: INKEY$と同じFIFOから、エコーせず指定文字数を取る。
+    ORG 0x700E
+input_dollar_wait:
+    LD IX,CAP_INPUT_POLL
+    CALL B3_MAIN_CALL_ADDR
+    LD A,(IK_COUNT)
+    OR A
+    JR Z,input_dollar_wait
+    DEC A
+    LD (IK_COUNT),A
+    LD A,(IK_HEAD)
+    LD E,A
+    LD D,0
+    LD HL,IK_BUF
+    ADD HL,DE
+    LD C,(HL)
+    LD A,(IK_HEAD)
+    INC A
+    AND 31
+    LD (IK_HEAD),A
+    LD A,(S9_TMP_LEN)
+    LD E,A
+    LD D,0
+    LD HL,S9_TMP
+    ADD HL,DE
+    LD (HL),C
+    INC A
+    LD (S9_TMP_LEN),A
+    LD HL,MM_RUN_ARG1
+    CP (HL)
+    JR NZ,input_dollar_wait
+    JP S9_OK

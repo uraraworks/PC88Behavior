@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-make_token_table.py — src/l4_basic/keywords.tsv からトークン番号表を機械生成する
+make_token_table.py — keywords.tsv と自作追加の INPUT$ からトークン表を生成する
 
 規則の出所: docs/notes/l4-token-design.md 末尾の追記
 「追記（2026-09-15、番号の振り方 — 開発者判断）」（e77ddbe。ただし語の一覧は
@@ -17,7 +17,7 @@ make_token_table.py — src/l4_basic/keywords.tsv からトークン番号表を
      表の対象outにしない（字句解析の段階で対応する語に置き換える。
      keywords.tsv 自体にもこれらの行は無い）。
 
-このスクリプトは keywords.tsv 以外の入力を一切見ない。外部依存もゼロ
+このスクリプトは keywords.tsv と下記の固定追加語以外の入力を見ない。外部依存もゼロ
 （python3 標準ライブラリのみ）。第三者が keywords.tsv とこのスクリプトだけから
 同じ出力を再生成できることが自己検査の主眼になる。
 
@@ -45,7 +45,7 @@ EXT_SECOND_START = 0x80
 
 GENERATED_NOTICE_TSV = (
     "# 生成: src/l4_basic/make_token_table.py（手で編集しない。再実行で再生成する）\n"
-    "# 入力: src/l4_basic/keywords.tsv（word列のみ使用。大文字ASCII辞書順に並べ替えて番号を振る）\n"
+    "# 入力: src/l4_basic/keywords.tsv と自作追加の INPUT$（大文字ASCII辞書順に番号を振る）\n"
     "# 規則: docs/notes/l4-token-design.md「追記（2026-09-15、番号の振り方 — 開発者判断）」\n"
     "# 列: word<TAB>token（1バイトは0xNN、拡張は '0xFF 0xNN' の2バイトを空白区切りで表記）\n"
 )
@@ -68,6 +68,8 @@ def read_words(keywords_path: str) -> list[str]:
             if not cols or not cols[0]:
                 continue
             words.append(cols[0])
+    # l4-basic.md 26: INPUT$ は予約語の観測一覧を変更せず自作表へ追加する。
+    words.append("INPUT$")
     return words
 
 
@@ -131,7 +133,7 @@ def write_asm(entries: list[tuple[str, tuple[int, ...]]], path: str) -> None:
     lines: list[str] = []
     lines.append("; L4_BASIC トークン表 — src/l4_basic/make_token_table.py が生成")
     lines.append("; 手で編集しない（再実行で再生成する）。")
-    lines.append("; 入力: src/l4_basic/keywords.tsv（189語）。番号の規則は")
+    lines.append("; 入力: src/l4_basic/keywords.tsv と自作追加の INPUT$。番号の規則は")
     lines.append("; docs/notes/l4-token-design.md「追記（2026-09-15、番号の振り方）」。")
     lines.append(";")
     lines.append("; 引き方の並び順: 語の長さの降順（最長一致）。同じ長さは")

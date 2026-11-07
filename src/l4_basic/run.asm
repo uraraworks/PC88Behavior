@@ -886,7 +886,14 @@ PSR_FUNC_TABLE:
     DW S9_DO_HEX
     DB 3,"OCT"
     DW S9_DO_OCT
+    DB 5,"INPUT"
+    DW PSR_DO_INPUT_DOLLAR
     DB 0
+
+; l4-basic.md 26: 引数とキー待ちはバンク3で処理する。
+PSR_DO_INPUT_DOLLAR:
+    LD HL,0x6003
+    JP S9_BANK_CALL
 
 ; PSR_DO_MID — MID$(str,start,len)。'('消費済みから始まる。
 ; c1: 本体はbank3 0x7C68。AF/BC/DE/HLは窓外中継で渡す。
@@ -1249,7 +1256,10 @@ RUN_ENTER_RECORD:
     LD (CUR_PTR),HL
     ADD HL,BC
     LD (LINE_END),HL
-    RET
+    ; l4-program.md 9.2: 行の開始時にトレースする。
+    LD HL,0x7803
+    XOR A
+    JP EXT_BANK_CALL
 
 ; RUN_ADVANCE_RECORD — RUN_CUR_RECORDの次のレコードへ進める。
 ;   出力: A=1成功(RUN_ENTER_RECORD相当を実施済み)/0番兵(プログラム終端)。
@@ -2085,9 +2095,7 @@ INPUT_STMT:
     LD A,3
     JP EXT_BANK_CALL
 INPUT_TOKEN:
-    LD HL,0x6998
-    LD A,1
-    JP EXT_BANK_CALL
+    JP it_token
 
 ; 受け皿を解析し、単純変数はHL=0、配列はHL=要素の番地を返す。
 ; c1: 本体はbank3 0x6449。AF/BC/DE/HLは窓外中継で渡す。
@@ -2437,6 +2445,8 @@ _run_trailing_syntax:
     LD A,2
     LD (ERROR_KIND),A
 _run_error:
+    LD A,(ERROR_KIND)
+    LD (RUN_LAST_ERR),A
     LD A,(RUN_ERROR_ACTIVE)
     OR A
     JR NZ,_run_error_emit
@@ -3676,6 +3686,18 @@ RUN_EXEC_ONE_STMT:
     ; 分岐の印はファイル文も含め、文ごとに消す。
     XOR A
     LD (RUN_CTRL),A
+    ; l4-program.md 9.2: TRON/TROFFの照合はバンク0で行う。
+    LD HL,0x6003
+    XOR A
+    CALL EXT_BANK_CALL
+    OR A
+    RET NZ
+    ; l4-program.md 9.1: DELETE後はENDと同じ経路で停止する。
+    LD HL,0x6998
+    LD A,1
+    CALL EXT_BANK_CALL
+    OR A
+    RET NZ
     CALL TRY_MATCH_NEW
     OR A
     JR Z,_reos_seqfile
@@ -3693,70 +3715,19 @@ _reos_seqfile:
     OR A
     JP Z,_reos_unmatched
     LD A,(RUN_STMT_KIND)
-    CP 0
-    JP Z,_reos_print
-    CP 1
-    JP Z,_reos_goto
-    CP 2
-    JP Z,_reos_gosub
-    CP 3
-    JP Z,_reos_return
-    CP 4
-    JP Z,_reos_for
-    CP 5
-    JP Z,_reos_next
-    CP 6
-    JP Z,_reos_end
-    CP 7
-    JP Z,_reos_stop
-    CP 9
-    JP Z,_reos_if
-    CP 10
-    JP Z,_reos_dim
-    CP 11
-    JP Z,_reos_read
-    CP 12
-    JP Z,_reos_restore
-    CP 13
-    JP Z,_reos_rem
-    CP 14
-    JP Z,_reos_arrassign
-    CP 15
-    JP Z,_reos_cls
-    CP 16
-    JP Z,_reos_input
-    CP 17
-    JP Z,_reos_locate
-    CP 18
-    JP Z,_reos_color
-    CP 19
-    JP Z,_reos_on_error
-    CP 20
-    JP Z,_reos_resume
-    CP 21
-    JP Z,_reos_files
-    CP 22
-    JP Z,_reos_load
-    CP 23
-    JP Z,_reos_save
-    CP 24
-    JP Z,_reos_kill
-    CP 29
-    JP Z,S9B_DO_POKE
-    CP 30
-    JP Z,S9B_DO_CLEAR
-    CP 31
-    JP Z,OW_WHILE_STMT
-    CP 32
-    JP Z,OW_WEND_STMT
     CP 33
     JP NC,FN_EXEC_STMT
-    CP 28
-    JP Z,S9_DO_ERROR
-    CP 27
-    JP Z,RANDOMIZE_STMT
-    CP 25
-    JP Z,_reos_name
+    LD L,A
+    LD H,0
+    ADD HL,HL
+    LD DE,_reos_table
+    ADD HL,DE
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    EX DE,HL
+    JP (HL)
+_reos_assignment:
     CALL ASSIGN_STMT
     XOR A
     LD (RUN_CTRL),A
@@ -3766,54 +3737,17 @@ _reos_print:
     XOR A
     LD (RUN_CTRL),A
     RET
-_reos_goto:
-    JP GOTO_STMT
-_reos_gosub:
-    JP GOSUB_STMT
-_reos_return:
-    JP RETURN_STMT
-_reos_for:
-    JP FOR_STMT
-_reos_next:
-    JP NEXT_STMT
-_reos_end:
-    JP END_STMT
-_reos_stop:
-    JP STOP_STMT
-_reos_if:
-    JP IF_STMT
-_reos_dim:
-    JP DIM_STMT
-_reos_read:
-    JP READ_STMT
-_reos_restore:
-    JP RESTORE_STMT
-_reos_rem:
-    JP REM_STMT
-_reos_arrassign:
-    JP ARRAY_ASSIGN_STMT
-_reos_cls:
-    JP CLS_STMT
-_reos_input:
-    JP INPUT_STMT
-_reos_locate:
-    JP LOCATE_STMT
-_reos_color:
-    JP COLOR_STMT
-_reos_on_error:
-    JP ON_ERROR_STMT
-_reos_resume:
-    JP RESUME_STMT
-_reos_files:
-    JP FILES_STMT
-_reos_load:
-    JP LOAD_STMT
-_reos_save:
-    JP SAVE_STMT
-_reos_kill:
-    JP KILL_STMT
-_reos_name:
-    JP NAME_STMT
+; 文番号ごとの分岐を表にまとめ、同じ処理を共有する。
+_reos_table:
+    DW _reos_print,GOTO_STMT,GOSUB_STMT,RETURN_STMT
+    DW FOR_STMT,NEXT_STMT,END_STMT,STOP_STMT
+    DW _reos_assignment,IF_STMT,DIM_STMT,READ_STMT
+    DW RESTORE_STMT,REM_STMT,ARRAY_ASSIGN_STMT,CLS_STMT
+    DW INPUT_STMT,LOCATE_STMT,COLOR_STMT,ON_ERROR_STMT
+    DW RESUME_STMT,FILES_STMT,LOAD_STMT,SAVE_STMT
+    DW KILL_STMT,NAME_STMT,_reos_assignment,RANDOMIZE_STMT
+    DW S9_DO_ERROR,S9B_DO_POKE,S9B_DO_CLEAR,OW_WHILE_STMT
+    DW OW_WEND_STMT
 _reos_unmatched:
     LD A,2
     JP ERR_SET_A
@@ -4028,6 +3962,7 @@ LOGIC_OR_EXPR:
 
 ; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
 ; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）
+; INPUT_TOKEN_MAIN（build_main_rom.pyが展開）
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 
@@ -4346,11 +4281,9 @@ CURSOR_INPUT:
     OUT (51h),A
     JP SET_CURSOR
 S9C_INIT:
-    LD HL,06F10h
-    JP S9_BANK_CALL
+    JP IK_INIT
 S9C_TRY_INKEY:
-    LD HL,06F00h
-    JP S9_BANK_CALL
+    JP IK_TRY
 
 CAP_DATA_LITERAL_HELPER:
     LD HL,07810h

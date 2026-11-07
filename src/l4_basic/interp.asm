@@ -154,6 +154,7 @@ ZONE_WIDTH EQU 14
 ;   出さない（呼び出し元LINE_FINISHの役目のまま）。
 ; ---------------------------------------------------------------------
 BASIC_RUN_DIRECT:
+    CALL IK_SYNC_HELD
     XOR A
     LD (RUN_CTRL),A
     LD (VAL_SP),A               ; 起動時のRAM値・前回の誤り残りに依存しない
@@ -181,6 +182,9 @@ BASIC_RUN_DIRECT:
     LD A,(ERROR_FLAG)
     OR A
     RET Z
+    ; l4-program.md 9.1: 直接モードの誤りも後続のERRで参照できる。
+    LD A,(ERROR_KIND)
+    LD (RUN_LAST_ERR),A
     LD A,(ERROR_IS_RUNTIME)
     OR A
     JR Z,_l4brl_msg

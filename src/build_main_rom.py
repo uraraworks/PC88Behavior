@@ -383,6 +383,14 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
 # バンク1のFILES/LOAD/PRINT USING/ON/WHILE/DIMが窓外中継で呼ぶmain側ルーチン。
 # バンクROMを別に組み立てるため、実ビルドのラベル番地を渡す。
 EXT_BANK1_MAIN_ADDR_LABELS = {
+    "CAP_TRACE_TRON_TEXT": "TRACE_TRON_TEXT",
+    "CAP_TRACE_TROFF_TEXT": "TRACE_TROFF_TEXT",
+    "CAP_TRACE_MATCH": "TRY_MATCH_KEYWORD_GENERIC",
+    "CAP_TRACE_ERROR": "ERR_SET_A",
+    "CAP_DELETE_TEXT": "DELETE_TEXT",
+    "CAP_DELETE_PARSE_FIND": "DELETE_PARSE_FIND",
+    "CAP_DELETE_REMOVE": "PROGRAM_DELETE_AT",
+    "CAP_INPUT_POLL": "S9C_POLL",
     # FIELDのAS照合はmain窓を復元した先で既存文字列を読む。
     "CAP_ADDR_RF_AS_WORD": "sq_as_word",
     "CAP_ADDR_RF_LEX_IDENT_CONSUME": "LEX_IDENT_CONSUME",
@@ -2615,6 +2623,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 
     run_path = work / "l4_run_gen.asm"
     run_text = L4_RUN_ASM.read_text(encoding="utf-8")
+    run_text = run_text.replace("; INPUT_TOKEN_MAIN（build_main_rom.pyが展開）",
+                                (REPO / "src/l4_basic/input_token_main.asm").read_text(encoding="utf-8"))
     run_text = run_text.replace("; ML_CALL_COMMON（build_main_rom.pyがmlcall.asmをここへ展開）",
                                 (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/binary.asm").read_text(encoding="utf-8"))
     run_text = run_text.replace("; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）",
@@ -3216,6 +3226,7 @@ def main():
     if work is None:
         work = pathlib.Path(tempfile.mkdtemp(prefix="pc88_l3main_"))
         cleanup = not args.keep_work
+    work = work.resolve()
     work.mkdir(parents=True, exist_ok=True)
 
     try:
