@@ -112,17 +112,25 @@ def reject_unexpected(writes, allowed, offset=0):
                          (len(bad), ','.join('%d:%04X' % item for item in bad)))
 
 
-def synthetic_log(path, extra):
+def synthetic_log(path, extra, boot=False, before_prefix=False):
     writes = [(a, 0) for a in range(0xe000, 0xe049)] + [(0xe000, 151)]
     writes += extra
-    path.write_text('range : E000-E048\n# 取りこぼし: 0件 / 総イベント数: %d件\n' % len(writes) +
-                    ''.join('%d 0 0000 %04X %02X\n' % (i, a, v)
-                            for i, (a, v) in enumerate(writes, 1)))
+    timed = ([(9, 0xe048, 42)] if boot else []) + ([(10, 0xe048, 42)] if before_prefix else []) + [(10, a, v) for a, v in writes]
+    path.write_text('range : E000-E048\n# 取りこぼし: 0件 / 総イベント数: %d件\n' % len(timed) +
+                    ''.join('%d %d 0000 %04X %02X\n' % (i, frame, a, v)
+                            for i, (frame, a, v) in enumerate(timed, 1)))
 
 
 def unexpected_selftest(parser, path, tail):
-    synthetic_log(path, tail)
-    parser(path)
+    synthetic_log(path, tail, boot=True)
+    assert parser(path)['boot_writes'] == 1
+    synthetic_log(path, tail, before_prefix=True)
+    try:
+        parser(path)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('前置き前の書込みを検出できない')
     synthetic_log(path, tail[:-1] + [(0xe048, 42)] + tail[-1:])
     try:
         parser(path)
@@ -134,18 +142,20 @@ def unexpected_selftest(parser, path, tail):
         path.unlink(missing_ok=True)
 
 
-def parse_memory(path, name):
+def parse_memory(path, name, first_type_frame):
     raw = path.read_text()
     if not re.search(r'^range\s+: E000-E048$', raw, re.M): raise ValueError('範囲')
     total = re.search(r'^# 取りこぼし: 0件 / 総イベント数: (\d+)件$', raw, re.M)
     if not total: raise ValueError('取りこぼし')
-    writes = []
+    writes = []; boot_writes = 0; count = 0
     for row in raw.splitlines():
         if re.match(r'^\s*\d+\s', row):
             m = re.fullmatch(r'\s*(\d+)\s+(\d+)\s+[0-9A-F]{4}\s+([0-9A-F]{4})\s+([0-9A-F]{2})', row)
-            if not m or int(m[1]) != len(writes)+1: raise ValueError('記録形式')
-            writes.append((int(m[3],16), int(m[4],16)))
-    if len(writes) != int(total[1]): raise ValueError('件数')
+            if not m or int(m[1]) != count+1: raise ValueError('記録形式')
+            count += 1
+            if int(m[2]) < first_type_frame: boot_writes += 1
+            else: writes.append((int(m[3],16), int(m[4],16)))
+    if count != int(total[1]): raise ValueError('件数')
     allowed = {0xe000, 0xe001, 0xe005, 0xe006, 0xe007, 0xe03a, 0xe03b} | set(range(0xe010, 0xe019)) | set(range(0xe020, 0xe029)) | set(range(0xe030, 0xe039))
     reject_unexpected(writes[74:], allowed, 74)
     prefix = [(a,0) for a in range(0xe000,0xe049)] + [(0xe000,151)]
@@ -164,7 +174,7 @@ def parse_memory(path, name):
             if len(tail)<2 or tail[1][0] != 0xe03b: raise ValueError('実行中カーソル')
             trace_cursor.append(dict(csrlin=tail[0][1],pos=tail[1][1])); del tail[:2]
     if len(tail)<3 or [x[0] for x in tail[:3]] != [0xe006,0xe007,0xe005]: raise ValueError('カーソル/ERR')
-    result = dict(csrlin=tail[0][1], pos=tail[1][1], err=tail[2][1]); del tail[:3]
+    result = dict(csrlin=tail[0][1], pos=tail[1][1], err=tail[2][1], boot_writes=boot_writes); del tail[:3]
     if name in TRACES: result['trace_cursor']=trace_cursor
     if name in DELETE:
         if tail[:9] != [(a,0) for a in range(0xe010,0xe019)]: raise ValueError('行印初期化')
@@ -183,6 +193,7 @@ def capture(rom, name, work, official=False):
     cmds, operation = plan(name)
     args = [str(kw.FRONT), '--core', str(kw.find_core()), '--rom-dir', str(rom)]
     at = 700 if official else 100
+    first_type_frame = at
     dumps, frames = [], []
     for cmd in cmds:
         if cmd.startswith('@'):
@@ -217,7 +228,7 @@ def capture(rom, name, work, official=False):
         prompts=[i for i in range(7,min(height,19)) if signature(0,after[i]) == prompt_sig]
         if len(prompts)!=1: raise ValueError('プロンプト')
         end=prompts[0]
-        memory=parse_memory(log,name)
+        memory=parse_memory(log,name,first_type_frame)
         # CSRLIN は診断文の RETURN 後なので、対照走の位置から2行進む。
         if memory['csrlin'] != end+2: raise ValueError('カーソル位置')
         return dict(start=6, prompt=end, response=[signature(i,after[i]) for i in range(7,end)],
@@ -263,9 +274,9 @@ def save(path, data):
 
 def selftest():
     work=WORK/'selftest'; work.mkdir(parents=True,exist_ok=True)
-    unexpected_selftest(lambda p: parse_memory(p, 'trace-3-off'), work/'synthetic.log',
+    unexpected_selftest(lambda p: parse_memory(p, 'trace-3-off', 10), work/'synthetic.log',
                         [(0xe006, 1), (0xe007, 2), (0xe005, 0), (0xe001, 163)])
-    print('陰性対照: 器具外書込みを拒否')
+    print('合成対照: 起動時書込みを除外、打鍵後の前置き前と器具外の書込みを拒否')
     rom=work/'rom'
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')

@@ -38,16 +38,19 @@ def plan(name):
               'for i=&he000 to &he048:poke i,0:next','poke &he000,151','run']
     return lines,'run'
 
-def parse_log(path, name):
+def parse_log(path, name, first_type_frame):
     raw=path.read_text(); m=re.search(r'^# 取りこぼし: 0件 / 総イベント数: (\d+)件$',raw,re.M)
     if not m or not re.search(r'^range\s+: E000-E048$',raw,re.M): raise ValueError('RAM記録')
-    writes=[]; times=[]
+    writes=[]; times=[]; boot_writes=0; count=0
     for line in raw.splitlines():
         if re.match(r'^\s*\d+\s',line):
             x=re.fullmatch(r'\s*(\d+)\s+(\d+)\s+[0-9A-F]{4}\s+([0-9A-F]{4})\s+([0-9A-F]{2})',line)
-            if not x or int(x[1])!=len(writes)+1: raise ValueError('RAM形式')
-            writes.append([int(x[3],16),int(x[4],16)]); times.append(int(x[2]))
-    if len(writes)!=int(m[1]): raise ValueError('件数')
+            if not x or int(x[1])!=count+1: raise ValueError('RAM形式')
+            count+=1
+            if int(x[2]) < first_type_frame: boot_writes+=1
+            else:
+                writes.append([int(x[3],16),int(x[4],16)]); times.append(int(x[2]))
+    if count!=int(m[1]): raise ValueError('件数')
     prefix=[[a,0] for a in range(0xe000,0xe049)]+[[0xe000,151]]
     if writes[:74]!=prefix:
         bad=[(i+1,writes[i][0]) for i in range(min(74,len(writes))) if writes[i]!=prefix[i]]
@@ -72,10 +75,11 @@ def parse_log(path, name):
                                              [0xe008,0xe001], [0xe007,0xe008,0xe001])
         if not valid_prefix: raise ValueError('書込み順序')
     if sum(a==0xe001 and v==163 for a,v in tail)>1: raise ValueError('完了印')
-    return {'writes':tail,'completed':bool(tail and tail[-1]==[0xe001,163]),'input_stage_frame':next((times[i] for i in range(74,len(writes)) if writes[i]==[0xe00a,1]),None)}
+    return {'boot_writes':boot_writes,'writes':tail,'completed':bool(tail and tail[-1]==[0xe001,163]),'input_stage_frame':next((times[i] for i in range(74,len(writes)) if writes[i]==[0xe00a,1]),None)}
 
 def capture(rom,name,work,official):
     cmds,op=plan(name); at=700 if official else 100
+    first_type_frame=at
     args=[str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),'--key-hold','4','--key-gap','8']
     frames=[]; paths=[]; key_frame=None
     def snap(frame):
@@ -115,7 +119,7 @@ def capture(rom,name,work,official):
         if raw[-1]!=raw[-2]: raise ValueError('画面安定')
         geometry=key.parse_geometry(io,frames[-2:])
         if geometry[0]!=geometry[1] or geometry[0]['columns']!=80 or geometry[0]['rows'] is None: raise ValueError('表示設定')
-        rows=base.bodies(raw[-1]); result={'memory':parse_log(log,name),'geometry':geometry[0],
+        rows=base.bodies(raw[-1]); result={'memory':parse_log(log,name,first_type_frame),'geometry':geometry[0],
                 'rows':base.metrics(rows,raw[-1],geometry[0]['rows'])}
         if name in ARMS:
             result['key_frame']=key_frame
@@ -159,8 +163,8 @@ def check(a,b): return valid(a) and valid(b) and a==b
 def save(path,data): Path(path).write_text(json.dumps(data,ensure_ascii=False,indent=2,sort_keys=True)+'\n')
 def selftest():
     work=WORK/'selftest';work.mkdir(parents=True,exist_ok=True);rom=work/'rom'
-    base.unexpected_selftest(lambda p: parse_log(p, 'ref-none'), work/'synthetic.log', [(0xe001,163)])
-    print('陰性対照: 器具外書込みを拒否')
+    base.unexpected_selftest(lambda p: parse_log(p, 'ref-none', 10), work/'synthetic.log', [(0xe001,163)])
+    print('合成対照: 起動時書込みを除外、打鍵後の前置き前と器具外の書込みを拒否')
     p=subprocess.run([sys.executable,str(ROOT/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],capture_output=True)
     if p.returncode: raise ValueError('自作ROMビルド')
     data=measure(rom,work);save(work/'actual.json',data)
