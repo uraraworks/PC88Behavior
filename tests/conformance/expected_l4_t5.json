@@ -1,0 +1,338 @@
+{
+ "comma": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR2",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "empty": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR5",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "missing-ends": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR5",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "missing-single": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR5",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "open-left": {
+  "goto_err": [
+   8,
+   8,
+   8,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "none",
+  "survival": [
+   0,
+   0,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "open-right": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR5",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "program": {
+  "goto_err": [
+   250,
+   250,
+   8,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "none",
+  "survival": [
+   1,
+   1,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "range": {
+  "goto_err": [
+   250,
+   8,
+   8,
+   8,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "none",
+  "survival": [
+   1,
+   0,
+   0,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "ref-ERR2": {
+  "identification": null
+ },
+ "ref-ERR5": {
+  "identification": null
+ },
+ "ref-ERR8": {
+  "identification": null
+ },
+ "ref-none": {
+  "identification": null
+ },
+ "reverse": {
+  "goto_err": [
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "ERR5",
+  "survival": [
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "single": {
+  "goto_err": [
+   250,
+   8,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250,
+   250
+  ],
+  "identification": "none",
+  "survival": [
+   1,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "trace-3-off": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-3-on": {
+  "identification": "候補外",
+  "prompt_offset": 2,
+  "trace_rows": [
+   [
+    1,
+    16,
+    "98701f052f939d41b8b578e9bbffb0cad05340d797284cfc51beac1668b105e8"
+   ]
+  ]
+ },
+ "trace-3-toggle": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-5-off": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-5-on": {
+  "identification": "候補外",
+  "prompt_offset": 2,
+  "trace_rows": [
+   [
+    1,
+    28,
+    "e1d7fbacfb8349878aea5243b0d4051c76c7ec09ea61c004b13dfee77a3f31b7"
+   ]
+  ]
+ },
+ "trace-5-toggle": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-direct": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-invalid": {
+  "identification": "ERR2",
+  "prompt_offset": 2,
+  "trace_rows": [
+   [
+    1,
+    12,
+    "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+   ]
+  ]
+ },
+ "trace-new": {
+  "identification": "none",
+  "prompt_offset": 1,
+  "trace_rows": []
+ },
+ "trace-program": {
+  "identification": "候補外",
+  "prompt_offset": 2,
+  "trace_rows": [
+   [
+    1,
+    20,
+    "d151aa009593fc2f35c07da305341fd9ef9fc827391a9b2523bc10f3293c8e08"
+   ]
+  ]
+ }
+}
