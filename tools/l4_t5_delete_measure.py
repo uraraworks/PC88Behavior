@@ -62,7 +62,7 @@ def stable_pair(pair):
 
 def trace_program(count, mode):
     # 20行は2回通過する。5行腕は番号の異なる2行を追加する。
-    terminal = 'poke &he63a,csrlin:poke &he63b,pos(0):end'
+    terminal = 'poke &he03a,csrlin:poke &he03b,pos(0):end'
     if mode == 'program':
         return ['10 tron', '20 a=a+1', '30 if a<2 then 20', '40 troff', '50 '+terminal]
     if count == 5:
@@ -72,18 +72,18 @@ def trace_program(count, mode):
 
 def plan(name):
     delete = name in DELETE or name.startswith('ref-')
-    cmds = ['new']
+    cmds = ['clear 200,&hdfff', 'new']
     if delete:
-        cmds += [f'{n} poke &he{0x610+i:03x},1:end' for i, n in enumerate(range(10, 100, 10))]
+        cmds += [f'{n} poke &he{0x010+i:03x},1:end' for i, n in enumerate(range(10, 100, 10))]
         if name == 'program':
             cmds += ['95 delete 30:end']
     else:
         count, mode = TRACES[name]
         cmds += trace_program(count, mode)
-    cmds += ['for i=&he600 to &he648:poke i,0:next', 'poke &he600,151']
+    cmds += ['for i=&he000 to &he048:poke i,0:next', 'poke &he000,151']
     if delete:
         for i,n in enumerate(range(10,100,10)):
-            cmds += [f'goto {n}', f'poke &he{0x630+i:03x},1']
+            cmds += [f'goto {n}', f'poke &he{0x030+i:03x},1']
     else:
         mode = TRACES[name][1]
         if mode == 'off': cmds += ['troff']
@@ -96,18 +96,47 @@ def plan(name):
     elif TRACES[name][1] == 'direct': operation = 'rem'
     elif TRACES[name][1] == 'invalid': operation = 'tron 1'
     else: operation = 'run'
-    cmds += [operation, '@after', 'poke &he606,csrlin:poke &he607,pos(0)', 'poke &he605,err']
+    cmds += [operation, '@after', 'poke &he006,csrlin:poke &he007,pos(0)', 'poke &he005,err']
     if name in DELETE:
-        cmds += ['for i=&he610 to &he618:poke i,0:next']
+        cmds += ['for i=&he010 to &he018:poke i,0:next']
         for i,n in enumerate(range(10,100,10)):
-            cmds += ['error 250', f'goto {n}', f'poke &he{0x620+i:03x},err']
-    cmds += ['poke &he601,163']
+            cmds += ['error 250', f'goto {n}', f'poke &he{0x020+i:03x},err']
+    cmds += ['poke &he001,163']
     return cmds, operation
+
+
+def reject_unexpected(writes, allowed, offset=0):
+    bad = [(i, a) for i, (a, _) in enumerate(writes, offset+1) if a not in allowed]
+    if bad:
+        raise ValueError('器具外書込み: %d件 %s' %
+                         (len(bad), ','.join('%d:%04X' % item for item in bad)))
+
+
+def synthetic_log(path, extra):
+    writes = [(a, 0) for a in range(0xe000, 0xe049)] + [(0xe000, 151)]
+    writes += extra
+    path.write_text('range : E000-E048\n# 取りこぼし: 0件 / 総イベント数: %d件\n' % len(writes) +
+                    ''.join('%d 0 0000 %04X %02X\n' % (i, a, v)
+                            for i, (a, v) in enumerate(writes, 1)))
+
+
+def unexpected_selftest(parser, path, tail):
+    synthetic_log(path, tail)
+    parser(path)
+    synthetic_log(path, tail[:-1] + [(0xe048, 42)] + tail[-1:])
+    try:
+        parser(path)
+    except ValueError as exc:
+        assert '器具外書込み: 1件' in str(exc) and ':E048' in str(exc)
+    else:
+        raise AssertionError('器具外書込みを検出できない')
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def parse_memory(path, name):
     raw = path.read_text()
-    if not re.search(r'^range\s+: E600-E648$', raw, re.M): raise ValueError('範囲')
+    if not re.search(r'^range\s+: E000-E048$', raw, re.M): raise ValueError('範囲')
     total = re.search(r'^# 取りこぼし: 0件 / 総イベント数: (\d+)件$', raw, re.M)
     if not total: raise ValueError('取りこぼし')
     writes = []
@@ -117,29 +146,34 @@ def parse_memory(path, name):
             if not m or int(m[1]) != len(writes)+1: raise ValueError('記録形式')
             writes.append((int(m[3],16), int(m[4],16)))
     if len(writes) != int(total[1]): raise ValueError('件数')
-    prefix = [(a,0) for a in range(0xe600,0xe649)] + [(0xe600,151)]
-    if writes[:len(prefix)] != prefix or writes[-1:] != [(0xe601,163)]: raise ValueError('初期化/完了')
+    allowed = {0xe000, 0xe001, 0xe005, 0xe006, 0xe007, 0xe03a, 0xe03b} | set(range(0xe010, 0xe019)) | set(range(0xe020, 0xe029)) | set(range(0xe030, 0xe039))
+    reject_unexpected(writes[74:], allowed, 74)
+    prefix = [(a,0) for a in range(0xe000,0xe049)] + [(0xe000,151)]
+    if writes[:len(prefix)] != prefix:
+        bad = [(i+1, writes[i][0]) for i in range(min(len(prefix),len(writes))) if writes[i] != prefix[i]]
+        raise ValueError('初期化: 不一致%d件 %s' % (len(bad), ','.join('%d:%04X' % item for item in bad)))
+    if writes[-1:] != [(0xe001,163)]: raise ValueError('完了')
     tail = writes[len(prefix):-1]
     if name in DELETE or name.startswith('ref-'):
         for i in range(9):
-            if tail[:2] != [(0xe610+i,1), (0xe630+i,1)]: raise ValueError('操作前の行確認')
+            if tail[:2] != [(0xe010+i,1), (0xe030+i,1)]: raise ValueError('操作前の行確認')
             del tail[:2]
     trace_cursor=[]
     if name in TRACES:
-        while tail and tail[0][0] == 0xe63a:
-            if len(tail)<2 or tail[1][0] != 0xe63b: raise ValueError('実行中カーソル')
+        while tail and tail[0][0] == 0xe03a:
+            if len(tail)<2 or tail[1][0] != 0xe03b: raise ValueError('実行中カーソル')
             trace_cursor.append(dict(csrlin=tail[0][1],pos=tail[1][1])); del tail[:2]
-    if len(tail)<3 or [x[0] for x in tail[:3]] != [0xe606,0xe607,0xe605]: raise ValueError('カーソル/ERR')
+    if len(tail)<3 or [x[0] for x in tail[:3]] != [0xe006,0xe007,0xe005]: raise ValueError('カーソル/ERR')
     result = dict(csrlin=tail[0][1], pos=tail[1][1], err=tail[2][1]); del tail[:3]
     if name in TRACES: result['trace_cursor']=trace_cursor
     if name in DELETE:
-        if tail[:9] != [(a,0) for a in range(0xe610,0xe619)]: raise ValueError('行印初期化')
+        if tail[:9] != [(a,0) for a in range(0xe010,0xe019)]: raise ValueError('行印初期化')
         del tail[:9]
         result['survival'], result['goto_err'] = [], []
         for i in range(9):
-            alive = bool(tail and tail[0] == (0xe610+i,1))
+            alive = bool(tail and tail[0] == (0xe010+i,1))
             if alive: tail.pop(0)
-            if not tail or tail[0][0] != 0xe620+i: raise ValueError('GOTO診断')
+            if not tail or tail[0][0] != 0xe020+i: raise ValueError('GOTO診断')
             result['survival'].append(int(alive)); result['goto_err'].append(tail.pop(0)[1])
     if tail: raise ValueError('余分な書込み')
     return result
@@ -149,7 +183,6 @@ def capture(rom, name, work, official=False):
     cmds, operation = plan(name)
     args = [str(kw.FRONT), '--core', str(kw.find_core()), '--rom-dir', str(rom)]
     at = 700 if official else 100
-    if official: args += ['--type-at','300','--type','\n']
     dumps, frames = [], []
     for cmd in cmds:
         if cmd.startswith('@'):
@@ -163,7 +196,7 @@ def capture(rom, name, work, official=False):
             args += ['--type-at',str(at),'--type',cmd+'\n']
             at += (len(cmd)+1)*8+240
     log=work/'ram.log'; io_log=work/'io.log'
-    args += ['--io-log',str(io_log),'--mem-write-log',str(log),'--mem-write-range','E600-E648',
+    args += ['--io-log',str(io_log),'--mem-write-log',str(log),'--mem-write-range','E000-E048',
              '--mem-write-from-frame','0','--frames',str(at+600)]
     try:
         p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
@@ -230,6 +263,9 @@ def save(path, data):
 
 def selftest():
     work=WORK/'selftest'; work.mkdir(parents=True,exist_ok=True)
+    unexpected_selftest(lambda p: parse_memory(p, 'trace-3-off'), work/'synthetic.log',
+                        [(0xe006, 1), (0xe007, 2), (0xe005, 0), (0xe001, 163)])
+    print('陰性対照: 器具外書込みを拒否')
     rom=work/'rom'
     p=subprocess.run([sys.executable,str(REPO/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')
