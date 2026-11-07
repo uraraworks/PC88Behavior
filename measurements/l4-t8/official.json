@@ -1,0 +1,2427 @@
+{
+  "records": {
+    "default": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "default_asc_sha256": "3dee82cae26bf28db42c3cc009a1c06283e2c72b35a2c049688c36b82fcc6466",
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              6
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "default_asc_sha256": "3dee82cae26bf28db42c3cc009a1c06283e2c72b35a2c049688c36b82fcc6466",
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              6
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "inkey": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57377,
+              113
+            ],
+            [
+              57378,
+              55
+            ],
+            [
+              57379,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57377,
+              113
+            ],
+            [
+              57378,
+              55
+            ],
+            [
+              57379,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "input": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              3
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57363,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              3
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57363,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "invalid0": {
+      "gate": true,
+      "response": "ERR5",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "d6722d24740ca76d6a308fd871925eb16f0be15dc0925c8f91533ff7fdf478c1"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "d6722d24740ca76d6a308fd871925eb16f0be15dc0925c8f91533ff7fdf478c1"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "invalid11": {
+      "gate": true,
+      "response": "ERR5",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "683f1fa02f124c8ef4cf25e2ec558e6aa82d87e2b1486b285fb2b580358f0de8"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "683f1fa02f124c8ef4cf25e2ec558e6aa82d87e2b1486b285fb2b580358f0de8"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "length15": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "a7222035de47cc79e3cb7a19b05d45551fabc1c08b12cf5ce69f8b995f776159"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              15
+            ],
+            [
+              57361,
+              97
+            ],
+            [
+              57362,
+              98
+            ],
+            [
+              57363,
+              99
+            ],
+            [
+              57364,
+              100
+            ],
+            [
+              57365,
+              101
+            ],
+            [
+              57366,
+              102
+            ],
+            [
+              57367,
+              103
+            ],
+            [
+              57368,
+              104
+            ],
+            [
+              57369,
+              105
+            ],
+            [
+              57370,
+              106
+            ],
+            [
+              57371,
+              107
+            ],
+            [
+              57372,
+              108
+            ],
+            [
+              57373,
+              109
+            ],
+            [
+              57374,
+              110
+            ],
+            [
+              57375,
+              111
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "a7222035de47cc79e3cb7a19b05d45551fabc1c08b12cf5ce69f8b995f776159"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              15
+            ],
+            [
+              57361,
+              97
+            ],
+            [
+              57362,
+              98
+            ],
+            [
+              57363,
+              99
+            ],
+            [
+              57364,
+              100
+            ],
+            [
+              57365,
+              101
+            ],
+            [
+              57366,
+              102
+            ],
+            [
+              57367,
+              103
+            ],
+            [
+              57368,
+              104
+            ],
+            [
+              57369,
+              105
+            ],
+            [
+              57370,
+              106
+            ],
+            [
+              57371,
+              107
+            ],
+            [
+              57372,
+              108
+            ],
+            [
+              57373,
+              109
+            ],
+            [
+              57374,
+              110
+            ],
+            [
+              57375,
+              111
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "length16": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "a7222035de47cc79e3cb7a19b05d45551fabc1c08b12cf5ce69f8b995f776159"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              15
+            ],
+            [
+              57361,
+              97
+            ],
+            [
+              57362,
+              98
+            ],
+            [
+              57363,
+              99
+            ],
+            [
+              57364,
+              100
+            ],
+            [
+              57365,
+              101
+            ],
+            [
+              57366,
+              102
+            ],
+            [
+              57367,
+              103
+            ],
+            [
+              57368,
+              104
+            ],
+            [
+              57369,
+              105
+            ],
+            [
+              57370,
+              106
+            ],
+            [
+              57371,
+              107
+            ],
+            [
+              57372,
+              108
+            ],
+            [
+              57373,
+              109
+            ],
+            [
+              57374,
+              110
+            ],
+            [
+              57375,
+              111
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "a7222035de47cc79e3cb7a19b05d45551fabc1c08b12cf5ce69f8b995f776159"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              15
+            ],
+            [
+              57361,
+              97
+            ],
+            [
+              57362,
+              98
+            ],
+            [
+              57363,
+              99
+            ],
+            [
+              57364,
+              100
+            ],
+            [
+              57365,
+              101
+            ],
+            [
+              57366,
+              102
+            ],
+            [
+              57367,
+              103
+            ],
+            [
+              57368,
+              104
+            ],
+            [
+              57369,
+              105
+            ],
+            [
+              57370,
+              106
+            ],
+            [
+              57371,
+              107
+            ],
+            [
+              57372,
+              108
+            ],
+            [
+              57373,
+              109
+            ],
+            [
+              57374,
+              110
+            ],
+            [
+              57375,
+              111
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "off": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        }
+      ]
+    },
+    "omitted": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": true,
+            "handler_before_switch": true,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57350,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": true,
+            "handler_before_switch": true,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57350,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "on": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": true,
+            "handler_before_switch": true,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57349,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": true,
+            "handler_before_switch": true,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57349,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-ERR2": {
+      "gate": true,
+      "response": "ERR2",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-ERR5": {
+      "gate": true,
+      "response": "ERR5",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-ERR8": {
+      "gate": true,
+      "response": "ERR8",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-none": {
+      "gate": true,
+      "response": "none",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "return": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "71f74a7c3fa0dacb89827c8c28ff86c461c9eb9468f1246014a219bd4932c3d5"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              2
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "71f74a7c3fa0dacb89827c8c28ff86c461c9eb9468f1246014a219bd4932c3d5"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              2
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "shift": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              3
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57363,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                1,
+                "d938a20fdb95c6e98adefb585b6e64e166cdc948e4a5579b097a2b2d2c894469"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57360,
+              3
+            ],
+            [
+              57361,
+              113
+            ],
+            [
+              57362,
+              55
+            ],
+            [
+              57363,
+              122
+            ],
+            [
+              57347,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "stop": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57347,
+              1
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        }
+      ]
+    },
+    "undefined": {
+      "gate": true,
+      "response": "none",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": true,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57351,
+              8
+            ],
+            [
+              57352,
+              20
+            ],
+            [
+              57347,
+              2
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": true,
+            "complete_before_recovery": true,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57351,
+              8
+            ],
+            [
+              57352,
+              20
+            ],
+            [
+              57347,
+              2
+            ],
+            [
+              57351,
+              56
+            ]
+          ]
+        }
+      ]
+    },
+    "unset": {
+      "gate": true,
+      "response": "none",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "2235c301629e1f300b795ffe57d0a5894621c609611e41786588a4bbfdd05a89"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "2235c301629e1f300b795ffe57d0a5894621c609611e41786588a4bbfdd05a89"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "handler_before_key": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    }
+  },
+  "version": 1
+}
