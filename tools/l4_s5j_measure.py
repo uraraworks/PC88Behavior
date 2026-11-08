@@ -649,9 +649,10 @@ def selftest(work):
             bank_src = root / 'bank3.asm'
             sys.path.insert(0, str(kw.REPO / 'src/ext_bank'))
             from make_ext_rom_banks import compose_bank_text, memmap
-            from build_main_rom import EXT_BANK3_MAIN_ADDR_LABELS
+            from build_main_rom import EXT_BANK3_MAIN_ADDR_LABELS, EXT_BANK1_MAIN_ADDR_LABELS
             bank_addrs = {name: main_asm.labels[label]
-                          for name, label in EXT_BANK3_MAIN_ADDR_LABELS.items()}
+                          for name, label in (EXT_BANK1_MAIN_ADDR_LABELS | EXT_BANK3_MAIN_ADDR_LABELS).items()
+                          if label in main_asm.labels}
             bank_src.write_text(compose_bank_text(kw.REPO / 'src/ext_bank/bank3.asm', bank_addrs),
                                 encoding='utf-8')
             bank_asm = z80text.Assembler()

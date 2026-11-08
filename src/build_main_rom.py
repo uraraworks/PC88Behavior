@@ -2776,7 +2776,15 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             main_sub_read_text = main_sub_read_text.replace(M6IB_BOOT_OLD, replacement)
         main_sub_read_path = work / "main_sub_read_gen.asm"
         main_sub_read_path.write_text(main_sub_read_text, encoding="utf-8")
-        combined += f'\nINCLUDE "{main_sub_read_path}"\n'
+        if enabled_m6ib:
+            # 測定ドライバはBASICの空き領域に置き、末尾容量と独立させる。
+            run_text = run_path.read_text(encoding="utf-8")
+            marker = "AEL_ROM_LAYOUT_PAD:\n"
+            if run_text.count(marker) != 1:
+                raise SystemExit("測定ドライバの配置先が一意でない")
+            run_path.write_text(run_text.replace(marker, f'INCLUDE "{main_sub_read_path}"\n' + marker), encoding="utf-8")
+        else:
+            combined += f'\nINCLUDE "{main_sub_read_path}"\n'
     if enable_disk_read_retry:
         combined += f'\nINCLUDE "{DISK_READ_RETRY_ASM}"\n'
     if enable_disk_read_chr:

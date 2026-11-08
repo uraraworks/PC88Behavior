@@ -151,7 +151,8 @@ IK_DECODE:
     JR Z,ik_space
     LD E,A
     LD D,0
-    LD A,(IK_MOD)
+    ; 行列走査中にフレームが切り替わることがあるため、押下検出時に読む。
+    IN A,(08h)
     LD HL,CTRL_CODE_TAB
     BIT 7,A
     JR Z,ik_lookup
@@ -164,7 +165,7 @@ IK_DECODE:
     LD HL,SHIFT_CODE_TAB
     BIT 6,A
     JR Z,ik_lookup
-    LD A,(IK_CAPS)
+    IN A,(0Ah)
     LD HL,CAPS_CODE_TAB
     BIT 7,A
     JR Z,ik_lookup

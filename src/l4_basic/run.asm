@@ -1256,6 +1256,10 @@ RUN_ENTER_RECORD:
     LD (CUR_PTR),HL
     ADD HL,BC
     LD (LINE_END),HL
+    ; トレース無効時はバンク切替を行わない。
+    LD A,(MM_TRACE_ENABLED)
+    OR A
+    RET Z
     ; l4-program.md 9.2: 行の開始時にトレースする。
     LD HL,0x7803
     XOR A
@@ -3686,18 +3690,29 @@ RUN_EXEC_ONE_STMT:
     ; 分岐の印はファイル文も含め、文ごとに消す。
     XOR A
     LD (RUN_CTRL),A
+    ; 先頭文字で絞り、通常の文ではバンク切替を避ける。
+    LD HL,(CUR_PTR)
+    LD A,(HL)
+    AND 0DFh
+    CP 'T'
+    JR Z,_reos_trace
+    CP 'D'
+    JR NZ,_reos_not_delete
+    JR _reos_delete
+_reos_trace:
     ; l4-program.md 9.2: TRON/TROFFの照合はバンク0で行う。
     LD HL,0x6003
     XOR A
-    CALL EXT_BANK_CALL
-    OR A
-    RET NZ
+    JR _reos_special
+_reos_delete:
     ; l4-program.md 9.1: DELETE後はENDと同じ経路で停止する。
     LD HL,0x6998
     LD A,1
+_reos_special:
     CALL EXT_BANK_CALL
     OR A
     RET NZ
+_reos_not_delete:
     CALL TRY_MATCH_NEW
     OR A
     JR Z,_reos_seqfile
