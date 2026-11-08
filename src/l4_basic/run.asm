@@ -3706,8 +3706,10 @@ _reos_trace:
     JR _reos_special
 _reos_delete:
     ; l4-program.md 9.1: DELETE後はENDと同じ経路で停止する。
-    LD HL,0x6998
-    LD A,1
+    CALL N_DELETE_STMT
+    OR A
+    RET NZ
+    JR _reos_not_delete
 _reos_special:
     CALL EXT_BANK_CALL
     OR A

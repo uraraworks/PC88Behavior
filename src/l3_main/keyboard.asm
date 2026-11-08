@@ -867,11 +867,15 @@ CURSOR_UPDATE:
 ; フレームでは、そちらを優先しリピートは確かめない(1フレーム1イベント
 ; の方針、ヘッダコメント参照)。
 L3_VSYNC_HOOK:
+    LD A,(MM_N_ACTIVE)
+    OR A
+    JR NZ,_hook_nested
     ; BASICはこのフックの内側で動く。再入時はリピート時計だけ進め、
     ; キー・エディタ・バンク中継の作業域には触れない。
     LD A,(MM_IK_TICK)             ; 1=外側フック実行中
     OR A
     JR Z,_hook_enter
+_hook_nested:
     LD HL,MM_IK_TIMER
     LD A,(HL)
     OR A

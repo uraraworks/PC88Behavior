@@ -33,6 +33,7 @@ build_main_rom.py — M7段階2a: ディスク無しで自作バナー→Ok→�
 
 import argparse
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -143,7 +144,7 @@ CURSOR_NEW = "    CALL L3_VSYNC_HOOK\n    NOP\n    NOP\n    NOP"
 # （各5バイト）へ置き換える。増える2バイトぶん、上のCURSOR_NEWのNOPを2個減らして
 # 全体のバイト数を保つ（VEC_TABLEの256バイト境界を動かさない。上の長い注記と同じ理由）。
 P31_OLD = "    LD A,0x19\n    OUT (0x31),A\n"
-P31_NEW = "    LD A,(MM_SCR_P31)\n    OUT (0x31),A\n"
+P31_NEW = "    LD A,(MM_N_ACTIVE)\n    AND 4\n    LD B,A\n    LD A,(MM_SCR_P31)\n    OR B\n    OUT (0x31),A\n"
 
 # 故障注入（陰性対照専用、tools/vsync_regcheck_selftest.sh）。VSYNC_HANDLER
 # 冒頭・末尾のレジスタ退避(PUSH/POP、src/l1_ipl/make_ipl_rom.py
@@ -2517,6 +2518,23 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         raise SystemExit("VSYNCハンドラのポート0x31の出力が2個見つからない（make_ipl_rom.py が変わった？）")
     ipl_text = ipl_text[:vs_a] + vs_body.replace(P31_OLD, P31_NEW) + ipl_text[vs_b:]
 
+    # 起動時の出力も同じ写しを更新する。ポート31は読み戻せない。
+    boot_p31 = "    LD A,0x00\n    OUT (0x31),A\n"
+    if ipl_text.count(boot_p31) != 2:
+        raise SystemExit("起動時ポート0x31の出力が2箇所見つからない")
+    ipl_text = ipl_text.replace(
+        boot_p31, "    LD A,0x00\n    LD (MM_SCR_P31),A\n    OUT (0x31),A\n")
+    if ipl_text.count(P31_OLD) != 10:
+        raise SystemExit("起動時ポート0x31の0x19出力が10箇所見つからない")
+    ipl_text = ipl_text.replace(
+        P31_OLD, "    LD A,0x19\n    LD (MM_SCR_P31),A\n    OUT (0x31),A\n")
+    # SCREEN_INITとVSYNCハンドラはIM 2表の前にある。増加分を
+    # 配置用の埋め草から引き、表のページ境界を維持する。
+    vec_pad = "    db 0x00\n" * 17 + "VEC_TABLE:\n"
+    if ipl_text.count(vec_pad) != 1:
+        raise SystemExit("IM 2 表直前の配置用埋め草が不足")
+    ipl_text = ipl_text.replace(vec_pad, "VEC_TABLE:\n", 1)
+
     screen_text = SCREEN_ASM.read_text(encoding="utf-8")
     if inject_fault:
         if screen_text.count(FAULT_OLD) != 1:
@@ -2629,6 +2647,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                                 (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/binary.asm").read_text(encoding="utf-8"))
     run_text = run_text.replace("; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）",
                                 (REPO / "src/l4_basic/randfile.asm").read_text(encoding="utf-8"))
+    run_text = run_text.replace("AEL_ROM_LAYOUT_PAD:\n", (REPO / "src/n_rom/init_main.asm").read_text(encoding="utf-8") + "\nAEL_ROM_LAYOUT_PAD:\n")
     run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"
@@ -2835,6 +2854,85 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 ROM_VERSION_RESERVED_ADDR = 0x79D7
 ROM_VERSION_MARK = ord("4")
 MAIN_SUB_LINK_MAX_SIZE = 1160
+
+
+def build_n_rom(main_rom, main_asm, work):
+    """自作mainを同番地に複製し、N専用DELETEを空き領域へ配置する。"""
+    def assembled(name, source):
+        path = work / name
+        path.write_text(source, encoding='utf-8')
+        obj = z80text.Assembler()
+        try:
+            return obj.assemble(path), obj
+        except z80text.AsmError as exc:
+            raise SystemExit(f'{name}: {exc}')
+
+    prefix = memmap.asm_prelude()
+    source = (REPO / 'src/n_rom/relay.asm').read_text(encoding='utf-8')
+    marker = '    ORG 0 ; ビルド時にMM_N_ROM_CALLへ置換する'
+    probe_marker = '    ORG 0 ; ビルド時にMM_N_PROBEへ置換する'
+    if source.count(marker) != 1 or source.count(probe_marker) != 1:
+        raise SystemExit('N中継のORG置換位置が不正')
+    source = source.replace(marker, f"    ORG 0x{memmap.CONSTANTS['MM_N_ROM_CALL']:04X}")
+    source = source.replace(probe_marker, f"    ORG 0x{memmap.CONSTANTS['MM_N_PROBE']:04X}")
+    relay_code, relay_asm = assembled('n_relay_gen.asm', prefix + source)
+    if relay_asm.labels['n_call_end'] > memmap.CONSTANTS['MM_N_ROM_CALL'] + 31:
+        raise SystemExit('N呼び出し中継が31バイトを超過')
+    if relay_asm.labels['n_probe_end'] > memmap.CONSTANTS['MM_N_PROBE'] + 15:
+        raise SystemExit('N検出中継が15バイトを超過')
+    relay = (relay_code[memmap.CONSTANTS['MM_N_ROM_CALL']:memmap.CONSTANTS['MM_N_ROM_CALL']+31] +
+             relay_code[memmap.CONSTANTS['MM_N_PROBE']:memmap.CONSTANTS['MM_N_PROBE']+15])
+    nsource = prefix
+    for name in ('CAP_TRACE_ERROR', 'CAP_DELETE_PARSE_FIND', 'CAP_DELETE_REMOVE',
+                 'CAP_ADDR_ADV_PTR', 'CAP_ADDR_PEEK_CHAR', 'CAP_ADDR_SKIP_SPACES'):
+        nsource += f"{name} EQU 0x{main_asm.labels[EXT_BANK1_MAIN_ADDR_LABELS[name]]:04X}\n"
+    nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
+    ncode, n_asm = assembled('n_rom_gen.asm', nsource)
+    # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは
+    # N_ACTIVEにより再入側へ必ず分岐し、バンクを呼ぶ通常側には入らない。
+    spans = [(0x0038, 0x003B), (0x0066, 0x0068),
+             (main_asm.labels['VEC_TABLE'], main_asm.labels['VEC_TABLE'] + 6)]
+    for first, last in (
+        ('KEYSCAN', 'SAFE_VEC'), ('SAFE_VEC', 'SCREEN_INIT'),
+        ('VSYNC_HANDLER', 'T_USART'), ('SET_CURSOR', 'CURSOR_UPDATE'),
+        ('L3_VSYNC_HOOK', '_hook_enter'),
+        ('PROGRAM_LOCATE', 'PROGRAM_INSERT_AT'), ('PEEK_CHAR', 'PEEK_CHAR2'),
+        ('ADV_PTR', 'AT_END'), ('SKIP_SPACES', 'FOLD_UPPER'),
+        ('CP_HL_DE', 'VAL_SET_INT'), ('RUN_FIND_LINE', 'FOR_SLOT_ADDR'),
+        ('ERR_SET_A', 'TRY_MATCH_GO_TO'), ('DELETE_PARSE_FIND', 'N_DELETE_STMT')):
+        spans.append((main_asm.labels[first], main_asm.labels[last]))
+    image = bytearray(N88_SIZE)
+    used = set()
+    for start, end in spans:
+        if not 0 <= start < end <= N88_SIZE or used.intersection(range(start, end)):
+            raise SystemExit('N側複製ルーチンの範囲が不正')
+        image[start:end] = main_rom[start:end]
+        used.update(range(start, end))
+    for addr, chunk, _, _ in n_asm.listing:
+        if addr < main_asm.labels['AEL_ROM_LAYOUT_PAD'] or addr + len(chunk) > 0x7980:
+            raise SystemExit('N側DELETEが予約領域からはみ出した')
+        if used.intersection(range(addr, addr+len(chunk))):
+            raise SystemExit('N側DELETEと複製ルーチンが重複')
+        image[addr:addr+len(chunk)] = chunk
+        used.update(range(addr, addr+len(chunk)))
+    # N側で実行する静的分岐先を検査する。唯一の例外はVSYNCフックの
+    # 通常側で、N_ACTIVEが非ゼロの間は必ず手前で再入側へ分岐する。
+    for obj, is_main in ((main_asm, True), (n_asm, False)):
+        for addr, chunk, _, raw in obj.listing:
+            if not chunk or addr not in used:
+                continue
+            if is_main and 0x7600 <= addr < 0x7980:
+                continue
+            match = re.match(r'\s*(?:CALL|JP|JR)\s+(?:[A-Z]+\s*,\s*)?([A-Za-z_]\w*)\s*(?:;.*)?$', raw, re.I)
+            if not match:
+                continue
+            target = match[1]
+            if is_main and target == '_hook_enter':
+                continue
+            address = obj.symtab.get(target)
+            if address is not None and address < 0x8000 and address not in used:
+                raise SystemExit(f'N側の呼出先が未複製: {target}')
+    return relay, bytes(image), len(used)
 
 
 def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]":
@@ -3298,8 +3396,20 @@ def main():
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
+        relay, nrom, n_used = build_n_rom(rom, asm, work)
+        relay_start = memmap.CONSTANTS['MM_N_RELAY_SOURCE']
+        for addr, chunk, _line, raw in asm.listing:
+            if addr < relay_start + len(relay) and addr + len(chunk) > relay_start:
+                if not (addr == asm.labels['AEL_ROM_LAYOUT_PAD'] and
+                        raw.strip().upper().startswith('DS ')):
+                    raise SystemExit('N中継のROM格納場所が既存コードと重複')
+        rom_data = bytearray(rom)
+        rom_data[relay_start:relay_start + len(relay)] = relay
+        rom = bytes(rom_data)
+
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
+        (args.outdir / "N88N.ROM").write_bytes(nrom)
         if args.labels_out:
             import hashlib
             import json
@@ -3355,8 +3465,9 @@ def main():
                              mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
 
         used = len(combined.splitlines())
-        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
+        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / N88N.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
               f"N88_0.ROM〜N88_3.ROM 各0x2000 bytes)")
+        print(f"  N88N.ROM 使用={n_used} bytes 空き={N88_SIZE - n_used} bytes")
         print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
               f"inject_address_fault={args.inject_address_fault} "
               f"inject_cursor_fault={args.inject_cursor_fault}")

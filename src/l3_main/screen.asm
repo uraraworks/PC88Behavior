@@ -77,8 +77,8 @@ SCREEN_MAIN:
     LD (SCR_COLS),HL
     LD HL,25<<8                 ; 窓は全画面（開始行0・行数25。l4-program.md 5.4.6）
     LD (SCR_WTOP),HL
-    LD HL,(28<<8)|019h          ; ポート0x31の値0x19（20行）・コンマ欄閾値56÷2・COLOR 値0
-    LD (SCR_P31),HL
+    LD A,28                     ; コンマ欄閾値56÷2・COLOR値0。31hの写しは起動時の出力で設定済み。
+    LD (SCR_ZT),A
     CALL CLEAR_SCREEN
     CALL KEY_INIT           ; keyboard.asm — KEY_OLDを初期化（M7段階2b）
     CALL PROGRAM_INIT       ; l4_basic/program.asm — プログラム領域を

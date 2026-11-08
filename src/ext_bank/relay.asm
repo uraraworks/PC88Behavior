@@ -104,6 +104,8 @@ EXT_BANK_INIT:
     LD (EXT_BANK_BUSY),A
     LD (EXT_BANK_REENTRY_DETECTED),A
     LD (MAIN_SUB_LOGICAL_SENT),A
+    LD (MM_N_ACTIVE),A
+    LD (MM_N_ROM_PRESENT),A ; 0=未検出、1=あり、2=なし
     ; グラフィックの状態（LP・前景/背景・白黒/ページ・作業値。l4-graphics.md）を0へ。前景はxor 7で持つので0=既定の7。
     LD HL,MM_GFX_LPX
     LD B,MM_GFX_SIZE

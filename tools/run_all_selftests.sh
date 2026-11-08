@@ -406,6 +406,7 @@ SCRIPTS_EXPECTED=(
   # l4-t4: 機械語連携、合成対照と自作ROMのみ。
   "tools/l4_mlcall_selftest.sh:0"
   "tools/l4_t56_conform_selftest.sh:0"
+  "tools/l4_nrom_selftest.sh:0"
   "tools/l4_bsave_selftest.sh:0"
   "tools/l4_seqfile_selftest.sh:0"
   "tools/l4_write_protect_selftest.sh:0"

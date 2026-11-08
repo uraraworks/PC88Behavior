@@ -15,4 +15,28 @@ DELETE_PARSE_FIND:
     RET C
     JP RUN_FIND_LINE
 
+; 初めてDELETEを使うときに中継を配置し、ROMの有無を記憶する。
+N_ROM_CALL EQU MM_N_ROM_CALL
+N_DELETE_STMT:
+    LD HL,DELETE_TEXT
+    LD (MM_RUN_KW_TEXT),HL
+    LD A,6
+    LD (MM_RUN_KW_LEN),A
+    CALL TRY_MATCH_KEYWORD_GENERIC
+    OR A
+    RET Z
+    LD A,(MM_N_ROM_PRESENT)
+    OR A
+    CALL Z,N_DETECT
+    LD A,(MM_N_ROM_PRESENT)
+    CP 1
+    JR Z,n_delete_present
+    LD A,5
+    CALL ERR_SET_A
+    LD A,1
+    RET
+n_delete_present:
+    LD HL,0x7600
+    JP N_ROM_CALL
+
 INCLUDE "../l4_basic/inkey_main.asm"

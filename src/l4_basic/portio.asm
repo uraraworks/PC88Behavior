@@ -58,11 +58,11 @@ t3_wait_loop:
     JR Z,t3_wait_loop
     JP S9_OK
 t3_out_done:
-    LD A,E                      ; 検査済みの整数化した値
     POP BC                      ; 整数化したポートの下位8bitをCへ
     LD B,0                      ; 未確定の上位8bitは自作判断で0
-    OUT (C),A
-    JP S9_OK
+    LD A,C
+    CP 0x31
+    JP t3_record_port
 t3_port_fail_two:
     POP DE
 t3_port_fail_one:

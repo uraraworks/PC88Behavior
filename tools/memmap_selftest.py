@@ -98,6 +98,8 @@ def check_map(regions=memmap.REGIONS):
             # ROM直後から利用者本文8400の直前まで。移設・拡張は許さない。
             if (r.base, r.size) != (0x8000, 1024):
                 errors.append("PAINT固定訪問ビットが8000–83FF外")
+        elif r.profile != 'normal' and 0x8000 <= r.base and r.base + r.size <= 0x8400:
+            pass  # PAINTと排他的な試験用域
         elif not ((0xE600 <= r.base and r.base + r.size <= 0xF3C8) or
                   (0xFF80 <= r.base and r.base + r.size <= 0x10000)):
             errors.append(f"固定域が指定範囲外（利用者領域への残留を禁止）: {r.name}")
@@ -117,6 +119,8 @@ def check_map(regions=memmap.REGIONS):
         if max(a.base, b.base) < min(a.base + a.size, b.base + b.size):
             pair = frozenset((a.name, b.name))
             actual.add(pair)
+            if {'N_RELAY', 'N_PROBE_RELAY'} & pair:
+                errors.append(f"N ROM中継は他の領域と重ねられない: {a.name}/{b.name}")
             if not memmap.OVERLAPS.get(pair):
                 errors.append(f"未宣言の重なり: {a.name}/{b.name}")
     if actual != set(memmap.OVERLAPS):
