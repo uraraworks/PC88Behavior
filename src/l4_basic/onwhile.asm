@@ -3,7 +3,7 @@
 ; 未測定・自作判断: WHILEはFOR共用19B枠。先頭の変数ポインタ0が識別印。
 ; +2/+4/+6=WEND直後のrecord/ptr/end、+12/+14/+16=WHILE文頭の位置。
 ; NEXT/WENDは目的の枠より内側を取り除く。GOSUBは既存の下向き7B枠。
-; 未測定・自作判断: 整数化の境界は既存CINTと共有。ON割り込み系は未対応。
+; 未測定・自作判断: 整数化の境界は既存CINTと共有。ON KEYは主ROM側で処理する（5.7.6節）。
 ; 捕捉ERR 2のEND後の直接入力とLISTは既存処理を維持する。
 ; 深さは共用域の容量まで。編集/NEW/CLEAR/RUNは既存RUN_FOR_SP初期化を共有。
     ORG 0x7310
@@ -239,6 +239,7 @@ ow_find_for_name:
     DJNZ ow_find_for_name
     POP HL
 ow_find_for_found:
+    LD (MM_RUN_FOR_FRAME_PTR),HL ; NEXTで同じ枠を再探索しない。
     LD HL,(MM_OW_INDEX)
     INC HL
     LD (MM_RUN_FOR_SP),HL
@@ -338,14 +339,14 @@ ow_scan_ident:
     LD A,(HL)
     CALL ow_ident
     JR C,ow_scan_ident
-    JP ow_scan
+    JR ow_scan
 ow_scan_nested:
     PUSH HL
     LD HL,(MM_OW_NEST)
     INC HL
     LD (MM_OW_NEST),HL
     POP HL
-    JP ow_scan
+    JR ow_scan
 ow_scan_wend:
     PUSH HL
     LD HL,(MM_OW_NEST)
@@ -354,7 +355,7 @@ ow_scan_wend:
     LD A,H
     OR L
     POP HL
-    JP NZ,ow_scan
+    JR NZ,ow_scan
     LD (MM_OW_END_PTR),HL
     LD (MM_OW_END_END),DE
     LD HL,(MM_OW_SCAN_REC)

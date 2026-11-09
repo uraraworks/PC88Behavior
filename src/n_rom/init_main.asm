@@ -9,6 +9,9 @@ N_RELAY_COPY:
     RET
 ; 最初のN側命令だけで検査。読み出し中のみ割込みを禁止する。
 N_DETECT:
+    LD A,(MM_N_ROM_PRESENT)
+    OR A
+    RET NZ                     ; 一度検出した結果はRUNを跨いで保持する。
     CALL N_RELAY_COPY
     DI
     LD A,(MM_SCR_P31)

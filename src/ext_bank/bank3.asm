@@ -88,8 +88,7 @@ B3_FN_PAGE_ALLOC_ENTRY:
 
 
     ORG 0x6200
-; RESTORE_STMT — 第6.2節。行番号指定(第8節28)は本段階では対応せず、
-;   引数があれば構文の誤り扱い(仕様書に無い判断、安全側に倒す)。
+ ; l4-program.md 10.1: RESTORE 行番号の参照先からDATAを探し直す。
 RESTORE_STMT:
     CALL B3_SKIP_SPACES
     CALL B3_AT_END
@@ -97,19 +96,21 @@ RESTORE_STMT:
     CALL B3_PEEK_CHAR
     CP ':'
     JR Z,_restore_ok
-    LD A,1
-    LD (ERROR_FLAG),A
-    LD A,2
-    LD (ERROR_KIND),A
-    RET
+    JP restore_arg_entry
 _restore_ok:
     XOR A
     LD (RUN_DATA_STATE),A
     LD HL,0
     LD (RUN_DATA_REC),HL
-    XOR A
     LD (ERROR_FLAG),A
     RET
+_restore_syntax:
+    LD A,2
+    JR _restore_error
+_restore_undefined:
+    LD A,8
+_restore_error:
+    JP S9_ERROR
 
 
     ORG 0x622C

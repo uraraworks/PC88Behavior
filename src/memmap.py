@@ -94,9 +94,10 @@ REGIONS = (
     Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別・画面モード', 'normal'),
     Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
     Region('CONSOLE', 0xF246, 2, '保持', 'CONSOLE: 窓の開始行（実効）・指定された行数（l4-program.md 5.4.6）', 'normal'),
-    Region('FKEY', 0xFFD4, 4, '保持', 'KEY: ヒープ内10組のポインタ・ON/OFF・番号作業', 'normal'),
+    Region('FKEY', 0xFFD4, 4, '保持', 'KEY: ヒープ内10組のポインタ・表示ON/OFFとAUTO状態・番号作業', 'normal'),
     Region('USR_STRING_DESC', 0xFFD8, 3, '保持（次の文字列USRまで）', 'USR文字列引数の3B記述子。RET後も保持', 'normal'),
     Region('TRACE', 0xFFDB, 1, '保持', 'TRON状態（l4-program.md 9.2）', 'normal'),
+    Region('AUTO_STATE', 0xF0FC, 4, '保持', 'AUTO行番号と増分（SAVE作業とは排他）', 'normal'),
     Region('CPU_STACK', 0xF248, 384, '一時', 'CPUスタック（下限未検査、上端から下へ）', 'normal'),
     Region('TEXT', 0xF3C8, 3000, '保持', 'テキストVRAM（25行×120B、作業域として使用禁止）', 'normal'),
     Region('EXT_TEST_LOW', 0x8000, 8, '一時', 'EXT_BANK_ST_*・排他的なSAVE合成試験（通常ビルドでは使わない）', 'ext-test'),
@@ -119,6 +120,7 @@ REGIONS = (
 
 # 排他的なコマンド経路に限って共用する。割込みは画面・キー・INKEYのみ。
 OVERLAPS = {
+    frozenset(('AUTO_STATE', 'SAVE')): 'AUTO入力中はSAVEを実行しない。',
     frozenset(('PAINT_BITMAP_LOW', 'MEASURE_REGS')): '試験ビルド専用でPAINTと排他的。',
     frozenset(('PAINT_BITMAP_LOW', 'EXT_TEST_LOW')): '試験ビルド専用でPAINTと排他的。',
     frozenset(('PAINT_BITMAP_LOW', 'EXT_TEST_HIGH')): '試験ビルド専用でPAINTと排他的。',
@@ -184,6 +186,28 @@ FIELDS = {
     'MM_RF_INDEX': ('SEQ_WORK', 17),
     'MM_RF_PUT': ('SEQ_WORK', 19),
     "MM_USR_STRING_DESC": ("USR_STRING_DESC", 0),
+    'MM_RENUM_NEW': ('ONWHILE_WORK', 0),
+    'MM_RENUM_OLD': ('ONWHILE_WORK', 2),
+    'MM_RENUM_STEP': ('ONWHILE_WORK', 4),
+    'MM_RENUM_NEXT': ('ONWHILE_WORK', 6),
+    'MM_RENUM_PTR': ('ONWHILE_WORK', 8),
+    'MM_RENUM_TARGET': ('ONWHILE_WORK', 10),
+    'MM_RENUM_MAP_NEXT': ('ONWHILE_WORK', 12),
+    'MM_RENUM_MAP_PTR': ('ONWHILE_WORK', 14),
+    'MM_RENUM_MAP_LINE': ('ONWHILE_WORK', 16),
+    'MM_RENUM_RESULT': ('ONWHILE_WORK', 18),
+    'MM_RENUM_NEW_LEN': ('ONWHILE_WORK', 20),
+    'MM_RENUM_DIGIT': ('ONWHILE_WORK', 21),
+    'MM_RENUM_SCAN_PREV': ('ONWHILE_WORK', 22),
+    'MM_RENUM_SCAN_LIST': ('ONWHILE_WORK', 23),
+    'MM_RENUM_REF_START': ('ONWHILE_WORK', 24),
+    'MM_RENUM_REF_END': ('ONWHILE_WORK', 26),
+    'MM_RENUM_DELTA': ('ONWHILE_WORK', 28),
+    'MM_RENUM_ERROR_CONTEXT': ('ONWHILE_WORK', 29),
+    'MM_RENUM_COPY_END': ('ONWHILE_WORK', 30),
+    'MM_AUTO_ACTIVE': ('FKEY', 2),
+    'MM_AUTO_NUMBER': ('AUTO_STATE', 0),
+    'MM_AUTO_STEP': ('AUTO_STATE', 2),
     "MM_FKEY_PTR": ("FKEY", 0),
     "MM_FKEY_ON": ("FKEY", 2),
     "MM_FKEY_INDEX": ("FKEY", 3),
@@ -1088,7 +1112,7 @@ CONSTANTS = {
 DYNAMIC_STRUCTURES = {
     "PROGRAM": "USER_STARTから番兵まで",
     "HEAP": (
-        "番兵直後HEAP_STARTからHEAP_ENDまで、種別6=順次/ランダムファイル298B（管理42B+専用セクタ256B、最大2本、同じHEAP_ALLOCで確保しCLOSEで空き化）/種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×12B+予約169B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
+        "番兵直後HEAP_STARTからHEAP_ENDまで、種別6=順次/ランダムファイル298B（管理42B+専用セクタ256B、最大2本、同じHEAP_ALLOCで確保しCLOSEで空き化）/種別1=42B/2=可変配列（15+2×次元+型別要素）/3=DEF298B/4=FN枠298B/5=KEY割当298B（名前8+種別1+10組×16B+予約129B、共通枠長を使う自作判断）。配列のFRE消費は7+2×次元+型別要素。FREはX-(34586+スタック量)を基準に生きた記号と文字列ページを差し引く。"
         "bit7は空き印、同種の空きを再利用。"
         "DEF: +9=引数数,+10=型,+11/+13=式始終,+15=仮引数8B×最大6。"
         "編集/NEW/CLEAR/RUNでヒープと共に消す（配列はl4-program第4.10.7の観測、FN枠は未測定・自作判断）。"

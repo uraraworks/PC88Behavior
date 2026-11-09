@@ -24,13 +24,19 @@ ky_data:
 ky_init_data:
     LD HL,ky_defaults
     LD DE,(MM_FKEY_PTR)
-    LD BC,120
+    LD BC,80
     LDIR
+    LD B,209
+    XOR A
+ky_init_clear:
+    LD (DE),A
+    INC DE
+    DJNZ ky_init_clear
     RET
 ky_snapshot:
     CALL ky_data
     LD DE,MM_RUN_STR_ARG1_BUF
-    LD BC,120
+    LD BC,80
     LDIR
     RET
 ky_draw:
@@ -74,7 +80,12 @@ ky_slot:
     ADD HL,DE
     EX DE,HL
     POP HL
+    PUSH HL                  ; 現在の枠を保ち、次枠へ定長で進む
     LD A,(HL)
+    BIT 7,A
+    JR Z,ky_plain_label
+    LD A,5
+ky_plain_label:
     INC HL
     LD B,A
     LD A,(MM_SCR_COLS)
@@ -102,16 +113,11 @@ ky_copy:
 ky_step:
     DJNZ ky_copy
 ky_next:
+    POP HL
     POP DE
-    CALL ky_data
-    LD A,6
-    SUB C
-    LD B,A
     PUSH DE
-    LD DE,12
-ky_next_slot:
+    LD DE,16
     ADD HL,DE
-    DJNZ ky_next_slot
     POP DE
     INC IX
     DEC C
@@ -119,12 +125,11 @@ ky_next_slot:
     RET
 ky_pos80: DB 6,20,34,48,62
 ky_pos40: DB 0,16,32,48,64
-; 非空白合計20。80桁時は装飾込み21。語は自作、押下には展開しない。
+; l4-program.md 5.7.6: 長さと15文字の枠。既定値は自作で、bit7は短い表示名の印。
 ky_defaults:
-    DB 5,"ALPHA",0,0,0,0,0,0
-    DB 3,"TWO",0,0,0,0,0,0,0,0
-    DB 3,"TRI",0,0,0,0,0,0,0,0
-    DB 5,"DELTA",0,0,0,0,0,0
-    DB 4,"FIVE",0,0,0,0,0,0,0
-    DS 60,0
+    DB 088h,"ERROR 56",0,0,0,0,0,0,0
+    DB 3,"TWO",0,0,0,0,0,0,0,0,0,0,0,0
+    DB 3,"TRI",0,0,0,0,0,0,0,0,0,0,0,0
+    DB 5,"DELTA",0,0,0,0,0,0,0,0,0,0
+    DB 4,"FIVE",0,0,0,0,0,0,0,0,0,0,0
 KY_ROW_END:

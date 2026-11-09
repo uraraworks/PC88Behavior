@@ -1313,9 +1313,9 @@ _rfl_notfound:
     RET
 
 ; PARSE_LINENUM_CUR — CUR_PTR位置の10進数字列を行番号として読む
-;   (program.asm PARSE_LINENUMと同じ規則・上限65529、CUR_PTR基準版)。
-;   出力: CF=0/HL=値、CUR_PTRを消費した分だけ進める。CF=1失敗
-;   (桁が無い、または65529超、CUR_PTRは進めた分だけ残る)。
+;   CUR_PTR基準の16bit行番号参照。65530〜65535も読んで未定義行として扱う
+;   （l4-program.md 10.1、実在する行の上限は65529）。
+;   出力: CF=0/HL=値、CF=1は桁なしまたは16bit超過。
 ;   破壊: AF,BC,DE,HL。
 PARSE_LINENUM_CUR:
     LD HL,0
@@ -1350,9 +1350,6 @@ _plc_finish:
     LD A,B
     OR A
     JR Z,_plc_ovfl
-    LD DE,65530
-    CALL CP_HL_DE
-    JR NC,_plc_ovfl
     OR A
     RET
 _plc_ovfl:
@@ -1556,10 +1553,16 @@ RUN_FOR_CHECK_SKIP:
 ;   範囲を判定する。出力: A=1継続(ループ本体へ戻る)/0終了(スタックは
 ;   ポップしない、呼び出し元がPOPする)。破壊多数。
 RUN_FOR_STEP_AND_TEST:
-    LD HL,(RUN_FOR_SP)
-    DEC HL
-    CALL FOR_SLOT_ADDR
-    LD (RUN_FOR_FRAME_PTR),HL
+    LD HL,(RUN_FOR_FRAME_PTR)
+    LD A,(MM_N_ROM_PRESENT)
+    DEC A
+    JR NZ,_rfsat_slow
+    PUSH HL
+    LD HL,04100h
+    CALL MM_N_ROM_CALL
+    POP HL
+    RET NC
+_rfsat_slow:
     LD E,(HL)
     INC HL
     LD D,(HL)
@@ -1692,7 +1695,16 @@ GOSUB_SLOT_ADDR:
 
 RUN_GOSUB_PUSH:
     LD HL,07D40h
-    JP S9_BANK_CALL
+    CALL S9_BANK_CALL
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD HL,(RUN_GOSUB_SP)
+    CALL GOSUB_SLOT_ADDR
+    LD DE,6
+    ADD HL,DE
+    LD (HL),0
+    RET
 
 ; =======================================================================
 ; 文ハンドラ(RUN_EXECから呼ばれる)
@@ -1767,6 +1779,9 @@ RETURN_STMT:
     LD E,(HL)
     INC HL
     LD D,(HL)
+    INC HL
+    LD A,(HL)
+    LD (MM_FKEY_INDEX),A
     PUSH DE
     POP HL
     LD (LINE_END),HL
@@ -1779,6 +1794,19 @@ RETURN_STMT:
     INC HL
     LD A,(HL)
     LD (RUN_CUR_LINENO+1),A
+    LD A,(MM_FKEY_INDEX)
+    OR A
+    JR Z,_ret_normal
+    DEC A
+    LD (MM_FKEY_INDEX),A
+    CALL FKEY_STATE_SLOT
+    RES 7,(HL)
+    LD A,1
+    LD (RUN_CTRL),A
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_ret_normal:
     ; 保存位置はGOSUB文の末尾。コロン/行末を通常の区切り処理へ返す。
     XOR A
     LD (RUN_CTRL),A
@@ -2396,6 +2424,14 @@ rf_stmt_entry:
 ; ONの共通入口。ON ERROR GOTOの捕捉/解除とON 式 GOTO/GOSUBを
 ; バンク1で振り分ける（第4.18節、onwhile.asm）。
 ON_ERROR_STMT:
+    CALL SKIP_SPACES
+    LD HL,FKEY_WORD
+    LD (RUN_KW_TEXT),HL
+    LD A,3
+    LD (RUN_KW_LEN),A
+    CALL TRY_MATCH_KEYWORD_GENERIC
+    OR A
+    JP NZ,FKEY_ON_STMT
     LD HL,07310h
     JP OW_BANK_CALL
 
@@ -2411,6 +2447,14 @@ RUN_EXEC:
 _run_loop:
 _run_stmt_loop:
     CALL S9C_POLL
+    LD A,(MM_FKEY_INDEX)
+    BIT 7,A
+    JR Z,_run_no_key
+    CALL FKEY_DISPATCH
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_run_error
+_run_no_key:
     CALL SKIP_SPACES
     CALL AT_END
     JP Z,_run_line_end
@@ -2498,6 +2542,7 @@ RUN_CLEAR_STATE:
     XOR A
     LD (MM_FKEY_PTR),A         ; CLEAR/RUN/NEWで割当のヒープ寿命が終わる
     LD (MM_FKEY_PTR+1),A
+    LD (MM_FKEY_INDEX),A
     LD (MM_FN_FRAME),A
     LD (MM_FN_FRAME+1),A
     LD (MM_VAL_SP),A
@@ -3576,16 +3621,10 @@ _if_false_check:
     CALL ADV_PTR
     JR _if_false_check
 _if_false_run_else:
+    ; l4-program.md 10.1: ELSEの行番号もTHENと同様に実行し、
+    ; 文の場合は後続のコロンを通常の文境界へ返す。
     CALL SKIP_SPACES
-    CALL RUN_EXEC_ONE_STMT
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,(RUN_CTRL)
-    OR A
-    RET NZ
-    LD HL,(LINE_END)
-    LD (CUR_PTR),HL
+    JP _if_true
 _if_false_done:
     XOR A
     LD (ERROR_FLAG),A
@@ -3694,11 +3733,17 @@ RUN_EXEC_ONE_STMT:
     LD HL,(CUR_PTR)
     LD A,(HL)
     AND 0DFh
+    CP 'R'
+    JR Z,_reos_renum
     CP 'T'
     JR Z,_reos_trace
     CP 'D'
     JR NZ,_reos_not_delete
     JR _reos_delete
+_reos_renum:
+    LD HL,06996h
+    LD A,1
+    JR _reos_special
 _reos_trace:
     ; l4-program.md 9.2: TRON/TROFFの照合はバンク0で行う。
     LD HL,0x6003
@@ -3980,6 +4025,244 @@ LOGIC_OR_EXPR:
 ; 予約セルをまたぐ前に空きを置き、末尾は測定ROM用に116B以上残す。
 ; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）
 ; INPUT_TOKEN_MAIN（build_main_rom.pyが展開）
+; l4-program.md 5.7.6: KEY(n) と ON KEY GOSUB。
+FKEY_SLOT:
+    LD A,(MM_FKEY_INDEX)
+    ADD A,A
+    LD E,A
+    LD D,0
+    LD HL,(MM_FKEY_PTR)
+    ADD HL,DE
+    LD DE,160
+    ADD HL,DE
+    RET
+FKEY_STATE_SLOT:
+    LD A,(MM_FKEY_INDEX)
+    LD E,A
+    LD D,0
+    LD HL,(MM_FKEY_PTR)
+    ADD HL,DE
+    LD DE,180
+    ADD HL,DE
+    RET
+FKEY_MODE_STMT:
+    LD A,'('
+    CALL EXPECT_CHAR
+    CALL PARSE_INT_ARG
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    LD A,D
+    OR A
+    JR NZ,_fkm_illegal
+    LD A,E
+    DEC A
+    CP 10
+    JR NC,_fkm_illegal
+    LD (MM_FKEY_INDEX),A
+    LD A,')'
+    CALL EXPECT_CHAR
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_ON
+    OR A
+    JR NZ,_fkm_on
+    CALL TRY_MATCH_STOP
+    OR A
+    JR NZ,_fkm_off
+    LD HL,FKEY_OFF_WORD
+    LD (RUN_KW_TEXT),HL
+    LD A,3
+    LD (RUN_KW_LEN),A
+    CALL TRY_MATCH_KEYWORD_GENERIC
+    OR A
+    JR Z,_fk_syntax
+_fkm_off:
+    LD A,0
+    JR _fkm_set
+_fkm_on:
+    LD HL,MM_FKEY_ON
+    SET 3,(HL)                  ; 一度でも捕捉を有効にしたら高速連続実行を抑止
+    LD A,1
+_fkm_set:
+    PUSH AF
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    OR A
+    JR Z,_fkm_end
+    CP ':'
+    JR NZ,_fkm_bad_end
+_fkm_end:
+    CALL FKEY_ENSURE
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_fkm_error
+    CALL FKEY_STATE_SLOT
+    POP AF
+    LD B,A
+    LD A,(HL)
+    AND 080h                 ; RETURNまでは捕捉停止を保つ
+    OR B
+    LD (HL),A
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_fkm_bad_end:
+    POP AF
+    JP _fk_syntax
+_fkm_error:
+    POP AF
+    RET
+_fkm_illegal:
+    LD A,5
+    JP ERR_SET_A
+_fk_syntax:
+    LD A,2
+    JP ERR_SET_A
+FKEY_ON_STMT:
+    CALL SKIP_SPACES
+    CALL TRY_MATCH_GOSUB
+    OR A
+    JR Z,_fk_syntax
+    CALL FKEY_ENSURE
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
+    XOR A
+    LD (MM_FKEY_INDEX),A
+    CALL FKEY_SLOT
+    LD B,20
+_fko_clear:
+    LD (HL),A
+    INC HL
+    DJNZ _fko_clear
+_fko_list:
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ','
+    JR Z,_fko_next
+    OR A
+    JR Z,_fko_done
+    CP ':'
+    JR Z,_fko_done
+    CALL PARSE_LINENUM_CUR
+    JR C,_fk_syntax
+    PUSH HL
+    CALL RUN_FIND_LINE
+    POP HL
+    JR C,_fko_undefined
+    PUSH HL
+    CALL FKEY_SLOT
+    POP DE
+    LD (HL),E
+    INC HL
+    LD (HL),D
+    CALL SKIP_SPACES
+    CALL PEEK_CHAR
+    CP ','
+    JR NZ,_fko_done
+_fko_next:
+    CALL ADV_PTR
+    LD A,(MM_FKEY_INDEX)
+    INC A
+    CP 10
+    JR NC,_fk_syntax
+    LD (MM_FKEY_INDEX),A
+    JR _fko_list
+_fko_done:
+    XOR A
+    LD (ERROR_FLAG),A
+    RET
+_fko_undefined:
+    LD A,8
+    JP ERR_SET_A
+; 実行中のみ文境界で呼ぶ。7バイト目に捕捉キーを記し、RETURNで再許可。
+FKEY_DISPATCH:
+    LD A,(MM_FKEY_INDEX)
+    AND 15
+    DEC A
+    LD (MM_FKEY_INDEX),A
+    CALL FKEY_SLOT
+    LD E,(HL)
+    INC HL
+    LD D,(HL)
+    EX DE,HL
+    CALL RUN_FIND_LINE
+    JR C,_fko_undefined
+    PUSH HL
+    CALL RUN_GOSUB_PUSH
+    LD A,(ERROR_FLAG)
+    OR A
+    JR NZ,_fkd_fail
+    LD HL,(RUN_GOSUB_SP)
+    CALL GOSUB_SLOT_ADDR
+    LD DE,6
+    ADD HL,DE
+    LD A,(MM_FKEY_INDEX)
+    INC A
+    LD (HL),A
+    CALL FKEY_STATE_SLOT
+    SET 7,(HL)
+    XOR A
+    LD (MM_FKEY_INDEX),A
+    POP HL
+    JP RUN_ENTER_RECORD
+_fkd_fail:
+    POP HL
+    RET
+AUTO_PROMPT:
+    LD A,(MM_AUTO_ACTIVE)
+    AND 6
+    CP 2
+    JR Z,_auto_display
+    LD HL,(MM_AUTO_NUMBER)
+    LD DE,(MM_AUTO_STEP)
+    ADD HL,DE
+    JR C,_auto_stop
+    LD DE,65530
+    PUSH HL
+    OR A
+    SBC HL,DE
+    POP HL
+    JR NC,_auto_stop
+    LD (MM_AUTO_NUMBER),HL
+_auto_display:
+    LD A,(MM_AUTO_ACTIVE)
+    AND 9
+    OR 4
+    LD (MM_AUTO_ACTIVE),A
+    LD HL,(MM_AUTO_NUMBER)
+    CALL RUN_FIND_LINE
+    PUSH AF
+    JR C,_auto_not_existing
+    LD A,(MM_AUTO_ACTIVE)
+    OR 6
+    LD (MM_AUTO_ACTIVE),A
+_auto_not_existing:
+    LD HL,(MM_AUTO_NUMBER)
+    CALL PRINT_UDEC
+    POP AF
+    LD A,'*'
+    JR NC,_auto_marker
+    LD A,' '
+_auto_marker:
+    JP PRINT_CHAR
+_auto_stop:
+    LD A,(MM_AUTO_ACTIVE)
+    AND 9
+    LD (MM_AUTO_ACTIVE),A
+    LD HL,OK_TXT
+    CALL PRINT_STR
+    JP NEWLINE
+
+; AUTO以外の直接入力はRENUMも照合する（10.1節）。
+N_AUTO_OR_RENUM:
+    CALL N_AUTO_STMT
+    RET NZ
+    LD HL,06996h
+    JP OW_BANK_CALL
 AEL_ROM_LAYOUT_PAD:
     DS 079D8h-$
 
@@ -4256,16 +4539,14 @@ _s9c_matrix:
     JR Z,_s9c_scan
 _s9c_matrix_only:
     LD HL,MM_IK_OLD             ; IK_OLD（RUN開始時・バンク走査時に更新）
-    LD C,0
+    LD BC,0C00h
 _s9c_port:
     IN A,(C)
     CP (HL)
     JR NZ,_s9c_changed
     INC HL
     INC C
-    LD A,C
-    CP 12
-    JR NZ,_s9c_port
+    DJNZ _s9c_port
     RET
 _s9c_changed:
     JR _s9c_scan
@@ -4297,8 +4578,10 @@ CURSOR_INPUT:
     LD A,081h
     OUT (51h),A
     JP SET_CURSOR
+; n-rom-area.md 2・7: RUN時に未検出ならN側を検査し、無ければ通常経路を使う。
 S9C_INIT:
-    JP IK_INIT
+    CALL IK_INIT
+    JP N_DETECT
 S9C_TRY_INKEY:
     JP IK_TRY
 

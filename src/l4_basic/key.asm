@@ -1,8 +1,8 @@
 ; docs/spec/l4-program.md 5.7（第14.19版、測定082347d）だけを根拠に実装。
-; 未確定部分: 11文字まで保存、RUN/NEW/CLEARで既定へ戻す、押下展開なし。
+; l4-program.md 5.7.6: 割り当て文字列は先頭15文字まで保存する。
 ; ON/OFFは独立状態だけ保持し、文字行とCONSOLEの窓を変えない。
     ORG 0x7A00
-    JP ky_stmt
+    JP ky_dispatch
 ky_stmt:
     CALL B3_SKIP_SPACES
     LD HL,ky_on
@@ -54,15 +54,15 @@ ky_stmt:
     OR A
     JR Z,ky_store
     LD B,A
-    LD DE,12
+    LD DE,16
 ky_find:
     ADD HL,DE
     DJNZ ky_find
 ky_store:
     LD A,(S9_TMP_LEN)
-    CP 12
+    CP 16
     JR C,ky_store_len
-    LD A,11
+    LD A,15
 ky_store_len:
     LD (HL),A
     INC HL
@@ -108,8 +108,8 @@ ky_redraw:
     CALL B3_MAIN_CALL_ADDR
     JP S9_OK
 ky_enable:
-    LD A,1
-    LD (MM_FKEY_ON),A
+    LD HL,MM_FKEY_ON
+    SET 0,(HL)
     CALL B3_SKIP_SPACES
     CALL B3_PEEK_CHAR
     CP '1'                     ; 観測済みON 1だけを追加受理
@@ -117,13 +117,13 @@ ky_enable:
     CALL B3_ADV_PTR
 ky_on_end:
     CALL ky_end
-    JP NZ,ky_syntax
+    JR NZ,ky_syntax
     JP S9_OK
 ky_disable:
-    XOR A
-    LD (MM_FKEY_ON),A
+    LD HL,MM_FKEY_ON
+    RES 0,(HL)
     CALL ky_end
-    JP NZ,ky_syntax
+    JR NZ,ky_syntax
     JP S9_OK
 ky_missing:
     CALL B3_SKIP_SPACES
@@ -168,7 +168,7 @@ ky_match_room:
     POP HL
 ky_match_loop:
     LD A,(DE)
-    CALL ky_upper
+    AND 0DFh
     CP (HL)
     JR NZ,ky_match_fail
     INC HL
@@ -179,7 +179,7 @@ ky_match_loop:
     SBC HL,DE
     JR Z,ky_match_yes
     LD A,(DE)
-    CALL ky_upper
+    AND 0DFh
     CP 'A'
     JR C,ky_match_yes
     CP 'Z'+1
@@ -194,13 +194,6 @@ ky_match_short:
     POP HL
 ky_match_fail:
     XOR A
-    RET
-ky_upper:
-    CP 'a'
-    RET C
-    CP 'z'+1
-    RET NC
-    SUB 32
     RET
 KY_BANKCALL_ADDR EQU 0x1787
 ky_on: DB 2,"ON"
@@ -236,8 +229,14 @@ ky_list_value:
     PUSH BC
     PUSH DE
     LD A,(DE)
+    RLA
+    LD B,5
+    JR C,ky_list_label
+    RRA
     LD B,A
+ky_list_label:
     INC DE
+    LD A,B
     OR A
     JR Z,ky_list_newline
 ky_list_char:
@@ -252,7 +251,7 @@ ky_list_char:
 ky_list_newline:
     CALL in_newline
     POP HL
-    LD DE,12
+    LD DE,16
     ADD HL,DE
     EX DE,HL
     POP BC

@@ -145,6 +145,7 @@ _ki_loop:
     LD (MM_IK_TAIL),A
     LD (MM_IK_COUNT),A
     LD (MM_IK_CHAR),A
+    LD (MM_FKEY_INDEX),A
     RET
 
 ; ---------------------------------------------------------------------
@@ -152,7 +153,144 @@ _ki_loop:
 ;   戻り値: A = 0 (イベント無し) / 1 (通常の文字。Eに文字コード) /
 ;               2 (RETURNの押下)
 ; ---------------------------------------------------------------------
+ ; l4-program.md 5.7.6: キー文字列を入力 FIFO に順に格納する。
+; C=ポート、B=ビット。認識時 A=1。呼出側がレジスタを退避する。
+FKEY_EVENT:
+    LD A,C
+    CP 9
+    JP NZ,fkey_no
+    LD A,B
+    DEC A
+    CP 5
+    JP NC,fkey_no
+    LD B,A
+    IN A,(8)
+    BIT 6,A
+    JR NZ,fkey_index
+    LD A,B
+    ADD A,5
+    LD B,A
+fkey_index:
+    ; 実行中に有効な捕捉先があれば通常展開せず文境界へ渡す。
+    LD HL,(MM_RUN_CUR_RECORD)
+    LD DE,DIRECT_RECORD
+    OR A
+    SBC HL,DE
+    JR Z,fkey_expand
+    LD HL,(MM_FKEY_PTR)
+    LD A,H
+    OR L
+    JR Z,fkey_expand
+    LD E,B
+    LD D,0
+    ADD HL,DE
+    LD DE,180
+    ADD HL,DE
+    LD A,(HL)
+    AND 081h
+    CP 1
+    JR NZ,fkey_expand
+    LD HL,(MM_FKEY_PTR)
+    LD A,B
+    ADD A,A
+    LD E,A
+    LD D,0
+    ADD HL,DE
+    LD DE,160
+    ADD HL,DE
+    LD A,(HL)
+    INC HL
+    OR (HL)
+    JR Z,fkey_expand
+    LD A,B
+    INC A
+    OR 080h
+    LD (MM_FKEY_INDEX),A
+    JR fkey_done
+fkey_expand:
+    LD HL,(MM_FKEY_PTR)
+    LD A,H
+    OR L
+    LD DE,16
+    JR NZ,fkey_seek
+    LD A,B
+    CP 5
+    JR NC,fkey_done
+    LD HL,KEY_BOOT_DEFAULTS
+    LD DE,12
+fkey_seek:
+    LD A,B
+    OR A
+    JR Z,fkey_found
+fkey_seek_loop:
+    ADD HL,DE
+    DJNZ fkey_seek_loop
+fkey_found:
+    LD A,(HL)
+    AND 07Fh                 ; bit7は既定値の短い表示名の印
+    LD B,A
+    INC HL
+    OR A
+    JR Z,fkey_done
+fkey_copy:
+    LD A,(MM_IK_COUNT)
+    CP 32
+    JR Z,fkey_done
+    INC A
+    LD (MM_IK_COUNT),A
+    LD A,(MM_IK_TAIL)
+    LD E,A
+    LD D,0
+    PUSH HL
+    LD HL,MM_IK_BUF
+    ADD HL,DE
+    EX DE,HL
+    POP HL
+    LD A,(HL)
+    LD (DE),A
+    INC HL
+    LD A,(MM_IK_TAIL)
+    INC A
+    AND 31
+    LD (MM_IK_TAIL),A
+    DJNZ fkey_copy
+fkey_done:
+    LD A,1
+    OR A
+    RET
+fkey_no:
+    XOR A
+    RET
+KEY_BOOT_DEFAULTS:
+    DB 088h,"ERROR 56",0,0,0
+    DB 3,"TWO",0,0,0,0,0,0,0,0
+    DB 3,"TRI",0,0,0,0,0,0,0,0
+    DB 5,"DELTA",0,0,0,0,0,0
+    DB 4,"FIVE",0,0,0,0,0,0,0
+KEY_BOOT_DEFAULTS_END:
 KEY_READ:
+    LD A,(MM_IK_COUNT)
+    OR A
+    JR Z,fkey_read_scan
+    DEC A
+    LD (MM_IK_COUNT),A
+    LD A,(MM_IK_HEAD)
+    LD E,A
+    LD D,0
+    LD HL,MM_IK_BUF
+    ADD HL,DE
+    LD E,(HL)
+    LD A,(MM_IK_HEAD)
+    INC A
+    AND 31
+    LD (MM_IK_HEAD),A
+    LD A,E
+    CP 13
+    LD A,2
+    RET Z
+    LD A,1
+    RET
+fkey_read_scan:
     ; 現在値をKEY_NEWへ読み込む(ポート0-11の昇順、l1-ipl.md第4b節の
     ; 走査対象と同じ12ポート。読む順序は本実装の選択で降順である必要は無い)
     LD C,0
@@ -176,6 +314,13 @@ _kr_port_loop:
     LD B,A
     LD A,(HL)
     AND B                  ; A = 旧値(離) AND 押されているビット = 立ち上がり
+    LD B,A
+    LD A,C
+    CP 8
+    LD A,B
+    JP NZ,fkey_not_mod
+    AND 0Fh
+fkey_not_mod:
     OR A
     JR NZ,_kr_found_port
     INC HL
@@ -209,6 +354,35 @@ _kr_bit_found:
     LD A,2                   ; RETURN
     RET
 _kr_not_return:
+    LD A,C
+    CP 9
+    JR NZ,auto_not_stop
+    LD A,B
+    OR A
+    JR NZ,auto_not_stop
+    LD A,(MM_AUTO_ACTIVE)
+    AND 6
+    JR Z,auto_not_stop
+    LD A,(MM_AUTO_ACTIVE)
+    AND 9
+    LD (MM_AUTO_ACTIVE),A
+    CALL NEWLINE
+    LD HL,OK_TXT
+    CALL PRINT_STR
+    CALL NEWLINE
+    XOR A
+    LD (VAR_LINELEN),A         ; 10.2節: 入力途中の行は確定しない。
+    LD (VAR_INSMODE),A
+    RET
+auto_not_stop:
+    PUSH BC
+    CALL FKEY_EVENT
+    POP BC
+    JR Z,fkey_read_normal
+    LD A,(KEY_NEW+9)
+    LD (MM_IK_OLD+9),A
+    JP KEY_READ
+fkey_read_normal:
     LD A,C
     CP SPACE_PORT
     JR NZ,_kr_not_space
@@ -560,13 +734,25 @@ _lp_overwrite:
 ; ---------------------------------------------------------------------
 LINE_FINISH:
     CALL LINE_READ_FROM_SCREEN
+    CALL AUTO_STRIP_MARK
     XOR A
     LD (VAR_INSMODE),A
     CALL NEWLINE
     CALL BASIC_HANDLE_LINE
     PUSH AF
+    ; l4-program.md 5.7.6: 直接入力の待機中はON KEYを捕捉しない。
+    LD HL,DIRECT_RECORD
+    LD (MM_RUN_CUR_RECORD),HL
     XOR A
     LD (VAR_LINELEN),A
+    POP AF
+    PUSH AF
+    LD A,(MM_AUTO_ACTIVE)
+    AND 6
+    JR Z,auto_line_normal
+    POP AF
+    JP AUTO_PROMPT
+auto_line_normal:
     POP AF
     OR A
     JR NZ,_lf_done            ; 行番号つきの行: 無出力のまま終わる(第1節)
@@ -909,4 +1095,52 @@ _hook_done:
     XOR A
     LD (MM_IK_TICK),A
     CALL SET_CURSOR
+    RET
+
+; 既存の生成表と修飾優先順位を共有。編集キーは表の0で無視し画面に触れない。
+IK_DECODE_MAIN:
+    CALL FKEY_EVENT
+    JR Z,fkey_decode_normal
+    XOR A
+    RET
+fkey_decode_normal:
+    LD A,C
+    ADD A,A
+    ADD A,A
+    ADD A,A
+    ADD A,B
+    CP 15
+    JR Z,ik_return
+    CP 78
+    JR Z,ik_space
+    LD E,A
+    LD D,0
+    ; 行列走査中にフレームが切り替わることがあるため、押下検出時に読む。
+    IN A,(08h)
+    LD HL,CTRL_CODE_TAB
+    BIT 7,A
+    JR Z,ik_lookup
+    LD HL,GRPH_CODE_TAB
+    BIT 4,A
+    JR Z,ik_lookup
+    LD HL,KANA_CODE_TAB
+    BIT 5,A
+    JR Z,ik_lookup
+    LD HL,SHIFT_CODE_TAB
+    BIT 6,A
+    JR Z,ik_lookup
+    IN A,(0Ah)
+    LD HL,CAPS_CODE_TAB
+    BIT 7,A
+    JR Z,ik_lookup
+    LD HL,BASE_CODE_TAB
+ik_lookup:
+    ADD HL,DE
+    LD A,(HL)
+    RET
+ik_return:
+    LD A,13
+    RET
+ik_space:
+    LD A,32
     RET

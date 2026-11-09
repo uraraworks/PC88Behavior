@@ -10,7 +10,12 @@ KEY_BOOT_ROW:
 _kbr_slot:
     PUSH DE
     PUSH HL
-    LD B,(HL)
+    LD A,(HL)
+    BIT 7,A
+    JR Z,_kbr_plain
+    LD A,5                    ; 既定マクロの表示名
+_kbr_plain:
+    LD B,A
     INC HL
 _kbr_copy:
     LD A,(HL)
@@ -33,12 +38,5 @@ _kbr_copy:
     LD A,'+'
     LD (MM_TEXT_BASE+19*120+75),A
     RET
-KEY_BOOT_DEFAULTS:
-    DB 5,"ALPHA",0,0,0,0,0,0
-    DB 3,"TWO",0,0,0,0,0,0,0,0
-    DB 3,"TRI",0,0,0,0,0,0,0,0
-    DB 5,"DELTA",0,0,0,0,0,0
-    DB 4,"FIVE",0,0,0,0,0,0,0
-KEY_BOOT_DEFAULTS_END:
 KEY_BOOT_ROW_END:
 

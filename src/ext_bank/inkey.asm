@@ -26,6 +26,7 @@ GRPH_CODE_TAB EQU 0x1787
 CTRL_CODE_TAB EQU 0x1787
 CAPS_CODE_TAB EQU 0x1787
 SHIFT_CODE_TAB EQU 0x1787
+IK_DECODE_ADDR EQU 0x1787
 
 ; スキャン入口。キュー初期化と読出しは主ROMに置く。
     ORG 0x6F20
@@ -56,7 +57,7 @@ ik_scan_bit:
     PUSH BC
     PUSH DE
     PUSH HL
-    CALL IK_DECODE
+    CALL IK_DECODE_ADDR
     OR A
     JR Z,ik_decoded
     LD (IK_CHAR),A
@@ -138,45 +139,42 @@ ik_full:
     POP AF
     RET
 
-; 既存の生成表と修飾優先順位を共有。編集キーは表の0で無視し画面に触れない。
-IK_DECODE:
-    LD A,C
-    ADD A,A
-    ADD A,A
-    ADD A,A
-    ADD A,B
-    CP 15
-    JR Z,ik_return
-    CP 78
-    JR Z,ik_space
-    LD E,A
-    LD D,0
-    ; 行列走査中にフレームが切り替わることがあるため、押下検出時に読む。
-    IN A,(08h)
-    LD HL,CTRL_CODE_TAB
-    BIT 7,A
-    JR Z,ik_lookup
-    LD HL,GRPH_CODE_TAB
-    BIT 4,A
-    JR Z,ik_lookup
-    LD HL,KANA_CODE_TAB
-    BIT 5,A
-    JR Z,ik_lookup
-    LD HL,SHIFT_CODE_TAB
-    BIT 6,A
-    JR Z,ik_lookup
-    IN A,(0Ah)
-    LD HL,CAPS_CODE_TAB
-    BIT 7,A
-    JR Z,ik_lookup
-    LD HL,BASE_CODE_TAB
-ik_lookup:
-    ADD HL,DE
-    LD A,(HL)
+
+; 5.7.6: KEY(n) の構文処理は主ROMへ中継する。
+    ORG 0x6FC9
+restore_arg_entry:
+    LD IX,RESTORE_PARSE_ADDR
+    CALL B3_MAIN_CALL_ADDR
+    JP C,_restore_syntax
+    LD IX,RESTORE_FIND_ADDR
+    CALL B3_MAIN_CALL_ADDR
+    JP C,_restore_undefined
+    JP restore_save_record
+RESTORE_PARSE_ADDR EQU 0x1787
+RESTORE_FIND_ADDR EQU 0x1787
+    ORG 0x6FE0
+ky_dispatch:
+    CALL B3_SKIP_SPACES
+    CALL B3_PEEK_CHAR
+    CP '('
+    JP NZ,ky_stmt
+    LD IX,KY_MODE_ADDR
+    JP B3_MAIN_CALL_ADDR
+KY_MODE_ADDR EQU 0x1787
+    ORG 0x6FF2
+restore_save_record:
+    LD (RUN_DATA_REC),HL
+    INC HL
+    INC HL
+    LD C,(HL)
+    LD B,0
+    INC HL
+    LD (MM_RUN_DATA_PTR),HL
+    ADD HL,BC
+    LD (MM_RUN_DATA_END),HL
+    XOR A
+    LD (RUN_DATA_STATE),A
+    LD (ERROR_FLAG),A
     RET
-ik_return:
-    LD A,13
-    RET
-ik_space:
-    LD A,32
-    RET
+    ORG 0x700B
+    JP ky_storage

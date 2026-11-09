@@ -481,6 +481,12 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
     "PU_PRINT_ADDR": "PRINT_CHAR",
     "PU_NEWLINE_ADDR": "NEWLINE",
     "BANK1_MAIN_CALL_ADDR": "EXT_BANK_MAIN_CALL",
+    "RN_CHAR_ADDR": "PRINT_CHAR",
+    "RN_DETECT_ADDR": "N_DETECT",
+    "RN_ERROR_ADDR": "ERR_SET_A",
+    "RN_RESET_ADDR": "RUN_CLEAR_STATE",
+    "RN_UDEC_ADDR": "PRINT_UDEC",
+    "RN_NEWLINE_ADDR": "NEWLINE",
     "PA_EXTCALL_ADDR": "EXT_BANK_CALL",
     "BANK1_SKIP_SPACES_ADDR": "SKIP_SPACES",
     "BANK1_PEEK_CHAR_ADDR": "PEEK_CHAR",
@@ -572,6 +578,9 @@ EXT_BANK3_MAIN_ADDR_LABELS = {
     "CTRL_CODE_TAB": "CTRL_CODE_TAB",
     "CAPS_CODE_TAB": "CAPS_CODE_TAB",
     "SHIFT_CODE_TAB": "SHIFT_CODE_TAB",
+    "IK_DECODE_ADDR": "IK_DECODE_MAIN",
+    "RESTORE_PARSE_ADDR": "PARSE_LINENUM_CUR",
+    "RESTORE_FIND_ADDR": "RUN_FIND_LINE",
     "CAP_ADDR_ML_ADDRESS_FAST": "ML_ADDRESS_FAST",
     "CAP_ADDR_ML_LVALUE": "ML_LVALUE",
     "CAP_ADDR_ML_TABLE": "ML_TABLE",
@@ -611,6 +620,7 @@ EXT_BANK3_MAIN_ADDR_LABELS = {
 
     "T3_STMT_ADDR": "T3_STMT",
     "KY_ALLOC_ADDR": "HEAP_ALLOC_MAIN",
+    "KY_MODE_ADDR": "FKEY_MODE_STMT",
     "KY_BANKCALL_ADDR": "EXT_BANK_CALL",
     "IN_TARGET_ADDR": "INPUT_TARGET",
     "IN_TOKEN_ADDR": "INPUT_TOKEN",
@@ -2886,6 +2896,11 @@ def build_n_rom(main_rom, main_asm, work):
     for name in ('CAP_TRACE_ERROR', 'CAP_DELETE_PARSE_FIND', 'CAP_DELETE_REMOVE',
                  'CAP_ADDR_ADV_PTR', 'CAP_ADDR_PEEK_CHAR', 'CAP_ADDR_SKIP_SPACES'):
         nsource += f"{name} EQU 0x{main_asm.labels[EXT_BANK1_MAIN_ADDR_LABELS[name]]:04X}\n"
+    for name in ('SKIP_SPACES', 'PEEK_CHAR', 'ADV_PTR', 'PARSE_LINENUM_CUR', 'PROGRAM_FIND_END', 'ERR_SET_A'):
+        nsource += f'{name} EQU 0x{main_asm.labels[name]:04X}\n'
+    nsource += (REPO / 'src/n_rom/auto.asm').read_text(encoding='utf-8')
+    nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
+    nsource += (REPO / 'src/n_rom/for_fast.asm').read_text(encoding='utf-8')
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
     ncode, n_asm = assembled('n_rom_gen.asm', nsource)
     # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは
@@ -2909,19 +2924,20 @@ def build_n_rom(main_rom, main_asm, work):
         image[start:end] = main_rom[start:end]
         used.update(range(start, end))
     for addr, chunk, _, _ in n_asm.listing:
-        if addr < main_asm.labels['AEL_ROM_LAYOUT_PAD'] or addr + len(chunk) > 0x7980:
+        if not (0x2000 <= addr < 0x5000 or 0x7600 <= addr < 0x7980) or addr + len(chunk) > 0x7980:
             raise SystemExit('N側DELETEが予約領域からはみ出した')
         if used.intersection(range(addr, addr+len(chunk))):
             raise SystemExit('N側DELETEと複製ルーチンが重複')
         image[addr:addr+len(chunk)] = chunk
         used.update(range(addr, addr+len(chunk)))
+    n_owned = {a for start, chunk, _, _ in n_asm.listing for a in range(start, start + len(chunk))}
     # N側で実行する静的分岐先を検査する。唯一の例外はVSYNCフックの
     # 通常側で、N_ACTIVEが非ゼロの間は必ず手前で再入側へ分岐する。
     for obj, is_main in ((main_asm, True), (n_asm, False)):
         for addr, chunk, _, raw in obj.listing:
             if not chunk or addr not in used:
                 continue
-            if is_main and 0x7600 <= addr < 0x7980:
+            if is_main and addr in n_owned:
                 continue
             match = re.match(r'\s*(?:CALL|JP|JR)\s+(?:[A-Z]+\s*,\s*)?([A-Za-z_]\w*)\s*(?:;.*)?$', raw, re.I)
             if not match:

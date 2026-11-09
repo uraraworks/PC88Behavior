@@ -311,6 +311,9 @@ _l4dl_loop:
     CALL SKIP_SPACES
     CALL AT_END
     RET Z
+    CALL N_AUTO_OR_RENUM
+    OR A
+    JP NZ,_l4dl_after_stmt
     CALL MATCH_STMT_KEYWORD
     OR A
     JR NZ,_l4dl_have_stmt
