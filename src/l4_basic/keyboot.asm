@@ -13,7 +13,8 @@ _kbr_slot:
     LD A,(HL)
     BIT 7,A
     JR Z,_kbr_plain
-    LD A,5                    ; 既定マクロの表示名
+    LD HL,KEY_BOOT_LABEL-1
+    LD A,5                    ; 展開文字列とは独立した表示名
 _kbr_plain:
     LD B,A
     INC HL
@@ -39,4 +40,5 @@ _kbr_copy:
     LD (MM_TEXT_BASE+19*120+75),A
     RET
 KEY_BOOT_ROW_END:
+KEY_BOOT_LABEL: DB "FIRST"
 

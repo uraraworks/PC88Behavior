@@ -806,6 +806,7 @@ FIELDS = {
     'MM_EXT_BANK_MAIN_PORT71': ('RELAY', 2),
     'MM_EXT_BANK_MAIN_PORT32': ('RELAY', 3),
     # 旧MAIN_PORT71/32はEQUのみで実使用されない。検出結果とN選択フラグに再利用する。
+    # 下位bit0=存在、bit1=欠落、bit7=ファイル文の双方向中継を配置中。
     'MM_N_ROM_PRESENT': ('RELAY', 2),
     'MM_N_ACTIVE': ('RELAY', 3),
     'MM_EXT_BANK_ST_VAL0': ('EXT_TEST_LOW', 0),

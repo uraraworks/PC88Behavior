@@ -2657,7 +2657,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                                 (REPO / "src/l4_basic/mlcall.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/binary.asm").read_text(encoding="utf-8"))
     run_text = run_text.replace("; RF_COMMON（build_main_rom.pyがrandfile.asmをここへ展開）",
                                 (REPO / "src/l4_basic/randfile.asm").read_text(encoding="utf-8"))
-    run_text = run_text.replace("AEL_ROM_LAYOUT_PAD:\n", (REPO / "src/n_rom/init_main.asm").read_text(encoding="utf-8") + "\nAEL_ROM_LAYOUT_PAD:\n")
+    run_text = run_text.replace("AEL_ROM_LAYOUT_PAD:\n", (REPO / "src/n_rom/init_main.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/n_rom/complex_main.asm").read_text(encoding="utf-8") + "\n" + (REPO / "src/l4_basic/keyboot.asm").read_text(encoding="utf-8") + "\nAEL_ROM_LAYOUT_PAD:\n")
     run_path.write_text(run_text, encoding="utf-8")
 
     files_path = work / "l4_files_gen.asm"
@@ -2749,7 +2749,6 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         # プローブの旧17Bは未配置の空きにする。後続の常駐部とmain-sub末尾は
         # 動かさない（DSで使用済み領域にはしない）。
         combined += '\nORG $ + 17\n'
-    combined += f'\nINCLUDE "{REPO / "src/l4_basic/keyboot.asm"}"\n'
     combined += f'\nINCLUDE "{REPO / "src/ext_bank/capacity_main.asm"}"\n'
     if enable_main_sub_read:
         main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")
@@ -2891,7 +2890,18 @@ def build_n_rom(main_rom, main_asm, work):
     if relay_asm.labels['n_probe_end'] > memmap.CONSTANTS['MM_N_PROBE'] + 15:
         raise SystemExit('N検出中継が15バイトを超過')
     relay = (relay_code[memmap.CONSTANTS['MM_N_ROM_CALL']:memmap.CONSTANTS['MM_N_ROM_CALL']+31] +
-             relay_code[memmap.CONSTANTS['MM_N_PROBE']:memmap.CONSTANTS['MM_N_PROBE']+15])
+             relay_code[memmap.CONSTANTS['MM_N_PROBE']:memmap.CONSTANTS['MM_N_PROBE']+15].ljust(15, bytes([FILL])))
+    complex_source = (REPO / 'src/n_rom/complex_relay.asm').read_text(encoding='utf-8')
+    complex_source = complex_source.replace(marker, f"    ORG 0x{memmap.CONSTANTS['MM_N_ROM_CALL']:04X}")
+    complex_source = complex_source.replace(probe_marker, f"    ORG 0x{memmap.CONSTANTS['MM_N_PROBE']:04X}")
+    complex_code, complex_asm = assembled('n_complex_relay_gen.asm', prefix + complex_source)
+    if (complex_asm.labels['n_complex_call_end'] > memmap.CONSTANTS['MM_N_ROM_CALL'] + 31 or
+            complex_asm.labels['n_complex_callback_end'] > memmap.CONSTANTS['MM_N_PROBE'] + 15):
+        raise SystemExit('複合中継が専用域からはみ出した')
+    relay += (complex_code[memmap.CONSTANTS['MM_N_ROM_CALL']:memmap.CONSTANTS['MM_N_ROM_CALL']+31] +
+              complex_code[memmap.CONSTANTS['MM_N_PROBE']:memmap.CONSTANTS['MM_N_PROBE']+15].ljust(15, bytes([FILL])))
+    if len(relay) != 92:
+        raise SystemExit('N中継格納データの長さが不正')
     nsource = prefix
     for name in ('CAP_TRACE_ERROR', 'CAP_DELETE_PARSE_FIND', 'CAP_DELETE_REMOVE',
                  'CAP_ADDR_ADV_PTR', 'CAP_ADDR_PEEK_CHAR', 'CAP_ADDR_SKIP_SPACES'):
@@ -2899,8 +2909,20 @@ def build_n_rom(main_rom, main_asm, work):
     for name in ('SKIP_SPACES', 'PEEK_CHAR', 'ADV_PTR', 'PARSE_LINENUM_CUR', 'PROGRAM_FIND_END', 'ERR_SET_A'):
         nsource += f'{name} EQU 0x{main_asm.labels[name]:04X}\n'
     nsource += (REPO / 'src/n_rom/auto.asm').read_text(encoding='utf-8')
-    nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += (REPO / 'src/n_rom/for_fast.asm').read_text(encoding='utf-8')
+    file_source = (REPO / 'src/n_rom/file_statements.asm').read_text(encoding='utf-8')
+    for name in re.findall(r'(?m)^ncb_(\w+):', file_source):
+        address = main_asm.labels.get(name)
+        if address is None or not 0 <= address < N88_SIZE:
+            raise SystemExit(f'N側ファイル文のmain呼出先が不正: {name}')
+        nsource += f"MAIN_{name} EQU 0x{address:04X}\n"
+    # 文字列定数はmain側で読む。その他は共有RAMへの別名。
+    for name in ('sq_for_word', 'sq_as_word', 'sq_modes', 'ERROR_FLAG',
+                 'LINE_END', 'CUR_PTR', 'ERROR_KIND', 'RUN_ASSIGN_KIND',
+                 'RUN_STR_TMP_LEN', 'RUN_STR_TMP_BUF'):
+        nsource += f"{name} EQU 0x{main_asm.symtab[name]:04X}\n"
+    nsource += file_source
+    nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
     ncode, n_asm = assembled('n_rom_gen.asm', nsource)
     # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは
@@ -2927,7 +2949,7 @@ def build_n_rom(main_rom, main_asm, work):
         if not (0x2000 <= addr < 0x5000 or 0x7600 <= addr < 0x7980) or addr + len(chunk) > 0x7980:
             raise SystemExit('N側DELETEが予約領域からはみ出した')
         if used.intersection(range(addr, addr+len(chunk))):
-            raise SystemExit('N側DELETEと複製ルーチンが重複')
+            raise SystemExit(f'N側コードと複製ルーチンが重複: 0x{addr:04X}')
         image[addr:addr+len(chunk)] = chunk
         used.update(range(addr, addr+len(chunk)))
     n_owned = {a for start, chunk, _, _ in n_asm.listing for a in range(start, start + len(chunk))}
@@ -3413,19 +3435,38 @@ def main():
         rom, asm = assemble(combined, work)
 
         relay, nrom, n_used = build_n_rom(rom, asm, work)
-        relay_start = memmap.CONSTANTS['MM_N_RELAY_SOURCE']
+        # ビルドごとに測定コードの長さが異なる。明示された埋め草と
+        # 未使用末尾だけから中継の格納場所を選び、コードを上書きしない。
+        occupied = bytearray(N88_SIZE)
         for addr, chunk, _line, raw in asm.listing:
-            if addr < relay_start + len(relay) and addr + len(chunk) > relay_start:
-                if not (addr == asm.labels['AEL_ROM_LAYOUT_PAD'] and
-                        raw.strip().upper().startswith('DS ')):
-                    raise SystemExit('N中継のROM格納場所が既存コードと重複')
+            if addr == asm.labels['AEL_ROM_LAYOUT_PAD'] and raw.strip().upper().startswith('DS '):
+                continue
+            occupied[addr:addr + len(chunk)] = b'\1' * len(chunk)
+        occupied[ROM_VERSION_RESERVED_ADDR] = 1
+        relay_start = min(memmap.CONSTANTS['MM_N_RELAY_SOURCE'], ROM_VERSION_RESERVED_ADDR - len(relay))
+        if any(occupied[relay_start:relay_start + len(relay)]):
+            last_used = max(i for i, value in enumerate(occupied) if value) + 1
+            relay_start = next((start for start in range(N88_SIZE - len(relay), last_used - 1, -1)
+                                if not any(occupied[start:start + len(relay)])), None)
+            if relay_start is None:
+                raise SystemExit('N中継を格納できる連続領域がない')
+        if relay_start != memmap.CONSTANTS['MM_N_RELAY_SOURCE']:
+            old = f"MM_N_RELAY_SOURCE EQU 0x{memmap.CONSTANTS['MM_N_RELAY_SOURCE']:04X}\n"
+            if combined.count(old) != 1:
+                raise SystemExit('N中継の格納番地が一意に見つからない')
+            combined = combined.replace(old, f'MM_N_RELAY_SOURCE EQU 0x{relay_start:04X}\n')
+            rom, asm = assemble(combined, work)
+            relay, nrom, n_used = build_n_rom(rom, asm, work)
         rom_data = bytearray(rom)
         rom_data[relay_start:relay_start + len(relay)] = relay
         rom = bytes(rom_data)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
-        (args.outdir / "N88N.ROM").write_bytes(nrom)
+        # main/sub測定用の起動コードはN側へ切り替えない。旧来の
+        # 測定ROM集合を保ち、通常のBASICビルドにはN側を含める。
+        if not main_sub_measure_build:
+            (args.outdir / "N88N.ROM").write_bytes(nrom)
         if args.labels_out:
             import hashlib
             import json
@@ -3481,9 +3522,11 @@ def main():
                              mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
 
         used = len(combined.splitlines())
-        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes / N88N.ROM {N88_SIZE} bytes / DISK.ROM / FONT.ROM / "
+        n_description = "" if main_sub_measure_build else f" / N88N.ROM {N88_SIZE} bytes"
+        print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes{n_description} / DISK.ROM / FONT.ROM / "
               f"N88_0.ROM〜N88_3.ROM 各0x2000 bytes)")
-        print(f"  N88N.ROM 使用={n_used} bytes 空き={N88_SIZE - n_used} bytes")
+        if not main_sub_measure_build:
+            print(f"  N88N.ROM 使用={n_used} bytes 空き={N88_SIZE - n_used} bytes")
         print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
               f"inject_address_fault={args.inject_address_fault} "
               f"inject_cursor_fault={args.inject_cursor_fault}")

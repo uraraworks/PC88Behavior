@@ -1555,10 +1555,10 @@ RUN_FOR_CHECK_SKIP:
 RUN_FOR_STEP_AND_TEST:
     LD HL,(RUN_FOR_FRAME_PTR)
     LD A,(MM_N_ROM_PRESENT)
-    DEC A
-    JR NZ,_rfsat_slow
+    BIT 0,A
+    JR Z,_rfsat_slow
     PUSH HL
-    LD HL,04100h
+    LD HL,02400h
     CALL MM_N_ROM_CALL
     POP HL
     RET NC

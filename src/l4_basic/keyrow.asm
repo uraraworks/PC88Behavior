@@ -84,6 +84,7 @@ ky_slot:
     LD A,(HL)
     BIT 7,A
     JR Z,ky_plain_label
+    LD HL,ky_default_label-1
     LD A,5
 ky_plain_label:
     INC HL
@@ -123,7 +124,6 @@ ky_next:
     DEC C
     JR NZ,ky_slot
     RET
-ky_pos80: DB 6,20,34,48,62
 ky_pos40: DB 0,16,32,48,64
 ; l4-program.md 5.7.6: 長さと15文字の枠。既定値は自作で、bit7は短い表示名の印。
 ky_defaults:

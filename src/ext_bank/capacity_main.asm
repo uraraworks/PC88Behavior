@@ -71,8 +71,8 @@ n_common_call:
     CALL Z,N_DETECT
     LD A,(MM_N_ROM_PRESENT)
     POP HL
-    CP 1
-    JR Z,n_common_present
+    BIT 0,A
+    JR NZ,n_common_present
     LD A,5
     CALL ERR_SET_A
     LD A,1

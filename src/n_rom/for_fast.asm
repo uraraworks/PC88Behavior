@@ -1,6 +1,6 @@
 ; l4-program.md 4.2・5.7.6: 単位刻みの非負整数FORを同じ16bit演算で短縮する。
-; 条件外は従来処理へ戻す。捕捉中は毎文、空ループでは最大4回ごとにキーを走査する。
-    ORG 0x4100
+; 条件外は従来処理へ戻す。空の単独ループは最大2反復、入れ子は最大4反復ごとにキーを走査する。
+    ORG 0x2400
 for_fast_step:
     LD HL,(MM_RUN_FOR_FRAME_PTR)
     INC HL
@@ -29,7 +29,7 @@ for_fast_step:
     LD A,(HL)
     OR A
     JP NZ,for_fast_pop
-    ; 本体が空で捕捉キーが無いときだけ、同じNEXTを最大4回まとめる。
+    ; 本体が空で捕捉キーが無いときだけ、同じNEXTをまとめる。
     ; キー走査は外側の文境界で続け、捕捉中は常に1回ずつ進む。
     LD HL,(MM_RUN_FOR_FRAME_PTR)
     LD DE,14
@@ -57,6 +57,17 @@ for_fast_body:
     BIT 3,A
     JR NZ,for_fast_single
 for_fast_batch:
+    ; 単独の空ループは入力待ちに使えるよう走査を増やす。
+    LD HL,(MM_RUN_FOR_SP)
+    LD A,H
+    OR A
+    JR NZ,for_fast_nested
+    LD A,L
+    CP 2
+    JR NC,for_fast_nested
+    LD B,2
+    JR for_fast_var
+for_fast_nested:
     LD B,3
     JR for_fast_var
 for_fast_single:

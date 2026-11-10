@@ -46,8 +46,8 @@ rn_matched:
     CALL BANK1_MAIN_CALL_ADDR
     LD A,(MM_N_ROM_PRESENT)
 rn_detected:
-    CP 1
-    JR Z,rn_present
+    BIT 0,A
+    JR NZ,rn_present
     LD A,5
     LD IX,RN_ERROR_ADDR
     CALL BANK1_MAIN_CALL_ADDR
