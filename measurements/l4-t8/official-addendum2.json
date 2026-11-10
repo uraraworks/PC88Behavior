@@ -1,0 +1,1697 @@
+{
+  "records": {
+    "delay-off-3000": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38344,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7814,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 10447,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7814,
+            "key_to_on_frames": 1980,
+            "on_mark_frame": 9794,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38344,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7814,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 10447,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7814,
+            "key_to_on_frames": 1980,
+            "on_mark_frame": 9794,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "delay-off-60": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38328,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7798,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8459,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7798,
+            "key_to_on_frames": 7,
+            "on_mark_frame": 7805,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38328,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7798,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8459,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7798,
+            "key_to_on_frames": 7,
+            "on_mark_frame": 7805,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "delay-off-600": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38336,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7806,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8817,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7806,
+            "key_to_on_frames": 357,
+            "on_mark_frame": 8163,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38336,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7806,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8817,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7806,
+            "key_to_on_frames": 357,
+            "on_mark_frame": 8163,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "delay-stop-3000": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38352,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7822,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 10455,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7822,
+            "key_to_on_frames": 1980,
+            "on_mark_frame": 9802,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38352,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7822,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 10455,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7822,
+            "key_to_on_frames": 1980,
+            "on_mark_frame": 9802,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "delay-stop-60": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38336,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7806,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8467,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7806,
+            "key_to_on_frames": 7,
+            "on_mark_frame": 7813,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38336,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7806,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8467,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7806,
+            "key_to_on_frames": 7,
+            "on_mark_frame": 7813,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "delay-stop-600": {
+      "gate": true,
+      "response": "入力中またはプロンプト欠測",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38344,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7814,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8825,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7814,
+            "key_to_on_frames": 357,
+            "on_mark_frame": 8171,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "end_screen": {
+            "5": [
+              2,
+              "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+            ],
+            "6": [
+              3,
+              "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+            ],
+            "7": [
+              2,
+              "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+            ],
+            "8": [
+              3,
+              "58b6ca5e506eb2e0ddcf1998ae8283d07f28a2382fdcaf5135bf3ce0ca2bd5aa"
+            ],
+            "19": [
+              65,
+              "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+            ]
+          },
+          "end_screen_frame": 38344,
+          "end_screen_line_count": 5,
+          "expanded_candidate_rows": [
+            8
+          ],
+          "key_frame": 7814,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "bd686640ec4dbbe265e53fb419c9ed2463d3891e5b4b53010530c08b0bb25252"
+              ],
+              "19": [
+                65,
+                "f9b1eb9ebdde3a249df8809a968434a43c063e6f9fd1c8b4337f234dcbaf7e5a"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_before_screen": true,
+            "end_mark_frame": 8825,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [
+              57353
+            ],
+            "key_frame": 7814,
+            "key_to_on_frames": 357,
+            "on_mark_frame": 8171,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": true,
+            "switch_before_key": false
+          },
+          "writes": [
+            [
+              57346,
+              1
+            ],
+            [
+              57353,
+              1
+            ],
+            [
+              57348,
+              1
+            ],
+            [
+              57351,
+              2
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-ERR2": {
+      "gate": true,
+      "response": "ERR2",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-ERR5": {
+      "gate": true,
+      "response": "ERR5",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-ERR8": {
+      "gate": true,
+      "response": "ERR8",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    },
+    "ref-none": {
+      "gate": true,
+      "response": "none",
+      "runs": [
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        },
+        {
+          "boot_writes": 219,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "timing": {
+            "complete_before_key": false,
+            "complete_before_recovery": false,
+            "end_mark_frame": null,
+            "handler_after_on_return": false,
+            "handler_after_on_type": false,
+            "handler_before_key": false,
+            "handler_before_on_return": false,
+            "handler_before_on_type": false,
+            "handler_before_recovery": false,
+            "handler_before_switch": false,
+            "handler_on_order": [],
+            "key_frame": null,
+            "key_to_on_frames": null,
+            "on_mark_frame": null,
+            "on_return_frame": null,
+            "on_type_after_key_frames": null,
+            "ready_before_key": false,
+            "switch_before_key": false
+          },
+          "writes": []
+        }
+      ]
+    }
+  },
+  "version": 1
+}
