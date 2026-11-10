@@ -20,6 +20,7 @@ WORK=ROOT/'tmp/t9-work'
 REFS={'none':'rem', **{'ERR'+str(n):'error '+str(n) for n in (2,5,8,52,53,54,61,64,71,76)}}
 ARMS=['merge','merge-missing','merge-binary','merge-program','chain','chain-common','chain-array','chain-line','chain-merge-all','chain-delete','common-program','common-direct']
 NAMES=['ref-'+x for x in REFS]+ARMS
+ROUND='first'
 
 def plan(name):
     c=[('type','clear 200,&hdfff'),('type','new')]
@@ -50,6 +51,16 @@ def plan(name):
         for i,n in enumerate((10,20,30,40)):
             c += [('type','cls:locate 0,5'),('type',f'goto {n}'),('snap2',f'p{i}'),('type',f'poke &he002,{i+2}')]
     c += [('type','poke &he001,163')]
+    if ROUND=='addendum1':
+        if name=='save-short':
+            c=[('type','clear 200,&hdfff'),('type','new'),('type','10 end'),('type','for i=&he000 to &he048:poke i,0:next'),('type','poke &he000,151'),('type','cls:locate 0,5'),('snap','before'),('type','save "2:x",a'),('snap2','operation'),('type','poke &he002,1'),('type','poke &he001,163')]
+            op='save "2:x",a'
+        else:
+            c=[(k,v.replace('2:x','2:t9prog')) for k,v in c]
+            op=op.replace('2:x','2:t9prog')
+            if name=='merge-program':
+                c=[(k,'goto 80' if k=='type' and v=='run' else v) for k,v in c]
+                op='goto 80'
     return c,op
 
 def disks(work):
@@ -80,7 +91,7 @@ def capture(rom,name,work,official=False):
         sig=base.parse_signatures(sigfile)
         if set(sig)!=set(ids) or any(sig[x]!=sig[x[:-1]+'a'] for x in ids if x.endswith('b')): raise ValueError('署名安定')
         if 5 not in sig['beforea'] or any(i in sig['beforea'] for i in range(5)): raise ValueError('開始位置')
-        for sid,command in ([('save','save "2:x"'+('' if name=='merge-binary' else ',a'))] if any(k=='snap2' and v=='save' for k,v in cmds) else [])+[('operation',op)]+[(f'p{i}',f'goto {n}') for i,n in enumerate((10,20,30,40)) if name.startswith('merge')]:
+        for sid,command in ([('save','save "2:'+('t9prog' if ROUND=='addendum1' else 'x')+'"'+('' if name=='merge-binary' else ',a'))] if any(k=='snap2' and v=='save' for k,v in cmds) else [])+[('operation',op)]+[(f'p{i}',f'goto {n}') for i,n in enumerate((10,20,30,40)) if name.startswith('merge')]:
             expected=common.signature(6,command)
             if sig[sid+'a'].get(6)!=(expected['char_count'],expected['sha256']): raise ValueError('打鍵反映')
         mem=base.parse_memory(log,first)
@@ -145,11 +156,18 @@ def selftest():
     p.unlink(); print(f'全腕関門: {len(NAMES)}/{len(NAMES)}; 陰性対照・起動時掃引2種: 通過'); return 0
 
 def main():
-    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True); sub.add_parser('selftest')
+    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True); st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1'],default='first')
     m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true')
     e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True)
     c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True)
+    for parser in (m,e,c): parser.add_argument('--round',choices=['first','addendum1'],default='first')
     a=ap.parse_args()
+    global ROUND, REFS, NAMES, WORK
+    ROUND=a.round
+    if ROUND=='addendum1':
+        REFS={**REFS, 'ERR33':'error 33', 'ERR56':'error 56'}
+        NAMES=['ref-'+x for x in REFS]+ARMS+['save-short']
+        WORK=ROOT/'tmp/t9a1-work'
     if a.command=='selftest': return selftest()
     if a.command=='measure':
         d=measure(a.rom_dir,a.work_dir,a.official); save(a.out,d); return int(not valid(d))
