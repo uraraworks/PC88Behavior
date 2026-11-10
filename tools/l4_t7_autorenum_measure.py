@@ -15,7 +15,7 @@ import l4_t5_delete_measure as common
 import l4_key_measure as key_measure
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'tmp/t7-work'
+WORK = ROOT / 'tmp/t7a1-work'
 REFS = {'none': 'rem', 'ERR2': 'error 2', 'ERR5': 'error 5', 'ERR8': 'error 8'}
 RENUMBER = {
     'default': ('renum', list(range(10, 71, 10))),
@@ -32,9 +32,11 @@ RENUMBER = {
 AUTO = {'default': ('auto', [10, 20, 30]), 'start': ('auto 100', [100, 110, 120]),
         'step': ('auto 100,5', [100, 105, 110]),
         'omitted': ('auto ,20', [10, 30, 50]),
-        'collision': ('auto', [10, 20, 30])}
+        'collision': ('auto', [10, 20, 30]),
+        'addendum2-20': ('auto ,20', [0, 10, 20, 30, 40, 50, 60]),
+        'addendum2-5': ('auto ,5', [0, 5, 10, 15, 20])}
 OLD = [5, 7, 12, 30, 31, 40, 50]
-NAMES = ['ref-'+x for x in REFS] + ['renum-'+x for x in RENUMBER] + ['auto-'+x for x in AUTO]
+NAMES = ['ref-'+x for x in REFS] + ['renum-'+x for x in RENUMBER] + ['auto-'+x for x in AUTO if not x.startswith('addendum2-')]
 
 
 def program(undefined=False):
@@ -353,6 +355,14 @@ def selftest():
     mismatch['records'][NAMES[0]]['runs'][1]['screen']['operationa']['6'][0] ^= 1
     assert not valid(mismatch)
     common.unexpected_selftest(lambda p: parse_memory(p, 10), work/'synthetic.log', [(0xe001, 163)])
+    sweep_path=work/'sweep.log'
+    prefix=[(a,0) for a in range(0xe000,0xe049)]+[(0xe000,151),(0xe001,163)]
+    for sweep in ([(a,0) for a in range(0xe000,0xe049)], [(a,(a*7)&255) for a in reversed(range(0xe000,0xe049))]):
+        rows=[(9,a,v) for a,v in sweep]+[(10,a,v) for a,v in prefix]
+        sweep_path.write_text('range : E000-E048\n# 取りこぼし: 0件 / 総イベント数: %d件\n' % len(rows)+''.join('%d %d 0000 %04X %02X\n' % (i,f,a,v) for i,(f,a,v) in enumerate(rows,1)))
+        assert parse_memory(sweep_path,10)['boot_writes']==len(sweep)
+    sweep_path.unlink()
+    print('起動時掃引2種: 除外を確認')
     print('合成対照: 起動時書込みを除外、打鍵後の前置き前と器具外の書込みを拒否')
     print('陰性対照: 壊した期待値・参照ずらし・2走不一致を拒否')
     print(f'全腕関門: {len(NAMES)}/{len(NAMES)}')
@@ -361,13 +371,15 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest='command', required=True)
-    sub.add_parser('selftest')
+    sub.add_parser('selftest').add_argument('--round', choices=['first','addendum2'], default='first')
     m = sub.add_parser('measure'); m.add_argument('--rom-dir', type=Path, required=True)
     m.add_argument('--work-dir', type=Path, required=True); m.add_argument('--out', type=Path, required=True)
-    m.add_argument('--official', action='store_true')
-    e = sub.add_parser('expected'); e.add_argument('--measured', type=Path, required=True); e.add_argument('--out', type=Path, required=True)
-    c = sub.add_parser('check'); c.add_argument('--measured', type=Path, required=True); c.add_argument('--expected', type=Path, required=True)
+    m.add_argument('--official', action='store_true'); m.add_argument('--round', choices=['first','addendum2'], default='first')
+    e = sub.add_parser('expected'); e.add_argument('--measured', type=Path, required=True); e.add_argument('--out', type=Path, required=True); e.add_argument('--round', choices=['first','addendum2'], default='first')
+    c = sub.add_parser('check'); c.add_argument('--measured', type=Path, required=True); c.add_argument('--expected', type=Path, required=True); c.add_argument('--round', choices=['first','addendum2'], default='first')
     args = ap.parse_args()
+    global NAMES
+    if args.round == 'addendum2': NAMES = ['ref-'+x for x in REFS] + ['auto-addendum2-20','auto-addendum2-5']
     if args.command == 'selftest': return selftest()
     if args.command == 'measure':
         data = measure(args.rom_dir, args.work_dir, args.official); save(args.out, data); return int(not valid(data))

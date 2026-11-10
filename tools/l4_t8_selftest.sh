@@ -3,7 +3,7 @@ set -eu
 cd "$(dirname "$0")/.."
 export PYTHONDONTWRITEBYTECODE=1
 python3 tools/l4_t8_fkey_measure.py selftest
-work=tmp/t8-work/selftest
+work=tmp/t8a1-work/selftest
 python3 tools/l4_t8_fkey_measure.py expected --measured "$work/actual.json" --out "$work/expected-cli.json"
 python3 tools/l4_t8_fkey_measure.py check --measured "$work/actual.json" --expected "$work/expected-cli.json"
 python3 - "$work/expected-cli.json" "$work/broken.json" <<'PY'

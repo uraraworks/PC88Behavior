@@ -15,7 +15,7 @@ import l4_t5_delete_measure as common
 import l4_listkw_measure as kw
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'tmp/t8-work'
+WORK = ROOT / 'tmp/t8a1-work'
 REFS = base.REFS
 ARMS = ['input', 'return', 'length15', 'length16', 'default', 'shift', 'inkey',
         'on', 'off', 'stop', 'omitted', 'invalid0', 'invalid11', 'unset', 'undefined']
@@ -24,6 +24,9 @@ NAMES = ['ref-'+x for x in REFS] + ARMS
 
 def program(name):
     lines = ['10 on error goto 900']
+    if name.startswith('delay-'):
+        mode=name.split('-')[1]
+        return lines + ['20 key 1,"q7z"', '30 on key gosub 100', f'40 key(1) {mode}:poke &he002,1:stop', '50 poke &he004,1:end', '100 poke &he005,1:return', '900 poke &he007,err:poke &he008,erl:resume 950', '950 poke &he003,2:end']
     if name in ('input', 'return', 'length15', 'length16', 'default', 'shift'):
         setting = {'input':'key 1,"q7z"', 'return':'key 1,"q7"+chr$(13)',
                    'length15':'key 1,"abcdefghijklmno"', 'length16':'key 1,"abcdefghijklmnop"',
@@ -58,7 +61,10 @@ def plan(name):
              ('type','cls:locate 0,5'), ('snap','before')]
     operation = REFS[name[4:]] if name.startswith('ref-') else {'invalid0':'key(0) on','invalid11':'key(11) on','unset':'key(1) on'}.get(name, 'run')
     cmds += [('type',operation), ('snap2','operation')]
-    if not direct:
+    if name.startswith('delay-'):
+        delay=int(name.split('-')[2])
+        cmds += [('keyfast','RETROK_F1'), ('wait',str(delay-54)), ('on','key(1) on'), ('snap2','on'), ('type','cont'), ('wait','5000'), ('recover',''), ('key','RETROK_BREAK'), ('wait','600')]
+    elif not direct:
         cmds += [('key','RETROK_F2' if name == 'omitted' else 'RETROK_F1')]
         if name == 'shift': cmds[-1] = ('shift','RETROK_F1')
         if name in ('input','length15','length16','default','shift'): cmds += [('type','')]
@@ -71,9 +77,14 @@ def capture(rom, name, work, official=False):
     cmds, operation = plan(name)
     args = [str(kw.FRONT), '--core', str(kw.find_core()), '--rom-dir', str(rom),
             '--screen-signature-only', '--out', str(work/'sig.tsv')]
-    at = 700 if official else 100; first = at; ids=[]; key_frame=None; recovery_frame=None
+    at = 700 if official else 100; first = at; ids=[]; key_frame=None; recovery_frame=None; on_frame=None
     for kind, value in cmds:
-        if kind == 'type':
+        if kind == 'on':
+            on_frame=at
+            args += ['--key-hold','3','--key-gap','3','--type-at',str(at),'--type',value+'\n','--key-hold','4','--key-gap','4']; at += (len(value)+1)*6+240
+        elif kind == 'keyfast':
+            key_frame=at; args += ['--key-at',str(at),'--key',value]
+        elif kind == 'type':
             args += ['--type-at',str(at),'--type',value+'\n']; at += (len(value)+1)*8+240
         elif kind == 'recover':
             recovery_frame=at
@@ -100,10 +111,14 @@ def capture(rom, name, work, official=False):
         if 5 not in sig['beforea'] or any(i in sig['beforea'] for i in range(5)): raise ValueError('開始位置')
         expected=common.signature(6,operation)
         if sig['operationa'].get(6)!=(expected['char_count'],expected['sha256']): raise ValueError('打鍵反映')
-        mem=parse_memory(log,first,key_frame,recovery_frame)
+        if on_frame is not None:
+            # ON時の画面はキー展開で変化し得るため、署名を記録する。
+            if sig['ona'] != sig['onb']: raise ValueError('ON画面安定')
+        mem=parse_memory(log,first,key_frame,recovery_frame,on_frame)
         writes=mem['writes']
         result={'screen':{'beforea':sig['beforea'],'operationa':sig['operationa']},
                 'writes':writes,'boot_writes':mem['boot_writes'], 'timing':mem['timing']}
+        if on_frame is not None: result.update({'on_screen':sig['ona'], 'key_frame':key_frame, 'on_type_frame':on_frame})
         if name=='default':
             vals=[v for a,v in writes if 0xe011<=a<=0xe030]
             result['default_asc_sha256']=hashlib.sha256(bytes(vals)).hexdigest()
@@ -113,7 +128,7 @@ def capture(rom, name, work, official=False):
         log.unlink(missing_ok=True); report.unlink(missing_ok=True)
 
 
-def parse_memory(path, first, key_frame=None, recovery_frame=None):
+def parse_memory(path, first, key_frame=None, recovery_frame=None, on_frame=None):
     # t7の厳格なログ検査を再利用し、t8の印領域を許可する。
     import re
     raw=path.read_text()
@@ -138,7 +153,13 @@ def parse_memory(path, first, key_frame=None, recovery_frame=None):
     timed=timed[len(prefix):]
     switch=next((f for f,a,v in timed if a==0xe004), None)
     return {'writes':writes[len(prefix):-1], 'boot_writes':boot,
-            'timing': {'ready_before_key': any(a==0xe002 and v==1 and key_frame is not None and f<key_frame for f,a,v in timed),
+            'timing': {'on_type_after_key_frames': None if on_frame is None else on_frame-key_frame,
+                       'on_return_frame': None if on_frame is None else on_frame+len('key(1) on')*6,
+                       'handler_before_on_type': any(a in (0xe005,0xe006) and on_frame is not None and f<on_frame for f,a,v in timed),
+                       'handler_after_on_type': any(a in (0xe005,0xe006) and on_frame is not None and f>=on_frame for f,a,v in timed),
+                       'handler_before_on_return': any(a in (0xe005,0xe006) and on_frame is not None and f<on_frame+54 for f,a,v in timed),
+                       'handler_after_on_return': any(a in (0xe005,0xe006) and on_frame is not None and f>=on_frame+54 for f,a,v in timed),
+                       'ready_before_key': any(a==0xe002 and v==1 and key_frame is not None and f<key_frame for f,a,v in timed),
                        'complete_before_key': any(a==0xe003 and key_frame is not None and f<key_frame for f,a,v in timed),
                        'complete_before_recovery': any(a==0xe003 and recovery_frame is not None and f<recovery_frame for f,a,v in timed),
                        'switch_before_key': any(a==0xe004 and key_frame is not None and f<key_frame for f,a,v in timed),
@@ -173,7 +194,14 @@ def measure(rom, work, official=False):
             prompts[row]=value
         for n in NAMES:
             if records[n]['gate']:
-                try: records[n]['response']=base.identify(base.response(records[n]['runs'][0]['screen']['operationa'],prompts),refs)
+                try:
+                    records[n]['response']=base.identify(base.response(records[n]['runs'][0]['screen']['operationa'],prompts),refs)
+                    if n.startswith('delay-'):
+                        records[n]['on_response']=base.identify(base.response(records[n]['runs'][0]['on_screen'],prompts),refs)
+                        expected=common.signature(6,'key(1) on')
+                        records[n]['on_line_matches']=records[n]['runs'][0]['on_screen'].get(6)==(expected['char_count'],expected['sha256'])
+                        expanded=common.signature(6,'q7zkey(1) on')
+                        records[n]['on_line_expanded_prefix']=records[n]['runs'][0]['on_screen'].get(6)==(expanded['char_count'],expanded['sha256'])
                 except ValueError: records[n]['response']='入力中またはプロンプト欠測'
     return {'version':1,'records':records}
 
@@ -187,7 +215,7 @@ def check(a,b):
     if not valid(a) or not valid(b): return False
     a=copy.deepcopy(a); b=copy.deepcopy(b)
     for data in (a,b):
-        for run in data['records']['default']['runs']:
+        for run in data['records'].get('default',{}).get('runs',[]):
             run.pop('default_asc_sha256',None)
     return a==b
 
@@ -229,11 +257,13 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True)
-    sub.add_parser('selftest')
-    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true')
-    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True)
-    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True)
+    sub.add_parser('selftest').add_argument('--round',choices=['first','addendum1'],default='first')
+    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first','addendum1'],default='first')
+    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True); e.add_argument('--round',choices=['first','addendum1'],default='first')
+    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True); c.add_argument('--round',choices=['first','addendum1'],default='first')
     args=ap.parse_args()
+    global NAMES
+    if args.round=='addendum1': NAMES=['ref-'+x for x in REFS]+[f'delay-{mode}-{delay}' for mode in ('stop','off') for delay in (60,600,3000)]
     if args.command=='selftest': return selftest()
     if args.command=='measure':
         data=measure(args.rom_dir,args.work_dir,args.official); save(args.out,data); return int(not valid(data))
