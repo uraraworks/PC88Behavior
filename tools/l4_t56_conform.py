@@ -16,6 +16,7 @@
   t8: 応答の同定と印の書込み列（既定割り当て腕は長さを除く）
   t9: 応答の同定と印の書込み列（追補2の構成）
   t10: MOTOR の腕の印とポート30hの前後の値
+  t10e: EDIT の腕の直後の画面の行署名（最下行を除く）・カーソル・印（追補1）
 """
 import argparse
 import json
@@ -114,7 +115,23 @@ def project_t10(data):
     return out
 
 
-PROJECT = {'t5': project_t5, 't6': project_t6, 't7': project_t7, 't8': project_t8, 't9': project_t9, 't10': project_t10}
+def project_t10e(data):
+    # EDIT（l4-t10 追補1）。EDIT の直後の画面の非空行（最下行を除く）の行署名、カーソル、印。
+    out = {}
+    for name, rec in sorted(data['records'].items()):
+        if not name.startswith('edit-') or not rec.get('gate'):
+            continue
+        run = rec['runs'][0]
+        rows = run['screen'].get('operationa', {})
+        out[name] = {
+            'rows': sorted([int(r), v[0], v[1]] for r, v in rows.items() if v[0] and int(r) != 19),
+            'cursor': run.get('cursor_crtc'),
+            'writes': run['writes'],
+        }
+    return out
+
+
+PROJECT = {'t5': project_t5, 't6': project_t6, 't7': project_t7, 't8': project_t8, 't9': project_t9, 't10': project_t10, 't10e': project_t10e}
 
 
 def main():
