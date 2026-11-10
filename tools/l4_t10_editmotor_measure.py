@@ -25,7 +25,7 @@ NAMES = ['ref-'+x for x in REFS] + ['edit-'+x for x in EDIT] + ['motor-'+x for x
 LINES = [f'{n} poke &he{0x010+i:03x},{i+1}:end' for i,n in enumerate((10,20,30))]
 
 
-def plan(name):
+def plan(name, round_name='first'):
     cmds = [('type', 'clear 200,&hdfff'), ('type', 'new')]
     if name.startswith('edit-'):
         cmds += [('type', x) for x in LINES]
@@ -41,7 +41,10 @@ def plan(name):
             cmds += [('type',f'goto {n}'),('type',f'poke &he002,{10+i}')]
     cmds += [('type','cls:locate 0,5'), ('snap','before')]
     op = REFS[name[4:]] if name.startswith('ref-') else (EDIT[name[5:]] if name.startswith('edit-') else MOTOR[name[6:]])
-    cmds += [('type',op), ('snap2','operation')]
+    if round_name == 'addendum1' and name.startswith('edit-'):
+        cmds += [('text',op), ('snap2','typed'), ('key','RETROK_RETURN'), ('snap2','operation')]
+    else:
+        cmds += [('type',op), ('snap2','operation')]
     if name == 'edit-rewrite':
         # EDIT開始位置から上書き入力。未受理ならその結果も区別する。
         cmds += [('type','20 poke &he011,9:end'), ('snap2','rewrite')]
@@ -100,14 +103,16 @@ def validate_io(path):
     if not complete: raise ValueError('IO取りこぼし')
 
 
-def capture(rom, name, work, official=False):
-    cmds, op = plan(name)
+def capture(rom, name, work, official=False, round_name='first'):
+    cmds, op = plan(name, round_name)
     args = [str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom), '--screen-signature-only','--out',str(work/'signatures.tsv')]
     at = 700 if official else 100; first = at; snapshots=[]; frames={}; start=end=None
     for kind,value in cmds:
         if kind == 'type':
             if start is None and value == op and 'beforea' in frames: start=at
             args += ['--type-at',str(at),'--type',value+'\n']; at += (len(value)+1)*8+240
+        elif kind == 'text':
+            args += ['--type-at',str(at),'--type',value]; at += len(value)*8+240
         elif kind == 'key': args += ['--key-at',str(at),'--key',value]; at += 300
         else:
             for delay in ((60,160) if kind == 'snap2' else (60,)):
@@ -126,7 +131,8 @@ def capture(rom, name, work, official=False):
             if sid.endswith('b') and sigs[sid]!=sigs[sid[:-1]+'a']: raise ValueError('画面安定')
         if 5 not in sigs['beforea'] or any(i in sigs['beforea'] for i in range(5)): raise ValueError('開始位置')
         expected=common.signature(6,op)
-        if sigs['operationa'].get(6)!=(expected['char_count'],expected['sha256']): raise ValueError('打鍵反映')
+        typed = 'typeda' if round_name == 'addendum1' and name.startswith('edit-') else 'operationa'
+        if sigs[typed].get(6)!=(expected['char_count'],expected['sha256']): raise ValueError('打鍵反映')
         memory=base.parse_memory(log,first)
         writes=memory['writes']
         stages=[v for a,v in writes if a==0xe002]
@@ -144,30 +150,39 @@ def capture(rom, name, work, official=False):
         for path in (log,report,io): path.unlink(missing_ok=True)
 
 
-def summarize(record, refs, prompts, name):
+def summarize(record, refs, prompts, name, round_name='first'):
     rows=record['screen']['operationa']
     try: response=base.identify(base.response(rows,prompts),refs)
     except ValueError: response='入力中またはプロンプト欠測'
     candidates={}
     if name.startswith('edit-'):
-        for i,line in enumerate(LINES):
-            candidates[str((10,20,30)[i])]=[int(row) for row, val in rows.items() if val == tuple(common.signature(int(row),line)[k] for k in ('char_count','sha256'))]
-    return {'response':response,'candidate_rows':candidates, 'probe_marks':[list(x) for x in record['writes'] if x[0] in (0xe011,0xe017,0xe018)]}
+        authored = {str(n): line for n,line in zip((10,20,30),LINES)}
+        if round_name == 'addendum1':
+            authored['operation'] = EDIT[name[5:]]
+            authored['rewrite'] = '20 poke &he011,9:end'
+        for label,line in authored.items():
+            candidates[label]=[int(row) for row, val in rows.items() if val == tuple(common.signature(int(row),line)[k] for k in ('char_count','sha256'))]
+    result = {'response':response,'candidate_rows':candidates, 'probe_marks':[list(x) for x in record['writes'] if x[0] in (0xe011,0xe017,0xe018)]}
+    if round_name == 'addendum1' and name == 'edit-rewrite':
+        marks = [v for a,v in record['writes'] if a == 0xe011]
+        result['rewrite_probe'] = 'changed' if marks[-2:] == [0,9] else 'unchanged' if marks[-2:] == [0,2] else 'indeterminate'
+    return result
 
 
-def measure(rom,work,official=False):
+def measure(rom,work,official=False,round_name='first'):
+    names = NAMES if round_name == 'first' else ['ref-'+x for x in REFS] + ['edit-'+x for x in EDIT if x != 'program']
     work.mkdir(parents=True,exist_ok=True)
-    records={n:{'runs':[None,None],'gate':False} for n in NAMES}
+    records={n:{'runs':[None,None],'gate':False} for n in names}
     def one(n,i):
-        d=work/n/str(i); d.mkdir(parents=True,exist_ok=True); return capture(rom,n,d,official)
+        d=work/n/str(i); d.mkdir(parents=True,exist_ok=True); return capture(rom,n,d,official,round_name)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        tasks={pool.submit(one,n,i):(n,i) for n in NAMES for i in range(2)}
+        tasks={pool.submit(one,n,i):(n,i) for n in names for i in range(2)}
         for task in concurrent.futures.as_completed(tasks):
             n,i=tasks[task]
             try: records[n]['runs'][i]=task.result()
             except (ValueError,OSError) as exc: print(f'{n}: 関門失敗 ({exc})',flush=True)
             print(f'{n}: {i+1}走終了',flush=True)
-    for n in NAMES:
+    for n in names:
         records[n]['gate']=base.stable_pair(records[n]['runs'])
         print(f'{n}: '+('通過' if records[n]['gate'] else '失敗'),flush=True)
     if all(records['ref-'+x]['gate'] for x in REFS):
@@ -180,25 +195,25 @@ def measure(rom,work,official=False):
             if row in prompts and prompts[row]!=value: raise ValueError('参照プロンプト不一致')
             prompts[row]=value
         start=records['ref-none']['runs'][0]['screen']['beforea'].get(5)
-        for n in NAMES:
+        for n in names:
             if not n.startswith('ref-') and records[n]['gate']:
                 if records[n]['runs'][0]['screen']['beforea'].get(5)!=start: records[n]['gate']=False; continue
-                records[n]['result']=summarize(records[n]['runs'][0],refs,prompts,n)
+                records[n]['result']=summarize(records[n]['runs'][0],refs,prompts,n,round_name)
     else:
         for n in NAMES: records[n]['gate']=False
-    return {'version':1,'records':records}
+    return {'version':1,'records':records} if round_name == 'first' else {'version':1,'round':round_name,'records':records}
 
 
 def valid(d):
-    return d.get('version')==1 and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) for r in d['records'].values())
+    return d.get('version')==1 and set(d.get('records',{}))==set(NAMES if d.get('round','first') == 'first' else (['ref-'+x for x in REFS] + ['edit-'+x for x in EDIT if x != 'program']) if d.get('round') == 'addendum1' else []) and all(r['gate'] and base.stable_pair(r['runs']) for r in d['records'].values())
 
 def check(a,b): return valid(a) and valid(b) and a==b
 
-def selftest():
-    work=WORK/'selftest'; work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
+def selftest(round_name='first'):
+    work=WORK/('selftest' if round_name == 'first' else 'selftest-addendum1'); work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
     p=subprocess.run([sys.executable,'-B',str(ROOT/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')
-    data=measure(rom,work); base.save(work/'actual.json',data)
+    data=measure(rom,work,round_name=round_name); base.save(work/'actual.json',data)
     if not valid(data): return 1
     data=json.loads((work/'actual.json').read_text()); assert check(data,data)
     broken=copy.deepcopy(data)
@@ -221,19 +236,19 @@ def selftest():
         else: raise AssertionError('打鍵後掃引を検出できない')
     p.unlink()
     print('陰性対照: 期待値・参照ずらし・2走不一致・器具外書込み・打鍵後掃引を拒否、起動前掃引2種を除外')
-    print(f'全腕関門: {len(NAMES)}/{len(NAMES)}'); return 0
+    print(f'全腕関門: {len(data["records"])}/{len(data["records"])}'); return 0
 
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True)
-    sub.add_parser('selftest')
-    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true')
+    st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1'],default='first')
+    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first','addendum1'],default='first')
     e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True)
     c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True)
     args=ap.parse_args()
-    if args.command=='selftest': return selftest()
+    if args.command=='selftest': return selftest(args.round)
     if args.command=='measure':
-        data=measure(args.rom_dir,args.work_dir,args.official); base.save(args.out,data); return int(not valid(data))
+        data=measure(args.rom_dir,args.work_dir,args.official,args.round); base.save(args.out,data); return int(not valid(data))
     data=json.loads(args.measured.read_text())
     if args.command=='expected':
         if not valid(data): return 1
