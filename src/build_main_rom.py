@@ -2909,7 +2909,7 @@ def build_n_rom(main_rom, main_asm, work):
     for name in ('CAP_TRACE_ERROR', 'CAP_DELETE_PARSE_FIND', 'CAP_DELETE_REMOVE',
                  'CAP_ADDR_ADV_PTR', 'CAP_ADDR_PEEK_CHAR', 'CAP_ADDR_SKIP_SPACES'):
         nsource += f"{name} EQU 0x{main_asm.labels[EXT_BANK1_MAIN_ADDR_LABELS[name]]:04X}\n"
-    for name in ('SKIP_SPACES', 'PEEK_CHAR', 'ADV_PTR', 'PARSE_LINENUM_CUR', 'PROGRAM_FIND_END', 'ERR_SET_A'):
+    for name in ('SKIP_SPACES', 'PEEK_CHAR', 'ADV_PTR', 'PARSE_LINENUM_CUR', 'PROGRAM_FIND_END', 'ERR_SET_A', 'RUN_FIND_LINE'):
         nsource += f'{name} EQU 0x{main_asm.labels[name]:04X}\n'
     nsource += (REPO / 'src/n_rom/auto.asm').read_text(encoding='utf-8')
     nsource += (REPO / 'src/n_rom/for_fast.asm').read_text(encoding='utf-8')
@@ -2936,6 +2936,10 @@ def build_n_rom(main_rom, main_asm, work):
     nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += merge_source
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
+    edit_source = (REPO / 'src/n_rom/edit.asm').read_text(encoding='utf-8')
+    for name in re.findall(r'(?m)^edit_cb_(\w+):', edit_source):
+        nsource += f"EDIT_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n"
+    nsource += edit_source
     ncode, n_asm = assembled('n_rom_gen.asm', nsource)
     # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは
     # N_ACTIVEにより再入側へ必ず分岐し、バンクを呼ぶ通常側には入らない。

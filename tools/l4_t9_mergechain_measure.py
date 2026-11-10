@@ -20,7 +20,7 @@ import l4_listkw_measure as kw
 import struct
 
 ROOT=Path(__file__).resolve().parents[1]
-WORK=ROOT/'tmp/t9-work'
+WORK=Path(os.environ.get('PC88_T9_WORK', ROOT/'tmp/t9-work'))
 REFS={'none':'rem', **{'ERR'+str(n):'error '+str(n) for n in (2,5,8,52,53,54,61,64,71,76)}}
 ARMS=['merge','merge-missing','merge-binary','merge-program','chain','chain-common','chain-array','chain-line','chain-merge-all','chain-delete','common-program','common-direct']
 NAMES=['ref-'+x for x in REFS]+ARMS
@@ -203,7 +203,7 @@ def main():
     if ROUND in ('addendum1','addendum2'):
         REFS={**REFS, 'ERR33':'error 33', 'ERR56':'error 56'}
         NAMES=['ref-'+x for x in REFS]+ARMS+['save-short']
-        WORK=ROOT/'tmp/t9-work'/ROUND
+        WORK=WORK/ROUND
     if a.command=='selftest': return selftest()
     if a.command=='measure':
         if a.official and ROUND=='addendum2' and reference_disk() is None:

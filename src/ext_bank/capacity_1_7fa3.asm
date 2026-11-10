@@ -25,13 +25,13 @@ _lra_loop:
     INC HL
     LD D,(HL)
     DEC HL
+    INC DE
     LD A,D
-    CP 0FFh
-    JR NZ,_lra_have
-    LD A,E
-    CP 0FFh
+    OR E
+    DEC DE
     JR Z,_lra_done
 _lra_have:
+    LD (MM_PROG_CUR_LINENO),DE
     PUSH HL
     EX DE,HL
     CALL PRINT_UDEC                 ; 行番号(前ゼロ抑制、既存ルーチン流用)

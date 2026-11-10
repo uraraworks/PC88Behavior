@@ -319,6 +319,9 @@ ERR_MSG_76_CUSTOM:
 ; ---------------------------------------------------------------------
 DIRECT_LINE:
 _l4dl_loop:
+    CALL N_EDIT_STMT
+    OR A
+    RET NZ
     CALL SQ_TRY_STMT
     OR A
     JP NZ,_l4dl_after_stmt

@@ -1302,8 +1302,12 @@ _rar_have:
 ;   出力: CF=0/HL=レコード先頭(見つかった) / CF=1(見つからない)。
 ;   破壊: AF,BC,DE,HL。
 RUN_FIND_LINE:
+    LD DE,(PROG_CUR_LINENO)
+    PUSH DE
     LD (PROG_CUR_LINENO),HL
     CALL PROGRAM_LOCATE
+    POP DE
+    LD (PROG_CUR_LINENO),DE
     OR A
     JR Z,_rfl_notfound
     OR A
@@ -2467,6 +2471,8 @@ _run_after_stmt:
     JR NZ,_run_error
     LD A,(RUN_CTRL)
     CP 2
+    JR Z,_run_halted
+    CP 3
     JR Z,_run_halted
     CP 1
     JR Z,_run_loop
@@ -3729,6 +3735,9 @@ RUN_EXEC_ONE_STMT:
     ; 分岐の印はファイル文も含め、文ごとに消す。
     XOR A
     LD (RUN_CTRL),A
+    CALL N_EDIT_STMT
+    OR A
+    RET NZ
     ; 先頭文字で絞り、通常の文ではバンク切替を避ける。
     LD HL,(CUR_PTR)
     LD A,(HL)
