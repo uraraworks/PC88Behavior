@@ -3,6 +3,10 @@
 import argparse
 import concurrent.futures
 import copy
+import csv
+import shutil
+import tempfile
+from unittest.mock import patch
 import json
 import os
 import subprocess
@@ -51,7 +55,7 @@ def plan(name):
         for i,n in enumerate((10,20,30,40)):
             c += [('type','cls:locate 0,5'),('type',f'goto {n}'),('snap2',f'p{i}'),('type',f'poke &he002,{i+2}')]
     c += [('type','poke &he001,163')]
-    if ROUND=='addendum1':
+    if ROUND in ('addendum1','addendum2'):
         if name=='save-short':
             c=[('type','clear 200,&hdfff'),('type','new'),('type','10 end'),('type','for i=&he000 to &he048:poke i,0:next'),('type','poke &he000,151'),('type','cls:locate 0,5'),('snap','before'),('type','save "2:x",a'),('snap2','operation'),('type','poke &he002,1'),('type','poke &he001,163')]
             op='save "2:x",a'
@@ -63,7 +67,18 @@ def plan(name):
                 op='goto 80'
     return c,op
 
-def disks(work):
+def reference_disk():
+    root=os.environ.get('PC88_REF_DISK_DIR')
+    if not root: return None
+    config=Path(os.environ.get('M6FF_FROZEN_CONFIG',ROOT/'tools/m6ff_frozen.tsv'))
+    with config.open() as f: rows=list(csv.reader(f,delimiter='\t'))
+    names=[r[1] for r in rows if len(r)>=2 and r[0]=='reference_disk']
+    if len(names)!=1 or Path(names[0]).name!=names[0]: raise ValueError('reference config')
+    source=Path(root)/names[0]
+    if not source.is_file(): raise ValueError('reference missing')
+    return source
+
+def disks(work,official=False):
     image=bytearray(blank.build())
     pos=struct.unpack_from('<I',image,32+(18*2+1)*4)[0]
     for _ in range(16):
@@ -71,11 +86,16 @@ def disks(work):
             image[pos+16:pos+272]=bytes([0x10])*256; break
         pos+=272
     else: raise ValueError('媒体')
-    (work/'a.d88').write_bytes(image); (work/'b.d88').write_bytes(blank.build())
+    if official and ROUND=='addendum2':
+        source=reference_disk()
+        if source is None: raise ValueError('PC88_REF_DISK_DIR_missing')
+        shutil.copyfile(source,work/'a.d88')
+    else: (work/'a.d88').write_bytes(image)
+    (work/'b.d88').write_bytes(blank.build())
     return ['--disk',str(work/'a.d88'),'--disk2',str(work/'b.d88'),'--save-to-disk-image']
 
 def capture(rom,name,work,official=False):
-    cmds,op=plan(name); args=[str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),'--screen-signature-only','--out',str(work/'sig.tsv')]+disks(work)
+    cmds,op=plan(name); args=[str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),'--screen-signature-only','--out',str(work/'sig.tsv')]+disks(work,official)
     at=700 if official else 100; first=at; ids=[]
     for kind,value in cmds:
         if kind=='type': args += ['--type-at',str(at),'--type',value+'\n']; at+=(len(value)+1)*8+240
@@ -91,7 +111,7 @@ def capture(rom,name,work,official=False):
         sig=base.parse_signatures(sigfile)
         if set(sig)!=set(ids) or any(sig[x]!=sig[x[:-1]+'a'] for x in ids if x.endswith('b')): raise ValueError('署名安定')
         if 5 not in sig['beforea'] or any(i in sig['beforea'] for i in range(5)): raise ValueError('開始位置')
-        for sid,command in ([('save','save "2:'+('t9prog' if ROUND=='addendum1' else 'x')+'"'+('' if name=='merge-binary' else ',a'))] if any(k=='snap2' and v=='save' for k,v in cmds) else [])+[('operation',op)]+[(f'p{i}',f'goto {n}') for i,n in enumerate((10,20,30,40)) if name.startswith('merge')]:
+        for sid,command in ([('save','save "2:'+('t9prog' if ROUND in ('addendum1','addendum2') else 'x')+'"'+('' if name=='merge-binary' else ',a'))] if any(k=='snap2' and v=='save' for k,v in cmds) else [])+[('operation',op)]+[(f'p{i}',f'goto {n}') for i,n in enumerate((10,20,30,40)) if name.startswith('merge')]:
             expected=common.signature(6,command)
             if sig[sid+'a'].get(6)!=(expected['char_count'],expected['sha256']): raise ValueError('打鍵反映')
         mem=base.parse_memory(log,first)
@@ -135,7 +155,23 @@ def valid(d):
     return d.get('version')==1 and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) and 'responses' in r for r in d['records'].values())
 def save(p,d): p.write_text(json.dumps(d,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
 def selftest():
+    if ROUND=='addendum2':
+        env=dict(os.environ); env.pop('PC88_REF_DISK_DIR',None)
+        p=subprocess.run([sys.executable,'-B',__file__,'measure','--round','addendum2','--official','--rom-dir',str(WORK/'absent-rom'),'--work-dir',str(WORK/'negative'),'--out',str(WORK/'negative.json')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        assert p.returncode != 0 and b'PC88_REF_DISK_DIR_missing' in p.stdout
     work=WORK/'selftest'; work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
+    if ROUND=='addendum2':
+        with tempfile.TemporaryDirectory(dir=work) as td:
+            root=Path(td); ref=root/'ref'; ref.mkdir(); source=ref/'synthetic.d88'
+            source.write_bytes(b'synthetic reference'); config=root/'config.tsv'
+            config.write_text('reference_disk\tsynthetic.d88\n')
+            run=root/'run'; run.mkdir()
+            with patch.dict(os.environ,{'PC88_REF_DISK_DIR':str(ref),'M6FF_FROZEN_CONFIG':str(config)}):
+                disks(run,True)
+                assert (run/'a.d88').read_bytes()==b'synthetic reference'
+                (run/'a.d88').write_bytes(b'changed copy')
+                assert source.read_bytes()==b'synthetic reference'
+                assert (run/'b.d88').read_bytes()==blank.build()
     p=subprocess.run([sys.executable,'-B',str(ROOT/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')
     d=measure(rom,work); save(work/'actual.json',d)
@@ -156,20 +192,22 @@ def selftest():
     p.unlink(); print(f'全腕関門: {len(NAMES)}/{len(NAMES)}; 陰性対照・起動時掃引2種: 通過'); return 0
 
 def main():
-    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True); st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1'],default='first')
+    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True); st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
     m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true')
     e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True)
     c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True)
-    for parser in (m,e,c): parser.add_argument('--round',choices=['first','addendum1'],default='first')
+    for parser in (m,e,c): parser.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
     a=ap.parse_args()
     global ROUND, REFS, NAMES, WORK
     ROUND=a.round
-    if ROUND=='addendum1':
+    if ROUND in ('addendum1','addendum2'):
         REFS={**REFS, 'ERR33':'error 33', 'ERR56':'error 56'}
         NAMES=['ref-'+x for x in REFS]+ARMS+['save-short']
-        WORK=ROOT/'tmp/t9a1-work'
+        WORK=ROOT/'tmp/t9-work'/ROUND
     if a.command=='selftest': return selftest()
     if a.command=='measure':
+        if a.official and ROUND=='addendum2' and reference_disk() is None:
+            print('PC88_REF_DISK_DIR_missing'); return 1
         d=measure(a.rom_dir,a.work_dir,a.official); save(a.out,d); return int(not valid(d))
     d=json.loads(a.measured.read_text())
     if a.command=='expected':
