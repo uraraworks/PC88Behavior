@@ -143,7 +143,7 @@ _bhl_direct_done:
     ; SAVEの成功フラグは通信完了判定用。直接モードは通常のOkへ戻る。
     XOR A
     LD (SAVE_DONE_FLAG),A
-    LD A,(RUN_CTRL)
+    LD A,(MM_RUN_CTRL)
     CP 3
     JR Z,_bhl_edit
     XOR A

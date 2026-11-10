@@ -102,7 +102,7 @@ cat "$WORK/build_normal.txt"
 # -----------------------------------------------------------------------
 say "2. 字句解析の自己検査（LEX_SELFTEST、--enable-l4-selftest版ビルド）"
 SELFTEST_ROM="$WORK/rom_selftest"
-python3 "$BUILD" "$SELFTEST_ROM" --enable-l4-selftest >"$WORK/build_selftest.txt" 2>&1 || { fail "build_main_rom.py(selftest)が失敗"; cat "$WORK/build_selftest.txt" >&2; }
+python3 "$BUILD" "$SELFTEST_ROM" --disable-main-sub-read --enable-l4-selftest >"$WORK/build_selftest.txt" 2>&1 || { fail "build_main_rom.py(selftest)が失敗"; cat "$WORK/build_selftest.txt" >&2; }
 
 read_lex_selftest() {
   # $1=rom-dir $2=out memlog path -> 標準出力に "TOTAL PASS FAILIX"（10進）
@@ -439,7 +439,7 @@ PYEOF
 
 say "4c. トークン表(ABS)の語長を壊した変種（LEX_SELFTESTが不一致を検出することを確かめる）"
 TOKENFAULT_ROM="$WORK/rom_tokenfault"
-python3 "$BUILD" "$TOKENFAULT_ROM" --inject-l4-token-fault --enable-l4-selftest >"$WORK/build_tokenfault.txt" 2>&1 || { fail "build_main_rom.py(tokenfault)が失敗"; cat "$WORK/build_tokenfault.txt" >&2; }
+python3 "$BUILD" "$TOKENFAULT_ROM" --disable-main-sub-read --inject-l4-token-fault --enable-l4-selftest >"$WORK/build_tokenfault.txt" 2>&1 || { fail "build_main_rom.py(tokenfault)が失敗"; cat "$WORK/build_tokenfault.txt" >&2; }
 read -r TF_TOTAL TF_PASS TF_FAILIX <<< "$(read_lex_selftest "$TOKENFAULT_ROM" "$WORK/lex_tokenfault.memlog.txt")"
 echo "LEX_SELFTEST(tokenfault): total=$TF_TOTAL pass=$TF_PASS failix=$TF_FAILIX"
 if [ "$TF_TOTAL" != "$KEYWORDS_TOTAL" ] || [ "$TF_PASS" != "$KEYWORDS_TOTAL" ] || [ "$TF_FAILIX" != "255" ]; then

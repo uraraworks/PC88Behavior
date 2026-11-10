@@ -2447,7 +2447,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 検査4a/4b（frames=60の枠内で350件のI/O列を数える、サイクル数に敏感な
     # 検査）が壊れる（実測: 350件中343件しか出ない）。既定では呼ばず、
     # tools/l4_basic_selftest.sh がこのフラグを立てたビルドでだけ呼ぶ。
-    l4_selftest_call = "    CALL LEX_SELFTEST\n" if enable_l4_selftest else ""
+    bank_init_call = "    CALL L4_SELFTEST_INIT\n" if enable_l4_selftest else "    CALL EXT_BANK_INIT\n"
     # 拡張ROMバンク: 割り込み無しで行える範囲の自己検査(常駐部からの
     # 呼び出し・窓の中からの呼び出し)はSCREEN_MAINと同じ挿入点(まだ
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
@@ -2469,8 +2469,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 「常に再入中」と誤検出されて一切動かなくなる)。
     ipl_text = ipl_text.replace(
         INSERT_MARK,
-        "    CALL SCREEN_MAIN\n    CALL EXT_BANK_INIT\n"
-        + l4_selftest_call + ext_bank_selftest_call + main_sub_init_call
+        "    CALL SCREEN_MAIN\n" + bank_init_call
+        + ext_bank_selftest_call + main_sub_init_call
         + vsync_regcheck_init + INSERT_MARK)
 
     # STEADY_WAIT(IM2/I/EI設定済みの定常状態)へ入った直後に呼ぶ自己検査
@@ -2719,6 +2719,17 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             pad_mark, ext_bank_relay_include + pad_mark)
         run_path.write_text(run_text, encoding="utf-8")
 
+    if enable_l4_selftest:
+        # 自己検査用の表は予約済み空き領域に置き、通常コードの
+        # 配置や固定ORGを動かさない。照合器は常駐部の末尾に置く。
+        run_text = run_path.read_text(encoding="utf-8")
+        marker = "AEL_ROM_LAYOUT_PAD:\n"
+        if run_text.count(marker) != 1:
+            raise SystemExit("自己検査の配置先が一意でない")
+        includes = (f'INCLUDE "{tokens_path}"\n'
+                    'L4_SELFTEST_INIT:\n    CALL EXT_BANK_INIT\n    JP LEX_SELFTEST\n')
+        run_path.write_text(run_text.replace(marker, includes + marker), encoding="utf-8")
+
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
         f"EXTRA_LINES EQU {extra_lines}\n"
@@ -2732,10 +2743,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         + f'\nINCLUDE "{key_table_path}"\n'
         + (f'\nINCLUDE "{vsync_regcheck_path}"\n' if enable_vsync_regcheck else "")
         + f'\nINCLUDE "{REPO / "src/l4_basic/state.asm"}"\n'
-        + (f'\nINCLUDE "{tokens_path}"\n' if enable_l4_selftest else "")
         + f'\nINCLUDE "{print_dispatch_path}"\n'
         + f'\nINCLUDE "{errors_path}"\n'
-        + (f'\nINCLUDE "{lexer_path}"\n' if enable_l4_selftest else "")
         + f'\nINCLUDE "{mbf_path}"\n'
         + f'\nINCLUDE "{mbf_double_path}"\n'
         + f'\nINCLUDE "{interp_path}"\n'
@@ -2855,6 +2864,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
         else:
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
+    if enable_l4_selftest:
+        combined += f'\nINCLUDE "{lexer_path}"\n'
     return memmap.asm_prelude() + combined
 
 
@@ -2930,6 +2941,10 @@ def build_n_rom(main_rom, main_asm, work):
         nsource += f"MC_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n"
     for name in re.findall(r'(?m)^mc_cb_(\w+):', merge_source):
         address = main_asm.labels.get(name)
+        # READを省く測定構成では呼出先が存在しない。拡張バンクの
+        # 同じ構成における既定値に合わせる（この経路は使用しない）。
+        if address is None and name == 'MAIN_SUB_READ_CHR_RETRY':
+            address = 0x1787
         if address is None or not 0 <= address < N88_SIZE:
             raise SystemExit(f'N側MERGEのmain呼出先が不正: {name}')
         nsource += f"MC_MAIN_{name} EQU 0x{address:04X}\n"

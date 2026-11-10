@@ -283,7 +283,8 @@ T_BEFORE:
     program=(ROOT/'src/l4_basic/program.asm').read_text(encoding='utf-8')
     direct=program[program.index('_bhl_direct:\n'):].split('\n; ---------------------------------------------------------------------',1)[0]
     if fault == 'prompt':
-        direct=direct.replace('    XOR A\n    LD (SAVE_DONE_FLAG),A', '    LD A,1')
+        assert direct.count('    XOR A\n    RET\n_bhl_edit:') == 1
+        direct=direct.replace('    XOR A\n    RET\n_bhl_edit:', '    LD A,1\n    RET\n_bhl_edit:')
     harness=harness.replace('    LD A,1\n    LD (T_PASS),A', '    CALL _bhl_direct\n    OR A\n    JP NZ,T_BAD4\n    LD A,1\n    LD (T_PASS),A')
     harness=harness.replace('    ORG 01800h', 'SAVE_DONE_FLAG EQU MM_S2_DONE\n; 直接モードの入口が呼ぶ数値の入力時検査(バンク3)は、ここでは「問題なし(CF=0)」で返す。\nEXT_BANK_CALL:\n    OR A\n    RET\nBASIC_RUN_DIRECT:\n    RET\n'+direct+'\n    ORG 01800h')
     harness=harness.replace('    ORG 01800h',
