@@ -14,6 +14,8 @@
   t6: 各腕の印の書込み列（番地・値）、直接腕の応答の行数・文字数
   t7: 操作の同定、候補番号ごとの印と応答、RUNの通り道、AUTOの番号行の署名
   t8: 応答の同定と印の書込み列（既定割り当て腕は長さを除く）
+  t9: 応答の同定と印の書込み列（追補2の構成）
+  t10: MOTOR の腕の印とポート30hの前後の値
 """
 import argparse
 import json
@@ -87,7 +89,32 @@ def project_t8(data):
     return out
 
 
-PROJECT = {'t5': project_t5, 't6': project_t6, 't7': project_t7, 't8': project_t8}
+def project_t9(data):
+    out = {}
+    for name, rec in sorted(data['records'].items()):
+        if not rec.get('gate'):
+            raise ValueError(f'{name}: 関門を通っていない')
+        run = rec['runs'][0]
+        out[name] = {'responses': rec.get('responses'), 'writes': run['writes']}
+    return out
+
+
+def project_t10(data):
+    # MOTOR の腕だけ（EDIT は追補で測り直す）。ポート30h(48)の最後の値と誤りの同定。
+    out = {}
+    for name, rec in sorted(data['records'].items()):
+        if not name.startswith(('motor-', 'ref-')) or not rec.get('gate'):
+            continue
+        run = rec['runs'][0]
+        item = {'writes': run['writes']}
+        if 'out_last_before_after' in run:
+            before, after = run['out_last_before_after']
+            item['port30'] = [before.get('48'), after.get('48')]
+        out[name] = item
+    return out
+
+
+PROJECT = {'t5': project_t5, 't6': project_t6, 't7': project_t7, 't8': project_t8, 't9': project_t9, 't10': project_t10}
 
 
 def main():

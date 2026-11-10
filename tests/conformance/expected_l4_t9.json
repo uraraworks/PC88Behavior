@@ -1,0 +1,497 @@
+{
+ "chain": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57360,
+    11
+   ],
+   [
+    57361,
+    0
+   ],
+   [
+    57362,
+    0
+   ],
+   [
+    57363,
+    0
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "chain-array": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57360,
+    11
+   ],
+   [
+    57361,
+    0
+   ],
+   [
+    57362,
+    0
+   ],
+   [
+    57363,
+    9
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "chain-common": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57360,
+    11
+   ],
+   [
+    57361,
+    7
+   ],
+   [
+    57362,
+    3
+   ],
+   [
+    57363,
+    0
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "chain-delete": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57366,
+    5
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "chain-line": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57364,
+    44
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "chain-merge-all": {
+  "responses": {
+   "operationa": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57364,
+    44
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "common-direct": {
+  "responses": {
+   "operationa": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "common-program": {
+  "responses": {
+   "operationa": "none"
+  },
+  "writes": [
+   [
+    57365,
+    1
+   ],
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "merge": {
+  "responses": {
+   "operationa": "none",
+   "p0a": "none",
+   "p1a": "none",
+   "p2a": "none",
+   "p3a": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ],
+   [
+    57360,
+    10
+   ],
+   [
+    57346,
+    2
+   ],
+   [
+    57361,
+    22
+   ],
+   [
+    57346,
+    3
+   ],
+   [
+    57362,
+    30
+   ],
+   [
+    57346,
+    4
+   ],
+   [
+    57363,
+    44
+   ],
+   [
+    57346,
+    5
+   ]
+  ]
+ },
+ "merge-binary": {
+  "responses": {
+   "operationa": "候補外",
+   "p0a": "none",
+   "p1a": "none",
+   "p2a": "none",
+   "p3a": "ERR8",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ],
+   [
+    57360,
+    10
+   ],
+   [
+    57346,
+    2
+   ],
+   [
+    57361,
+    20
+   ],
+   [
+    57346,
+    3
+   ],
+   [
+    57362,
+    30
+   ],
+   [
+    57346,
+    4
+   ],
+   [
+    57346,
+    5
+   ]
+  ]
+ },
+ "merge-missing": {
+  "responses": {
+   "operationa": "ERR53",
+   "p0a": "none",
+   "p1a": "none",
+   "p2a": "none",
+   "p3a": "ERR8"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ],
+   [
+    57360,
+    10
+   ],
+   [
+    57346,
+    2
+   ],
+   [
+    57361,
+    20
+   ],
+   [
+    57346,
+    3
+   ],
+   [
+    57362,
+    30
+   ],
+   [
+    57346,
+    4
+   ],
+   [
+    57346,
+    5
+   ]
+  ]
+ },
+ "merge-program": {
+  "responses": {
+   "operationa": "none",
+   "p0a": "none",
+   "p1a": "none",
+   "p2a": "none",
+   "p3a": "none",
+   "savea": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ],
+   [
+    57360,
+    10
+   ],
+   [
+    57346,
+    2
+   ],
+   [
+    57361,
+    22
+   ],
+   [
+    57346,
+    3
+   ],
+   [
+    57362,
+    30
+   ],
+   [
+    57346,
+    4
+   ],
+   [
+    57363,
+    44
+   ],
+   [
+    57346,
+    5
+   ]
+  ]
+ },
+ "ref-ERR2": {
+  "responses": {
+   "operationa": "ERR2"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR33": {
+  "responses": {
+   "operationa": "ERR33"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR5": {
+  "responses": {
+   "operationa": "ERR5"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR52": {
+  "responses": {
+   "operationa": "ERR52"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR53": {
+  "responses": {
+   "operationa": "ERR53"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR54": {
+  "responses": {
+   "operationa": "ERR54"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR56": {
+  "responses": {
+   "operationa": "ERR56"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR61": {
+  "responses": {
+   "operationa": "ERR61"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR64": {
+  "responses": {
+   "operationa": "ERR64"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR71": {
+  "responses": {
+   "operationa": "ERR71"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR76": {
+  "responses": {
+   "operationa": "ERR76"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-ERR8": {
+  "responses": {
+   "operationa": "ERR8"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "ref-none": {
+  "responses": {
+   "operationa": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ },
+ "save-short": {
+  "responses": {
+   "operationa": "none"
+  },
+  "writes": [
+   [
+    57346,
+    1
+   ]
+  ]
+ }
+}
