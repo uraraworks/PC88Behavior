@@ -15,7 +15,7 @@ import l4_t5_delete_measure as common
 import l4_listkw_measure as kw
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'tmp/t8a1-work'
+WORK = Path(os.environ.get('PC88_T8_WORK', ROOT / 'tmp/t8a1-work'))
 REFS = base.REFS
 ARMS = ['input', 'return', 'length15', 'length16', 'default', 'shift', 'inkey',
         'on', 'off', 'stop', 'omitted', 'invalid0', 'invalid11', 'unset', 'undefined']

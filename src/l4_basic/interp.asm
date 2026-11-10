@@ -298,7 +298,21 @@ ERRKIND_TABLE:
     DW ERR_MSG_73
     DB 68
     DW ERR_MSG_68
+    ; l4-program.md 11.1: MERGEの形式違いとファイル誤りの参照。
+    DB 33
+    DW ERR_MSG_33
+    DB 56
+    DW ERR_MSG_56
+    DB 59
+    DW ERR_MSG_59
+    DB 71
+    DW ERR_MSG_71
+    DB 76
+    DW ERR_MSG_76_CUSTOM
     DB 0
+; 未掲載番号76の文言は自作の判断。
+ERR_MSG_76_CUSTOM:
+    DB "Unknown error",0
 
 ; ---------------------------------------------------------------------
 ; DIRECT_LINE — ':'区切りの文を先頭から順に実行する。

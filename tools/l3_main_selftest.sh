@@ -113,7 +113,7 @@ cd "$REPO"
 
 VENDOR="$(cd "$REPO/.." && pwd)/vendor/quasi88-libretro"
 FRONTEND="$REPO/tools/harness/frontend/q88measure"
-BASE_IOLOG="$REPO/measurements/l1-boot-io.iolog.txt.gz"
+BASE_IOLOG="${PC88_L3_BASE_IOLOG:-$REPO/measurements/l1-boot-io.iolog.txt.gz}"
 BUILD="$REPO/src/build_main_rom.py"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
@@ -324,9 +324,9 @@ expect = int(sys.argv[2], 16)
 label = sys.argv[3]
 got = data[2*120]
 if got == expect:
-    print(f"OK: {label} row2col0=0x{got:02X}（期待どおり）")
+    print(f"OK: {label} の打鍵結果は期待どおり")
 else:
-    print(f"NG: {label} row2col0=0x{got:02X}（期待0x{expect:02X}）"); sys.exit(1)
+    print(f"NG: {label} の打鍵結果が期待と異なる"); sys.exit(1)
 PYEOF
   [ $? -ne 0 ] && fail "キー直押し($label)"
 }
@@ -397,7 +397,7 @@ import sys
 data = open(sys.argv[1], "rb").read()
 got = data[2*120]
 if got != 0x71:
-    print(f"OK(検出力): 表の故障注入がかかると row2col0=0x{got:02X}(期待0x71と不一致)になり区別できた")
+    print("OK(検出力): 表の故障注入を検出できた")
     sys.exit(0)
 else:
     print("NG(検出力不足): 表を故障注入しても検査7と区別できない"); sys.exit(1)
@@ -542,7 +542,7 @@ import sys
 data = open(sys.argv[1], "rb").read()
 got = data[2*120]
 if got != 0x51:
-    print(f"OK(検出力): SHIFT表の故障注入がかかると row2col0=0x{got:02X}(期待0x51と不一致)になり区別できた")
+    print("OK(検出力): SHIFT表の故障注入を検出できた")
     sys.exit(0)
 else:
     print("NG(検出力不足): SHIFT表を故障注入しても検査7と区別できない"); sys.exit(1)
@@ -567,9 +567,9 @@ data = open(sys.argv[1], "rb").read()
 row2 = data[2*120:2*120+3]
 expect = bytes([0x61, 0x20, 0x62])  # A, SPACE(0x20を書く選択), B
 if row2 == expect:
-    print(f"OK: A→SPACE→B row2[0:3]={row2!r}（期待どおり、Bはcol0から2桁先=col2）")
+    print("OK: SPACEでカーソルが1桁進む")
 else:
-    print(f"NG: A→SPACE→B row2[0:3]={row2!r}（期待{expect!r}）"); sys.exit(1)
+    print("NG: SPACE後の位置が期待と異なる"); sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "SPACEのエコー前進の検査"
 
@@ -588,7 +588,7 @@ data = open(sys.argv[1], "rb").read()
 row2 = data[2*120:2*120+3]
 expect_normal = bytes([0x61, 0x20, 0x62])
 if row2 != expect_normal:
-    print(f"OK(検出力): SPACE故障注入がかかると row2[0:3]={row2!r}(期待{expect_normal!r}と不一致)になり、検査17と区別できた")
+    print("OK(検出力): SPACE故障注入を検出できた")
     sys.exit(0)
 else:
     print("NG(検出力不足): SPACEを故障注入しても検査17と区別できない"); sys.exit(1)

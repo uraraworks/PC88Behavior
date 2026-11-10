@@ -244,18 +244,20 @@ wb_c_num:
     RET Z
     LD A,D
     OR A
-    JP NZ,wb_c_range
+    JR NZ,wb_c_range
     LD A,(MM_FN_AUX+1)
     AND 3
     CP 2
     LD A,E
     JR NZ,wb_c_r7
     OR A
-    JP NZ,wb_c_range           ; 第3引数は 0 だけ
+    JR NZ,wb_c_range           ; 第3引数は 0 だけ
     JR wb_c_sep
+wb_c_range:
+    JP fn_illegal
 wb_c_r7:
     CP 8
-    JP NC,wb_c_range
+    JR NC,wb_c_range
     LD C,A
     LD A,(MM_FN_AUX+1)
     AND 3
@@ -332,8 +334,6 @@ wb_c_fg:
 wb_c_missing:
     LD A,22
     JP fn_error
-wb_c_range:
-    JP fn_illegal
 
 ; ---- 印字したセルの色を属性域の組へ反映する（PRINT_CHAR から。第5.6.2節）。
 ; 行の属性域は 20組×(位置,値)。組 k は区間 [組k-1の終端, 組kの終端) の値（先頭の区間は桁0から）。
@@ -730,6 +730,7 @@ wb_wa_30:
     JR NC,wb_wa_30o
     AND 0FDh
 wb_wa_30o:
+    LD (MM_SCR_P30),A          ; l4-program.md 第12節。
     OUT (0x30),A
     XOR A                      ; 3: CRTC RESET
     OUT (0x51),A
@@ -934,3 +935,4 @@ wb_cn_m:
 wb_cn_end:
     LD A,22                    ; 全省略・末尾のコンマ
     JP fn_error
+

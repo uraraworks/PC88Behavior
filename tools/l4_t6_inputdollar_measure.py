@@ -7,7 +7,7 @@ import l4_listkw_measure as kw
 import l4_key_measure as key
 
 ROOT=Path(__file__).resolve().parents[1]
-WORK=ROOT/'tmp/t6-work'
+WORK=Path(os.environ.get('PC88_T6_WORK', ROOT/'tmp/t6-work'))
 ARMS={}
 for n in (1,3,10):
     ARMS[f'n{n}-exact']=(str(n),('k7q9m2v4b6'[:n]),False)

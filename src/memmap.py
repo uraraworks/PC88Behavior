@@ -178,6 +178,10 @@ FIELDS = {
     'MM_SQ_LINE': ('SEQ_STATE', 24),
     'MM_SQ_QUOTE': ('SEQ_STATE', 25),
     'MM_SQ_LEN': ('SEQ_STATE', 26),
+    # l4-program.md 第12節: ポート30hの書き込み値を保持する。
+    'MM_SCR_P30': ('SEQ_STATE', 27),
+    'MM_SAVE_PROGRAM_FORMAT': ('SEQ_STATE', 28),
+    'MM_LOAD_ALLOW_OWN': ('SEQ_STATE', 29),
     'MM_SQ_WORK': ('SEQ_WORK', 0),
     # ランダム文内だけの作業。既存SEQ_WORKの使用分(+0..11)と非重複。
     'MM_RF_NEW': ('SEQ_WORK', 12),

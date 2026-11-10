@@ -48,6 +48,8 @@ ERR_MSG_29:
     DB "WHILE without WEND",0
 ERR_MSG_30:
     DB "WEND without WHILE",0
+ERR_MSG_33:
+    DB "Feature not available",0
 ERR_MSG_50:
     DB "FIELD overflow",0
 ERR_MSG_51:
@@ -60,10 +62,14 @@ ERR_MSG_54:
     DB "File already open",0
 ERR_MSG_55:
     DB "Input past end",0
+ERR_MSG_56:
+    DB "Bad file name",0
 ERR_MSG_57:
     DB "Direct statement in file",0
 ERR_MSG_58:
     DB "Sequential after PUT",0
+ERR_MSG_59:
+    DB "Sequential I/O only",0
 ERR_MSG_61:
     DB "File write protected",0
 ERR_MSG_62:
@@ -76,5 +82,7 @@ ERR_MSG_68:
     DB "Disk full",0
 ERR_MSG_70:
     DB "Bad drive number",0
+ERR_MSG_71:
+    DB "Bad track/sector",0
 ERR_MSG_73:
     DB "Rename across disks",0

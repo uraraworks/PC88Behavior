@@ -2,6 +2,55 @@
 ; FIELD / LSET・RSET / MK*$本体はcapacity断片へ配置する。
 SQ_TRY_STMT:
     CALL SKIP_SPACES
+    ; 通常文では追加語の照合を避け、FORやキー入力の周期を保つ。
+    CALL PEEK_CHAR
+    AND 0DFh
+    CP 'M'
+    JR Z,sq_try_m
+    CP 'C'
+    JR Z,sq_try_c
+    JR sq_try_open_real
+sq_try_m:
+    LD HL,sq_motor_word
+    LD A,5
+    CALL sq_keyword
+    OR A
+    JR Z,sq_try_merge_real
+    LD HL,0x360C
+    CALL N_COMPLEX_CALL
+    LD A,1
+    RET
+sq_try_c:
+    LD HL,mc_common_word
+    LD A,6
+    CALL sq_keyword
+    OR A
+    JR Z,sq_try_merge
+    LD HL,0x3603
+    CALL N_COMPLEX_CALL
+    LD A,1
+    RET
+sq_try_merge:
+    LD HL,mc_chain_word
+    LD A,5
+    CALL sq_keyword
+    OR A
+    JR Z,sq_try_open_real
+    LD HL,0x3606
+    CALL N_COMPLEX_CALL
+    LD A,1
+    RET
+sq_try_merge_real:
+    LD HL,mc_merge_word
+    LD A,5
+    CALL sq_keyword
+    OR A
+    JR Z,sq_try_open_real
+    LD HL,0x3600
+    CALL N_COMPLEX_CALL
+    LD A,1
+    RET
+sq_try_open_real:
     LD HL,sq_open_word
     LD A,4
     CALL sq_keyword
@@ -28,6 +77,12 @@ sq_do_open:
     CALL SQ_OPEN
     LD A,1
     RET
+sq_motor_word: DB "MOTOR"
+mc_merge_word: DB "MERGE"
+mc_common_word: DB "COMMON"
+mc_chain_word: DB "CHAIN"
+mc_all_word: DB "ALL"
+mc_delete_word: DB "DELETE"
 
 ; 既存の文/代入として受理できなかった場合だけ追加語を照合する。
 ; 通常の文の表・照合経路には入れない。候補は先頭文字で除外する。
@@ -222,3 +277,68 @@ rf_transfer_file:
     LD A,(RUN_STMT_KIND)
     SUB 51
     JP rf_transfer
+
+; l4-program.md 第12節。値の検査後に30h bit3だけを変更する。
+; OUT文の30h・31hの写しを実際の出力と同時に更新する。
+RECORD_OUT:
+    LD A,C
+    CP 0x30
+    LD A,E
+    JR NZ,record_out_31
+    LD (MM_SCR_P30),A
+    JR record_out_write
+record_out_31:
+    LD A,C
+    CP 0x31
+    LD A,E
+    JR NZ,record_out_write
+    LD (MM_SCR_P31),A
+record_out_write:
+    OUT (C),A
+    RET
+
+; l4-program.md 11.1–11.2: LOADが見つけた自作保存形式はASCII行として読み込む。
+; MERGEでは許可印を立てないため、同じ形式を誤り59にする。
+mc_load_program_type:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    JR NZ,mc_load_wrong_type
+    LD A,(MM_LOAD_ALLOW_OWN)
+    OR A
+    JR Z,mc_load_wrong_type
+    LD A,(MM_LOAD_ENTRY_INDEX)
+    LD L,A
+    LD H,0
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    ADD HL,HL
+    LD DE,MM_MAIN_SUB_SECTOR_BUF+9
+    ADD HL,DE
+    LD A,(HL)
+    CP 0x80                  ; l3-disk-format.md 1.3: SAVEプログラム種別。
+    JR NZ,mc_load_wrong_type
+    INC HL
+    LD A,(HL)
+    LD (MM_LOAD_UNIT),A
+    XOR A
+    LD (MM_LOAD_UNIT_SECTOR),A
+    LD (MM_LOAD_BYTE_OFFSET),A
+    LD (MM_LOAD_LINE_LEN),A
+    LD (MM_LOAD_SKIP_LF),A
+    LD A,160
+    LD (MM_LOAD_CHAIN_GUARD),A
+    LD A,3
+    LD (MM_LOAD_PHASE),A
+    LD A,2
+    RET
+mc_load_wrong_type:
+    LD A,5
+    RET
+
+mc_save_program_type:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    RET NZ
+    LD A,(MM_SAVE_PROGRAM_FORMAT)
+    RET

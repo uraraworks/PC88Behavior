@@ -384,6 +384,7 @@ EXT_BANK_CALLABLE_RESIDENT_LABELS = (
 # バンク1のFILES/LOAD/PRINT USING/ON/WHILE/DIMが窓外中継で呼ぶmain側ルーチン。
 # バンクROMを別に組み立てるため、実ビルドのラベル番地を渡す。
 EXT_BANK1_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_LOAD_PROGRAM_TYPE": "mc_load_program_type",
     "CAP_TRACE_TRON_TEXT": "TRACE_TRON_TEXT",
     "CAP_TRACE_TROFF_TEXT": "TRACE_TROFF_TEXT",
     "CAP_TRACE_MATCH": "TRY_MATCH_KEYWORD_GENERIC",
@@ -507,6 +508,7 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK2_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_SAVE_PROGRAM_TYPE": "mc_save_program_type",
     "CAP_ADDR_RF_TRY_TRANSFER": "RF_TRY_TRANSFER",
     "CAP_ADDR_BINARY_ARG": "BINARY_ARG",
     "CAP_ADDR_BINARY_FILL": "BINARY_FILL",
@@ -562,6 +564,7 @@ EXT_BANK2_MAIN_ADDR_LABELS = {
 }
 
 EXT_BANK3_MAIN_ADDR_LABELS = {
+    "CAP_ADDR_RECORD_OUT": "RECORD_OUT",
     "CAP_ADDR_RF_FUNC": "RF_FUNC",
     "CAP_ADDR_RF_CUR_TO_INT16": "CUR_TO_INT16",
     "CAP_ADDR_RF_LOGIC_OR_EXPR": "LOGIC_OR_EXPR",
@@ -2922,7 +2925,16 @@ def build_n_rom(main_rom, main_asm, work):
                  'RUN_STR_TMP_LEN', 'RUN_STR_TMP_BUF'):
         nsource += f"{name} EQU 0x{main_asm.symtab[name]:04X}\n"
     nsource += file_source
+    merge_source = (REPO / 'src/n_rom/mergechain.asm').read_text(encoding='utf-8')
+    for name in ('mc_merge_word', 'mc_all_word', 'mc_delete_word', 'DIRECT_RECORD'):
+        nsource += f"MC_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n"
+    for name in re.findall(r'(?m)^mc_cb_(\w+):', merge_source):
+        address = main_asm.labels.get(name)
+        if address is None or not 0 <= address < N88_SIZE:
+            raise SystemExit(f'N側MERGEのmain呼出先が不正: {name}')
+        nsource += f"MC_MAIN_{name} EQU 0x{address:04X}\n"
     nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
+    nsource += merge_source
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
     ncode, n_asm = assembled('n_rom_gen.asm', nsource)
     # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは

@@ -5,5 +5,7 @@ LOAD_STMT:
     OR A
     RET NZ
     LD A,1
+    LD (MM_LOAD_ALLOW_OWN),A
+    LD A,1
     LD HL,06800h
     JP EXT_BANK_CALL

@@ -65,6 +65,9 @@ VAR_ROWBASE EQU MM_VAR_ROWBASE   ; 現在行のVRAM先頭番地（2バイト）
 ; ---------------------------------------------------------------------
 SCREEN_MAIN:
     CALL SQ_INIT
+    ; l1-ipl.md 付録A: 起動時の最後の30h出力を写す。OUTは増やさない。
+    LD A,0x23
+    LD (MM_SCR_P30),A
     XOR A
     LD (SAVE_CAPTURE_ACTIVE),A
     LD (SAVE_DONE_FLAG),A

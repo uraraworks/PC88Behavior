@@ -15,7 +15,7 @@ import l4_t5_delete_measure as common
 import l4_key_measure as key_measure
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'tmp/t7a1-work'
+WORK = Path(os.environ.get('PC88_T7_WORK', ROOT / 'tmp/t7a1-work'))
 REFS = {'none': 'rem', 'ERR2': 'error 2', 'ERR5': 'error 5', 'ERR8': 'error 8'}
 RENUMBER = {
     'default': ('renum', list(range(10, 71, 10))),

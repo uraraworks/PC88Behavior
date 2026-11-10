@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 export PYTHONDONTWRITEBYTECODE=1
 round=${1:-first}
 case "$round" in
-  first) work=tmp/t8a1-work/selftest ;;
+  first) work=${PC88_T8_WORK:-tmp/t8a1-work}/selftest ;;
   addendum2) work=tmp/t8a2-work/selftest ;;
   *) exit 2 ;;
 esac

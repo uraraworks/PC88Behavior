@@ -5,11 +5,17 @@
 SQ_INIT:
     XOR A
     LD HL,MM_SQ_HANDLES
-    LD B,37
+    LD B,27
 sq_init_loop:
     LD (HL),A
     INC HL
     DJNZ sq_init_loop
+    INC HL                     ; 30hの写しはファイル初期化で消さない。
+    LD B,9
+sq_init_tail:
+    LD (HL),A
+    INC HL
+    DJNZ sq_init_tail
     RET
 SQ_ERROR:
     LD (ERROR_KIND),A

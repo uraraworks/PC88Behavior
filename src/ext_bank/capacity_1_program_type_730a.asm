@@ -1,0 +1,5 @@
+; l4-program.md 11.1–11.2: ファイル種別をmain経由で判定する。
+    ORG 0x730A
+LOAD_PROGRAM_TYPE:
+    LD IX,CAP_ADDR_LOAD_PROGRAM_TYPE
+    JR RF1_MAIN_CALL_TAIL

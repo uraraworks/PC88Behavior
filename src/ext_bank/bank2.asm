@@ -534,7 +534,7 @@ s2_entry_name:
     INC DE
     INC HL
     DJNZ s2_entry_name
-    LD A,(MM_BINARY_MODE)
+    CALL SAVE_PROGRAM_TYPE
     LD (HL),A
     INC HL
     LD A,(S2_ALLOC)

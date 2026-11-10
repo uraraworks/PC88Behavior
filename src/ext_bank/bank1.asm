@@ -551,8 +551,7 @@ _lb_not_found:
     LD A,4
     RET
 _lb_wrong_type:
-    LD A,5
-    RET
+    JP LOAD_PROGRAM_TYPE
 _lb_io_error:
     LD A,6
     RET

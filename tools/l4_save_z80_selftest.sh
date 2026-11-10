@@ -28,6 +28,10 @@ from build_main_rom import EXT_BANK2_MAIN_ADDR_LABELS
 import z80text
 bank=compose_bank_text(repo / 'src/ext_bank/bank2.asm',
     dict.fromkeys(EXT_BANK2_MAIN_ADDR_LABELS, 0x1787)).removeprefix(memmap.asm_prelude())
+# 合成ROMにはmain中継がないため、種別選択の呼び先だけを同等なスタブへ接続する。
+old='SAVE_PROGRAM_TYPE:\n    LD IX,CAP_ADDR_SAVE_PROGRAM_TYPE\n    JP BANK2_MAIN_CALL_ADDR'
+if bank.count(old)!=1: raise SystemExit('SAVE種別の中継が一意でない')
+bank=bank.replace(old, 'SAVE_PROGRAM_TYPE:\n    JP T_SAVE_FORMAT')
 for name in ('read','write','list'):
     prefix='    LD A,(S2_DRIVE)\n' if name=='read' else ''
     old=('s2_write:\n    JP s2_write_stream' if name=='write' else
@@ -53,6 +57,12 @@ T_WRITES EQU MM_EXT_BANK_ST_VAL0+1
 T_BODIES EQU MM_EXT_BANK_ST_VAL0+2
 T_FAILCODE EQU MM_EXT_BANK_ST_VAL0+3
 T_PASS EQU MM_EXT_BANK_ST_VAL0+4
+T_SAVE_FORMAT:
+    LD A,(MM_BINARY_MODE)
+    OR A
+    RET NZ
+    LD A,(MM_SAVE_PROGRAM_FORMAT)
+    RET
 T_START:
     LD SP,MM_STACK_TOP
     LD HL,MM_SYNTH_DATA
@@ -125,6 +135,7 @@ T_HALT:
     JR T_HALT
 T_RESET:
     XOR A
+    LD (MM_SAVE_PROGRAM_FORMAT),A
     LD (T_WRITES),A
     LD (T_BODIES),A
     LD (S2_ERROR_FLAG),A

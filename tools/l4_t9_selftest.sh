@@ -6,6 +6,7 @@ round=${1:-first}
 case "$round" in
   first) work=tmp/t9-work/selftest ;;
   addendum1) work=tmp/t9a1-work/selftest ;;
+  addendum2) work=tmp/t9-work/addendum2/selftest ;;
   *) exit 2 ;;
 esac
 python3 tools/l4_t9_mergechain_measure.py selftest --round "$round"

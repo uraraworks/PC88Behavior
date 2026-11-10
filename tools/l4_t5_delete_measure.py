@@ -16,7 +16,7 @@ import l4_key_measure as key_measure
 import check_l3_screen_output as screen
 
 REPO = Path(__file__).resolve().parents[1]
-WORK = REPO / 'tmp/t5-work'
+WORK = Path(os.environ.get('PC88_T5_WORK', REPO / 'tmp/t5-work'))
 DELETE = {
     'single': 'delete 20', 'range': 'delete 20-40',
     'open-left': 'delete -30', 'open-right': 'delete 30-',
