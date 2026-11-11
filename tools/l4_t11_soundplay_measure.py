@@ -8,12 +8,14 @@ import os
 import re
 import subprocess
 import sys
+from unittest.mock import patch
 from pathlib import Path
 sys.dont_write_bytecode = True
 import l4_listkw_measure as kw
 import l4_t5_delete_measure as common
 import l4_t7_autorenum_measure as base
 import l4_t10_editmotor_measure as t10
+import l4_t9_mergechain_measure as t9
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / 'tmp/t11-work'
@@ -26,20 +28,27 @@ PLAY = {'c':'play "c"', 'scale':'play "cdefgab"', 'octave':'play "o5c"',
         'rest':'play "r"', 'sharp':'play "c#"', 'plus':'play "c+"',
         'flat':'play "c-"', 'number':'play "n60"', 'channels':'play "c","e","g"',
         'invalid':'play "x"', 'octave-invalid':'play "o9c"', 'length-invalid':'play "l0c"'}
+ROUND = 'first'
 NAMES = ['ref-'+x for x in REFS] + ['sound-'+x for x in SOUND] + ['play-'+x for x in PLAY]
 
 
 def plan(name):
     cmds = [('type','clear 200,&hdfff'), ('type','new')]
     if name == 'sound-program':
-        cmds += [('type','90 on error goto 95:sound 7,&h38:poke &he017,1:end'),
-                 ('type','95 poke &he018,err:end')]
+        if ROUND == 'addendum1':
+            cmds += [('type','90 on error goto 95:sound 7,&h38:poke &he017,1:poke &he002,20:end'),
+                     ('type','95 poke &he018,err:poke &he002,20:end')]
+        else:
+            cmds += [('type','90 on error goto 95:sound 7,&h38:poke &he017,1:end'),
+                     ('type','95 poke &he018,err:end')]
     cmds += [('type','for i=&he000 to &he048:poke i,0:next'),
              ('type','poke &he000,151'), ('type','cls:locate 0,5'), ('snap','before')]
     op = REFS[name[4:]] if name.startswith('ref-') else SOUND[name[6:]] if name.startswith('sound-') else PLAY[name[5:]]
     # 同一文列の印は文が復帰した場合だけ実行される。
     if name.startswith('play-'): op += ':poke &he017,1'
-    cmds += [('operation',op), ('snap','operation'), ('type','poke &he002,20'), ('type','poke &he001,163')]
+    cmds += [('operation',op), ('snap','operation')]
+    if ROUND != 'addendum1' or name != 'sound-program': cmds += [('type','poke &he002,20')]
+    cmds += [('type','poke &he001,163')]
     return cmds, op
 
 
@@ -68,6 +77,9 @@ def timed_marks(path, first):
 def capture(rom,name,work,official=False):
     cmds,op=plan(name)
     args=[str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),'--screen-signature-only','--out',str(work/'signatures.tsv')]
+    if ROUND == 'addendum1':
+        t9.ROUND = 'addendum2'
+        args += t9.disks(work,official)
     at=700 if official else 100; first=at; frames={}; snapshots=[]; start=end=None
     for kind,value in cmds:
         if kind in ('type','operation'):
@@ -133,19 +145,29 @@ def measure(rom,work,official=False):
                 records[n]['result']={'response':response,'marks':run['marks']}
     else:
         for n in NAMES: records[n]['gate']=False
-    return {'version':1,'round':'first','records':records}
+    return {'version':1,'round':ROUND,'records':records}
 
 
 def valid(d):
-    return d.get('version')==1 and d.get('round')=='first' and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) for r in d['records'].values())
+    return d.get('version')==1 and d.get('round')==ROUND and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) for r in d['records'].values())
 
 def check(a,b): return valid(a) and valid(b) and a==b
 
 
 def selftest():
-    work=WORK/'selftest'; work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
+    work=WORK/('selftest' if ROUND == 'first' else 'selftest-addendum1'); work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
     p=subprocess.run([sys.executable,'-B',str(ROOT/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')
+    if ROUND == 'addendum1':
+        ref=work/'synthetic-ref'; ref.mkdir(exist_ok=True)
+        (ref/'synthetic.d88').write_bytes(b'synthetic disk')
+        config=work/'synthetic-config.tsv'; config.write_text('reference_disk\tsynthetic.d88\n')
+        diskwork=work/'disk-test'; diskwork.mkdir(exist_ok=True)
+        t9.ROUND='addendum2'
+        with patch.dict(os.environ,{'PC88_REF_DISK_DIR':str(ref),'M6FF_FROZEN_CONFIG':str(config)}):
+            t9.disks(diskwork,True)
+        assert (diskwork/'a.d88').read_bytes()==b'synthetic disk'
+        assert (diskwork/'b.d88').is_file()
     data=measure(rom,work); base.save(work/'actual.json',data)
     if not valid(data): return 1
     data=json.loads((work/'actual.json').read_text()); assert check(data,data)
@@ -181,11 +203,15 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True)
-    st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first'],default='first')
-    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first'],default='first')
-    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True); e.add_argument('--round',choices=['first'],default='first')
-    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True); c.add_argument('--round',choices=['first'],default='first')
+    st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1'],default='first')
+    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first','addendum1'],default='first')
+    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True); e.add_argument('--round',choices=['first','addendum1'],default='first')
+    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True); c.add_argument('--round',choices=['first','addendum1'],default='first')
     args=ap.parse_args()
+    global ROUND
+    ROUND=args.round
+    if args.command=='measure' and args.official and ROUND=='addendum1' and not os.environ.get('PC88_REF_DISK_DIR'):
+        print('PC88_REF_DISK_DIR_missing'); return 1
     if args.command=='selftest': return selftest()
     if args.command=='measure':
         data=measure(args.rom_dir,args.work_dir,args.official); base.save(args.out,data); return int(not valid(data))
