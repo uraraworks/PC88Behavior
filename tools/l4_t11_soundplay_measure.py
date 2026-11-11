@@ -28,6 +28,8 @@ PLAY = {'c':'play "c"', 'scale':'play "cdefgab"', 'octave':'play "o5c"',
         'rest':'play "r"', 'sharp':'play "c#"', 'plus':'play "c+"',
         'flat':'play "c-"', 'number':'play "n60"', 'channels':'play "c","e","g"',
         'invalid':'play "x"', 'octave-invalid':'play "o9c"', 'length-invalid':'play "l0c"'}
+CONFIGS = {'A': ('N88 V2', 'OPNA'), 'B': ('N88 V1H', 'OPN'),
+           'C': ('N88 V1S', 'OPN'), 'D': ('N88 V2', 'OPN')}
 ROUND = 'first'
 NAMES = ['ref-'+x for x in REFS] + ['sound-'+x for x in SOUND] + ['play-'+x for x in PLAY]
 
@@ -75,9 +77,13 @@ def timed_marks(path, first):
 
 
 def capture(rom,name,work,official=False):
-    cmds,op=plan(name)
+    config, arm = name.split('/', 1) if ROUND == 'addendum2' else (None, name)
+    cmds,op=plan(arm)
     args=[str(kw.FRONT),'--core',str(kw.find_core()),'--rom-dir',str(rom),'--screen-signature-only','--out',str(work/'signatures.tsv')]
-    if ROUND == 'addendum1':
+    if config:
+        mode, board = CONFIGS[config]
+        args += ['--basic-mode',mode,'--sound-board',board]
+    if ROUND in ('addendum1','addendum2'):
         t9.ROUND = 'addendum2'
         args += t9.disks(work,official)
     at=700 if official else 100; first=at; frames={}; snapshots=[]; start=end=None
@@ -105,7 +111,7 @@ def capture(rom,name,work,official=False):
         memory=base.parse_memory(log,first); writes=memory['writes']
         if [v for a,v in writes if a==0xe002]!=[20]: raise ValueError('段階')
         t10.validate_io(io)
-        return {'screen':{k:v for k,v in sigs.items() if not k.endswith('b')},'writes':writes,
+        return {'config': list(CONFIGS[config]) if config else None, 'screen':{k:v for k,v in sigs.items() if not k.endswith('b')},'writes':writes,
                 'boot_writes':memory['boot_writes'],'operation_start':start,'operation_end':end,
                 'marks':timed_marks(log,first),'sound_out':sound_outputs(io,start,end)}
     finally:
@@ -127,38 +133,44 @@ def measure(rom,work,official=False):
     for n in NAMES:
         records[n]['gate']=base.stable_pair(records[n]['runs'])
         print(f'{n}: '+('通過' if records[n]['gate'] else '失敗'),flush=True)
-    if all(records['ref-'+x]['gate'] for x in REFS):
-        refs={x:base.response(records['ref-'+x]['runs'][0]['screen']['operationa']) for x in REFS}; prompts={}
+    for prefix in ([c+'/' for c in CONFIGS] if ROUND == 'addendum2' else ['']):
+        identify_records(records, prefix)
+    return {'version':1,'round':ROUND,'records':records}
+
+
+def identify_records(records, prefix):
+    names=[n for n in NAMES if n.startswith(prefix)]
+    if all(records[prefix+'ref-'+x]['gate'] for x in REFS):
+        refs={x:base.response(records[prefix+'ref-'+x]['runs'][0]['screen']['operationa']) for x in REFS}; prompts={}
         for x in REFS:
-            rows=records['ref-'+x]['runs'][0]['screen']['operationa']; lines=sorted((int(k),v) for k,v in rows.items() if 7<=int(k)<19)
+            rows=records[prefix+'ref-'+x]['runs'][0]['screen']['operationa']; lines=sorted((int(k),v) for k,v in rows.items() if 7<=int(k)<19)
             if not lines: raise ValueError('参照プロンプト')
             row,value=lines[-1]
             if row in prompts and prompts[row]!=value: raise ValueError('参照プロンプト不一致')
             prompts[row]=value
-        start=records['ref-none']['runs'][0]['screen']['beforea'].get(5)
-        for n in NAMES:
-            if not n.startswith('ref-') and records[n]['gate']:
+        start=records[prefix+'ref-none']['runs'][0]['screen']['beforea'].get(5)
+        for n in names:
+            if not n[len(prefix):].startswith('ref-') and records[n]['gate']:
                 run=records[n]['runs'][0]
                 if run['screen']['beforea'].get(5)!=start: records[n]['gate']=False; continue
                 try: response=base.identify(base.response(run['screen']['operationa'],prompts),refs)
                 except ValueError: response='入力中またはプロンプト欠測'
                 records[n]['result']={'response':response,'marks':run['marks']}
     else:
-        for n in NAMES: records[n]['gate']=False
-    return {'version':1,'round':ROUND,'records':records}
+        for n in names: records[n]['gate']=False
 
 
 def valid(d):
-    return d.get('version')==1 and d.get('round')==ROUND and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) for r in d['records'].values())
+    return d.get('version')==1 and d.get('round')==ROUND and set(d.get('records',{}))==set(NAMES) and all(r['gate'] and base.stable_pair(r['runs']) and (ROUND != 'addendum2' or all(run.get('config') == list(CONFIGS[n.split('/')[0]]) for run in r['runs'])) for n,r in d['records'].items())
 
 def check(a,b): return valid(a) and valid(b) and a==b
 
 
 def selftest():
-    work=WORK/('selftest' if ROUND == 'first' else 'selftest-addendum1'); work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
+    work=WORK/('selftest' if ROUND == 'first' else 'selftest-'+ROUND); work.mkdir(parents=True,exist_ok=True); rom=work/'rom'
     p=subprocess.run([sys.executable,'-B',str(ROOT/'src/build_main_rom.py'),str(rom),'--work-dir',str(work/'asm')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     if p.returncode: raise ValueError('自作ROMビルド')
-    if ROUND == 'addendum1':
+    if ROUND in ('addendum1','addendum2'):
         ref=work/'synthetic-ref'; ref.mkdir(exist_ok=True)
         (ref/'synthetic.d88').write_bytes(b'synthetic disk')
         config=work/'synthetic-config.tsv'; config.write_text('reference_disk\tsynthetic.d88\n')
@@ -168,15 +180,31 @@ def selftest():
             t9.disks(diskwork,True)
         assert (diskwork/'a.d88').read_bytes()==b'synthetic disk'
         assert (diskwork/'b.d88').is_file()
+    if ROUND == 'addendum2':
+        for label, (mode, board) in CONFIGS.items():
+            probe=work/('config-probe-'+label); probe.mkdir(exist_ok=True)
+            def verify_args(args, **kwargs):
+                assert args[args.index('--basic-mode')+1] == mode
+                assert args[args.index('--sound-board')+1] == board
+                raise ValueError('probe complete')
+            with patch.object(subprocess, 'run', side_effect=verify_args):
+                try: capture(rom,label+'/ref-none',probe)
+                except ValueError as exc: assert str(exc) == 'probe complete'
+                else: raise AssertionError('構成指定未検査')
     data=measure(rom,work); base.save(work/'actual.json',data)
     if not valid(data): return 1
     data=json.loads((work/'actual.json').read_text()); assert check(data,data)
+    refname='A/ref-none' if ROUND == 'addendum2' else 'ref-none'
+    if ROUND == 'addendum2':
+        wrong=copy.deepcopy(data)
+        wrong['records']['A/ref-none']['runs'][0]['config'] = list(CONFIGS['B'])
+        assert not valid(wrong)
     broken=copy.deepcopy(data)
-    for r in broken['records']['ref-none']['runs']: r['screen']['operationa']['6'][0]^=1
+    for r in broken['records'][refname]['runs']: r['screen']['operationa']['6'][0]^=1
     assert valid(broken) and not check(data,broken)
     a,b=[(7,[1,'a'])],[(7,[1,'b'])]
     assert base.identify(a,{'ERR8':a,'ERR2':b})=='ERR8' and base.identify(a,{'ERR8':b,'ERR2':b})=='候補外' and base.identify(a,{'ERR8':a,'ERR2':a})=='参照衝突'
-    mismatch=copy.deepcopy(data); mismatch['records']['ref-none']['runs'][1]['screen']['operationa']['6'][0]^=1
+    mismatch=copy.deepcopy(data); mismatch['records'][refname]['runs'][1]['screen']['operationa']['6'][0]^=1
     assert not valid(mismatch)
     common.unexpected_selftest(lambda p:base.parse_memory(p,10),work/'synthetic.log',[(0xe001,163)])
     p=work/'sweep.log'; prefix=[(a,0) for a in range(0xe000,0xe049)]+[(0xe000,151),(0xe001,163)]
@@ -203,14 +231,17 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='command',required=True)
-    st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1'],default='first')
-    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first','addendum1'],default='first')
-    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True); e.add_argument('--round',choices=['first','addendum1'],default='first')
-    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True); c.add_argument('--round',choices=['first','addendum1'],default='first')
+    st=sub.add_parser('selftest'); st.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
+    m=sub.add_parser('measure'); m.add_argument('--rom-dir',type=Path,required=True); m.add_argument('--work-dir',type=Path,required=True); m.add_argument('--out',type=Path,required=True); m.add_argument('--official',action='store_true'); m.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
+    e=sub.add_parser('expected'); e.add_argument('--measured',type=Path,required=True); e.add_argument('--out',type=Path,required=True); e.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
+    c=sub.add_parser('check'); c.add_argument('--measured',type=Path,required=True); c.add_argument('--expected',type=Path,required=True); c.add_argument('--round',choices=['first','addendum1','addendum2'],default='first')
     args=ap.parse_args()
-    global ROUND
+    global ROUND, NAMES
     ROUND=args.round
-    if args.command=='measure' and args.official and ROUND=='addendum1' and not os.environ.get('PC88_REF_DISK_DIR'):
+    if ROUND == 'addendum2':
+        NAMES=[c+'/'+n for c in CONFIGS for n in (['ref-'+x for x in REFS]+['sound-mixer','sound-tone','play-c','play-scale','play-o5l8c'])]
+        PLAY['o5l8c']='play "o5l8c"'
+    if args.command=='measure' and args.official and ROUND in ('addendum1','addendum2') and not os.environ.get('PC88_REF_DISK_DIR'):
         print('PC88_REF_DISK_DIR_missing'); return 1
     if args.command=='selftest': return selftest()
     if args.command=='measure':

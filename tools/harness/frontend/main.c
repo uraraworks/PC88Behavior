@@ -322,6 +322,7 @@ static keyev_t  g_keyev[MAX_KEYSTROKES];
 static int      g_n_keyev = 0;
 static unsigned g_frame   = 0;
 static const char *g_basic_mode = NULL;
+static const char *g_sound_board = NULL;
 /* q88_sub_cpu_mode: 未指定時は変更前と完全に同じ挙動（NULLを返す）にするため、
  * 明示指定があったときだけ g_sub_cpu_mode_set を立てる。requested はコアが
  * このキーを問い合わせた回数を無条件に数える（無指定でも数える）。 */
@@ -648,6 +649,10 @@ static bool environment_cb(unsigned cmd, void *data)
         return true;   /* 画面は捨てるので何でもよい */
 
     case RETRO_ENVIRONMENT_GET_VARIABLE:
+        if (g_sound_board && !strcmp(((struct retro_variable *)data)->key, "q88_sound_board")) {
+            ((struct retro_variable *)data)->value = g_sound_board;
+            return true;
+        }
         if (g_basic_mode && !strcmp(((struct retro_variable *)data)->key,
                                     "q88_basic_mode")) {
             ((struct retro_variable *)data)->value = g_basic_mode;
@@ -1706,6 +1711,7 @@ static void usage(void)
         "                    --screen-signature-at SNAPSHOT_ID:FRAME] (最大%d個)\n"
         "                   [--reset-at FRAME]\n"
         "                   [--basic-mode 'N88 V2|N88 V1H|N88 V1S|N']\n"
+        "                   [--sound-board OPN|OPNA]\n"
         "                   [--save-to-disk-image]\n"
         "                   [--type \"TEXT\"] [--type-at FRAME]\n"
         "                   [--key-at FRAME] [--key RETROK_NAME]\n"
@@ -1934,6 +1940,10 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--frames")  && i + 1 < argc) frames = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--reset-at") && i + 1 < argc) reset_at = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--basic-mode") && i + 1 < argc) g_basic_mode = argv[++i];
+        else if (!strcmp(argv[i], "--sound-board") && i + 1 < argc) {
+            g_sound_board = argv[++i];
+            if (strcmp(g_sound_board, "OPN") && strcmp(g_sound_board, "OPNA")) { usage(); return 2; }
+        }
         else if (!strcmp(argv[i], "--save-to-disk-image")) g_save_to_disk_image = true;
         else if (!strcmp(argv[i], "--sub-cpu-mode") && i + 1 < argc) {
             const char *v = argv[++i];
