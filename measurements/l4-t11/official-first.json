@@ -1,0 +1,3617 @@
+{
+  "records": {
+    "play-c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-channels": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6980,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                30,
+                "4b6972b4d389d772e15b20da44de2f952210bd68c6a9c7c6065d7c2bc63960fa"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6980,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                30,
+                "4b6972b4d389d772e15b20da44de2f952210bd68c6a9c7c6065d7c2bc63960fa"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-flat": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "f55c1ffb4e4c56701150aa144dbf9c6346f0e1d069b482455e99faf4f8332dc7"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "f55c1ffb4e4c56701150aa144dbf9c6346f0e1d069b482455e99faf4f8332dc7"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-invalid": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "466a9978086bae49e57057c139a76ab807760cdfb21778876f914aa339be8581"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "466a9978086bae49e57057c139a76ab807760cdfb21778876f914aa339be8581"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-length": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "acb4e12e8e99f6cace4200939f905a7bf77f630f562f219a760ee7c92e048fbe"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "acb4e12e8e99f6cace4200939f905a7bf77f630f562f219a760ee7c92e048fbe"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-length-invalid": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "7a79d661b1b19e0ece4f1495d106c70bdbc1d51cf65912f63ca923ed175db37a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "7a79d661b1b19e0ece4f1495d106c70bdbc1d51cf65912f63ca923ed175db37a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-number": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "71d297d1e9d9588f758f0437e7720cc437c52c05c018abbe7d9e07d87857aac2"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "71d297d1e9d9588f758f0437e7720cc437c52c05c018abbe7d9e07d87857aac2"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-octave": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "24d6e3bccc2715a6873f77b6c052b1359e672167c9be5afd9662cfff46485f28"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "24d6e3bccc2715a6873f77b6c052b1359e672167c9be5afd9662cfff46485f28"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-octave-invalid": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "9ddf3aa8e7658ac42c67667325a4735fd1aa753378fee45d1d03391899cc0ec8"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6932,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                24,
+                "9ddf3aa8e7658ac42c67667325a4735fd1aa753378fee45d1d03391899cc0ec8"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-plus": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "efa17552aaf2f5fb993e86fee9f687967f4a8cebc89c95a3b72addbb4bf6c88d"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "efa17552aaf2f5fb993e86fee9f687967f4a8cebc89c95a3b72addbb4bf6c88d"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-rest": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "968a24cbacf7febc55df42945f2439e22c84574162921b378801be10e30fc61c"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "968a24cbacf7febc55df42945f2439e22c84574162921b378801be10e30fc61c"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-scale": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-sharp": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "e7b35c8adbe47faba8f7bc9a5e365b4aba7befcb29843f6d282e5e6c8e08b5ed"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6924,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                23,
+                "e7b35c8adbe47faba8f7bc9a5e365b4aba7befcb29843f6d282e5e6c8e08b5ed"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-tempo": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "2964ded10cdd3a2add0b7ed8190bcdf862a038b8f62af2856939986d60fe88e0"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "2964ded10cdd3a2add0b7ed8190bcdf862a038b8f62af2856939986d60fe88e0"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "play-volume": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6940,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                25,
+                "0ff2cb6de36b013b80dce1f7b70cf6ab332ce34fdc02c64ece57da2948d3ccb1"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6940,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                25,
+                "0ff2cb6de36b013b80dce1f7b70cf6ab332ce34fdc02c64ece57da2948d3ccb1"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-ERR2": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-ERR5": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-ERR8": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "ref-none": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-data-256": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "8758dd455026f4cc3eefd7b2f6f515c17ab02ae1521cab671e796fc23a28a7a8"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "8758dd455026f4cc3eefd7b2f6f515c17ab02ae1521cab671e796fc23a28a7a8"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-data-negative": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6820,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "c11ae4b380637ff6582f9b454f8a25b8c69cf31fa2baf812e9ee983c79b478c0"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6820,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "c11ae4b380637ff6582f9b454f8a25b8c69cf31fa2baf812e9ee983c79b478c0"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-mixer": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-program": {
+      "gate": false,
+      "runs": [
+        null,
+        null
+      ]
+    },
+    "sound-reg-256": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "8b13852cb117c1ec3f5c8a0ac15136f014c2f783050e2e1d6824157436bd1181"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "8b13852cb117c1ec3f5c8a0ac15136f014c2f783050e2e1d6824157436bd1181"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-reg-ff": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "000eca45203720b118b8ac3f8d0c94c5d3cbfda1b03830cb2b2d3d1e8d69902e"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "000eca45203720b118b8ac3f8d0c94c5d3cbfda1b03830cb2b2d3d1e8d69902e"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-reg-negative": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6820,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "b0418ef2bf0ceb900abb0f6816acc00d3f22121c28db9c59af5080652590dbd6"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6820,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                10,
+                "b0418ef2bf0ceb900abb0f6816acc00d3f22121c28db9c59af5080652590dbd6"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-tone": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "sound-zero": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6812,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "7fbf211eae016301fcca05613026f1958175fd5115db1ea804ac976d9f13284a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6812,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                9,
+                "7fbf211eae016301fcca05613026f1958175fd5115db1ea804ac976d9f13284a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "round": "first",
+  "version": 1
+}
