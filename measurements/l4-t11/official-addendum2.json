@@ -1,0 +1,4918 @@
+{
+  "records": {
+    "A/play-c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/play-o5l8c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/play-scale": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/ref-ERR2": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/ref-ERR5": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/ref-ERR8": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/ref-none": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/sound-mixer": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "A/sound-tone": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPNA"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/play-c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/play-o5l8c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/play-scale": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/ref-ERR2": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/ref-ERR5": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/ref-ERR8": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/ref-none": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/sound-mixer": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "B/sound-tone": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1H",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/play-c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/play-o5l8c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/play-scale": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/ref-ERR2": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/ref-ERR5": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/ref-ERR8": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/ref-none": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/sound-mixer": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "C/sound-tone": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V1S",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/play-c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6916,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                22,
+                "5ce5bc05ff0bd0432a5242cc8a6c88b2106bed53c9e9592b59559f45f9e80c1a"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/play-o5l8c": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6948,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                26,
+                "c3c17037be94cec6f94dc20c8235842643c7353dc11a83d03b4cc64fe5719389"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/play-scale": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6964,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                28,
+                "37f986270332a48df3d568cd221c33fd8fa52e76fdd85751c89e472bb8e3edc4"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/ref-ERR2": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "3caa5a8d930b7af40811bbf308efb781cd955a0a5ae67ff7b4d3b6317c0b8967"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/ref-ERR5": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "a528a0d592ec94681029cbbb1b9bf73e9af283fe05ae3a3af19613f497a1363f"
+              ],
+              "7": [
+                21,
+                "516f1ec22a305de27920797e42da79377a5438fb550d4569701c7e84ee07c1bc"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/ref-ERR8": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6796,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                7,
+                "2dcbf901ed3a9929fc177764e42e3b8d5fd945cd7c73c5b515ae9e37889282d5"
+              ],
+              "7": [
+                21,
+                "d4b9fa273ace8e3ea982d34a5bddcfe1975f816ca4ffb94cc7a6622da25a90e7"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/ref-none": {
+      "gate": true,
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6764,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                3,
+                "6048429140cf46560817d4e785531b56fce32af13527bad03f568bf15f6aa2ac"
+              ],
+              "7": [
+                2,
+                "23f0bb9084cc9f056db9ecdd86a943e25cb5c4119228db8fffe438236dd4ccec"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/sound-mixer": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6836,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                12,
+                "eba4c378860b76aa792a47689ebe8f316d19fea05dcd25026374d01d0374723b"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "D/sound-tone": {
+      "gate": true,
+      "result": {
+        "marks": [
+          [
+            1643,
+            57367,
+            0
+          ],
+          [
+            1643,
+            57368,
+            0
+          ]
+        ],
+        "response": "ERR2"
+      },
+      "runs": [
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        },
+        {
+          "boot_writes": 219,
+          "config": [
+            "N88 V2",
+            "OPN"
+          ],
+          "marks": [
+            [
+              1643,
+              57367,
+              0
+            ],
+            [
+              1643,
+              57368,
+              0
+            ]
+          ],
+          "operation_end": 6828,
+          "operation_start": 2872,
+          "screen": {
+            "beforea": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            },
+            "operationa": {
+              "5": [
+                2,
+                "0c4118c0f17043734d0c27a1534c2479d480efe9e634bec075f9874e25339182"
+              ],
+              "6": [
+                11,
+                "aedf6f27b12c30f1d7d55430e1b14513ff0b1b0bea18a1ce503c831e2959f6b9"
+              ],
+              "7": [
+                12,
+                "b5b0113fca9efbfe033d926a0267ef2d19d520814d88ed7c65f23057da7849dd"
+              ],
+              "8": [
+                2,
+                "ef09de04be0de1de50e56b16a74e6e5e8f2205337a132957be4a1e367fcbb33d"
+              ],
+              "19": [
+                65,
+                "0e0b0a254e2ba7ce9f49cc1a2d87613f189efcfb2ebee1a47442c9f3ec6b7089"
+              ]
+            }
+          },
+          "sound_out": [],
+          "writes": [
+            [
+              57346,
+              20
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "round": "addendum2",
+  "version": 1
+}
