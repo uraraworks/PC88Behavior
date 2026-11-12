@@ -179,7 +179,7 @@ int retro_b88_finish(void) {
     fprintf(f,"],\"motors\":[");
     if(media_ok) for(i=0;i<motor_n;++i) fprintf(f,"%s%u",i?",":"",motors[i]);
     fprintf(f,"],\"commands\":[");
-    /* 値を許すのは自作入力・自作媒体のFDCコマンド、引数、結果のみ。 */
+    /* この記録はリポジトリ外の生データ。コマンドと引数は公開集計で関係へ縮約する。 */
     if(media_ok) for(i=0;i<command_n;++i) {
         transaction *t=&commands[i];
         fprintf(f,"%s{\"scope\":%u,\"bytes\":[",i?",":"",t->scope);

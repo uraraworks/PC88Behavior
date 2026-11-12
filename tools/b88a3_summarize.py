@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""追補3。生レジスタは関係へ縮約し、自作媒体のFDC値だけを例外とする。"""
+"""追補3。FDC引数と生レジスタを自作入力との関係へ縮約する。"""
 import argparse
 from collections import Counter
 import json
@@ -71,6 +71,14 @@ def matches(value, candidates):
     return {name: value == candidate for name, candidate in candidates.items()}
 
 
+def argument_relations(arm, values):
+    candidates = {k: v for k, v in candidate_values(inputs(arm)).items() if not k.startswith('定数')}
+    candidates.update({f'送信引数{n + 1}': v for n, v in enumerate(arm.get('args', ()))})
+    candidates.update({f'自作READ引数{n}': v for n, v in enumerate(arm.get('command', ())) if n})
+    return [{'入力との一致': matched} if (matched := [k for k, v in candidates.items() if value == v])
+            else {'分類': '定数（値はリポジトリ外）'} for value in values]
+
+
 def result_relations(values, result):
     if values is None or result is None: return None
     st0, st1, st2 = result[:3]
@@ -126,7 +134,8 @@ def summarize_run(directory, arm):
         '応答長の仕様と一致': x['replies'] == expected if expected is not None and comm_complete else None,
         '自作移動先到達回数': x['landing']}
     row['FDC取引'] = [{'区間': '入口から戻り' if t['scope'] else '前処理',
-        '種類': FDC.get(t['bytes'][0]&31, 'INVALID'), 'コマンドと引数': t['bytes'],
+        '種類': FDC.get(t['bytes'][0]&31, 'INVALID'), '引数の個数': len(t['bytes']) - 1,
+        '引数と入力の関係': argument_relations(arm, t['bytes'][1:]),
         '引数完了': len(t['bytes']) == COMMAND_LENGTH.get(t['bytes'][0]&31, 1),
         '結果': t['result'], 'データ受信数': t['data_in'], 'データ送信数': t['data_out']} for t in x['commands']]
     reads = [t for t in x['commands'] if (t['bytes'][0]&31) == 6]
@@ -161,7 +170,9 @@ def report(root):
         runs, values = [], []
         for n in (1,2):
             path = root/'raw'/arm['name']/str(n)
-            try: row = json.loads((path/'row.json').read_text())
+            try:
+                row = json.loads((path/'row.json').read_text())
+                if any('コマンドと引数' in t for t in row.get('FDC取引', [])): row = dict(MISSING)
             except (OSError, ValueError): row = dict(MISSING)
             runs.append(row)
             values.append(json.loads((path/'values.tmp').read_text()) if (path/'values.tmp').exists() else None)

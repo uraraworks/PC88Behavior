@@ -58,12 +58,16 @@ def value_free(row):
     if comm['応答長の仕様と一致'] is not None: boolean(comm['応答長の仕様と一致'])
     for k in set(comm)-{'受信順に入力と一致','引数と応答の通信完了','応答長の仕様と一致'}: natural(comm[k])
     for t in fdc:
-        assert set(t)=={'区間','種類','コマンドと引数','引数完了','結果','データ受信数','データ送信数'}
+        assert set(t)=={'区間','種類','引数の個数','引数と入力の関係','引数完了','結果','データ受信数','データ送信数'}
         assert t['区間'] in ('入口から戻り','前処理')
         from b88_summarize import FDC
         assert t['種類'] in set(FDC.values()) | {'INVALID'}
-        assert 1<=len(t['コマンドと引数'])<=9 and len(t['結果'])<=7
-        for n in t['コマンドと引数']+t['結果']: natural(n,255)
+        natural(t['引数の個数'],8); assert len(t['引数と入力の関係'])==t['引数の個数'] and len(t['結果'])<=7
+        for arg in t['引数と入力の関係']:
+            assert set(arg) in ({'入力との一致'}, {'分類'})
+            if '分類' in arg: assert arg['分類']=='定数（値はリポジトリ外）'
+            else: assert isinstance(arg['入力との一致'],list) and arg['入力との一致'] and all(isinstance(v,str) for v in arg['入力との一致'])
+        for n in t['結果']: natural(n,255)
         boolean(t['引数完了']);natural(t['データ受信数']);natural(t['データ送信数'])
         assert p['媒体交換確認']
     assert set(result)=={'前処理末尾で確認','入口で確認','READ入力と一致','データ受信数','結果7バイト',
@@ -134,7 +138,9 @@ def main(root):
                 assert all(r['入力との一致'][k] for k in ('BC','DE','HL'))
             elif a['kind']=='seek':
                 ts=r['FDC取引']; assert [t['種類'] for t in ts]==['SEEK','SENSE INTERRUPT STATUS','SENSE DRIVE STATUS']
-                assert ts[0]['コマンドと引数']==[15,inputs(a)['A']&1,inputs(a)['DE']>>9]
+                assert ts[0]['引数の個数']==2
+                assert 'A&01' in ts[0]['引数と入力の関係'][0]['入力との一致']
+                assert 'D>>1' in ts[0]['引数と入力の関係'][1]['入力との一致']
                 assert len(ts[1]['結果'])==2 and len(ts[2]['結果'])==1
                 assert r['シーク']['OUT F8']==[7]
     assert summary['シーク規則']['SEEKシリンダ']['成立候補']==['D>>1']
@@ -269,6 +275,28 @@ def main(root):
         q=p/'extra';x=json.loads(q.read_text());x['media_ok']=0;q.write_text(json.dumps(x))
         bad,v=summarize_run(p,a);assert bad['判定']=='欠測' and v is None
     run(check=broken)
+    # 自作入力と無関係な合成定数を混ぜ、公開行と検査器の両方を検証する。
+    def constant_control(p,a,r,v):
+        q=p/'extra'; x=json.loads(q.read_text())
+        x['commands']=[dict(scope=1, bytes=[3, 173, 211], result=[], data_in=0, data_out=0)]
+        q.write_text(json.dumps(x))
+        row,_=summarize_run(p,a); value_free(row)
+        t=row['FDC取引'][0]
+        assert t['引数と入力の関係']==[{'分類':'定数（値はリポジトリ外）'}]*2
+        assert '173' not in json.dumps(t) and '211' not in json.dumps(t)
+        public=p/'public'; public.mkdir()
+        (public/'manifest.json').write_text(json.dumps({'腕':[a['name']]}))
+        for n in (1,2):
+            d=public/'raw'/a['name']/str(n); d.mkdir(parents=True)
+            (d/'row.json').write_text(json.dumps(row))
+        report(public)
+        published=json.loads((public/'summary.json').read_text())['腕'][a['name']]['走'][0]['FDC取引'][0]
+        assert published==t and '173' not in json.dumps(published) and '211' not in json.dumps(published)
+        t['コマンドと引数']=[3,173,211]
+        try: value_free(row)
+        except AssertionError: pass
+        else: raise AssertionError('FDC定数漏洩対照の検出力不足')
+    run(check=constant_control)
     neg=summary['腕']['negative']['走'][0]
     for section in (None,'準備','割り込み','通信','結果相','シーク'):
         bad=copy.deepcopy(neg);target=bad if section is None else bad[section];target['値列']='SECRET-DO-NOT-LEAK'
