@@ -47,7 +47,7 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # は1.36a以前の出力。現行は1.36a〜c（LOAD/RUN/0x15を含む）と、
 # 第232版の0x16連続書きと容量圧縮を含む。履歴の凍結値は別の検査で維持する。
 # 第233版: 0x0Eの指定番地読みを反映（履歴の凍結値は変更しない）。
-EXPECT_SUBROM_DISK_SHA="bb6a1b0c76eb211d504793e8fca98e5b27df0f30a805fb1edd53cafd81d960d4"
+EXPECT_SUBROM_DISK_SHA="e28df90690ccd5862f889ce69fded718c172cafb04ca0e1566c2533e0bed29dd"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then

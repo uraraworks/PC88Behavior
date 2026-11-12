@@ -83,8 +83,8 @@ def run_tracked_to_ready(a, count, *, fault_ready_to_default=False):
     """Execute the public Z80 instructions from tracked response to OUT $FD."""
     code = bytearray(a.code)
     if fault_ready_to_default:
-        # Fast routine: LD A,B; JR C,normal; JP SEND_BYTE_READY.
-        pos = a.labels["_boot_single_track_done"] + 3
+        # Fast routine: LD A,B; JP C,normal; JP SEND_BYTE_READY.
+        pos = a.labels["_boot_single_track_done"] + 4
         if code[pos] != 0xC3:
             raise SystemExit("NG: fast ready JP was not found")
         target = a.labels["SEND_BYTE"]
@@ -148,6 +148,9 @@ def run_tracked_to_ready(a, count, *, fault_ready_to_default=False):
             a_reg = 0; z = True; carry = False; pc += 1; cost = 4
         elif op == 0xC3:  # JP nn
             pc = code[pc + 1] | code[pc + 2] << 8; cost = 10
+        elif op == 0xDA:  # JP C,nn（固定入口の再配置で遠方分岐になった）
+            target = code[pc + 1] | code[pc + 2] << 8
+            pc = target if carry else pc + 3; cost = 10
         elif op == 0xCD:  # CALL nn
             target = code[pc + 1] | code[pc + 2] << 8
             stack.append(pc + 3); pc = target; cost = 17
@@ -173,14 +176,14 @@ control = assembled(False)
 fast = assembled(True)
 control_t, control_io, _ = run_tracked_to_ready(control, 4)
 fast_t, fast_io, _ = run_tracked_to_ready(fast, 4)
-# 配置変更後の通常経路は JR を通り、OUT まで 166T。
-if (control_t, fast_t, control_t - fast_t) != (166, 85, 81):
-    raise SystemExit(f"NG: tracked path is not 166T -> 85T: {control_t}/{fast_t}")
+# 固定入口の再配置後は通常末尾も条件分岐もJP。OUTまで164T/88T。
+if (control_t, fast_t, control_t - fast_t) != (164, 88, 76):
+    raise SystemExit(f"NG: tracked path is not 164T -> 88T: {control_t}/{fast_t}")
 if control_io != [("IN", 0xFE), ("OUT", 0xFD)]:
     raise SystemExit(f"NG: default tracked I/O path is unexpected: {control_io}")
 if fast_io != [("OUT", 0xFD)]:
     raise SystemExit(f"NG: fast tracked I/O path is unexpected: {fast_io}")
-print("OK: tracked path removes one duplicate IN $FE (166T -> 85T)")
+print("OK: tracked path removes one duplicate IN $FE (164T -> 88T)")
 
 for startup_count in (0, 1, 2):
     _t, startup_io, ram = run_tracked_to_ready(fast, startup_count)

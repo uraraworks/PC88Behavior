@@ -72,7 +72,7 @@ search.validate_rom_intervention_bytes(
 marker = assembled(5).labels["EARLY_RESPONSE_INTERVENTION_REACHED"]
 if marker >= subrom.SUB_ROM_FETCH_WINDOW:
     raise SystemExit(f"NG: 到達マーカーがフェッチ窓外: 0x{marker:04X}")
-print(f"OK: 既定/介入ROMは2042/2044 bytes、到達マーカー0x{marker:04X}は窓内")
+print(f"OK: 既定/介入ROMは{default_used}/{candidate_used} bytes、到達マーカー0x{marker:04X}は窓内")
 
 # 故障注入1: 0x02長さ表を別値へ壊す。
 fault_table = assembled(5)
