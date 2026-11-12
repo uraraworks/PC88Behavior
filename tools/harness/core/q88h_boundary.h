@@ -62,6 +62,7 @@ typedef struct {
     uint16_t ret;        /* 期待した戻り番地（RAM 側） */
     uint16_t sp_after;   /* 横断直後の SP。戻ったときは sp_after+2 のはず */
     uint16_t target;     /* 横断先（ROM 側の番地） */
+    uint64_t timeline_id;
 } q88h_bnd_rs_t;
 
 typedef struct {
@@ -110,6 +111,11 @@ extern "C" {
 #endif
 
 q88h_boundary_t *retro_q88h_boundary(void);
+int retro_q88h_timeline_open(const char *path, uint64_t limit);
+int retro_q88h_timeline_close(void);
+void retro_q88h_timeline_frame(uint32_t frame);
+void q88h_timeline_accept(void);
+void q88h_timeline_main_rom(int is_main);
 
 /* 採取内容を全消去する。enabled / fault は変えない（q88h_memlog と同じ理由） */
 void retro_q88h_boundary_reset(void);

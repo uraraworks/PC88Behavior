@@ -1,0 +1,34 @@
+--- a/src/z80.c
++++ b/src/z80.c
+@@ -764,7 +764,10 @@
+      * 「割り込み受理直後」の印を引き継ぐ。main CPU のみ。 */
+     q88h_boundary_t *q88h_bd = (z80 == &z80main_cpu) ? retro_q88h_boundary() : NULL;
+     if( q88h_bd && q88h_bd->enabled )
+-      q88h_boundary_int_begin( q88h_bd, (uint16_t)z80->SP.W );
++      {
++        q88h_boundary_int_begin( q88h_bd, (uint16_t)z80->SP.W );
++        q88h_timeline_accept();
++      }
+ 
+     z80->IFF = INT_DISABLE;			/* 割り込み禁止 */
+     z80->R ++;					/* 割り込み応答サイクル */
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -3135,6 +3135,17 @@
+ 
+   if( cls == Q88H_BND_ROM && bd->last_class == Q88H_BND_RAM )
+     top = main_mem_read( sp ) | (main_mem_read( (word)(sp + 1) ) << 8);
++  {
++    const byte *p = NULL;
++    if (addr < 0x6000) p = read_mem_0000_5fff;
++    else if (addr < 0x8000) p = read_mem_6000_7fff;
++    else if (addr >= 0xc000 && vram_access_way != VRAM_ACCESS_ALU &&
++             vram_access_way != VRAM_ACCESS_BANK)
++      p = addr < 0xf000 ? read_mem_c000_efff : read_mem_f000_ffff;
++    q88h_timeline_main_rom(p &&
++      ((p >= main_rom && p < main_rom + 0x8000) ||
++       (p >= main_rom_n && p < main_rom_n + 0x8000)));
++  }
+   q88h_boundary_on_instr( bd, addr, cls, sp, top, z80main_cpu.HL.W );
+ }
+ 

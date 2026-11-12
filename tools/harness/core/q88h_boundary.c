@@ -4,9 +4,48 @@
  */
 
 #include <string.h>
+#include <stdio.h>
+#include <inttypes.h>
+#include "q88h_clock.h"
 #include "q88h_boundary.h"
 
 static q88h_boundary_t g_boundary;
+static FILE *timeline;
+static uint64_t tl_limit, tl_count, tl_dropped, tl_id;
+static uint32_t tl_frame;
+static int tl_main_rom;
+void q88h_timeline_main_rom(int is_main) { tl_main_rom = is_main; }
+int retro_q88h_timeline_open(const char *path, uint64_t limit)
+{
+  timeline = fopen(path, "w");
+  tl_limit = limit; tl_count = tl_dropped = tl_id = 0; tl_frame = 0;
+  return timeline != NULL;
+}
+int retro_q88h_timeline_close(void)
+{
+  int failed;
+  if (!timeline) return 0;
+  if (tl_count >= tl_limit) fprintf(timeline, "# limit reached: dropped=%" PRIu64 "\n", tl_dropped);
+  if (g_boundary.rs_dropped) fprintf(timeline, "# return tracking overflow: dropped=%u\n", g_boundary.rs_dropped);
+  failed = ferror(timeline);
+  if (fclose(timeline)) failed = 1;
+  timeline = NULL;
+  return !failed;
+}
+void retro_q88h_timeline_frame(uint32_t frame) { tl_frame = frame; }
+static uint64_t tl_event(const char *kind, uint16_t target, uint64_t id)
+{
+  uint32_t clock;
+  if (!timeline) return 0;
+  clock = q88h_clock_tick();
+  if (tl_count >= tl_limit) { tl_dropped++; return 0; }
+  if (!id) id = ++tl_id;
+  fprintf(timeline, "%u %u %04X %s %" PRIu64 "\n", tl_frame, clock, target, kind, id);
+  tl_count++;
+  return id;
+}
+void q88h_timeline_accept(void) { tl_event("accept", 0, 0); }
+
 
 static q88h_boundary_t *ensure( q88h_boundary_t *b )
 {
@@ -51,7 +90,7 @@ int q88h_boundary_class_filter( const q88h_boundary_t *b, int cls )
 
 /* 期待戻り番地を積む。溢れたら最古を捨てて数える。 */
 static void rs_push( q88h_boundary_t *b, uint16_t ret, uint16_t sp_after,
-                     uint16_t target )
+                     uint16_t target, uint64_t id )
 {
   if( b->rs_n >= Q88H_BND_RS_DEPTH ){
     memmove( &b->rs[0], &b->rs[1], sizeof(b->rs[0]) * (Q88H_BND_RS_DEPTH - 1) );
@@ -61,6 +100,7 @@ static void rs_push( q88h_boundary_t *b, uint16_t ret, uint16_t sp_after,
   b->rs[ b->rs_n ].ret      = ret;
   b->rs[ b->rs_n ].sp_after = sp_after;
   b->rs[ b->rs_n ].target   = target;
+  b->rs[ b->rs_n ].timeline_id = id;
   b->rs_n++;
 }
 
@@ -90,11 +130,14 @@ void q88h_boundary_on_instr( q88h_boundary_t *b, uint16_t addr, int cls,
                   && (uint16_t)(top - b->last_pc) >= 1
                   && (uint16_t)(top - b->last_pc) <= 4 );
     }
+    {
+    uint64_t id = tl_main_rom ? tl_event(was_int ? "int" : (is_call ? "call" : "jump"), addr, 0) : 0;
     if( is_call ){
       b->x_call[addr]++;
-      rs_push( b, top, sp, addr );
+      rs_push( b, top, sp, addr, id );
     }else{
       b->x_jump[addr]++;
+    }
     }
     if( b->fault == Q88H_BND_FAULT_LEAK_REG && !b->leak_valid ){
       /* 故障注入: レジスタ値を1つ控え、出力に混ぜさせる（検出力の確認用） */
@@ -110,6 +153,7 @@ void q88h_boundary_on_instr( q88h_boundary_t *b, uint16_t addr, int cls,
       i--;
       if( b->rs[i].ret == addr && (uint16_t)(b->rs[i].sp_after + 2) == sp ){
         b->x_ret[ b->rs[i].target ]++;
+        if (b->rs[i].timeline_id) tl_event("ret", b->rs[i].target, b->rs[i].timeline_id);
         b->rs_n = i;
         break;
       }

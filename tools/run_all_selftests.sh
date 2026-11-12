@@ -178,6 +178,7 @@ SCRIPTS_EXPECTED=(
   "tools/harness/vram_dump_selftest.sh:0"
   "tools/harness/mem_write_log_selftest.sh:0"
   "tools/harness/boundary_selftest.sh:0"
+  "tools/harness/boundary_timeline_selftest.sh:0"
   "tools/harness/sub_boundary_selftest.sh:0"
   "tools/harness/sub_read_selftest.sh:0"
   "tools/b37_sub_rom_reads_selftest.sh:0"
