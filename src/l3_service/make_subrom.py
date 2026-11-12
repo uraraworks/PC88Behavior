@@ -2325,7 +2325,7 @@ def build_subrom(break_write_ack=False,
     a.call("SEND_BUFFER_PAIR")         # 読み応答と同じ送信手順、HLは2進む
     a.jr("_general_load_check")
     a.label("_general_load_byte")
-    a.rst(0x10)
+    a.call("RECV_BYTE")
     a.ld_hl_a()
     a.inc_hl()
     a.ld_a_b()
@@ -3844,10 +3844,17 @@ def pin_entries(a):
     fix = {pos: (name, kind) for pos, name, kind in a.fixups}
     # 時間/ゲート検査の命令列を保ち、全メモリ送出中のスタックも増やさない。
     protected = set()
-    for start, end in (("SEND_BOOT_SINGLE_TRACKED", "BOOT_HANDSHAKE"),
-                       ("SEND_BYTE", "FDC_TIMEOUT_MARK"),
-                       ("RESET_HDR_RUN", "ACTIVATE_SECTOR_RESPONSE"),
-                       ("_exchange14_bulk_check", None)):
+    # ゲート介入版は空きを確保するため送信・ヘッダ処理を共有化する。
+    # 受信部とゲート直前の判定列は介入版でも時間を変えない。
+    measurement_gate = any(name.startswith("M6IB_B") and name.endswith("_GATE")
+                           for name in a.labels)
+    protected_ranges = [("SEND_BOOT_SINGLE_TRACKED", "BOOT_HANDSHAKE"),
+                        ("RECV_BYTE", "SEND_BYTE"),
+                        ("_exchange14_bulk_check", None)]
+    if not measurement_gate:
+        protected_ranges += [("SEND_BYTE", "FDC_TIMEOUT_MARK"),
+                             ("RESET_HDR_RUN", "ACTIVATE_SECTOR_RESPONSE")]
+    for start, end in protected_ranges:
         if start in a.labels:
             lo = a.labels[start]
             hi = a.labels[end] if end else lo + 12

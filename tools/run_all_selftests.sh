@@ -84,6 +84,7 @@ cd "$REPO"
 # 「その終了コードが正常」という明示的な宣言。
 SCRIPTS_EXPECTED=(
   "tools/sub_rom_entry_selftest.sh:0"
+  "tools/sub_recv_timing_selftest.sh:0"
   "tools/b77_interrupts_selftest.sh:0"
   "tools/b27_window_selftest.sh:0"
   "tools/b25_two_bytes_selftest.sh:0"
