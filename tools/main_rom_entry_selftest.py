@@ -76,9 +76,32 @@ boot_failed:
     stage += ['    LD A,3', '    LD (0xDFFE),A', '    LD BC,0x0707',
               '    LD HL,0xD100', '    SCF', '    CALL 0x369A', '    JP C,failed',
               '    LD BC,0x0707', '    LD HL,0xD600', '    OR A', '    CALL 0x369A',
-              '    JP C,failed', '    LD A,0xA5', '    LD (0xDFFF),A',
+              '    JP C,failed']
+    def probe(entry, af, bc, hl, address, enabled=False, target=None):
+        stage.extend([f'    LD BC,0x{bc:04X}', '    LD DE,0x3456',
+                      f'    LD HL,0x{hl:04X}' if target is None else f'    LD HL,{target}',
+                      '    LD IX,0x789A', '    LD IY,0xBCDE',
+                      '    LD SP,0xE500', f'    LD HL,0x{af:04X}',
+                      '    PUSH HL', '    POP AF',
+                      f'    LD HL,0x{hl:04X}' if target is None else f'    LD HL,{target}',
+                      '    EI' if enabled else '    DI', f'    CALL 0x{entry:04X}',
+                      '    PUSH AF', '    PUSH BC', '    PUSH DE', '    PUSH HL',
+                      '    PUSH IX', '    PUSH IY', '    LD A,I', '    PUSH AF'])
+        for i in range(7):
+            stage.extend(['    POP HL', f'    LD (0x{address + i*2:04X}),HL'])
+    probe(0x369A, 0x55D7, 0x0707, 0xD100, 0xD880, enabled=True)
+    probe(0x3391, 0x55D7, 0x1234, 0, 0xD800, target='probe_target')
+    probe(0x369A, 0x55D6, 0x000A, 0xDA00, 0xD810, enabled=True)
+    probe(0x369A, 0x55D7, 0x8000, 0xDA00, 0xD820, enabled=True)
+    probe(0x37C9, 0x06D7, 0x1234, 0x5678, 0xD830)
+    probe(0x3847, 0x55D7, 0x1234, 0x5678, 0xD840, enabled=True)
+    probe(0x37C9, 0x0C57, 0x1234, 0x5678, 0xD850)
+    probe(0x37D2, 0x6057, 0x1234, 0x5678, 0xD860)
+    stage += ['    LD A,0xA5', '    LD (0xDFFF),A',
               'done:', '    JR done', 'failed:', '    LD A,0xEE',
-              '    LD (0xDFFF),A', '    JR done']
+              '    LD (0xDFFF),A', '    JR done', 'probe_target:', '    PUSH AF', '    PUSH HL',
+              '    LD HL,4', '    ADD HL,SP', '    LD (0xD870),HL',
+              '    POP HL', '    POP AF', '    RET']
     body = assemble(work, 'stage', '\n'.join(stage), 0xC100)
     assert len(boot) <= 256 and len(body) <= 2048
     payload = boot.ljust(256, b'\0') + body.ljust(2048, b'\0')
@@ -173,6 +196,40 @@ def main():
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
         assert result.get(0xDFFD) == 0x39 and result.get(0xDFFC) == 0x91
         print('PASS: 3391からHLのコードへ飛び、RETで呼び出し元へ復帰', flush=True)
+        def check_registers(values):
+            def word(addr):
+                return values.get(addr, 0) | (values.get(addr+1, 0) << 8)
+            def check(addr, af, bc, de, hl, iff=None):
+                got = [word(addr+i*2) for i in range(7)]
+                expected = [0xBCDE, 0x789A, hl, de, bc, af]
+                assert got[1:] == expected, f'{addr:04X}: レジスタ {got[1:]} != {expected}'
+                if iff is not None:
+                    assert bool(got[0] & 4) == iff, f'{addr:04X}: IFF不一致'
+            check(0xD880, 0x0100, 0x0707, 0xD200, 0xD100, False)
+            check(0xD810, 0x0100, 0x000A, 0xDB00, 0xDA00, False)
+            check(0xD820, 0x0193, 0x8000, 0xDA00, 0xEF60, False)
+            check(0xD830, 0x0682, 0x1234, 0x3456, 0x5678, False)
+            check(0xD840, 0x80D7, 0x1234, 0x3456, 0x5678, False)
+            check(0xD850, 0x0C02, 0x1234, 0x3456, 0x5678, False)
+            check(0xD860, 0x6057, 0x1234, 0x3456, 0x5678, False)
+            target = word(0xD806)
+            check(0xD800, 0x55D7, 0x1234, 0x3456, target, False)
+            assert 0xC100 <= target < 0xC900 and word(0xD870) == 0xE4FE
+        check_registers(result)
+        print('PASS: 各入口の戻りレジスタ・フラグ・IFF', flush=True)
+        broken = work/'fault-register'
+        shutil.copytree(rom, broken)
+        mutated = bytearray(code)
+        mutated[obj.labels['ENTRY_369A_ADVANCE']] = 0
+        (broken/'N88.ROM').write_bytes(mutated)
+        observed = execute(work, broken, disk, 'fault-register')
+        try:
+            check_registers(observed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('369AのDE故障を見逃した')
+        print('PASS: 369AのDE故障を検出', flush=True)
         pattern = bytes((i ^ 0xA7) for i in [0] + list(range(255, 0, -1)))
         def data(start):
             return bytes(result.get(start+i, 0) for i in range(256))
