@@ -1,8 +1,10 @@
 --- a/src/z80.c
 +++ b/src/z80.c
-@@ -764,7 +764,10 @@
+@@ -764,9 +764,12 @@
       * 「割り込み受理直後」の印を引き継ぐ。main CPU のみ。 */
      q88h_boundary_t *q88h_bd = (z80 == &z80main_cpu) ? retro_q88h_boundary() : NULL;
+     if( z80 == &z80sub_cpu && retro_q88h_sub_boundary()->enabled )
+       q88h_boundary_int_begin(retro_q88h_sub_boundary(), (uint16_t)z80->SP.W);
      if( q88h_bd && q88h_bd->enabled )
 -      q88h_boundary_int_begin( q88h_bd, (uint16_t)z80->SP.W );
 +      {
