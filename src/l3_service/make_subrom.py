@@ -3830,8 +3830,12 @@ PINNED_ENTRIES = {
 }
 
 
+# sub-rom-entry第2版: 入口07D6へのリトルエンディアンの番地。
+PINNED_DATA = {0x02DB: bytes((0xD6, 0x07))}
+
+
 def pin_entries(a):
-    """線形発行した命令を固定入口の周囲へ配置する。
+    """線形発行した命令を固定入口・固定データの周囲へ配置する。
 
     命令/インライン引数/表を分断しない。入口の2バイト前までに命令境界が
     無くなるときは手前でJRし、詰め物と入口を飛び越える。相対分岐が
@@ -3904,8 +3908,10 @@ def pin_entries(a):
     # 待ちループ内部へ入口回避JRを挟むと1周の時間が変わるため、7バイトを一塊で置く。
     wait_starts = {pc for name, pc in a.labels.items() if name.startswith("WAIT_FE_")}
     # RSTの後ろの5バイトへ、他からのフォールスルーが無い小ルーチンを収める。
+    # _window_run_known は直前がRETで、条件分岐からのみ到達する。
     packed = {}
-    for name, slot, end in (("ENTRY_CALCULATE", 0x23, "STATE_ACCESS"),
+    for name, slot, end in (("_window_run_known", 0x2B, "_window_run_lengths"),
+                            ("ENTRY_CALCULATE", 0x23, "STATE_ACCESS"),
                             ("FDC_TIMEOUT_MARK", 0x0B, "RECV_WORD_BE"),
                             ("RECV_WORD_BE", 0x13, "FDC_TC"),
                             ("FDC_OUT_THEN_N1", 0x1B, "_exchange14_bulk_check"
@@ -3921,14 +3927,16 @@ def pin_entries(a):
     for attempt in range(32):
         b = Asm(a.org)
         reloc = {}
-        pending = dict(PINNED_ENTRIES)
+        pending = {**PINNED_ENTRIES, **PINNED_DATA}
         padding = 0
         def entry(addr):
             if b.pc != addr:
                 raise ValueError(f"固定入口の重なり: {addr:04X} / {b.pc:04X}")
             target = pending.pop(addr)
             b.label(f"PIN_{addr:04X}")
-            if target is None:
+            if isinstance(target, bytes):
+                b.data(*target)
+            elif target is None:
                 b.ld_mem_a(0x7F0C)
             else:
                 b.jp(target)

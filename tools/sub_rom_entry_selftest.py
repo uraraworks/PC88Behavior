@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sub-rom-entry第1版の確定範囲だけを実Z80で検査する。公式素材は使わない。"""
+"""sub-rom-entry第2版の確定範囲だけを実Z80で検査する。公式素材は使わない。"""
 import os
 from pathlib import Path
 import re
@@ -20,6 +20,7 @@ public = {0x10: 'RECV_BYTE', 0x18: 'SEND_BYTE', 0x20: 'FDC_OUT',
 
 
 def check_layout(image):
+    assert image[0x2db:0x2dd] == bytes((0xd6, 0x07))
     for addr, target in public.items():
         assert image[addr] == 0xc3, f'{addr:04X}: JP入口なし'
         assert int.from_bytes(image[addr+1:addr+3], 'little') == a.labels[target]
@@ -50,10 +51,11 @@ for options in ({}, {'fast_no_disk_response_ready': True}, {'early_response_afte
     for name, (mask, branch) in waits.items():
         pc = layout.labels[name]
         assert variant[pc:pc+7] == bytes((0xdb,0xfe,0xe6,mask,branch,0xfa,0xc9))
+    assert variant[0x2db:0x2dd] == bytes((0xd6, 0x07))
     for addr, target in public.items():
         assert variant[addr] == 0xc3
         assert int.from_bytes(variant[addr+1:addr+3], 'little') == layout.labels[target]
-for addr in (*public, 0x2a4):
+for addr in (*public, 0x2a4, 0x2db):
     broken = bytearray(rom)
     broken[addr:addr+4] = bytes((0,)) + broken[addr:addr+3]
     try:
@@ -93,7 +95,9 @@ def run(entry, *, mode='CALL', fault=False, disk2=False, value=0x35, flags=1,
     case.mkdir()
     target = entry + int(fault)
     transfer = f'    {mode} {target}\n'
-    if mode == 'JP':
+    if mode == 'INDIRECT':
+        transfer = '    LD HL,(002DBh)\n    CALL INDIRECT_CALL\n    JR RETURNED\nINDIRECT_CALL:\n    JP (HL)\n'
+    elif mode == 'JP':
         transfer = f'    LD HL,RETURNED\n    PUSH HL\n    LD HL,03456h\n    JP {target}\n'
     elif mode == 'RST' and fault:
         # RSTのオペランドは8の倍数のみ。ROM側の入口を1ずらして同じRSTを実行。
@@ -210,6 +214,8 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
     main = assemble(case / 'main.asm', main_source)
     (case / 'N88.ROM').write_bytes(main + bytes(0x8000-len(main)))
     image = bytearray(rom)
+    if mode == 'INDIRECT' and fault:
+        image[0x2db] += 1
     if mode == 'RST' and fault:
         image[entry:entry+4] = bytes((0,)) + image[entry:entry+3]
     (case / 'DISK.ROM').write_bytes(image)
@@ -297,6 +303,17 @@ for entry in (*public, 0x2a4):
     else:
         raise AssertionError(f'{entry:04X}: 入口+1故障を検出できない')
     print(f'{entry:04X}: RAMプローブ・レジスタ・I/O・入口+1故障 PASS', flush=True)
+# ROM内のポインタをRAMプローブが読み、CALL経由で入口へ移る。
+result = run(0x7d6, mode='INDIRECT', disk2=True)
+validate(0x7d6, *result, 0x35, 1)
+result = run(0x7d6, mode='INDIRECT', fault=True, disk2=True)
+try:
+    validate(0x7d6, *result, 0x35, 1)
+except (AssertionError, IndexError):
+    pass
+else:
+    raise AssertionError('02DB: ポインタ+1故障を検出できない')
+print('02DB: 間接CALL・ポインタ+1故障 PASS', flush=True)
 for entry in (0x10,0x18,0x20):
     value = 4 if entry == 0x20 else 0x35
     validate(entry, *run(entry, mode='RST', value=value), value, 1)
