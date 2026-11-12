@@ -219,6 +219,7 @@ SCRIPTS_EXPECTED=(
   # それ以外はすべて公式測定と一致させる、という判断。
   # tools/l3_main_selftest.sh 検査4のコメント参照）、期待rcを0に戻した。
   "tools/l3_main_selftest.sh:0"
+  "tools/l3_sub_req09_selftest.sh:0"
   "tools/main_sub_link_selftest.sh:0"
   "tools/analyze_m6ia_main_sub_selftest.sh:0"
   "tools/analyze_m6ib_first_request_selftest.sh:0"
