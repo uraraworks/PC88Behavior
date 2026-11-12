@@ -80,11 +80,11 @@ PC-88 は ROM が機械の本体で、抜くとディスクを読むコードす
 
 ## 状態
 
-2026-10-19時点。M6（L3 サービスルーチン）は測定した需要入口の範囲でいったん完了し、
+2026-11-12時点。M6（L3 サービスルーチン）は測定した需要入口の範囲でいったん完了し、
 M7（L4 BASIC 互換処理系）は**ゴール A（代表的な BASIC プログラムが動く）の達成判定を
 得た（`tools/conform_l4.sh`、`l4-c5` の8本中8本一致、2026-09-16）**。
 その後、スクリーンエディタ・数値関数・ディスク命令・文字列関数・制御構文・
-グラフィック一式・`INPUT`・機械語との連携（`CALL`・`USR`・`BSAVE` 等）まで広げた
+グラフィック一式・ファイル入出力・機械語との連携（`CALL`・`USR`・`BSAVE` 等）まで広げた
 （各適合検査の範囲は下記）。全機能の互換や番地互換を達成したわけではない。
 L1 IPL と L2 フォントも完了しており、どちらも**公式 ROM が無くても検証できる**
 （`tools/verify_l1.sh` / `tools/verify_l2.sh`）。
@@ -94,10 +94,10 @@ L1 IPL と L2 フォントも完了しており、どちらも**公式 ROM が�
 | M1–M3 | 計測ハーネス、トラップ ROM、需要プロファイル | 完了 |
 | M4 | L1 IPL | 完了（2026-08-07） |
 | M5 | L2 フォント | 完了（2026-08-07） |
-| M6 | L3 サービスルーチン | 測定した需要入口の範囲でいったん完了（2026-09-14）。公式main＋自作subの適合検査 `tools/conform_l3.sh` は参照媒体2種・2ドライブのSAVE場面を含め OK 510件・SKIP 0件（2026-10-02）。期待値は件数と SHA-256 のみ。例外と再開条件は [docs/PLAN.md](docs/PLAN.md) 8節。サブROM仕様は [第223版](docs/spec/l3-subrom.md) |
-| M7 | L4 BASIC 互換処理系 | ゴールAの達成判定済み（`l4-c5`、代表プログラム8本中8本一致、2026-09-16）。以後の実装・適合範囲は下記。仕様は [l4-basic.md](docs/spec/l4-basic.md) 第3.34版・[l4-program.md](docs/spec/l4-program.md) 第14.22版・[l4-graphics.md](docs/spec/l4-graphics.md) 第6版 |
-| M8 | 適合性テストスイート公開 | L3・L4・ディスク命令別の適合検査と `tests/conformance/` の期待値（約70ファイル）を公開。`tools/run_all_selftests.sh` は244本、NG 0（2026-10-19、明示的に有効にしたときだけ走る器具の SKIP が1本）。公式ROM保有者向けの手順書は未整備 |
-| M9 | ゴール B（番地互換） | 未着手 |
+| M6 | L3 サービスルーチン | 測定した需要入口の範囲でいったん完了（2026-09-14）。公式main＋自作subの適合検査 `tools/conform_l3.sh` は参照媒体2種・2ドライブのSAVE場面を含め OK 510件・SKIP 0件（2026-10-02）。期待値は件数と SHA-256 のみ。例外と再開条件は [docs/PLAN.md](docs/PLAN.md) 8節。サブROM仕様は [第233版](docs/spec/l3-subrom.md) まで拡張 |
+| M7 | L4 BASIC 互換処理系 | ゴールAの達成判定済み（`l4-c5`、代表プログラム8本中8本一致、2026-09-16）。以後の実装・適合範囲は下記。仕様は [l4-basic.md](docs/spec/l4-basic.md) 第3.40版・[l4-program.md](docs/spec/l4-program.md) 第14.26版・[l4-graphics.md](docs/spec/l4-graphics.md) 第6版 |
+| M8 | 適合性テストスイート公開 | L3・L4・ディスク命令別の適合検査と `tests/conformance/` の期待値を公開。自己検査・照合は GitHub Actions とリモート環境へ移し、`tools/run_all_selftests.sh` は24分割、各ジョブの上限は240分。main の `6568aa1` 時点で GitHub Actions は成功。公式ROM保有者向けの手順書は未整備 |
+| M9 | ゴール B（市販ソフトが動く） | 着手済み。[方針](docs/notes/goal-b-policy-2026-10-24.md)に従い、起動用セクタの受け渡しとサブROMの要求を実装。自作ROMで G1 の5つの打鍵の道を公式と比較済み（下記） |
 
 ### M7 の実装・適合範囲
 
@@ -136,27 +136,34 @@ L1 IPL と L2 フォントも完了しており、どちらも**公式 ROM が�
   第1回＋追補1が61腕、追補2・3が18腕、`BSAVE`/`BLOAD`が14腕で公式の期待値と一致
   （`tools/l4_mlcall_measure.py`・`tools/l4_bsave_measure.py` の `check --results`）。
   番地そのものは自作の配置でよく、配置に依存する観測は期待値から理由つきで外している。
+- **ファイル入出力（2026-10-20〜2026-10-21）:** 順次ファイルの `OPEN`・`CLOSE`・`PRINT #`・
+  `WRITE #`・`INPUT #`・`LINE INPUT #`・`EOF`・`LOC`・`LOF` と、ランダムファイルの
+  `OPEN … AS`・`FIELD`・`GET`・`PUT`・`LSET`・`RSET`・`MKI$`/`MKS$`/`MKD$`・
+  `CVI`/`CVS`/`CVD` を実装。
+- **プログラム操作など（2026-11-07〜2026-11-11）:** `TRON`/`TROFF`・`DELETE`・`INPUT$`・
+  `AUTO`・`RENUM`・ファンクションキーの展開・`ON KEY`・`MERGE`・`CHAIN`・`COMMON`・
+  `MOTOR`・`EDIT` を実装し、公式の期待値と一致。仕様は
+  [l4-program.md](docs/spec/l4-program.md)・[l4-basic.md](docs/spec/l4-basic.md) の該当節を参照。
 
 拡張ROMバンク `N88_0.ROM`〜`N88_3.ROM`も使用する（4バンクが上限）。数値関数・
 ディスク命令・グラフィック・`READ`/`DATA`・機械語連携などの本体をバンクに置き、
 main からバンクを切り替えて呼ぶ（[ext-rom-bank.md](docs/spec/ext-rom-bank.md)、`src/ext_bank/`）。
-2026-10-19 の容量整理で、配布ビルドから自己検査専用の表やルーチンを外し、
-main の途中に約2.3KB、バンクにまとまった空き（最大576B）を作った。
+さらに N-BASIC 用 ROM 領域を自作の `N88N.ROM` としてコード置き場に使い、約26KBを確保した
+（[n-rom-area.md](docs/spec/n-rom-area.md) 第2版）。
 
 ### できないこと（正直に）
 
 ゴールAは「代表的なテキスト画面のBASICプログラムが動く」の範囲であって、
-N88-BASICの全機能ではない。2026-10-19時点で以下は未対応・未検証のまま：
+N88-BASICの全機能ではない。2026-11-12時点で以下は未対応・未検証のまま：
 
-- ファイル入出力（`OPEN`・`CLOSE`・`PRINT #`・`INPUT #`・`EOF` 等）、`AUTO`・`DELETE`・`RENUM`・
-  `TRON`/`TROFF`、`TIME$`・`DATE$`、音（`BEEP` 以外）、漢字は未実装。
+- `TIME$`・`DATE$`、漢字は未実装。
+- `SOUND`・`PLAY` は、測定したどの機種モード・音源ボード・起動ディスクの有無でも
+  公式 BASIC が構文エラー（`ERR 2`）を返し、自作も同じ（`l4-t11` と追補1・2）。
 - 通常の`SAVE`（中間コード形式）・`SAVE ,P`の本体形式は未測定で、
-  自作mainでは未実装。`,A`無しの`SAVE`と種別`0x80`等の`LOAD`は`ERR 51`で断る。
+  自作mainでは未実装。`,A`無しの`SAVE`と一部の形式の`LOAD`は`ERR 51`で断る。
   M6で公式main＋自作subが通った命令すべてを、自作mainで使えるわけではない。
 - `VARPTR` で配列の要素を指したとき公式の指す先が単精度の符号化と一致しなかった理由、
-  65535 を越える範囲の `BSAVE` の番地の扱い、`CALL` の番地 -1・65535・0 の挙動は未確定。
-- ROM の空きは残り少ない。ファイル入出力（見積もり 3〜4KB）を入れるには、
-  もう一段の容量整理が要る。
+  範囲を越える `BSAVE` の番地の扱い、`CALL` の境界番地の挙動は未確定。
 - 数値関数の倍精度専用経路は未実装・未確定。単精度でも`SIN`の一部の残差、
   `ATN`の`|x|=1`の1ULP差の原因、`SQR`の反復手順・近似精度は未確定。
   固定した`l4-c8`の適合は、すべての引数での一致を意味しない。
@@ -167,13 +174,25 @@ N88-BASICの全機能ではない。2026-10-19時点で以下は未対応・未�
   前向き測定の全腕一致を得ていない（[l4-basic.md](docs/spec/l4-basic.md) 第5.1節）。
 - 実行の速さ（自作ROMは公式ROMより遅い。BASIC の解釈で語の照合を減らすなどの改善はしたが、
   グラフィック命令の1文あたりはなお公式より遅く、比較対象にしていない）。
-- 番地互換（ゴールB）は未着手。
+- ゴールBは着手段階であり、市販ソフト全般の動作や番地互換を保証するものではない。
 
 各仕様書の「未確定」節（[l4-basic.md](docs/spec/l4-basic.md) 第10節・
 [l4-program.md](docs/spec/l4-program.md) 第8節）に、測定できていない項目の一覧がある。
 
 需要プロファイル: 公式 ROM を 28 条件で測ったところ、メイン ROM 32KB のうち
 実行されるのは 32.5%、サブ ROM（`DISK.ROM`）2KB のうち 648 バイト。
+
+### ゴール B の進捗
+
+[起動用セクタの受け渡し](docs/spec/l3-boot-sector.md)を実装し、`IN 40` の bit3 で
+起動を試みるかを決める。サブROMにも要求を追加した。自作ROMで G1 を走らせた
+B81〜B83 の比較では、5つの打鍵の道すべてで30分（108000フレーム）の間公式と同じに進み、
+同じ画面で終わった。途中には一時的な画面の違いもあり、打鍵時刻のわずかな
+ずれでも生じる型と判断している（[B82](docs/notes/b82-g1-long-run-divergence-results.md)・
+[B83](docs/notes/b83-g1-timing-sensitivity-results.md)）。
+
+別リポジトリの Web版エミュレータ WebQ88（QUASI88-libretro を emscripten 化）にも
+自作ROMを内蔵して動かしており、市販ゲーム1本がBGMつきで動くことを確認した。
 
 **行き止まりや誤りもそのまま残している。** 観測系に共通の時間軸が無くて経路同定が
 頭打ちになった経緯、一致率 100% を「エミュレータの実装由来で必然」と判断して
@@ -197,7 +216,7 @@ N88-BASICの全機能ではない。2026-10-19時点で以下は未対応・未�
 不要である（内蔵の自作 Z80 テキストアセンブラ `tools/asm/z80text.py` で組む）。
 
 ```
-python3 src/build_main_rom.py <出力先ディレクトリ>   # N88.ROM/DISK.ROM/FONT.ROMと拡張ROMバンク4本を組み立てる
+python3 src/build_main_rom.py <出力先ディレクトリ>   # N88.ROM/N88N.ROM/DISK.ROM/FONT.ROMと拡張ROMバンク4本を組み立てる
 tools/verify_l1.sh        # L1 IPLの自己検証（公式ROM不要）
 tools/verify_l2.sh        # L2 フォントの自己検証（公式ROM不要）
 tools/verify_l3.sh        # L3 サービスルーチンの自己検証（公式ROM不要）
