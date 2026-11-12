@@ -46,7 +46,7 @@ import z80text
 assert not any(k.startswith('PC88_REF_') for k in os.environ)
 rom, used = sub.build()
 assert used <= sub.SUB_ROM_FETCH_WINDOW
-for entry, target in ((0x08, 'FDC_OUT'), (0x28, 'FDC_IN'),
+for entry, target in ((0x08, 'FDC_BEGIN'), (0x28, 'FDC_IN'),
                       (0x38, 'IRQ_HANDLER'), (0xc1, 'SUB_REQUEST_RETURN')):
     assert rom[entry] == 0xc3
     assert int.from_bytes(rom[entry+1:entry+3], 'little') == sub._LAST_ASM.labels[target]

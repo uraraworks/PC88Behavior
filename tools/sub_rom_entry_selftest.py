@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""sub-rom-entry第2版の確定範囲だけを実Z80で検査する。公式素材は使わない。"""
+"""sub-rom-entry第3版の確定範囲だけを実Z80で検査する。公式素材は使わない。"""
 import os
 from pathlib import Path
 import re
 import subprocess
+import struct
 import sys
 
 repo, work, core = map(Path, sys.argv[1:])
@@ -16,7 +17,8 @@ rom, used = sub.build()
 a = sub._LAST_ASM
 public = {0x10: 'RECV_BYTE', 0x18: 'SEND_BYTE', 0x20: 'FDC_OUT',
           0xed: 'ENTRY_FDC_INIT', 0x2a7: 'FDC_OUT', 0x2b4: 'ENTRY_CALCULATE',
-          0x35b: 'ENTRY_F7', 0x48f: 'ENTRY_READY', 0x7d6: 'ENTRY_READY'}
+          0x35b: 'ENTRY_F7', 0x48f: 'ENTRY_READY', 0x7d6: 'ENTRY_READY',
+          0x263: 'ENTRY_FDC_RESULT', 0x6a6: 'ENTRY_RECV_FOUR'}
 
 
 def check_layout(image):
@@ -30,11 +32,36 @@ def check_layout(image):
         assert addr + 3 <= (addr & ~7) + 8
     assert not sub.find_fetch_window_straddles(a)
     assert not sub.find_out_of_window_blocks(a)
-    assert 'PIN_0263' not in a.labels and 'PIN_06A6' not in a.labels
+    assert a.labels['PIN_0263'] == 0x263 and a.labels['PIN_06A6'] == 0x6a6
     assert used <= 0x800
 
 
 check_layout(rom)
+# 新入口と06A6から呼ぶ受信ルーチンには、IFF/IMを変更する命令を置かない。
+# 0263のEI腕はFDCの保留IRQを受理し得るため、外部割込みによるIFF解除と
+# 入口自身の副作用を分け、無割込み時の保存は全到達命令でも確認する。
+interrupt_neutral = [
+    (a.labels['ENTRY_FDC_RESULT'], len(a.code)),
+    (a.labels['RECV_BYTE'], a.labels['SEND_BYTE']),
+    (a.labels['WAIT_FE_RECV_DATA_READY'], a.labels['WAIT_FE_RECV_DATA_READY'] + 7),
+    (a.labels['WAIT_FE_RECV_ACK_DONE'], a.labels['WAIT_FE_RECV_ACK_DONE'] + 7),
+]
+neutral_instructions = [text for kind, pc, size, text in a._emit_asm
+                        if kind == 'instr' and any(lo <= pc < hi for lo, hi in interrupt_neutral)]
+assert not any(text in ('DI', 'EI') or text.startswith('IM ') for text in neutral_instructions)
+# 新入口を追加する前の容量確保も検査する。固定07D6より前の空白を含める。
+emit_entries, pinned = sub.emit_result_entries, sub.PINNED_ENTRIES
+try:
+    sub.emit_result_entries = lambda asm: asm
+    sub.PINNED_ENTRIES = {pc: target for pc, target in pinned.items()
+                          if pc not in (0x263, 0x6a6)}
+    _, compact_used = sub.build()
+    compact_padding = sub._LAST_ASM.layout_padding
+    compact_free = 0x800 - compact_used + compact_padding
+    assert compact_free >= 64
+finally:
+    sub.emit_result_entries, sub.PINNED_ENTRIES = emit_entries, pinned
+print(f'入口追加前の空き{compact_free}B（配置用空白{compact_padding}B込み）: PASS', flush=True)
 # 入口回避の分岐をPIO待ちに挟まない。条件・1周の命令列を独立した定数で検査。
 waits = {
     'WAIT_FE_RECV_DATA_READY': (1, 0x28),
@@ -89,8 +116,9 @@ def data(name, values):
 
 
 def run(entry, *, mode='CALL', fault=False, disk2=False, value=0x35, flags=1,
-        expected_return=True, sweep=False):
-    name = f'{entry:04x}_{mode}_{fault}_{disk2}_{value}_{flags}_{sweep}'
+        expected_return=True, sweep=False, received=(0x81, 0x42, 0xe3, 0x24),
+        iff=False, im=0):
+    name = f'{entry:04x}_{mode}_{fault}_{disk2}_{value}_{flags}_{sweep}_{len(received)}_{iff}_{im}'
     case = work / name
     case.mkdir()
     target = entry + int(fault)
@@ -102,10 +130,32 @@ def run(entry, *, mode='CALL', fault=False, disk2=False, value=0x35, flags=1,
     elif mode == 'RST' and fault:
         # RSTのオペランドは8の倍数のみ。ROM側の入口を1ずらして同じRSTを実行。
         transfer = f'    RST {entry}\n'
-    probe = '''    ORG 07800h
+    prepare = ''
+    if entry == 0x263:
+        # 起動で初期化済みのFDCへ自作媒体C=0,H=0,R=1,N=1のREAD DATA。
+        # 本体256バイトだけを消費し、結果7バイトを公開入口へ残す。
+        prepare = ''.join(f'    LD A,{v}\n    RST 020h\n'
+                          for v in (0x46, 0, 0, 0, 1, 1, 1, 0x0e, 0xff))
+        prepare += '''    LD B,0
+READ_BODY:
+    IN A,(0FAh)
+    AND 0C0h
+    CP 0C0h
+    JR NZ,READ_BODY
+    IN A,(0FBh)
+    DJNZ READ_BODY
+    IN A,(0F8h)
+RESULT_READY:
+    IN A,(0FAh)
+    AND 0C0h
+    CP 0C0h
+    JR NZ,RESULT_READY
+'''
+    probe = '    ORG 07800h\n' + prepare + '''
     LD A,0A5h
     LD (07F0Bh),A
     LD (07F0Ch),A
+    LD (07F14h),A
     LD BC,01234h
     LD DE,02345h
     LD HL,03456h
@@ -117,7 +167,9 @@ def run(entry, *, mode='CALL', fault=False, disk2=False, value=0x35, flags=1,
     PUSH HL
     POP AF
     LD HL,03456h
-''' .replace('INPUT_AF', str((value << 8) | flags)) + transfer + '''RETURNED:
+''' .replace('INPUT_AF', str((value << 8) | flags)) + (
+        f'    IM {im}\n    {"EI" if iff else "DI"}\n    NOP\n'
+        if entry in (0x263, 0x6a6) else '') + transfer + '''RETURNED:
     LD (07A00h),BC
     LD (07A02h),DE
     LD (07A04h),HL
@@ -142,6 +194,11 @@ SEND_REPORT:
     DJNZ SEND_REPORT
     JP 000C1h
 '''
+    report_size = 25 if entry == 0x263 else 17
+    if entry == 0x263:
+        probe = probe.replace('    LD HL,07A00h\n    LD B,17',
+            '    LD HL,07F0Dh\n    LD DE,07A11h\n    LD BC,8\n    LDIR\n'
+            '    LD HL,07A00h\n    LD B,25')
     if sweep:
         probe = probe.replace('    ORG 07800h\n',
             '    ORG 07800h\n    XOR A\n    LD (07A20h),A\n    LD (07A21h),A\nPROBE_START:\n')
@@ -159,7 +216,10 @@ SEND_REPORT:
     extra = ''
     if entry == 0x10:
         extra = '    LD A,06Dh\n    CALL MAIN_SUB_SEND\n    JP C,FAIL\n'
-    count = 17 * 512 if sweep else 17 + (entry == 0x18)
+    if entry == 0x6a6:
+        extra = ''.join(f'    LD A,{v}\n    CALL MAIN_SUB_SEND\n    JP C,FAIL\n'
+                        for v in received)
+    count = 17 * 512 if sweep else report_size + (entry == 0x18)
     main_source = '''    ORG 0
     DI
     LD SP,0FFF0h
@@ -225,8 +285,15 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
             '--mem-write-log', str(case / 'mem'), '--mem-write-range', '9000-9003']
     if disk2:
         args += ['--disk2', str(disk)]
+    # 未帰還の陰性対照では回収地点（最初の報告送信）自体へ届かない。
+    if entry in (0x263, 0x6a6) and expected_return and not fault:
+        args += ['--sub-snapshot', str(case / 'snap'), '--sub-snapshot-at-fc', '0']
     result = subprocess.run(args, capture_output=True, timeout=120)
-    assert result.returncode == 0, f'{name}: 実行器失敗'
+    if result.returncode:
+        # 画面本文を表示せず、フロントエンドの診断だけを報告する。
+        errors = [line for line in result.stderr.decode(errors='replace').splitlines()
+                  if line.startswith('[q88measure]')]
+        raise AssertionError(f'{name}: 実行器失敗 rc={result.returncode} {errors}')
     writes = []
     for line in (case / 'mem').read_text().splitlines():
         m = re.fullmatch(r'\s*\d+\s+\d+\s+[0-9a-fA-F]+\s+(900[023])\s+([0-9a-fA-F]{2})\s*', line)
@@ -250,20 +317,48 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
         assert not done and not report, f'{name}: 待機せず戻った'
         return done, report, events
     assert done and len(report) == count, f'{name}: 完了/長さ不一致 {done}/{len(report)}'
+    if entry in (0x263, 0x6a6):
+        regs = struct.unpack('<18H', (case / 'snap').read_bytes()[-36:])
+        # このコアの通常EI/DIはIFF欄で検査する。
+        assert (regs[14], regs[16]) == (int(iff), im), f'{name}: IFF/IM不一致'
     return done, report, events
 
 
 def validate(entry, done, report, events, value, flags):
     assert done
+    if entry == 0x263:
+        assert len(report) == 25
+        result = report[17:24]
+        assert report[24] == 0xa5, '結果領域直後を破壊'
+        report = report[:17]
+        fdc = [(d,p,v) for d,p,v,_ in events if p in (0xfa,0xfb)]
+        assert [v for d,p,v in fdc if d == 'OUT' and p == 0xfb] == [
+            0x46,0,0,0,1,1,1,0x0e,0xff]
+        reads = [v for d,p,v in fdc if d == 'IN' and p == 0xfb]
+        assert len(reads) == 256 + 7 and result == bytes(reads[-7:])
+        assert result[0] & 0xc0 == 0 and result[1:3] == b'\0\0', 'READ DATAが正常終了していない'
+        assert [(d,p) for d,p,_ in fdc[-14:]] == [('IN',0xfa),('IN',0xfb)] * 7
+        assert report[12] & 1 and report[13] == result[0]
+        assert report[15] == 0xa5, '結果領域直前を破壊'
+    if entry == 0x6a6:
+        assert report[:4] == bytes((0x42,0x81,0x24,0xe3))
+        assert report[4:6] == bytes((0x56,0x34))
+        assert report[12:14] == bytes((0x10,0x24))
+        recv = [(d,p,v) for d,p,v,_ in events if p in (0xfc,0xff)]
+        expected = []
+        for v in (0x81,0x42,0xe3,0x24):
+            expected += [('OUT',0xff,0x0b),('OUT',0xff,0x0a),('IN',0xfc,v),
+                         ('OUT',0xff,0x0d),('OUT',0xff,0x0c)]
+        assert recv[:len(expected)] == expected, '4バイト受信手順不一致'
     if entry == 0x18:
         assert sum(d == 'OUT' and p == 0xfd for d,p,_,_ in events) == 18
         assert report[0] == value
         report = report[1:]
     assert len(report) == 17
     assert report[10:12] == bytes((0, 0x80)), 'SP不一致'
-    if entry in (0x10, 0x18, 0x20, 0x2a4, 0x2a7, 0x2b4, 0x35b):
+    if entry in (0x10, 0x18, 0x20, 0x2a4, 0x2a7, 0x2b4, 0x35b, 0x263):
         assert report[:6] == bytes((0x34,0x12,0x45,0x23,0x56,0x34))
-    if entry in (0x10, 0x18, 0x20, 0x2a4, 0x2a7, 0x2b4):
+    if entry in (0x10, 0x18, 0x20, 0x2a4, 0x2a7, 0x2b4, 0x263, 0x6a6):
         assert report[6:10] == bytes((0x67,0x45,0x78,0x56))
         assert report[16] == 0x3a
     if entry == 0x10:
@@ -339,6 +434,18 @@ for value in (0,1,0x35,0x80,0xff):
             baseline = result[1]
         assert result[1] == baseline
 print('035B: 既知20入力の戻り値一致・F7出力 PASS', flush=True)
+for entry in (0x263, 0x6a6):
+    for iff in (False, True):
+        if entry == 0x263 and iff:
+            continue  # 保留IRQのない命令経路は上の静的検査で確認
+        for im in (0, 1, 2):
+            if not iff and im == 0:
+                continue  # 上の通常腕と同じ
+            validate(entry, *run(entry, iff=iff, im=im), 0x35, 1)
+_, _, events = run(0x6a6, received=(0x81,0x42,0xe3), expected_return=False)
+assert sum(d == 'IN' and p == 0xfc for d,p,_,_ in events) == 3
+assert sum(d == 'OUT' and p == 0xff and v == 0x0c for d,p,v,_ in events) == 3
+print('0263/06A6: IFF・IM保存、06A6の3バイト待機 PASS', flush=True)
 for entry in (0x20,0x2a4,0x2a7):
     validate(entry, *run(entry, value=0x80, flags=0xff), 0x80, 0xff)
 print(f'sub_rom_entry_selftest: PASS（使用{used}B、残り{0x800-used}B）', flush=True)

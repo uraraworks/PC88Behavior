@@ -317,6 +317,13 @@ os.environ["PC88_BULK_READ_INTERVENTION_LIMIT"] = "1"
 if "make_subrom" in sys.modules:
     del sys.modules["make_subrom"]
 import make_subrom as m
+# 末尾の本番ルーチンがRETだけでも、絶対分岐の窓越えを確実に注入する。
+original_build_subrom = m.build_subrom
+def with_tail_jump(**kwargs):
+    result = original_build_subrom(**kwargs)
+    result.jp("ENTRY_RECV_FOUR")
+    return result
+m.build_subrom = with_tail_jump
 a = m.build_subrom()
 a.resolve()
 last_start = max(a.labels.values())
