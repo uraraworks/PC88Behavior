@@ -869,7 +869,7 @@ _load_not_found:
     LD A,53
     JR _load_error_before_clear
 _load_wrong_type:
-    LD A,51
+    LD A,59
     JR _load_error_before_clear
 _load_disk_error:
     LD A,64

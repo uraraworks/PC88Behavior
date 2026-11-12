@@ -2601,6 +2601,8 @@ RUN_STMT:
     JR Z,_run_stmt_no_arg
     CP ':'
     JR Z,_run_stmt_no_arg
+    CP '"'
+    JR Z,_run_stmt_file
     CALL PARSE_LINENUM_CUR
     JR C,_run_stmt_syntax
     LD (RUN_TMP16),HL
@@ -2609,6 +2611,11 @@ RUN_STMT:
     CALL RUN_FIND_LINE
     JR C,_run_stmt_undef
     JR _run_stmt_start
+_run_stmt_file:
+    CALL LOAD_STMT
+    LD A,(ERROR_FLAG)
+    OR A
+    RET NZ
 _run_stmt_no_arg:
     CALL RUN_RESET_STATE
     LD HL,PROGRAM_AREA

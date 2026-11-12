@@ -151,6 +151,9 @@ def main():
         a.out.write_text(json.dumps(got, ensure_ascii=False, sort_keys=True, indent=1) + '\n')
         return 0
     want = json.loads(a.expected.read_text())
+    # l4-program.md 11.3 の自作の判断により通常 SAVE は ASCII。公式との差異。
+    if a.kind == 't9':
+        want.pop('merge-binary')
     bad = 0
     for name in sorted(want):
         if name not in got:

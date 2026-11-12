@@ -790,7 +790,7 @@ mc_cb_RUN_EXEC:
     JP MM_N_PROBE
 
 mc_save_entry:
-    ; l4-program.md 11.1–11.2: 自作保存形式はASCII行と異なる種別で記録。
+    ; l4-program.md 11.1–11.2: 通常SAVEもASCII形式で記録。
     ; 名前だけのSAVEは既存のASCII書出し経路へ一時的な ,A を渡す。
     XOR A
     LD (MM_SAVE_PROGRAM_FORMAT),A
@@ -842,8 +842,6 @@ _save_default:
     LD (LINE_END),HL
     LD HL,MM_RUN_STR_ARG1_BUF
     LD (CUR_PTR),HL
-    LD A,0x80                ; l3-disk-format.md 1.3: プログラム種別。
-    LD (MM_SAVE_PROGRAM_FORMAT),A
     LD A,2
     LD HL,06080h
     CALL mc_cb_EXT_BANK_CALL

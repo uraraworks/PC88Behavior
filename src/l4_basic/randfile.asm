@@ -297,42 +297,8 @@ record_out_write:
     OUT (C),A
     RET
 
-; l4-program.md 11.1–11.2: LOADが見つけた自作保存形式はASCII行として読み込む。
-; MERGEでは許可印を立てないため、同じ形式を誤り59にする。
+; 種別0x80を含む非ASCII形式は本文を読まず誤り59にする。
 mc_load_program_type:
-    LD A,(MM_BINARY_MODE)
-    OR A
-    JR NZ,mc_load_wrong_type
-    LD A,(MM_LOAD_ALLOW_OWN)
-    OR A
-    JR Z,mc_load_wrong_type
-    LD A,(MM_LOAD_ENTRY_INDEX)
-    LD L,A
-    LD H,0
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL
-    ADD HL,HL
-    LD DE,MM_MAIN_SUB_SECTOR_BUF+9
-    ADD HL,DE
-    LD A,(HL)
-    CP 0x80                  ; l3-disk-format.md 1.3: SAVEプログラム種別。
-    JR NZ,mc_load_wrong_type
-    INC HL
-    LD A,(HL)
-    LD (MM_LOAD_UNIT),A
-    XOR A
-    LD (MM_LOAD_UNIT_SECTOR),A
-    LD (MM_LOAD_BYTE_OFFSET),A
-    LD (MM_LOAD_LINE_LEN),A
-    LD (MM_LOAD_SKIP_LF),A
-    LD A,160
-    LD (MM_LOAD_CHAIN_GUARD),A
-    LD A,3
-    LD (MM_LOAD_PHASE),A
-    LD A,2
-    RET
-mc_load_wrong_type:
     LD A,5
     RET
 

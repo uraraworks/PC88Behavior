@@ -500,6 +500,7 @@ SCRIPTS_EXPECTED=(
   # 0x1A破損の陰性対照を含む。既存の除外名照合方式は共通。
   "tools/load_conform_selftest.sh:0"
   "tools/l4_load_z80_selftest.sh:0"
+  "tools/l4_binary_type_selftest.sh:0"
   "tools/conform_load.sh:0"
   # SAVE ,A 適合器。合成D88・偽フロントエンドで6腕と選択NGを検査する。
   # 公式読戻し・公式subの腕はここでは実行しない。
