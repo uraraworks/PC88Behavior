@@ -50,8 +50,8 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # sub-rom-entry第1版の固定配置版。以前の凍結値は下で旧生成器と照合する。
 FROZEN_SUBROM_COMMIT=97430aa
 FROZEN_SUBROM_DISK_SHA="6723a104a4f47e0aa6398f528ef3b124c11c99ad83e69c050ad984525bcb93ba"
-# sub-rom-entry第3版: 0263/06A6と既存処理の容量圧縮を反映。
-EXPECT_SUBROM_DISK_SHA="adbbfe0ccf1a7f0a7082d670ee482c689037c23bd7a43a801de29b57867e8e19"
+# sub-rom-entry第4版: 00ED/0263/07D6と容量圧縮を反映。
+EXPECT_SUBROM_DISK_SHA="d47c5848a4d55c0205c0690cfecd19a2e3914333c66b4cb5afc53e18eef445a1"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then

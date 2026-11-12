@@ -2,7 +2,7 @@
 """
 make_subrom.py — L3 サービスルーチン（自作サブROM / DISK.ROM 相当）を組み立てる
 
-根拠は `docs/spec/l3-subrom.md` と `docs/spec/sub-rom-entry.md`（第3版）である。公式 ROM も
+根拠は `docs/spec/l3-subrom.md` と `docs/spec/sub-rom-entry.md`（第4版）である。公式 ROM も
 公式ディスクの内容も一度も参照していない。
 
   なぜ Python でバイト列を組むのか: `src/l1_ipl/make_ipl_rom.py`（M4）と
@@ -999,6 +999,7 @@ READ_END_HI = 0x7C28
 # 1.36cの復帰入口では、次のREAD後の0x06を待つ間の早すぎる応答も抑止する。
 # 次に main から受信したとき（RESET_HDR_RUN）0に戻す。
 DATA_RESPONSE_CLOSED = 0x7C29
+ENTRY_REQUEST_ACTIVE = 0x7C2A  # 00EDの1要求実行中だけ非0。MAIN_LOOPで初期化
 # 第223版・1.36a節: 0x17,m で受けた m をそのまま保持する（0=未受信）。
 # 読み要求の論理トラック変換は、ドライブ1（m bit0）／ドライブ2（m & 0x0E）で決める。
 LOGICAL_TRACK_FLAGS = 0x7C26
@@ -1372,37 +1373,12 @@ def build_subrom(break_write_ack=False,
     # 見直しの対象そのものである。**仕様に無いので入れない。**
     a.jp("M6IB_B1_RESET_GATE" if inject_m6ib_b1 else "BOOT_HANDSHAKE")
 
-    # sub-rom-entry.md 第1版。未確定の戻り値を互換値として固定しない。
-    a.label("ENTRY_FDC_INIT")
-    a.ld_mem_a(REQ_HDR + 2)
-    a.ld_e_a()
-    a.call("FDC_SPECIFY")
-    a.call("FDC_RECALIBRATE")
-    a.xor_a()
-    a.call("FDC_SEEK")
-    a.ld_a_mem(REQ_HDR + 2)
-    a.or_a()
-    a.ret_z()                         # 測定済みの A=0 は戻る
-    a.label("_entry_init_wait")
-    a.jr("_entry_init_wait")           # A=1 は未完了（他の入力も未確定）
-
-    a.label("FDC_SPECIFY")
-    a.ld_a(0x03); a.rst(0x08)
-    a.ld_a(0xDF); a.rst(0x20)
-    a.ld_a(0x02); a.jp("FDC_OUT")
-
     a.label("ENTRY_READY")
     a.ld_a(0x04); a.rst(0x08)
     a.ld_a(1); a.rst(0x20)             # 確定したドライブ2の条件
     a.rst(0x28)
     a.and_a(0x08)                     # l3-subrom 1.36a: 媒体あり
     a.jr_z("ENTRY_READY")
-    a.ret()
-
-    a.label("ENTRY_F7")
-    a.xor_a()                         # 既知のA/F入力組で戻りが同じ（具体Fは未確定）
-    a.out_imm(P_STROBE, BOOT_F7_VALUE)  # 自作の既存制御値。互換値は未確定
-    a.ld_mem_a(0x7F0B)
     a.ret()
 
     a.label("ENTRY_CALCULATE")
@@ -1466,16 +1442,13 @@ def build_subrom(break_write_ack=False,
     #          していた値をタイムアウト後もそのままOUTしていた） ----
     a.label("FDC_OUT")               # 引数: A = 送る値
     a.push_af()
-    a.push_de()
     a.ld_a(RQM)
     a.call("FDC_WAIT")
     a.jr_z("_fdc_out_ready")
     a.label("_fdc_out_aborted")
-    a.pop_de()
     a.pop_af()
     a.ret()
     a.label("_fdc_out_ready")
-    a.pop_de()
     a.pop_af()
     a.ei()
     a.nop()
@@ -1501,10 +1474,8 @@ def build_subrom(break_write_ack=False,
     #      ce3bd5b実走で観測された「タイムアウト直後にIN $FBを読む」
     #      挙動の原因） ----
     a.label("FDC_IN")
-    a.push_de()
     a.ld_a(RQM | DIO)
     a.call("FDC_WAIT")
-    a.pop_de()                         # POPはFDC_WAITのZを保存する
     a.ret_nz()
     a.label("_fdc_in_ready")
     # IRQが既に立っている場合だけ、EI遅延スロットのNOP直後に受理する。
@@ -1654,11 +1625,11 @@ def build_subrom(break_write_ack=False,
 
     a.jp("FDC_OUT")
 
-    # 測定用ゲートの追加分を、固定入口前の未使用領域で吸収する。
-    # 判定ルーチンの命令列は変えず、通常ビルドの配置も変えない。
+    # 測定用ゲート・早期応答版は、判定ルーチンを前へ置いて固定入口の
+    # 空白を減らす。判定の命令列と通常ビルドの配置は変えない。
     measurement_gate = any((inject_m6ib_b1, inject_m6ib_b2, inject_m6ib_b3,
                             inject_m6ib_b4, inject_m6ib_b5))
-    if measurement_gate and not break_fixed_byte_cutoff:
+    if (measurement_gate or early_response_after) and not break_fixed_byte_cutoff:
         a.label("_exchange14_bulk_check")
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.cp_n(0x05)
@@ -1671,6 +1642,9 @@ def build_subrom(break_write_ack=False,
     # 先行READの受信準備bitがmain側に残っていても、次の0x02の
     # 確定長ヘッダを途中で閉じない。読み本体の既存命令列には触れない。
     a.label("SUB_REQUEST_RETURN")
+    a.ld_a_mem(ENTRY_REQUEST_ACTIVE)
+    a.or_a()
+    a.ret_nz()                         # 00EDは呼出し側のSPを維持する
     # 第229版: 読み込まれたコードのSPに依存せず、CALLより先に戻す。
     a.ld_sp(STACK)
     a.im1()                           # 1.36c: 許可状態を変えず自作のモードに戻す
@@ -1780,7 +1754,9 @@ def build_subrom(break_write_ack=False,
         _emit_m6ib_release_gate("M6IB_B2_BEFORE_FDC_GATE")
     a.im1()
     # 起動専用SPECIFYをここに展開し、唯一のCALLと末尾分岐を省く。
-    a.call("FDC_SPECIFY")
+    a.ld_a(0x03); a.rst(0x08)
+    a.ld_a(0xDF); a.rst(0x20)
+    a.ld_a(0x02); a.rst(0x20)
     # ---- 仕様書1.22節（第16版〜第19版）で確定した起動時FDC初期化の
     #      batch1〜7を再現する。ドライブ割り当て（1.22節・
     #      `docs/notes/m6r-specify-vs-seek.md`）: batch1/2/3=ドライブ0、
@@ -1889,9 +1865,8 @@ def build_subrom(break_write_ack=False,
     a.label("_hdr_store_skip")
     a.pop_bc()                        # 呼び出し元のBCを復元
     a.ld_a_mem(RUN_LEN)
-    a.cp_n(0xFF)
-    a.jr_z("_hdr_run_len_done")       # 0xFFで飽和、これ以上は増やさない
     a.inc_a()
+    a.ret_z()                          # RAM上は0xFFで飽和。呼出元は戻りA/Fを使わない
     a.ld_mem_a(RUN_LEN)
     a.label("_hdr_run_len_done")
     a.ret()
@@ -1925,6 +1900,38 @@ def build_subrom(break_write_ack=False,
     #      行わない（$F9は公式subに存在しない診断専用ポートであり、
     #      適合テストへ提出するROMではこのイベント自体を出さない選択肢
     #      を用意する）。 ----
+
+    a.label("ENTRY_F7")
+    a.xor_a()                         # 既知のA/F入力組で戻りが同じ（具体Fは未確定）
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)  # 自作の既存制御値。互換値は未確定
+    a.ld_mem_a(0x7F0B)
+    a.ret()
+
+    # sub-rom-entry 第4版: 要求番号を受信済みとして通常ディスパッチへ入る。
+    # 完了箇所だけがRETし、引数受信・応答の途中のIDLEは従来どおり継続する。
+    a.label("ENTRY_REQUEST")
+    a.ld_b_a()
+    a.call("RESET_HDR_RUN")
+    a.inc_a()
+    a.ld_mem_a(ENTRY_REQUEST_ACTIVE)
+    a.ld_a_b()
+    a.call("REQUEST_DISPATCH_A")
+    a.jp("ENTRY_REQUEST_RETURN")
+
+    a.label("ENTRY_REQUEST_RETURN")
+    a.xor_a()
+    a.ld_mem_a(ENTRY_REQUEST_ACTIVE)
+    a.ret()
+
+    # Dの論理トラックからシリンダを作り、既存のSEEK/SENSE手順を使う。
+    a.label("ENTRY_SEEK")
+    a.xor_a()
+    a.ld_mem_a(REQ_HDR + 2)
+    a.out_imm(P_F8, F8_CONTROL_VALUE)
+    a.ld_a_d()
+    a.rra()                            # 上のXORでCy=0、D>>1
+    a.call("FDC_SEEK")
+    a.jp("FDC_SENSE_DRIVE_STATUS")
 
     # ---- FDCコマンド1つ分の呼び出し列の先頭で FDC_ABORT をクリアする
     #      補助ルーチン（第12版で追加）。FDC_SPECIFY/FDC_SENSE_INT/
@@ -1977,8 +1984,10 @@ def build_subrom(break_write_ack=False,
     a.ret()
 
     # IN/OUTの有限待ちを共有する。A=期待するRQM/DIO、Z=転送可。
-    # BCは保存し、DEは各呼出元が保存する。ポートアクセス・中止条件は同じ。
+    # BC/DEをここで保存し、IN/OUT側の重複したDE退避を省く。
+    # ポートアクセス・中止条件は同じ。
     a.label("FDC_WAIT")
+    a.push_de()
     a.push_bc()
     a.ld_b_a()
     a.ld_a_mem(FDC_ABORT)
@@ -2015,6 +2024,7 @@ def build_subrom(break_write_ack=False,
     a.or_a()                         # 中止は必ずNZ
     a.label("_fdc_wait_return")
     a.pop_bc()
+    a.pop_de()
     a.ret()
 
     # ---- SENSE INTERRUPT STATUS。
@@ -2403,7 +2413,7 @@ def build_subrom(break_write_ack=False,
     # 0x02の応答手順は従来どおり、0x06/0x12を待つ。
     a.ld_a(0x06)
     a.ld_mem_a(POST_BULK_ACTIVE)
-    a.jp("IDLE_DISPATCH")
+    a.jp("REQUEST_DONE")
 
     a.label("_general_read_at")
     a.push_hl()                         # decode/SEEKがHLを使う間、読み先を保持
@@ -2951,6 +2961,7 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(RESP_ACTIVE)
         a.label("_recv_dispatch_state_ready")
     a.rst(0x10)               # A = 受け取ったバイト
+    a.label("REQUEST_DISPATCH_A")
     if not break_fixed_byte_cutoff:
         # 第68版・1.37節: POST_BULK_ACTIVEには、この交換中だけ「次に待つ値」
         # 0x06/0x12を置く。受信値と段階値が一致した場合だけ専用遷移へ入り、
@@ -3546,7 +3557,7 @@ def build_subrom(break_write_ack=False,
     # mainが続けて受け取ろうとしても何も送らない（次の受信まで）。
     a.ld_a_mem(DATA_RESPONSE_CLOSED)
     a.or_a()
-    a.jr_nz("_boot_read_pair_stage_done")   # 直後の jp IDLE_DISPATCH（容量のため共有）
+    a.jp_nz("IDLE_DISPATCH")          # 送信完了後の待機は要求完了箇所へ通さない
 
     # 第37版1.30節: 交換#3の単発応答を送り終え、READデータが保持済みの
     # 状態で次のSEND要求へ来た時点が交換#4応答開始である。RECV側のrun長は
@@ -3571,7 +3582,7 @@ def build_subrom(break_write_ack=False,
     # READ_END_HI に達した時点（下位は0）でちょうど送り終えている。
     a.ld_a_mem(READ_END_HI)
     a.cp_h()
-    a.jr_nz("_boot_read_pair_stage_done")  # 共通の要求待ちへの分岐
+    a.jp_nz("IDLE_DISPATCH")          # 応答の途中は00EDでも継続
 
     # 256バイト送り終えた: 応答フェーズを終了する
     a.xor_a()
@@ -3636,6 +3647,10 @@ def build_subrom(break_write_ack=False,
     a.label("_exchange3_send_response")
     a.rst(0x18)
     a.label("_single_response_sent")
+    a.label("REQUEST_DONE")
+    a.ld_a_mem(ENTRY_REQUEST_ACTIVE)
+    a.or_a()
+    a.ret_nz()
     a.jp("IDLE_DISPATCH")
 
     a.label("SEND_DISPATCH_IDLE")
@@ -3647,17 +3662,22 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(ROUND0_RESPONSE_PENDING)
     a.ld_a(ROUND0_OBSERVED_RESPONSE)
-    a.call("SEND_BOOT_SINGLE_TRACKED")
-    if inject_m6ib_b5:
-        _emit_m6ib_release_gate("M6IB_B5_AFTER_ROUND0_GATE")
-    elif inject_m6ie_single_read:
-        a.in_port(P_PIO_C)
-        for _ in range(4):
-            a.nop()
-    elif inject_m6ie_nops_only:
-        for _ in range(6):
-            a.nop()
-    a.jr("_single_response_sent")    # 共通の戻り先を使い、フェッチ窓の余白を確保
+    # 同じ「追跡送信して要求完了」列を共有する。介入のある版だけは
+    # 呼出し後のゲート/待ちを残す。PIO手順・受信ループは変わらない。
+    if not (inject_m6ib_b5 or inject_m6ie_single_read or inject_m6ie_nops_only):
+        a.jp("_osbr_send_tracked")
+    else:
+        a.call("SEND_BOOT_SINGLE_TRACKED")
+        if inject_m6ib_b5:
+            _emit_m6ib_release_gate("M6IB_B5_AFTER_ROUND0_GATE")
+        elif inject_m6ie_single_read:
+            a.in_port(P_PIO_C)
+            for _ in range(4):
+                a.nop()
+        elif inject_m6ie_nops_only:
+            for _ in range(6):
+                a.nop()
+        a.jr("_single_response_sent")    # 共通の戻り先を使い、フェッチ窓の余白を確保
 
     # m7hの要求グループ→応答グループ決定関数。意味未特定の観測応答であり、
     # 意味が判明した場合は要求の意味に基づくルール生成へ差し替える。
@@ -3768,7 +3788,7 @@ def build_subrom(break_write_ack=False,
     # 制御を持ち、ここへ落ちてくる経路は無い)。
 
     # 受信継続中とrun終了時の交換#14判定を共有する。
-    if not break_fixed_byte_cutoff and not measurement_gate:
+    if not break_fixed_byte_cutoff and not (measurement_gate or early_response_after):
         a.label("_exchange14_bulk_check")
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.cp_n(0x05)
@@ -3821,7 +3841,7 @@ def build_subrom(break_write_ack=False,
 
 
 def emit_result_entries(a):
-    """sub-rom-entry 第3版。割込み許可・モードには触れない。"""
+    """sub-rom-entry 第4版。割込み許可・モードには触れない。"""
     a.label("ENTRY_FDC_RESULT")
     a.push_bc()
     a.push_hl()
@@ -3835,10 +3855,10 @@ def emit_result_entries(a):
     a.ld_hl_a()
     a.inc_hl()
     a.djnz("_entry_result_byte")
-    a.ld_a_mem(0x7F0D)                # Aの規則は仕様 第3版で未確定。1バイト目を返す。
+    a.ld_a_mem(0x7F0D)                # 第4版の推定規則: ST0のICをAND命令で返す。
     a.pop_hl()
     a.pop_bc()
-    a.scf()
+    a.and_a(0xC0)
     a.ret()
 
     a.label("ENTRY_RECV_FOUR")
@@ -3855,14 +3875,14 @@ def emit_result_entries(a):
     return a
 
 
-# 公開入口と内部RST（sub-rom-entry 第3版）。
+# 公開入口と内部RST（sub-rom-entry 第4版）。
 PINNED_ENTRIES = {
     0x0008: "FDC_BEGIN", 0x0010: "RECV_BYTE", 0x0018: "SEND_BYTE",
     0x0020: "FDC_OUT", 0x0028: "FDC_IN", 0x0030: "STATE_ACCESS",
     0x0038: "IRQ_HANDLER", 0x00C1: "SUB_REQUEST_RETURN",
-    0x00ED: "ENTRY_FDC_INIT", 0x0263: "ENTRY_FDC_RESULT", 0x02A4: None, 0x02A7: "FDC_OUT",
+    0x00ED: "ENTRY_REQUEST", 0x0263: "ENTRY_FDC_RESULT", 0x02A4: None, 0x02A7: "FDC_OUT",
     0x02B4: "ENTRY_CALCULATE", 0x035B: "ENTRY_F7",
-    0x048F: "ENTRY_READY", 0x06A6: "ENTRY_RECV_FOUR", 0x07D6: "ENTRY_READY",
+    0x048F: "ENTRY_READY", 0x06A6: "ENTRY_RECV_FOUR", 0x07D6: "ENTRY_SEEK",
 }
 
 
@@ -3950,7 +3970,8 @@ def pin_entries(a):
     # RSTの後ろの5バイトへ、他からのフォールスルーが無い小ルーチンを収める。
     # _window_run_known は直前がRETで、条件分岐からのみ到達する。
     packed = {}
-    for name, slot, end in (("_window_run_known", 0x2B, "_window_run_lengths"),
+    for name, slot, end in (("ENTRY_REQUEST_RETURN", 0x33, "ENTRY_SEEK"),
+                            ("_window_run_known", 0x2B, "_window_run_lengths"),
                             ("ENTRY_CALCULATE", 0x23, "STATE_ACCESS"),
                             ("FDC_TIMEOUT_MARK", 0x0B, "RECV_WORD_BE"),
                             ("RECV_WORD_BE", 0x13, "FDC_TC"),
