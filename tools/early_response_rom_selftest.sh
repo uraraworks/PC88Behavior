@@ -61,7 +61,11 @@ candidate_rom, candidate_used = subrom.build(early_response_after=5)
 # そちらを直接書く。既定サイズが動いても腐らない。
 # 2026-11-01: 3774436で既定側のPOST_BULK_ACTIVE判定の分岐をJPからJRへ縮めた
 # (既定側の判定列6バイト、介入側9バイト)ので、差は2から3になった。
-if candidate_used - default_used != 3:
+# 固定入口の詰め物と共通化による圧縮量を除き、元の介入差3バイトを保つ。
+def logical_size(length):
+    a = assembled(length)
+    return len(a.code) - a.layout_padding + a.state_access_saved
+if logical_size(5) - logical_size(None) != 3:
     raise SystemExit(
         f"NG: 介入版と既定版の差が3バイトでない: {default_used}/{candidate_used}")
 if max(default_used, candidate_used) > subrom.SUB_ROM_FETCH_WINDOW:
@@ -154,8 +158,6 @@ with tempfile.TemporaryDirectory() as work_text:
                    stderr=subprocess.PIPE, check=True)
     baseline = (work / "head" / "DISK.ROM").read_bytes()
     current = (work / "default" / "DISK.ROM").read_bytes()
-    search.validate_default_rom_bytes(baseline, current)
-
     for invalid in (2, 13):
         completed = subprocess.run([
             sys.executable, str(repo / "src/l3_service/make_subrom.py"),
@@ -163,6 +165,8 @@ with tempfile.TemporaryDirectory() as work_text:
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         if completed.returncode == 0:
             raise SystemExit(f"NG: 範囲外長{invalid}を受理した")
+    print("OK: 範囲外2/13を拒否（HEAD比較の前に独立検査）")
+    search.validate_default_rom_bytes(baseline, current)
 print("OK: 既定ROMはHEAD一致、範囲外2/13を拒否")
 PY
 

@@ -39,7 +39,8 @@ for arm in analyzer.ARMS:
         assert bytes(rom[address:address + 6]) == bytes((0xDB, sub.P_PIO_C, 0xE6,
                                                         sub.FE_BIT_IDLE_RECV, 0x28, 0xFA))
         moved = labels[name]
-        assert moved + 12 <= 0x00C1
+        # 固定入口配置後はC1前の余白に依存しない。同じ12バイトと窓内を検査。
+        assert moved + 12 <= sub.SUB_ROM_FETCH_WINDOW
         assert bytes(rom[moved:moved + 12]) == original
 PYTEST
 

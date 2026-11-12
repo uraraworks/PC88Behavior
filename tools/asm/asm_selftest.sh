@@ -47,7 +47,10 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # は1.36a以前の出力。現行は1.36a〜c（LOAD/RUN/0x15を含む）と、
 # 第232版の0x16連続書きと容量圧縮を含む。履歴の凍結値は別の検査で維持する。
 # 第233版: 0x0Eの指定番地読みを反映（履歴の凍結値は変更しない）。
-EXPECT_SUBROM_DISK_SHA="6723a104a4f47e0aa6398f528ef3b124c11c99ad83e69c050ad984525bcb93ba"
+# sub-rom-entry第1版の固定配置版。以前の凍結値は下で旧生成器と照合する。
+FROZEN_SUBROM_COMMIT=97430aa
+FROZEN_SUBROM_DISK_SHA="6723a104a4f47e0aa6398f528ef3b124c11c99ad83e69c050ad984525bcb93ba"
+EXPECT_SUBROM_DISK_SHA="0a66cec19b188ee01341b3e11f7d0cd80c117de66c9ede1e1125e401c0282fa6"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then
@@ -56,6 +59,17 @@ sha256_of() {
         sha256sum "$1" | awk '{print $1}'
     fi
 }
+
+# 凍結時と現在の比較を分け、両方の固定値を検査する。
+FROZEN_SUB="$WORK/frozen-sub"
+mkdir -p "$FROZEN_SUB"
+if git -C "$REPO" show "$FROZEN_SUBROM_COMMIT:src/l3_service/make_subrom.py" > "$FROZEN_SUB/make_subrom.py" \
+    && python3 "$FROZEN_SUB/make_subrom.py" "$FROZEN_SUB/out" > "$WORK/frozen-sub.log" 2>&1 \
+    && [ "$(sha256_of "$FROZEN_SUB/out/DISK.ROM")" = "$FROZEN_SUBROM_DISK_SHA" ]; then
+    ok "凍結時のsub生成器と凍結SHA-256が一致"
+else
+    ng "凍結時のsub生成器または凍結SHA-256が不一致"
+fi
 
 # --------------------------------------------------------------------------
 # 1. make_ipl_rom.py: N88.ROM / DISK.ROM

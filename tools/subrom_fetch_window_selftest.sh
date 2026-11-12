@@ -260,6 +260,15 @@ if "make_subrom" in sys.modules:
 import make_subrom as m
 a = m.build_subrom()
 a.resolve()
+# 最終固定入口が単一JPでも同じ故障条件を作るため、末尾へNOPを追加する。
+original_build_subrom = m.build_subrom
+def with_tail_instruction(**kwargs):
+    result = original_build_subrom(**kwargs)
+    result.nop()
+    return result
+m.build_subrom = with_tail_instruction
+a = m.build_subrom()
+a.resolve()
 last_start = max(a.labels.values())
 end = len(a.code)
 operands = {pos for pos, _, _ in a.fixups}

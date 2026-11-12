@@ -405,7 +405,7 @@ import sys
 # `python3 make_subrom.py <出力先>` だけで同じROMを再生成できる」ことなので、
 # tools/asm/ を伴わずにこのファイル単体をコピーして実行してもROM生成その
 # ものは動かなければならない。見つかれば使い、無ければ --emit-asm 未使用時
-# は無害なフォールバックで動作し、使用時だけ分かりやすいエラーで終了する。
+# は内蔵の境界記録で動作し、書出し指定時だけ分かりやすいエラーで終了する。
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "asm"))
 try:
     from asm_emit import (  # noqa: E402
@@ -421,17 +421,34 @@ except ImportError:
     def hex16(v):
         return f"0x{v & 0xFFFF:04X}"
 
+    # 単独コピーでも固定配置用の命令境界を記録する。書出し機能だけは無効。
     def note_raw_db(self, bs):
-        """asm_emit不在時は何も記録しない（バイト生成には無関係）。"""
-        return
+        if bs and not self._note_suppress:
+            self._emit_asm.append(("raw", self.pc, len(bs), list(bs)))
 
     def note_data(self, bs):
-        """asm_emit不在時はフックせずそのまま db() を発行する。"""
+        start = self.pc
+        self._note_suppress += 1
         self.db(*bs)
+        self._note_suppress -= 1
+        if bs:
+            self._emit_asm.append(("data", start, len(bs), list(bs)))
 
     def install_note_templates(cls, templates):
-        """asm_emit不在時は命令メソッドをラップしない（バイト列は不変）。"""
-        return
+        for name, template in templates.items():
+            original = getattr(cls, name)
+            def wrapper(self, *args, _original=original, _template=template, **kwargs):
+                start = self.pc
+                self._note_suppress += 1
+                try:
+                    result = _original(self, *args, **kwargs)
+                finally:
+                    self._note_suppress -= 1
+                if not self._note_suppress:
+                    self._emit_asm.append(("instr", start, self.pc-start,
+                                           _template(*args, **kwargs)))
+                return result
+            setattr(cls, name, wrapper)
 
     def render_asm(asm_obj, header_comment=""):
         raise RuntimeError(
@@ -601,6 +618,12 @@ class Asm:
                 self.code[pos] = delta & 0xFF
 
     # ---- 命令 ----
+    def ex_sp_hl(self): self.db(0xE3)
+    def ld_e_hl(self): self.db(0x5E)
+    def bit6_e(self): self.db(0xCB, 0x73)
+    def res6_e(self): self.db(0xCB, 0xB3)
+    def bit7_e(self): self.db(0xCB, 0x7B)
+    def res7_l(self): self.db(0xCB, 0xBD)
     def di(self):        self.db(0xF3)
     def ei(self):         self.db(0xFB)
     def im0(self):        self.db(0xED, 0x46)
@@ -740,6 +763,12 @@ class Asm:
 # 合わせで済むものはここに入れていない——二重に記録されるのを避けるため）。
 # --------------------------------------------------------------------------
 _ASM_TEMPLATES = {
+    "ex_sp_hl": lambda: "EX (SP),HL",
+    "ld_e_hl": lambda: "LD E,(HL)",
+    "bit6_e": lambda: "BIT 6,E",
+    "res6_e": lambda: "RES 6,E",
+    "bit7_e": lambda: "BIT 7,E",
+    "res7_l": lambda: "RES 7,L",
     "di": lambda: "DI",
     "ei": lambda: "EI",
     "im0": lambda: "IM 0",
@@ -824,6 +853,7 @@ _ASM_TEMPLATES = {
     "ld_a_mem": lambda addr: f"LD A,({hex16(addr)})",
     "ld_mem_a": lambda addr: f"LD ({hex16(addr)}),A",
     "ld_hl": lambda name: f"LD HL,{name}",
+    "call_z": lambda name: f"CALL Z,{name}",
     "call": lambda name: f"CALL {name}",
     "jp": lambda name: f"JP {name}",
     "jp_hl": lambda: "JP (HL)",
@@ -1339,6 +1369,78 @@ def build_subrom(break_write_ack=False,
     # 見直しの対象そのものである。**仕様に無いので入れない。**
     a.jp("M6IB_B1_RESET_GATE" if inject_m6ib_b1 else "BOOT_HANDSHAKE")
 
+    # sub-rom-entry.md 第1版。未確定の戻り値を互換値として固定しない。
+    a.label("ENTRY_FDC_INIT")
+    a.ld_mem_a(REQ_HDR + 2)
+    a.ld_e_a()
+    a.call("FDC_SPECIFY")
+    a.call("FDC_RECALIBRATE")
+    a.xor_a()
+    a.call("FDC_SEEK")
+    a.ld_a_mem(REQ_HDR + 2)
+    a.or_a()
+    a.ret_z()                         # 測定済みの A=0 は戻る
+    a.label("_entry_init_wait")
+    a.jr("_entry_init_wait")           # A=1 は未完了（他の入力も未確定）
+
+    a.label("FDC_SPECIFY")
+    a.ld_a(0x03); a.call("FDC_BEGIN")
+    a.ld_a(0xDF); a.rst(0x08)
+    a.ld_a(0x02); a.jp("FDC_OUT")
+
+    a.label("ENTRY_READY")
+    a.ld_a(0x04); a.call("FDC_BEGIN")
+    a.ld_a(1); a.rst(0x08)             # 確定したドライブ2の条件
+    a.rst(0x28)
+    a.and_a(0x08)                     # l3-subrom 1.36a: 媒体あり
+    a.jr_z("ENTRY_READY")
+    a.ret()
+
+    a.label("ENTRY_F7")
+    a.xor_a()                         # 既知のA/F入力組で戻りが同じ（具体Fは未確定）
+    a.out_imm(P_STROBE, BOOT_F7_VALUE)  # 自作の既存制御値。互換値は未確定
+    a.ld_mem_a(0x7F0B)
+    a.ret()
+
+    a.label("ENTRY_CALCULATE")
+    a.xor_a()                         # 確定範囲 A=0, F=44
+    a.ret()
+
+    # 7C00..7C3F の読書きを共有。RST直後は下位番地、bit7は書込み。
+    # bit6が立つ引数は、下位5ビットをOUT FFするフェーズ即値出力。
+    # AF（読取り時のA以外）・BC・DE・HLを保存し、戻り番地を1進める。
+    a.label("STATE_ACCESS")
+    a.ex_sp_hl()
+    a.push_de()
+    a.push_af()
+    a.ld_e_hl()
+    a.inc_hl()
+    a.bit6_e()
+    a.jr_z("_state_memory")
+    a.res6_e()
+    a.pop_af()
+    a.ld_a_e()
+    a.out_a(0xFF)
+    a.jr("_state_return")
+    a.label("_state_memory")
+    a.bit7_e()
+    a.ex_de_hl()
+    a.ld_h_n(0x7C)
+    a.res7_l()
+    a.jr_nz("_state_write")
+    a.pop_af()
+    a.ld_a_hl()
+    a.jr("_state_access_done")
+    a.label("_state_write")
+    a.pop_af()
+    a.ld_hl_a()
+    a.label("_state_access_done")
+    a.ex_de_hl()
+    a.label("_state_return")
+    a.pop_de()
+    a.ex_sp_hl()
+    a.ret()
+
     # ====================================================================
     # ハンドシェイク・プリミティブ（仕様書 1.15節。sub視点で確定した手順）
     #
@@ -1349,9 +1451,8 @@ def build_subrom(break_write_ack=False,
     # の最大の変更点。
     # ====================================================================
 
-    # RST 08h/20hはFDC呼出しの短縮入口。IRQ 38hとは重ねない。
-    a.data(0)                         # リセット末尾7からRST 08hへ整列
-    assert a.pc == 0x0008
+    # 内部FDC呼出しはRST 08h/28h。20hは公開の書込み入口。
+    # 固定番地のJPはpin_entries()で置き、本体の位置は自由にする。
     # ---- ホストから FDC へ1バイト送る（コマンド/パラメータ共通）。
     #      第12版で全面書き直し。考え方はFDC_INと対称:
     #        - 既に中断済みなら$FBに触れず戻る
@@ -1379,9 +1480,6 @@ def build_subrom(break_write_ack=False,
     a.di()
     a.ret()
 
-    while a.pc < 0x0020:
-        a.data(0)
-    assert a.pc == 0x0020
     # ---- FDC がホストへデータを渡す準備ができるまで待って IN する。
     #      第12版で全面書き直し（上のモジュールdocstring「FDC結果/
     #      コマンドフェーズの終了判定とタイムアウト時の中止」節参照）。
@@ -1437,11 +1535,7 @@ def build_subrom(break_write_ack=False,
     # いても再入を繰り返さない。データ転送そのものと有限タイムアウトは
     # 従来の主線側に残し、HALTは使わない。
     #
-    # 固定FDC入口と最初の待ちを0x38未満に収め、割り込み入口を保つ。
-    # 将来、前段の命令長が変わってベクタからずれた場合は黙って壊れず、
-    # 生成時に止める。
-    if a.pc != 0x0038:
-        raise SystemExit(f"IM 1ベクタ配置がずれた: 0x{a.pc:04X} != 0x0038")
+    # 0038の固定JPから入り、最初のI/OでMSRを読む。
     a.label("IRQ_HANDLER")
     a.push_af()
     a.in_port(P_FDC_STAT)                  # 受理直後の次のI/OをIN $FAにする
@@ -1531,9 +1625,9 @@ def build_subrom(break_write_ack=False,
     a.ret()
     # 1.36c: 番地・長さは上位が先。RECV_BYTEはHL/BC/DEを保存する。
     a.label("RECV_WORD_BE")
-    a.call("RECV_BYTE")
+    a.rst(0x10)
     a.ld_h_a()
-    a.call("RECV_BYTE")
+    a.rst(0x10)
     a.ld_l_a()
     a.ret()
     # ---- FDC終端三つ組み（仕様書1.21節、第69版）。呼び出し元がFDCコマンド
@@ -1573,10 +1667,6 @@ def build_subrom(break_write_ack=False,
         a.cp_n(12)
         a.ret()
 
-    if a.pc > 0x00C1:
-        raise SystemExit("要求待ち復帰入口の前段が0x00C1を超えた")
-    while a.pc < 0x00C1:
-        a.data(0)
     # 1.36cの公開復帰入口。LOAD/RUN後は受信へ直接戻る。
     # 先行READの受信準備bitがmain側に残っていても、次の0x02の
     # 確定長ヘッダを途中で閉じない。読み本体の既存命令列には触れない。
@@ -1601,7 +1691,7 @@ def build_subrom(break_write_ack=False,
         a.in_port(P_PIO_C)
         a.and_a(FE_BIT_IDLE_RECV)
         a.jr_z("_request_wait_atn")       # ATNを確認してから受信準備を上げる
-        a.call("RECV_BYTE")
+        a.rst(0x10)
         a.ld_b_a()
         a.cp_n(0x02)
         a.jp_nz("_recv_dispatch_store_received")
@@ -1611,7 +1701,7 @@ def build_subrom(break_write_ack=False,
         a.ld_b(4)
         a.label("_return_read_header")
         a.inc_hl()
-        a.call("RECV_BYTE")
+        a.rst(0x10)
         a.ld_hl_a()
         a.djnz("_return_read_header")
         a.jp("_general_read_request")
@@ -1678,7 +1768,7 @@ def build_subrom(break_write_ack=False,
     a.in_port(P_PIO_C)                     # 手順3: IN $FE（単発、読み捨て）
     a.in_port(P_PIO_C)                     # 手順4: IN $FE（単発、読み捨て）
     if not inject_m6ib_b3:
-        a.call("RECV_BYTE")                # 手順5: RECVプリミティブ1回（応答なし）
+        a.rst(0x10)                # 手順5: RECVプリミティブ1回（応答なし）
     a.out_imm(P_F8, BOOT_F8_VALUE_1)       # 手順6: OUT $F8,0x05
     a.out_imm(P_F8, BOOT_F8_VALUE_2)       # 手順7: OUT $F8,0xFF
     # 割り込みモードはI/Oログから未確定なので、ベクタを1箇所だけ確保すれば
@@ -1690,10 +1780,7 @@ def build_subrom(break_write_ack=False,
         _emit_m6ib_release_gate("M6IB_B2_BEFORE_FDC_GATE")
     a.im1()
     # 起動専用SPECIFYをここに展開し、唯一のCALLと末尾分岐を省く。
-    a.label("FDC_SPECIFY")
-    a.ld_a(0x03); a.call("FDC_BEGIN")
-    a.ld_a(0xDF); a.rst(0x08)
-    a.ld_a(0x02); a.rst(0x08)
+    a.call("FDC_SPECIFY")
     # ---- 仕様書1.22節（第16版〜第19版）で確定した起動時FDC初期化の
     #      batch1〜7を再現する。ドライブ割り当て（1.22節・
     #      `docs/notes/m6r-specify-vs-seek.md`）: batch1/2/3=ドライブ0、
@@ -1731,7 +1818,7 @@ def build_subrom(break_write_ack=False,
         # 初期化7 batchを終えた後、通常SEND開始まで停止し、解除後に
         # 起動専用として保留していたRECVを1回だけ行う。
         _emit_m6ib_release_gate("M6IB_B3_AFTER_INIT_GATE")
-        a.call("RECV_BYTE")
+        a.rst(0x10)
     if inject_m6ib_b4:
         # 通常順b→aは完了済み。MAIN_LOOPへ入ってラウンド#0を始める直前。
         _emit_m6ib_release_gate("M6IB_B4_BEFORE_ROUND0_GATE")
@@ -1868,7 +1955,7 @@ def build_subrom(break_write_ack=False,
     # m7lm: 結果1件目(ST0)だけをLAST_ST0に残す（再試行の判定と、9件のあとの応答の
     # 判定に使う）。残り6件は従来どおり読み捨てる。FDC_ABORTが立っているときは
     # FDC_INが読まずに戻るので、ここに残る値に意味は無い（判定側でFDC_ABORTを見る）。
-    a.rst(0x20)
+    a.rst(0x28)
     a.ld_mem_a(LAST_ST0)
     # m7lq: 結果3件目(ST2)のCONTROL MARK(bit6)が立っていれば、ICが正常でも
     # LAST_ST0へ0x40を入れて失敗として扱う（再試行と9件のあとの応答は、どちらも
@@ -1876,15 +1963,15 @@ def build_subrom(break_write_ack=False,
     # （m7lo: 公式は削除マークでも9件読み直し、ほかの失敗と同じ応答を返す）と、
     # 公開データシートのST2 bit6の意味だけである。公式がCMを見て判断している
     # とは言わない——測った失敗と成功に同時に合う最小の形として選んだ。
-    a.rst(0x20)
-    a.rst(0x20)
+    a.rst(0x28)
+    a.rst(0x28)
     a.and_a(0x40)
     a.jr_z("_fdc_in_7_no_cm")
     a.ld_mem_a(LAST_ST0)
     a.label("_fdc_in_7_no_cm")
     a.ld_b(4)
     a.label("_fdc_in_7_loop")
-    a.rst(0x20)
+    a.rst(0x28)
     a.djnz("_fdc_in_7_loop")
     a.ret()
 
@@ -1942,7 +2029,7 @@ def build_subrom(break_write_ack=False,
     # （＝正常に割り込みを拾えた場合）だけ2バイト目を読む。 ----
     a.label("FDC_SENSE_INT")
     a.ld_a(0x08); a.call("FDC_BEGIN")
-    a.rst(0x20)     # r0 = ST0
+    a.rst(0x28)     # r0 = ST0
     if break_sense_int_result_count:
         # 検出力確認用（tools/verify_l3.sh --break-sense-int-count）:
         # 本版で修正する前の挙動（ST0の中身を見ずに無条件で2バイト目を
@@ -2238,7 +2325,7 @@ def build_subrom(break_write_ack=False,
     a.call("SEND_BUFFER_PAIR")         # 読み応答と同じ送信手順、HLは2進む
     a.jr("_general_load_check")
     a.label("_general_load_byte")
-    a.call("RECV_BYTE")
+    a.rst(0x10)
     a.ld_hl_a()
     a.inc_hl()
     a.ld_a_b()
@@ -2260,7 +2347,7 @@ def build_subrom(break_write_ack=False,
     # でも65536回送る。INC HLの16ビット巡回をそのまま使う。
     a.label("_general_range_send")
     a.ld_a_hl()
-    a.call("SEND_BYTE")               # 第237版: 1バイトにつきOUT $FDは1回
+    a.rst(0x18)               # 第237版: 1バイトにつきOUT $FDは1回
     a.inc_hl()
     a.or_a()                           # SBCの借りを消し、HLと終端を比較する
     a.sbc_hl_de()
@@ -2672,11 +2759,18 @@ def build_subrom(break_write_ack=False,
     a.label("FDC_READ_256")
     a.ld_b(0)
     a.label("_bulk_read_byte")
-    a.rst(0x20)
+    a.rst(0x28)
     a.ld_hl_a()
     a.inc_hl()
     a.djnz("_bulk_read_byte")
     a.ret()
+
+    if not break_dispatch_return:
+        a.label("_observed_request_table")
+        for _i, (_hdr, _resp) in enumerate(OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
+            _tracked = 0x80 if _i in OBSERVED_SINGLE_TRACKED_ENTRIES else 0
+            a.data(len(_hdr) | _tracked, *_hdr, _resp)
+        a.data(0x00)   # 表の終端
 
     if break_dispatch_return:
         # ====================================================================
@@ -2709,14 +2803,14 @@ def build_subrom(break_write_ack=False,
         # だけを検出対象にしているため、送る値自体はどちらでもよいが
         # 本番構造と揃える）。
         a.call("FDC_SENSE_DRIVE_STATUS")
-        a.call("SEND_BYTE")
+        a.rst(0x18)
         a.jr("IDLE_DISPATCH")
 
         a.label("REQ_HEADER_RECV")
         a.ld_hl_imm(REQ_HDR)
         a.ld_b(8)
         a.label("_hdr_loop")
-        a.call("RECV_BYTE")
+        a.rst(0x10)
         a.ld_hl_a()
         a.inc_hl()
         a.djnz("_hdr_loop")
@@ -2735,13 +2829,13 @@ def build_subrom(break_write_ack=False,
         a.ld_b(0x00)
         a.label("_resp_loop")
         a.ld_a_hl()
-        a.call("SEND_BYTE")
+        a.rst(0x18)
         a.inc_hl()
         a.djnz("_resp_loop")
 
         a.jr("REQ_LOOP")
 
-        return a
+        return pin_entries(a)
 
     # ====================================================================
     # メインループ（仕様書 1.11・1.23節: 交換#3/#4の状態機械）
@@ -2853,7 +2947,7 @@ def build_subrom(break_write_ack=False,
         a.call("RESET_HDR_RUN")   # m7lj: HDR_PTR←REQ_HDR・RUN_LEN←0（共有列）
         a.ld_mem_a(RESP_ACTIVE)
         a.label("_recv_dispatch_state_ready")
-    a.call("RECV_BYTE")               # A = 受け取ったバイト
+    a.rst(0x10)               # A = 受け取ったバイト
     if not break_fixed_byte_cutoff:
         # 第68版・1.37節: POST_BULK_ACTIVEには、この交換中だけ「次に待つ値」
         # 0x06/0x12を置く。受信値と段階値が一致した場合だけ専用遷移へ入り、
@@ -3539,7 +3633,7 @@ def build_subrom(break_write_ack=False,
     a.label("_exchange3_normal_response")
     a.ld_a(EXCHANGE3_OBSERVED_RESPONSE)
     a.label("_exchange3_send_response")
-    a.call("SEND_BYTE")
+    a.rst(0x18)
     a.label("_single_response_sent")
     a.jp("IDLE_DISPATCH")
 
@@ -3671,11 +3765,6 @@ def build_subrom(break_write_ack=False,
     a.jr("_osbr_entry")
     # 決定テーブル本体。データであって実行されない(上のjp/jr/callだけが
     # 制御を持ち、ここへ落ちてくる経路は無い)。
-    a.label("_observed_request_table")
-    for _i, (_hdr, _resp) in enumerate(OBSERVED_SINGLE_RESPONSE_BY_REQUEST):
-        _tracked = 0x80 if _i in OBSERVED_SINGLE_TRACKED_ENTRIES else 0
-        a.data(len(_hdr) | _tracked, *_hdr, _resp)
-    a.data(0x00)   # 表の終端
 
     # 受信継続中とrun終了時の交換#14判定を共有する。
     if not break_fixed_byte_cutoff and not measurement_gate:
@@ -3727,7 +3816,193 @@ def build_subrom(break_write_ack=False,
     a.call("FDC_SENSE_DRIVE_STATUS")
     a.jp("_exchange3_send_response")
 
-    return a
+    return pin_entries(a)
+
+
+# 公開入口と内部RST。0263/06A6は仕様上予約領域の指定がないので未実装。
+PINNED_ENTRIES = {
+    0x0008: "FDC_OUT", 0x0010: "RECV_BYTE", 0x0018: "SEND_BYTE",
+    0x0020: "FDC_OUT", 0x0028: "FDC_IN", 0x0030: "STATE_ACCESS",
+    0x0038: "IRQ_HANDLER", 0x00C1: "SUB_REQUEST_RETURN",
+    0x00ED: "ENTRY_FDC_INIT", 0x02A4: None, 0x02A7: "FDC_OUT",
+    0x02B4: "ENTRY_CALCULATE", 0x035B: "ENTRY_F7",
+    0x048F: "ENTRY_READY", 0x07D6: "ENTRY_READY",
+}
+
+
+def pin_entries(a):
+    """線形発行した命令を固定入口の周囲へ配置する。
+
+    命令/インライン引数/表を分断しない。入口の2バイト前までに命令境界が
+    無くなるときは手前でJRし、詰め物と入口を飛び越える。相対分岐が
+    届かなくなった場合だけJPへ広げ、配置が安定するまで再計算する。
+    """
+    # 既定版: RAM105箇所＋PIO16箇所で137Bを共有し、本体36Bを差し引き101B減。
+    # 既存CALL9箇所のRST化18B、既存FDC末尾4箇所の短縮4Bと合わせ123B減。
+    # 固定入口・新規本体・入口回避の詰め物は、この削減分から別途消費する。
+    records = []
+    fix = {pos: (name, kind) for pos, name, kind in a.fixups}
+    # 時間/ゲート検査の命令列を保ち、全メモリ送出中のスタックも増やさない。
+    protected = set()
+    for start, end in (("SEND_BOOT_SINGLE_TRACKED", "BOOT_HANDSHAKE"),
+                       ("SEND_BYTE", "FDC_TIMEOUT_MARK"),
+                       ("RESET_HDR_RUN", "ACTIVATE_SECTOR_RESPONSE"),
+                       ("_exchange14_bulk_check", None)):
+        if start in a.labels:
+            lo = a.labels[start]
+            hi = a.labels[end] if end else lo + 12
+            protected.update(range(lo, hi))
+    saved = 0
+    for kind, pc, size, text in a._emit_asm:
+        raw = bytes(a.code[pc:pc + size])
+        target = fix.get(pc + 1)
+        if (kind == "instr" and pc not in protected and size == 3
+                and raw[0] in (0x3A, 0x32) and raw[2] == 0x7C and raw[1] < 0x40):
+            operand = raw[1] | (0x80 if raw[0] == 0x32 else 0)
+            raw = bytes((0xF7, operand))
+            text = f"RST 48\n    DB {operand}"
+            saved += 1
+        if kind == "instr" and raw[:1] == b"\xc3" and target and target[0] in ("FDC_OUT", "FDC_IN"):
+            vector = 8 if target[0] == "FDC_OUT" else 40
+            raw = bytes((0xc7 + vector, 0xc9))
+            text = f"RST {vector}\n    RET"
+            target = None
+            saved += 1
+        rec = [pc, size, kind, text, raw, target]
+        # 隣接したdataは一つの表として保護する。表の内部ラベルも移す。
+        if kind == "data" and records and records[-1][2] == "data":
+            prev = records[-1]
+            prev[1] += size
+            prev[4] += raw
+            prev[3] = list(prev[4])
+        else:
+            records.append(rec)
+    # フェーズ即値の出力も同じ共有入口へ。OUTの回数・順序・値は保つ。
+    merged = []
+    for rec in records:
+        if (merged and rec[4] == bytes((0xD3, 0xFF))
+                and merged[-1][4][:1] == b"\x3e" and len(merged[-1][4]) == 2
+                and merged[-1][4][1] < 0x20
+                and rec[0] not in a.labels.values()
+                and rec[0] not in protected):
+            prev = merged[-1]
+            operand = 0x40 | prev[4][1]
+            prev[1] += rec[1]
+            prev[4] = bytes((0xF7, operand))
+            prev[3] = f"RST 48\n    DB {operand}"
+            saved += 2
+        else:
+            merged.append(rec)
+    records = merged
+    # 待ちループ内部へ入口回避JRを挟むと1周の時間が変わるため、7バイトを一塊で置く。
+    wait_starts = {pc for name, pc in a.labels.items() if name.startswith("WAIT_FE_")}
+    # RSTの後ろの5バイトへ、他からのフォールスルーが無い小ルーチンを収める。
+    packed = {}
+    for name, slot, end in (("ENTRY_CALCULATE", 0x23, "STATE_ACCESS"),
+                            ("FDC_TIMEOUT_MARK", 0x0B, "RECV_WORD_BE"),
+                            ("RECV_WORD_BE", 0x13, "FDC_TC"),
+                            ("FDC_OUT_THEN_N1", 0x1B, "_exchange14_bulk_check"
+                             if "_exchange14_bulk_check" in a.labels and
+                             a.labels["_exchange14_bulk_check"] < a.labels["SUB_REQUEST_RETURN"]
+                             else "SUB_REQUEST_RETURN")):
+        lo, hi = a.labels[name], a.labels[end]
+        group = [r for r in records if lo <= r[0] < hi]
+        if sum(len(r[4]) for r in group) <= 5:
+            packed[slot] = group
+            records = [r for r in records if not lo <= r[0] < hi]
+    widened = set()
+    for attempt in range(32):
+        b = Asm(a.org)
+        reloc = {}
+        pending = dict(PINNED_ENTRIES)
+        padding = 0
+        def entry(addr):
+            if b.pc != addr:
+                raise ValueError(f"固定入口の重なり: {addr:04X} / {b.pc:04X}")
+            target = pending.pop(addr)
+            b.label(f"PIN_{addr:04X}")
+            if target is None:
+                b.ld_mem_a(0x7F0C)
+            else:
+                b.jp(target)
+        # リセット7バイトとRSTテーブル。RSTの8バイト枠を侵さない。
+        for rec in records[:3]:
+            pc, size, kind, text, raw, target = rec
+            reloc[pc] = b.pc
+            if target:
+                b.jp(target[0])
+            else:
+                b._note_suppress += 1; b.db(*raw); b._note_suppress -= 1
+                b._emit_asm.append((kind, b.pc-len(raw), len(raw), text))
+        while min(pending) < 0x40:
+            addr = min(pending)
+            while b.pc < addr:
+                b.data(0); padding += 1
+            entry(addr)
+            if b.pc in packed:
+                for pc, size, kind, text, raw, target in packed[b.pc]:
+                    reloc[pc] = b.pc
+                    newpc = b.pc
+                    b._note_suppress += 1; b.db(*raw); b._note_suppress -= 1
+                    b._emit_asm.append((kind, newpc, len(raw), text))
+                    if target:
+                        b.fixups.append((newpc+1, *target))
+        for rec in records[3:]:
+            pc, size, kind, text, raw, target = rec
+            if pc in widened:
+                op = {0x18: 0xC3, 0x20: 0xC2, 0x28: 0xCA,
+                      0x30: 0xD2, 0x38: 0xDA}[raw[0]]
+                raw = bytes((op, 0, 0))
+                target = (target[0], "abs")
+                text = text.replace("JR ", "JP ", 1)
+            # 隣接02A4/02A7も一緒に跨ぐ。復帰先は入口直後。
+            required = 7 if pc in wait_starts else len(raw)
+            while pending and b.pc + required > min(pending) - 2:
+                addr = min(pending)
+                skip = f"_pin_skip_{addr:04x}"
+                b.jr(skip)
+                while b.pc < addr:
+                    b.data(0); padding += 1
+                entry(addr)
+                while pending and min(pending) == b.pc:
+                    entry(b.pc)
+                b.label(skip)
+            newpc = b.pc
+            for offset in range(size):
+                reloc[pc + offset] = newpc + min(offset, len(raw)-1)
+            b._note_suppress += 1
+            b.db(*raw)
+            b._note_suppress -= 1
+            b._emit_asm.append((kind, newpc, len(raw), text))
+            if target:
+                b.fixups.append((newpc+1, *target))
+        reloc[len(a.code)] = b.pc
+        body_end = b.pc
+        while pending:
+            addr = min(pending)
+            while b.pc < addr:
+                b.data(0); padding += 1
+            entry(addr)
+        for name, old in a.labels.items():
+            b.labels[name] = reloc[old]
+        # 配置の結果だけを見てJR→JPを昇格する。短縮へ戻さないので収束する。
+        new_widened = set(widened)
+        for pc, size, kind, text, raw, target in records:
+            if target and target[1] == "rel" and pc not in widened:
+                delta = b.labels[target[0]] - reloc[pc] - 2
+                if not -128 <= delta <= 127:
+                    if raw[0] == 0x10:
+                        raise ValueError(f"固定入口でDJNZが届かない: {target[0]}")
+                    new_widened.add(pc)
+        if new_widened == widened:
+            b.layout_padding = padding
+            b.state_access_saved = saved
+            b.body_end = body_end
+            global _LAST_ASM
+            _LAST_ASM = b
+            return b
+        widened = new_widened
+    raise ValueError("固定入口の配置が収束しない")
 
 
 def find_fetch_window_straddles(a, boundary=SUB_ROM_FETCH_WINDOW):

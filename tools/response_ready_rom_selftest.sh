@@ -33,7 +33,10 @@ fast_rom, fast_used = subrom.build(fast_no_disk_response_ready=True)
 # 2026-09-10: 絶対値(2042/2045)の直書きをやめた。理由はearly_response_rom_selftest.sh
 # と同じ。見たいのは「fast版がcontrol版よりちょうど4バイト大きい」ことと窓内であること。
 # fast版は通常版の末尾経路に SCF (1) と JP (3) を追加する。
-if fast_used - control_used != 4:
+# 固定入口前の詰め物は構成ごとに変わる。命令・表の実使用差を厳密に検査。
+control_padding = assembled(False).layout_padding
+fast_padding = assembled(True).layout_padding
+if (fast_used - fast_padding) - (control_used - control_padding) != 4:
     raise SystemExit(
         f"NG: fast版とcontrol版の差が4バイトでない: {control_used}/{fast_used}")
 if max(control_used, fast_used) > subrom.SUB_ROM_FETCH_WINDOW:

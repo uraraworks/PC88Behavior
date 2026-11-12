@@ -46,10 +46,10 @@ import z80text
 assert not any(k.startswith('PC88_REF_') for k in os.environ)
 rom, used = sub.build()
 assert used <= sub.SUB_ROM_FETCH_WINDOW
-assert sub._LAST_ASM.labels['FDC_OUT'] == 0x08
-assert sub._LAST_ASM.labels['FDC_IN'] == 0x20
-assert sub._LAST_ASM.labels['IRQ_HANDLER'] == 0x38
-assert sub._LAST_ASM.labels['SUB_REQUEST_RETURN'] == 0xc1
+for entry, target in ((0x08, 'FDC_OUT'), (0x28, 'FDC_IN'),
+                      (0x38, 'IRQ_HANDLER'), (0xc1, 'SUB_REQUEST_RETURN')):
+    assert rom[entry] == 0xc3
+    assert int.from_bytes(rom[entry+1:entry+3], 'little') == sub._LAST_ASM.labels[target]
 # mainの通信部分だけを使う。別担当のmain生成器・BASICには依存しない。
 source = (repo / 'src/l3_main/main_sub_read.asm').read_text()
 primitives = source[source.index('MAIN_SUB_WAIT_SET:'):source.index('; PAIR陰性対照用。')]
