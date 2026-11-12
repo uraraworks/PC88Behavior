@@ -331,7 +331,65 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
             assert done and len(values) == 8192 and values[:4096] == values[4096:], f'{name}: 完了または内容不一致 {len(values)}'
         else:
             assert not done and len(values) == 4096, f'{name}: 旧経路の停止を再現できない {len(values)}'
-    print('短いATN・0x09連続要求・旧経路故障注入: PASS', flush=True)
+    # 2バイトの応答なら全I/Oを保持でき、最後の引数から送出終了まで
+    # sub自身の出力順を検査できる。受信後の0C復元は明示的な陰性対照。
+    compact = program[:program.index('    CALL RECEIVE_4095')] + '''    CALL RECEIVE_4096
+    LD A,1
+    LD (09002h),A
+STOP:
+    JR STOP
+FAIL:
+    LD A,1
+    LD (09003h),A
+    JR STOP
+''' + program[program.index('REQUEST:'):]
+    compact = compact.replace('    LD A,010h\n    CALL MAIN_SUB_SEND_CONT',
+                              '    LD A,2\n    CALL MAIN_SUB_SEND_CONT')
+    compact = compact.replace('    LD B,010h\nOUTER:', '    LD B,1\nOUTER:')
+    compact = compact.replace('    LD B,0\nINNER:', '    LD B,2\nINNER:')
+    needle = '    a.call("RECV_FIRST_ARMED")              # 手順2〜6。Aに受信値を返す\n'
+    assert original.count(needle) == 1
+    faulty = original.replace(needle, needle +
+        '    a.push_af()\n    a.out_imm(0xFF, PH_RECV_ACK_CLR)\n    a.pop_af()\n')
+    path = work / 'rfd_fault.py'
+    path.write_text(faulty)
+    spec = importlib.util.spec_from_file_location('rfd_fault', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    faulty_rom, _ = module.build()
+    for name, image, expected in (('rfd_trace', rom, True),
+                                   ('rfd_trace_fault', faulty_rom, False)):
+        case = work / name
+        case.mkdir()
+        path = case / 'main.asm'
+        path.write_text(compact)
+        main = z80text.Assembler().assemble(path)
+        (case / 'N88.ROM').write_bytes(main + bytes(0x8000 - len(main)))
+        (case / 'DISK.ROM').write_bytes(image)
+        args = [str(repo / 'tools/harness/frontend/q88measure'), '--core', str(core),
+                '--rom-dir', str(case), '--frames', '60', '--sub-cpu-mode', '2',
+                '--io-log', str(case / 'io')]
+        result = subprocess.run(args, capture_output=True, timeout=120)
+        assert result.returncode == 0, f'{name}: 実行器失敗'
+        events = []
+        for line in (case / 'io').read_text().splitlines():
+            m = re.match(r'\s*\d+\s+\d+\s+\d+\s+sub\s+(IN|OUT)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
+            if m:
+                events.append((m[1], int(m[2], 16) & 255, int(m[3], 16)))
+        reads = [i for i, (kind, port, _) in enumerate(events) if kind == 'IN' and port == 0xfc]
+        assert len(reads) >= 6, f'{name}: 要求受信不足 {len(reads)}'
+        valid = True
+        for last, end in ((reads[5], len(events)),):
+            segment = events[last+1:end]
+            sends = [i for i, (kind, port, _) in enumerate(segment) if kind == 'OUT' and port == 0xfd]
+            assert len(sends) == 2, f'{name}: 送出2バイトに対するOUT FD数 {len(sends)}'
+            before_send = segment[:sends[0]]
+            valid &= ('OUT', 0xff, 0x0c) not in before_send
+            # 各バイトはそれぞれ1回のデータ出力と1回の送出通知を持つ。
+            for start, stop in zip(sends, sends[1:] + [len(segment)]):
+                assert sum(e == ('OUT', 0xff, 9) for e in segment[start:stop]) == 1, f'{name}: 送出通知不一致'
+        assert valid == expected, f'{name}: RFD再上昇の検出に失敗'
+    print('短いATN・0x09連続要求・RFDと送出順・故障注入: PASS', flush=True)
 
 check_short_atn()
 

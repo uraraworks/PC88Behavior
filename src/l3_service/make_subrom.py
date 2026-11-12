@@ -1469,22 +1469,20 @@ def build_subrom(break_write_ack=False,
         a.ret()
 
     # ---- RECV_BYTE: main の SEND を受け取る。結果は A ----
-    # 仕様書1.15節「sub視点のRECVプリミティブ」の手順1〜7をそのまま。
+    # 仕様書1.15節の手順7は第236版に従い、次の受信前に実行する。
     # 第11版で RECV_BYTE_ARMED を切り出した（run境界判別、上のdocstring
     # 「run境界の判別」節参照）。手順1(OUT $FF,0x0B)だけを呼び出し側が
-    # 先に済ませている場合はRECV_BYTE_ARMEDへ直接入る。
+    # 先に済ませている場合はRECV_BYTE_ARMEDへ直接入る。RFDも事前に上げる。
     a.label("RECV_BYTE")
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)        # 次の受信を始めるときだけRFDを上げる
     a.out_imm(0xFF, PH_RECV_START_SET)      # 手順1: OUT $FF,0x0B
     a.label("RECV_BYTE_ARMED")              # 手順1を済ませた状態から始める入口
     a.call("RECV_FIRST_ARMED")              # 手順2〜6。Aに受信値を返す
-    a.push_af()                              # 手順7の即値ロードから受信値を保護
-    a.out_imm(0xFF, PH_RECV_ACK_CLR)         # 手順7: OUT $FF,0x0C
-    a.pop_af()
     a.ret()
 
     # ---- RECV_FIRST_ARMED: RECVの手順2〜6だけを行う。
     # 第69版・m7bzで公式mainのWRITEは位置6以降を2件一組で送ると確定した。
-    # 1件目のあと手順7を出さず、2件目を直接読むWRITE専用経路と、通常の
+    # 1件目のあとRFDを上げず、2件目を直接読むWRITE専用経路と、通常の
     # RECV_BYTEで手順2〜6を共有するための入口。 ----
     a.label("RECV_FIRST_ARMED")
     a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(bit0=1)
@@ -2396,15 +2394,15 @@ def build_subrom(break_write_ack=False,
     # 残る256件は128組の2件受信だった（8 run、全2088位置で例外0）。
     # WINDOW_RUN_COMPLETEのK00確定長を5にしたため、長さ1のK00はここへ
     # 到達せず、WRITEだけが位置5から入る。各組は、1件目を通常RECVの
-    # 手順2〜6で取り、完了0Cを出す前に2件目を直接読む。
+    # 手順2〜6で取り、RFDを上げる前に2件目を直接読む。
     a.ld_b(0x80)                         # 128組 = 256バイト
     a.label("_write_recv_pair")
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)     # 次の組を受ける前に準備
     a.out_imm(0xFF, PH_RECV_START_SET)
     a.call("RECV_FIRST_ARMED")
     a.call("HDR_STORE_AND_CHECK")       # 対の1件目
     a.in_port(P_PIO_A)
     a.call("HDR_STORE_AND_CHECK")       # 対の2件目（受理解除後のラッチ）
-    a.out_imm(0xFF, PH_RECV_ACK_CLR)     # 2件をまとめて完了
     a.djnz("_write_recv_pair")
     # 128組完了時は直下のWRITE処理へフォールスルーする。
 
@@ -2940,6 +2938,7 @@ def build_subrom(break_write_ack=False,
         #      6節16項、上のモジュールdocstring「run境界の判別」節
         #      参照。使うビットは第11版から変えていない。 ----
         a.label("_recv_dispatch_continue")
+        a.out_imm(0xFF, PH_RECV_ACK_CLR)      # 続けて受けるための再武装
         a.out_imm(0xFF, PH_RECV_START_SET)    # RECVプリミティブ手順1を先出しで実行
         a.label("_recv_dispatch_poll")
         a.in_port(P_PIO_C)
@@ -2952,7 +2951,7 @@ def build_subrom(break_write_ack=False,
         a.ld_a_b()
         a.and_a(FE_BIT_RECV_DATA_READY)       # bit0: 相手が続けてデータを書いた(runが続いている)合図
         a.jr_z("_recv_dispatch_poll")
-        a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜7を続ける
+        a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜6を続ける
         a.call("HDR_STORE_AND_CHECK")
         if break_fixed_byte_cutoff:
             a.ld_hl_mem(HDR_PTR)
