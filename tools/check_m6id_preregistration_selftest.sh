@@ -11,6 +11,38 @@ ADDENDUM="$REPO/docs/notes/m6i-d-addendum1-unverified-arms.md"
 
 python3 "$CHECK" >"$WORK/positive.out" 2>"$WORK/positive.err" || exit 1
 
+# 測定用に移した判定ルーチンと5腕のゲートを実際の生成物で照合する。
+python3 - "$REPO" <<'PYTEST' || exit 1
+import sys
+from pathlib import Path
+repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / "tools"))
+import analyze_m6id as analyzer
+import make_subrom as sub
+
+baseline = sub.build_subrom()
+baseline.resolve()
+name = "_exchange14_bulk_check"
+start = baseline.labels[name]
+original = bytes(baseline.code[start:start + 12])
+assert len(original) == 12
+for arm in analyzer.ARMS:
+    label = analyzer.GATE_LABELS[arm]
+    kwargs = {} if label is None else {f"inject_m6ib_{arm[2:].lower()}": True}
+    metadata = {}
+    rom, _ = sub.build(metadata=metadata, **kwargs)
+    labels = metadata["labels"]
+    address = analyzer.gate_address_for_arm(arm, repo / "tools/m6id_frozen.tsv")
+    assert address == (None if label is None else labels[label])
+    if label is not None:
+        # IN FE / AND bit3 / JR Z back to IN: PCが観測点そのもの。
+        assert bytes(rom[address:address + 6]) == bytes((0xDB, sub.P_PIO_C, 0xE6,
+                                                        sub.FE_BIT_IDLE_RECV, 0x28, 0xFA))
+        moved = labels[name]
+        assert moved + 12 <= 0x00C1
+        assert bytes(rom[moved:moved + 12]) == original
+PYTEST
+
 expect_fail() {
   local label="$1"
   shift

@@ -1560,6 +1560,19 @@ def build_subrom(break_write_ack=False,
 
     a.jp("FDC_OUT")
 
+    # 測定用ゲートの追加分を、固定入口前の未使用領域で吸収する。
+    # 判定ルーチンの命令列は変えず、通常ビルドの配置も変えない。
+    measurement_gate = any((inject_m6ib_b1, inject_m6ib_b2, inject_m6ib_b3,
+                            inject_m6ib_b4, inject_m6ib_b5))
+    if measurement_gate and not break_fixed_byte_cutoff:
+        a.label("_exchange14_bulk_check")
+        a.ld_a_mem(BOOT_READ_PAIR_STAGE)
+        a.cp_n(0x05)
+        a.ret_nz()
+        a.ld_a_mem(RUN_LEN)
+        a.cp_n(12)
+        a.ret()
+
     if a.pc > 0x00C1:
         raise SystemExit("要求待ち復帰入口の前段が0x00C1を超えた")
     while a.pc < 0x00C1:
@@ -3665,7 +3678,7 @@ def build_subrom(break_write_ack=False,
     a.data(0x00)   # 表の終端
 
     # 受信継続中とrun終了時の交換#14判定を共有する。
-    if not break_fixed_byte_cutoff:
+    if not break_fixed_byte_cutoff and not measurement_gate:
         a.label("_exchange14_bulk_check")
         a.ld_a_mem(BOOT_READ_PAIR_STAGE)
         a.cp_n(0x05)
