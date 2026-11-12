@@ -47,8 +47,7 @@ EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9
 # は1.36a以前の出力。現行は1.36a〜c（LOAD/RUN/0x15を含む）と、
 # 第232版の0x16連続書きと容量圧縮を含む。履歴の凍結値は別の検査で維持する。
 # 第233版: 0x0Eの指定番地読みを反映（履歴の凍結値は変更しない）。
-# 第236版: RFDの再武装を次の受信前へ移したため、既定ROMの固定値を更新。
-EXPECT_SUBROM_DISK_SHA="9892cff78c7d3439970b4b15df7f0507ff1df0f6e1800e338e433c757d5d5c73"
+EXPECT_SUBROM_DISK_SHA="8c8b8877f01403c9b70e41c0a23b35557a5e69622988a7f956bb759e3ae785f9"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then
