@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+[ "$#" -eq 1 ] || { echo '使い方: b86_add2_run.sh 出力ディレクトリ' >&2; exit 2; }
+out="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1")"
+case "$out/" in "$repo/"*) echo '出力先はリポジトリ外にしてください' >&2; exit 2;; esac
+[ ! -e "$out" ] || { echo '出力先が既に存在します' >&2; exit 2; }
+umask 077
+mkdir -p "$out/raw" "$out/summary"
+core="${PC88_CORE:-$(find "$repo/../vendor/quasi88-libretro" -maxdepth 1 -name 'quasi88_libretro.*' -type f | head -1)}"
+front="${PC88_FRONTEND:-$repo/tools/harness/frontend/q88measure}"
+[ -f "$core" ] && [ -x "$front" ] || { echo 'コアまたは frontend がありません' >&2; exit 1; }
+run_arm() {
+ name="$1"
+ dir="$out/raw/$name"; mkdir "$dir"
+ python3 "$repo/tools/b86_add2.py" generate "$dir" "$name"
+ if [ -n "${PC88_REF_ROM_DIR:-}" ]; then
+  rom="$dir/rom"; mkdir "$rom"; cp "$PC88_REF_ROM_DIR"/*.ROM "$rom/"; frames="${B86_FRAMES:-2010}"
+ else
+  rom="$dir/rom"; mkdir "$rom"; frames="${B86_FRAMES:-60}"
+  python3 - "$dir/probe.bin" "$rom" <<'PY'
+import pathlib, sys
+sector=pathlib.Path(sys.argv[1]).read_bytes(); d=pathlib.Path(sys.argv[2]); rom=bytearray(0x8000)
+rom[:3]=bytes.fromhex('c3 00 01')
+boot=bytes.fromhex('f3 31 00 f0 21 00 03 11 00 c0 01 00 01 ed b0 c3 00 c0')
+rom[0x100:0x100+len(boot)]=boot; rom[0x300:0x400]=sector
+for addr in (0x3391,0x369a,0x37c9,0x37d2,0x3847): rom[addr]=0xc9
+(d/'N88.ROM').write_bytes(rom); (d/'DISK.ROM').write_bytes(bytes.fromhex('18 fe')+bytes(0x7fe))
+PY
+ fi
+ /usr/bin/perl -e 'alarm shift; exec @ARGV' "${B86_TIMEOUT:-120}" "$front" --core "$core" --rom-dir "$rom" --disk "$dir/probe.d88" --frames "$frames" --out "$dir/trace" --io-log "$dir/io" --mem-write-log "$dir/mem" --mem-write-range 0000-FFFF >"$dir/stdout" 2>"$dir/stderr" || { echo "実行失敗: $name" >&2; exit 1; }
+ python3 "$repo/tools/b86_add2.py" summarize "$dir" "$name" "$out/summary/$name.json"
+}
+while IFS= read -r name; do run_arm "$name"; done < <(python3 "$repo/tools/b86_add2.py" list)
+# 座標が全腕で取得でき同じ場合に限って介入へ進む。
+if python3 - "$out/summary" <<'PYCOORD'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]); names=['coord-base']+['coord-'+x for x in ('d','e','c','a','ix','iy')]
+s=[json.loads((p/(x+'.json')).read_text()) for x in names]
+coords=[x['RAM']['自作媒体座標'] for x in s]
+if not all(x and x==coords[0] for x in coords): sys.exit(1)
+PYCOORD
+then
+ python3 "$repo/tools/b86_add2.py" candidates "$out/summary/coord-base.json" >"$out/raw/candidates"
+ while IFS= read -r name; do run_arm "$name"; done <"$out/raw/candidates"
+fi
