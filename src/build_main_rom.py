@@ -2891,6 +2891,19 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
     if enable_l4_selftest:
         combined += f'\nINCLUDE "{lexer_path}"\n'
+    # 本体は末尾ではなくROM_VERSION予約前の埋め草を使う。
+    if enable_main_sub_read and enable_disk_read_chr:
+        entries = (REPO / "src/l3_main/rom_entries.asm").read_text(encoding="utf-8")
+    else:
+        # 通信を省略する既存の部品検査構成も配置検査の対象にする。
+        entries = "ENTRY_369A:\n    SCF\n    RET\n"
+        for name, target in (("ENTRY_37C9", "MAIN_SUB_SEND"),
+                             ("ENTRY_37D2", "MAIN_SUB_SEND_CONT"),
+                             ("ENTRY_3847", "MAIN_SUB_RECV")):
+            entries += f"{name} EQU {target if enable_main_sub_read else 'ENTRY_369A'}\n"
+    run_text = run_path.read_text(encoding="utf-8")
+    run_path.write_text(run_text.replace("AEL_ROM_LAYOUT_PAD:\n",
+                                        entries + "\nAEL_ROM_LAYOUT_PAD:\n"), encoding="utf-8")
     return memmap.asm_prelude() + combined
 
 
@@ -3029,12 +3042,87 @@ def build_n_rom(main_rom, main_asm, work):
     return relay, bytes(image), len(used)
 
 
+PINNED_ENTRIES = {
+    0x369A: "ENTRY_369A", 0x37C9: "ENTRY_37C9",
+    0x37D2: "ENTRY_37D2", 0x3847: "ENTRY_3847",
+}
+
+
+def check_pinned_entries(rom, asm):
+    """JPの番地・本体・3バイトの排他的所有をlistingと照合する。"""
+    for address, body in PINNED_ENTRIES.items():
+        target = asm.symtab[body]
+        expected = bytes((0xC3, target & 255, target >> 8))
+        owners = [(pc, chunk, raw) for pc, chunk, _, raw in asm.listing
+                  if pc < address + 3 and address < pc + len(chunk)]
+        if (rom[address:address + 3] != expected or len(owners) != 1
+                or owners[0][:2] != (address, expected)
+                or z80text.parse_line(0, owners[0][2]).mnem != "JP"):
+            raise SystemExit(f"固定入口0x{address:04X}の配置/飛び先/重複が不正")
+
+
+def assemble_pinned(src_path):
+    """INCLUDEを展開し、命令境界へJR/DS/JPを挿入して再アセンブル。
+
+    各入口を昇順で確定する。候補は近い境界からJRの届く範囲で後退し、
+    既存JR/DJNZが範囲外になれば別の境界を試す。後続入口が置けない場合も
+    前の候補へ戻る。表の行は候補にしないのでDB/DW/DSを分断しない。
+    """
+    original = src_path.read_text(encoding="utf-8")
+    loader = z80text.Assembler()
+    lines = [sl.raw for sl in loader.load(src_path)]
+    # 展開元の記録を残す（従来の構成自己検査もこのファイルを参照する）。
+    origins = ["; " + line for line in original.splitlines() if "INCLUDE" in line]
+
+    def compile_lines(rows):
+        obj = z80text.Assembler()
+        obj.lines = [z80text.parse_line(i + 1, row) for i, row in enumerate(rows)]
+        obj.pass1(obj.lines)
+        obj.resolve_equs()
+        obj.pass2(obj.lines)
+        return obj
+
+    entries = sorted(PINNED_ENTRIES.items())
+    def place(rows, obj, index):
+        if index == len(entries):
+            return rows, obj
+        address, body = entries[index]
+        lower = entries[index - 1][0] + 3 if index else 0
+        candidates = [(pc, no) for pc, chunk, no, raw in obj.listing
+                      if max(lower, address - 126) <= pc <= address - 2
+                      and z80text.parse_line(no, raw).kind == "instr"]
+        for pc, no in reversed(candidates):
+            after = f"PINNED_{address:04X}_AFTER"
+            block = [f"    JR {after}", f"    DS 0x{address:04X}-$",
+                     f"PINNED_{address:04X}: JP {body}", f"{after}:"]
+            trial = rows[:no - 1] + block + rows[no - 1:]
+            try:
+                assembled = compile_lines(trial)
+            except z80text.AsmError:
+                continue
+            result = place(trial, assembled, index + 1)
+            if result is not None:
+                return result
+        return None
+
+    result = place(lines, compile_lines(lines), 0)
+    if result is None:
+        raise z80text.AsmError("固定入口をJR到達範囲内の命令境界へ配置できない")
+    rows, obj = result
+    src_path.write_text("\n".join(origins + rows) + "\n", encoding="utf-8")
+    # 出力ソースの行番号とも一致させ、自己検査で再アセンブル可能にする。
+    obj = z80text.Assembler()
+    code = obj.assemble(src_path)
+    check_pinned_entries(code, obj)
+    return code, obj
+
+
 def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]":
     src_path = work / "n88_main_gen.asm"
     src_path.write_text(text, encoding="utf-8")
     asm = z80text.Assembler()
     try:
-        code = asm.assemble(src_path)
+        code, asm = assemble_pinned(src_path)
     except z80text.AsmError as e:
         raise SystemExit(f"z80text アセンブルエラー: {e}")
     if len(code) > N88_SIZE:

@@ -20,7 +20,7 @@ FROZEN_ROOT="$WORK/frozen-root"
 FROZEN_SRC="$FROZEN_ROOT/PC88Behavior"
 mkdir -p "$FROZEN_SRC"
 ln -s "$REPO/../vendor" "$FROZEN_ROOT/vendor"
-git -C "$REPO" archive "$FROZEN_COMMIT" | tar -x -C "$FROZEN_SRC"
+git -C "$REPO" archive "$FROZEN_COMMIT" src tools | tar -x -C "$FROZEN_SRC"
 FROZEN_BUILD=(python3 "$FROZEN_SRC/src/build_main_rom.py")
 
 BUILD=(python3 "$REPO/src/build_main_rom.py")
