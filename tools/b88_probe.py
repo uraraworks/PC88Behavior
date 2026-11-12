@@ -30,7 +30,14 @@ def generate(arm):
         emit('3e %02x 32' % value)
         code.extend(word(address))
 
-    variant = arm['variant']
+    variant = arm.get('variant', 'base')
+    supplement = 'kind' in arm
+    if supplement:
+        from b88a1_arms import inputs, memory_inputs
+        registers = inputs(arm)
+    else:
+        from b88_summarize import inputs
+        registers = inputs(arm)
     emit('f3 31 00 7e')
     # 入力先と結果領域を既知の状態にする。
     for address, value in ((0x6000, variant == 'mem_de'),
@@ -38,16 +45,24 @@ def generate(arm):
                            (0x6200, 0), (0x6300, 0),
                            (RESULT, 0), (RESULT + 1, 0)):
         store(address, int(value))
+    if supplement:
+        for address, value in memory_inputs(arm).items():
+            store(address, value)
+        label('prepare')
+        if arm.get('preinit'):
+            emit('3e %02x cd ed 00' % registers['A'])
+        if arm.get('command') == 'sense_interrupt':
+            emit('3e 08 cd 20 00')
+        label('prepared')
     if arm['mode'] == 'jp':
         ref('21', 'returned')
         emit('e5')
-    emit('01'); code.extend(word(2 if variant == 'bc' else 1))
-    emit('11'); code.extend(word(0x6200 if variant == 'de' else 0x6000))
-    emit('21'); code.extend(word(0x6300 if variant == 'hl' else 0x6100))
+    emit('01'); code.extend(word(registers['BC']))
+    emit('11'); code.extend(word(registers['DE']))
     # AF を最後に復元して入力フラグを維持する。
-    emit('21'); code.extend(word((0x100 if variant == 'a' else 0) | (1 if variant == 'f' else 0)))
+    emit('21'); code.extend(word(registers['A'] << 8 | registers['F']))
     emit('e5 f1')
-    emit('21'); code.extend(word(0x6300 if variant == 'hl' else 0x6100))
+    emit('21'); code.extend(word(registers['HL']))
     label('start')
     emit('32'); code.extend(word(RESULT))
     target = arm['address']

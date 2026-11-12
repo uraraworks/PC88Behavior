@@ -16,7 +16,7 @@ def replace_once(text, old, new):
     return text.replace(old, new, 1)
 
 
-def build(output):
+def build(output, supplement=False):
     source = Path(os.environ.get('PC88_CORE_SOURCE', ROOT.parent / 'vendor/quasi88-libretro'))
     work = output / 'build'
     shutil.copytree(source, work, ignore=shutil.ignore_patterns('.git', '*.o', '*.d', '*.so', '*.dylib', '*.dll'))
@@ -30,6 +30,9 @@ def build(output):
     s = replace_once(s, '  sub_io_out( port, data );', '  b88_port(1, port, data);\n  sub_io_out( port, data );')
     p.write_text(prefix + '#include "q88h_trace.h"' + s)
     shutil.copyfile(ROOT / 'tools/b88_capture.c', work / 'src/b88_capture.c')
+    if supplement:
+        p.write_text(p.read_text().replace('#include "b88_capture.c"', '#include "b88a1_capture.c"'))
+        shutil.copyfile(ROOT / 'tools/b88a1_capture.c', work / 'src/b88a1_capture.c')
     p = work / 'src/z80.c'
     s = p.read_text()
     s = replace_once(s, '#include "pc88cpu.h"',

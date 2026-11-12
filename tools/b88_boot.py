@@ -35,12 +35,17 @@ def generate_boot(arm, fault=None):
         # SPECIFY と2引数。MSRを待ち、引数をコマンドとして数えないことを検査。
         'io': 'f5 3e 03 d3 fb db fa e6 80 28 fa 3e 5a d3 fb db fa e6 80 28 fa 3e 01 d3 fb f1 c9',
     }
-    if fault in faults:
+    if fault in faults or isinstance(fault, bytes):
         patched = bytearray(probe)
         target = 0x7800 + len(patched)
         offset = labels['negative'] - 0x7800
         patched[offset:offset+3] = b'\xc3' + word(target)
-        patched.extend(bytes.fromhex(faults[fault]))
+        patched.extend(fault if isinstance(fault, bytes) else bytes.fromhex(faults[fault]))
+        probe = bytes(patched)
+    if 'kind' in arm and fault == 'prehang':
+        patched = bytearray(probe)
+        offset = labels['prepare'] - 0x7800
+        patched[offset:offset+2] = bytes.fromhex('18 fe')
         probe = bytes(patched)
     # 通信待ちはホスト側のフレーム数・実時間上限で制限する。
     # 最初の256バイトに通信プリミティブと後続2セクタのローダを置く。
@@ -154,13 +159,89 @@ READ_DISK:
     constants = ''.join(f'{k} EQU {v}\n' for k, v in boot_labels.items())
     payload = bytes((12, 0x78, 0, len(probe) >> 8, len(probe) & 255)) + probe
     assert len(payload) <= 255
+    cooperate = ''
+    helpers = ''
+    if arm.get('kind') in ('recv', 'send'):
+        # CFFE/CFFF は器具専用同期印。入口到達／帰還境界のフックだけが立てる。
+        cooperate = '''
+WAIT_ENTRY:
+ LD A,(0CFFEh)
+ OR A
+ JR Z,WAIT_ENTRY
+'''
+        if arm['kind'] == 'recv':
+            cooperate += f" LD A,{arm['sent']}\n CALL COOPERATE_SEND\n"
+            helpers = '''
+COOPERATE_SEND:
+ PUSH AF
+COOP_SEND_WAIT:
+ LD A,(0CFFFh)
+ OR A
+ JR NZ,COOP_SEND_SKIP
+ IN A,(0FEh)
+ AND 2
+ JR Z,COOP_SEND_WAIT
+ LD A,00Eh
+ OUT (0FFh),A
+ POP AF
+ OUT (0FDh),A
+ LD A,9
+ OUT (0FFh),A
+COOP_SEND_ACK:
+ IN A,(0FEh)
+ AND 4
+ JR NZ,COOP_SENT
+ LD A,(0CFFFh)
+ OR A
+ JR Z,COOP_SEND_ACK
+ JR COOP_SEND_CLEAR
+COOP_SEND_SKIP:
+ POP AF
+ RET
+COOP_SENT:
+ NOP
+COOP_SEND_CLEAR:
+ LD A,8
+ OUT (0FFh),A
+ IN A,(0FEh)
+ RET
+'''
+        else:
+            cooperate += ' CALL COOPERATE\n'
+            helpers = '''
+COOPERATE:
+ LD A,00Bh
+ OUT (0FFh),A
+COOP_WAIT:
+ IN A,(0FEh)
+ AND 1
+ JR NZ,COOP_DATA
+ LD A,(0CFFFh)
+ OR A
+ JR Z,COOP_WAIT
+ LD A,00Ah
+ OUT (0FFh),A
+ RET
+COOP_DATA:
+ LD A,00Ah
+ OUT (0FFh),A
+ IN A,(0FCh)
+COOP_BYTE:
+ LD (0CF20h),A
+ CALL RECV_LAST
+ LD A,00Ch
+ OUT (0FFh),A
+ JR COOPERATE
+'''
     stage = constants + ''' ORG 0C100h
+ {sync}
  LD HL,PAYLOAD
  LD B,PAYLOAD_END-PAYLOAD
  CALL RUN
  LD HL,EXECUTE
  LD B,3
  CALL RUN
+ {cooperate}
  {fault}
  LD HL,READ_RESULT
  LD B,5
@@ -178,7 +259,10 @@ DONE:
  HALT
 STOP:
  JR STOP
-'''.replace('{fault}', 'LD HL,FAULT\n LD B,6\n CALL RUN' if fault == 'result' else '')
+'''.replace('{fault}', 'LD HL,FAULT\n LD B,6\n CALL RUN' if fault == 'result' else '').replace(
+        '{cooperate}', cooperate).replace('{sync}',
+        'XOR A\n LD (0CFFEh),A\n LD (0CFFFh),A' if 'kind' in arm else '')
+    stage += helpers
     stage += table('PAYLOAD', payload) + 'PAYLOAD_END:\n'
     stage += table('EXECUTE', (13, 0x78, 0))
     stage += table('READ_RESULT', (9, 0x77, 0, 0x77, 12))

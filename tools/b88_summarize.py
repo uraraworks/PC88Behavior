@@ -74,7 +74,7 @@ def read_main(path, labels):
     return boots, done, failed, packet
 
 
-def summarize_run(directory, arm):
+def summarize_run(directory, arm, input_values=None):
     missing = {'判定': '欠測', '戻り': '欠測', '理由': '記録不足・実行失敗'}
     try:
         status = json.loads((directory / 'status.json').read_text())
@@ -99,7 +99,7 @@ def summarize_run(directory, arm):
            '呼出し直前SP': '入力から戻り先1語分減少' if arm['mode'] == 'jp' else '入力と一致',
            '結果搬送一致': None, '入力との一致': None}
     if returned:
-        expected = inputs(arm)
+        expected = inputs(arm) if input_values is None else input_values
         received = None
         if packet is not None and packet[:2] == bytes((expected['A'], 0xa5)):
             received = dict(zip(REGS, [int.from_bytes(packet[i:i+2], 'little') for i in (2, 4, 6, 8)] + [packet[10], packet[11]]))
