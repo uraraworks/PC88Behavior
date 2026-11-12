@@ -48,7 +48,12 @@ failed:
 boot_failed:
     JR boot_failed
 ''', 0xC000)
-    stage = ['    ORG 0xC100', '    LD A,1', '    LD (0xDFFE),A']
+    stage = ['    ORG 0xC100', '    LD A,1', '    LD (0xDFFE),A',
+             '    LD HL,indirect_target', '    CALL 0x3391',
+             '    LD A,(0xDFFD)', '    CP 0x39', '    JP NZ,failed',
+             '    LD A,0x91', '    LD (0xDFFC),A', '    JP indirect_done',
+             'indirect_target:', '    LD A,0x39', '    LD (0xDFFD),A',
+             '    RET', 'indirect_done:']
     def send(value, first=False):
         stage.extend([f'    LD A,{value}', f'    CALL 0x{0x37C9 if first else 0x37D2:04X}',
                       '    JP C,failed'])
@@ -162,10 +167,12 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         build.check_pinned_entries(code, obj)
-        print('PASS: 4入口のJP・飛び先・listing非重複', flush=True)
+        print('PASS: 5入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)
         result = execute(work, rom, disk, 'normal')
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
+        assert result.get(0xDFFD) == 0x39 and result.get(0xDFFC) == 0x91
+        print('PASS: 3391からHLのコードへ飛び、RETで呼び出し元へ復帰', flush=True)
         pattern = bytes((i ^ 0xA7) for i in [0] + list(range(255, 0, -1)))
         def data(start):
             return bytes(result.get(start+i, 0) for i in range(256))
@@ -190,7 +197,7 @@ def main():
                 raise AssertionError('配置検査が入口+1を見逃した')
             observed = execute(work, broken, disk, f'fault-{address:04X}')
             assert observed.get(0xDFFF) != 0xA5, f'{address:04X}: 故障を実走で見逃した'
-        print('PASS: 全4入口+1の故障を配置検査・実走で拒否', flush=True)
+        print('PASS: 全5入口+1の故障を配置検査・実走で拒否', flush=True)
         numeric_regression(rom, work)
         pad = 0x79D7 - obj.labels['AEL_ROM_LAYOUT_PAD']
         print(f'PASS: main予約前の空き={pad - 92}B（N中継92Bを除く）、末尾={0x8000-len(obj.code)}B')
