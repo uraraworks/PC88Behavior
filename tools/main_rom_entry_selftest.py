@@ -95,6 +95,8 @@ boot_failed:
     probe(0x369A, 0x55D7, 0x8000, 0xDA00, 0xD820, enabled=True)
     probe(0x37C9, 0x06D7, 0x1234, 0x5678, 0xD830)
     probe(0x3847, 0x55D7, 0x1234, 0x5678, 0xD840, enabled=True)
+    probe(0x37C9, 0x06D7, 0x1234, 0x5678, 0xD890)
+    probe(0x3847, 0x55D7, 0x1234, 0x5678, 0xD8A0)
     probe(0x37C9, 0x0C57, 0x1234, 0x5678, 0xD850)
     probe(0x37D2, 0x6057, 0x1234, 0x5678, 0xD860)
     stage += ['    LD A,0xA5', '    LD (0xDFFF),A',
@@ -209,7 +211,8 @@ def main():
             check(0xD810, 0x0100, 0x000A, 0xDB00, 0xDA00, False)
             check(0xD820, 0x0193, 0x8000, 0xDA00, 0xEF60, False)
             check(0xD830, 0x0682, 0x1234, 0x3456, 0x5678, False)
-            check(0xD840, 0x80D7, 0x1234, 0x3456, 0x5678, False)
+            check(0xD840, 0x80D7, 0x1234, 0x3456, 0x5678, True)
+            check(0xD8A0, 0x80D7, 0x1234, 0x3456, 0x5678, False)
             check(0xD850, 0x0C02, 0x1234, 0x3456, 0x5678, False)
             check(0xD860, 0x6057, 0x1234, 0x3456, 0x5678, False)
             target = word(0xD806)
@@ -230,6 +233,25 @@ def main():
         else:
             raise AssertionError('369AのDE故障を見逃した')
         print('PASS: 369AのDE故障を検出', flush=True)
+        broken = work/'fault-3847-di'
+        shutil.copytree(rom, broken)
+        mutated = bytearray(code)
+        stub = obj.labels['AEL_ROM_LAYOUT_PAD'] + 92
+        assert stub + 4 < 0x79D7 and code[stub:stub+4] == bytes(4)
+        target = obj.labels['ENTRY_3847']
+        mutated[stub:stub+4] = bytes((0xF3, 0xC3, target & 255, target >> 8))
+        mutated[0x3848:0x384A] = struct.pack('<H', stub)
+        (broken/'N88.ROM').write_bytes(mutated)
+        observed = execute(work, broken, disk, 'fault-3847-di')
+        assert observed.get(0xDFFF) == 0xA5
+        assert not (observed.get(0xD840, 0) & 4), '3847のDI故障を見逃した'
+        try:
+            check_registers(observed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('3847のDI故障を見逃した')
+        print('PASS: 3847入口のDI故障を検出', flush=True)
         pattern = bytes((i ^ 0xA7) for i in [0] + list(range(255, 0, -1)))
         def data(start):
             return bytes(result.get(start+i, 0) for i in range(256))

@@ -1,4 +1,4 @@
-; docs/spec/main-rom-entry.md 第4版の固定入口。
+; docs/spec/main-rom-entry.md 第5版の固定入口。
 ENTRY_RX_PAIR EQU MM_ENTRY_RX_PAIR
 ENTRY_RX_PENDING EQU MM_ENTRY_RX_PENDING
 ENTRY_RX_BUFFER EQU MM_ENTRY_RX_BUFFER
@@ -48,7 +48,6 @@ _entry_send:
     POP HL
     RET
 ENTRY_3847:
-    DI
     PUSH BC
     PUSH DE
     PUSH HL
