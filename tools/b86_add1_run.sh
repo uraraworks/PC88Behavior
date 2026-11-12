@@ -15,7 +15,7 @@ while IFS= read -r name; do
  python3 "$repo/tools/b86_add1.py" generate "$dir" "$name"
  python3 "$repo/tools/make_l3_testdisk.py" "$dir/coord.d88" --cylinders 40 --double-sided --sectors-per-track 16 --content-rule coord-header --disk-id 0xA1 >"$dir/disk.log" 2>&1
  if [ -n "${PC88_REF_ROM_DIR:-}" ]; then
-  rom="$PC88_REF_ROM_DIR"; frames="${B86_FRAMES:-2010}"
+  rom="$dir/rom"; mkdir "$rom"; cp "$PC88_REF_ROM_DIR"/*.ROM "$rom/"; frames="${B86_FRAMES:-2010}"
  else
   rom="$dir/rom"; mkdir "$rom"; frames="${B86_FRAMES:-60}"
   python3 - "$dir/probe.bin" "$rom" <<'PY'
