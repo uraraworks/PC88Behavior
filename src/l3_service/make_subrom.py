@@ -1571,6 +1571,7 @@ def build_subrom(break_write_ack=False,
     # 第229版: 読み込まれたコードのSPに依存せず、CALLより先に戻す。
     a.ld_sp(STACK)
     a.im1()                           # 1.36c: 許可状態を変えず自作のモードに戻す
+    a.out_imm(0xFF, PH_RECV_START_CLR)  # 第235版: 要求待ちはRFDを下げる
     # 旧6バイト判別を復元する故障版は、復帰後もその旧経路へ通す。
     # 新しい確定長5の入口で故障を迂回しない。
     if not (break_dispatch_return or break_fixed_byte_cutoff
@@ -1583,6 +1584,10 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
         a.inc_a()
         a.ld_mem_a(POST_BULK_ACTIVE)       # 先行READの0x06/0x12待ちも終了
+        a.label("_request_wait_atn")
+        a.in_port(P_PIO_C)
+        a.and_a(FE_BIT_IDLE_RECV)
+        a.jr_z("_request_wait_atn")       # ATNを確認してから受信準備を上げる
         a.call("RECV_BYTE")
         a.ld_b_a()
         a.cp_n(0x02)
