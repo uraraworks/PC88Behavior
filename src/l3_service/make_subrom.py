@@ -1478,7 +1478,7 @@ def build_subrom(break_write_ack=False,
     a.label("RECV_BYTE_ARMED")              # 手順1を済ませた状態から始める入口
     a.call("RECV_FIRST_ARMED")              # 手順2〜6。Aに受信値を返す
     a.push_af()                              # 手順7の即値ロードから受信値を保護
-    a.out_imm(0xFF, PH_RECV_ACK_CLR)         # 手順7: OUT $FF,0x0C
+    a.out_imm(0xFF, PH_RECV_ACK_CLR)         # 手順7: 各バイトのDAV解除直後にDACを下げる
     a.pop_af()
     a.ret()
 
@@ -1571,7 +1571,7 @@ def build_subrom(break_write_ack=False,
     # 第229版: 読み込まれたコードのSPに依存せず、CALLより先に戻す。
     a.ld_sp(STACK)
     a.im1()                           # 1.36c: 許可状態を変えず自作のモードに戻す
-    a.out_imm(0xFF, PH_RECV_START_CLR)  # 第235版: 要求待ちはRFDを下げる
+    a.out_imm(0xFF, PH_RECV_START_CLR)  # 第237版: 送出後の要求待ちでRFDを下げる
     # 旧6バイト判別を復元する故障版は、復帰後もその旧経路へ通す。
     # 新しい確定長5の入口で故障を迂回しない。
     if not (break_dispatch_return or break_fixed_byte_cutoff
@@ -2207,7 +2207,7 @@ def build_subrom(break_write_ack=False,
     a.ex_de_hl()                       # HL=番地、DE=長さ
     a.ld_a_b()
     a.cp_n(0x09)
-    a.jr_z("_general_range_send")      # HL=開始、DE=終わり（長さではない）
+    a.jr_z("_general_range_send")      # 最終0x0Cの後に0x0Bを出さず送出へ
     a.inc_de()                        # 長さ0も転送せず公開入口へ戻す
     a.label("_general_load_check")
     a.dec_de()
@@ -2247,13 +2247,11 @@ def build_subrom(break_write_ack=False,
     # でも65536回送る。INC HLの16ビット巡回をそのまま使う。
     a.label("_general_range_send")
     a.ld_a_hl()
-    a.call("SEND_BYTE")
+    a.call("SEND_BYTE")               # 第237版: 1バイトにつきOUT $FDは1回
     a.inc_hl()
-    a.ld_a_l()
-    a.cp_e()
-    a.jr_nz("_general_range_send")
-    a.ld_a_h()
-    a.cp_d()
+    a.or_a()                           # SBCの借りを消し、HLと終端を比較する
+    a.sbc_hl_de()
+    a.add_hl_de()                      # 比較前の番地を復元（Zは維持）
     a.jr_nz("_general_range_send")
     a.jp("SUB_REQUEST_RETURN")
 
@@ -2953,6 +2951,16 @@ def build_subrom(break_write_ack=False,
         a.and_a(FE_BIT_RECV_DATA_READY)       # bit0: 相手が続けてデータを書いた(runが続いている)合図
         a.jr_z("_recv_dispatch_poll")
         a.call("RECV_BYTE_ARMED")             # 武装済みの状態から手順2〜7を続ける
+        # run継続中の新しい0x09も、残り4バイトを専用経路で受ける。
+        # 最後の0x0C直後に送出し、余分な0x0Bを出さない。
+        a.ld_b_a()
+        a.ld_a_mem(WINDOW_RUN_POS)
+        a.or_a()
+        a.ld_a_b()
+        a.jr_nz("_recv_continue_store")
+        a.cp_n(0x09)
+        a.jp_z("_general_load_run")
+        a.label("_recv_continue_store")
         a.call("HDR_STORE_AND_CHECK")
         if break_fixed_byte_cutoff:
             a.ld_hl_mem(HDR_PTR)

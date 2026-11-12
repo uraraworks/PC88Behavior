@@ -181,7 +181,7 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
 # 送出終了直後にATNを短く出すmain。旧経路はRFDが上がったままなので
 # mainが待たずにATNを解除し、subが次の要求を見失う。
 def check_short_atn():
-    old = original.replace('    a.out_imm(0xFF, PH_RECV_START_CLR)  # 第235版: 要求待ちはRFDを下げる\n', '')
+    old = original.replace('    a.out_imm(0xFF, PH_RECV_START_CLR)  # 第237版: 送出後の要求待ちでRFDを下げる\n', '')
     gate = ('        a.label("_request_wait_atn")\n'
             '        a.in_port(P_PIO_C)\n'
             '        a.and_a(FE_BIT_IDLE_RECV)\n'
@@ -334,6 +334,185 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
     print('短いATN・0x09連続要求・旧経路故障注入: PASS', flush=True)
 
 check_short_atn()
+
+# 受信ごとにDAV解除後のDAC解除を待つmainで、要求2回分のsub出力を検査。
+def check_round_trips():
+    strict = primitives.replace(
+        '    OUT (0FFh),A\n    IN A,(0FEh)\n    OR A\n    RET',
+        '    OUT (0FFh),A\n    LD C,004h\n    CALL MAIN_SUB_WAIT_CLEAR\n    RET C\n    OR A\n    RET', 2)
+    assert strict.count('    LD C,004h\n    CALL MAIN_SUB_WAIT_CLEAR\n    RET C') == 2
+    program = """    ORG 0
+    DI
+    LD SP,0FFF0h
+    XOR A
+    CALL MAIN_SUB_SEND
+    JP C,FAIL
+    CALL REQUEST
+    CALL REQUEST
+    LD A,1
+    LD (09002h),A
+STOP:
+    JR STOP
+FAIL:
+    LD A,1
+    LD (09003h),A
+    JR STOP
+REQUEST:
+    LD A,9
+    CALL MAIN_SUB_SEND
+    JP C,FAIL
+    XOR A
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    LD A,2
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    CALL MAIN_SUB_RECV
+    JP C,FAIL
+    LD (09000h),A
+    CALL MAIN_SUB_RECV
+    JP C,FAIL
+    LD (09000h),A
+    RET
+MAIN_SUB_TIMEOUT_LIMIT EQU 65535
+""" + strict
+    case = work / 'round_trips'
+    case.mkdir()
+    path = case / 'main.asm'
+    path.write_text(program)
+    main = z80text.Assembler().assemble(path)
+    (case / 'N88.ROM').write_bytes(main + bytes(0x8000 - len(main)))
+    (case / 'DISK.ROM').write_bytes(rom)
+    args = [str(repo / 'tools/harness/frontend/q88measure'), '--core', str(core),
+            '--rom-dir', str(case), '--frames', '120', '--sub-cpu-mode', '2',
+            '--io-log', str(case / 'io'), '--mem-write-log', str(case / 'mem'),
+            '--mem-write-range', '9000-9003']
+    result = subprocess.run(args, capture_output=True, timeout=120)
+    assert result.returncode == 0, '往復検査: 実行器失敗'
+    writes = (case / 'mem').read_text().splitlines()
+    assert any(re.search(r'\b9002\s+01\s*$', line) for line in writes), '往復検査: 完了せず'
+    events = []
+    for line in (case / 'io').read_text().splitlines():
+        match = re.match(r'\s*\d+\s+\d+\s+\d+\s+sub\s+OUT\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
+        if match and int(match[1], 16) & 255 in (0xfd, 0xff):
+            events.append((int(match[1], 16) & 255, int(match[2], 16)))
+    recv = [(0xff, x) for x in (0x0b, 0x0a, 0x0d, 0x0c)] * 5
+    send = sum(([(0xfd, value), (0xff, 9), (0xff, 8)] for value in rom[:2]), [])
+    expected = recv + send + [(0xff, 0x0a)]
+    starts = [i for i in range(len(events)) if events[i:i+len(expected)] == expected]
+    assert len(starts) == 2, f'往復検査: 第237版の並び不一致、該当{len(starts)}回: {events[-100:]}'
+    assert starts[1] == starts[0] + len(expected), '往復検査: 要求間に余分な出力'
+    print('0x09 2往復・OUT列・DAV解除後のDAC待ち: PASS', flush=True)
+
+check_round_trips()
+
+# 0x0Eを3本と0x09を、途中でFCを読まず1 runとして送る。
+# 旧実装を一時ファイルで再現し、同じOUT列検査が失敗することも確かめる。
+def check_continuous_run():
+    start = original.index('        # run継続中の新しい0x09も')
+    end = original.index('        a.call("HDR_STORE_AND_CHECK")', start)
+    path = work / 'old_continuation.py'
+    path.write_text(original[:start] + original[end:])
+    spec = importlib.util.spec_from_file_location('old_continuation', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    old_rom, _ = module.build()
+    program = """    ORG 0
+    DI
+    LD SP,0FFF0h
+    XOR A
+    CALL MAIN_SUB_SEND
+    JP C,FAIL
+    LD A,14
+    CALL MAIN_SUB_SEND
+    JP C,FAIL
+    LD HL,COMMAND+1
+    LD B,25
+NEXT:
+    LD A,(HL)
+    PUSH BC
+    CALL MAIN_SUB_SEND_CONT
+    POP BC
+    JP C,FAIL
+    INC HL
+    DJNZ NEXT
+    CALL RECEIVE
+    LD A,9
+    CALL MAIN_SUB_SEND
+    JP C,FAIL
+    XOR A
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    XOR A
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    XOR A
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    LD A,2
+    CALL MAIN_SUB_SEND_CONT
+    JP C,FAIL
+    CALL RECEIVE
+    LD A,1
+    LD (09002h),A
+STOP:
+    JR STOP
+FAIL:
+    LD A,1
+    LD (09003h),A
+    JR STOP
+RECEIVE:
+    CALL MAIN_SUB_RECV
+    JP C,FAIL
+    LD (09000h),A
+    CALL MAIN_SUB_RECV
+    JP C,FAIL
+    LD (09000h),A
+    RET
+COMMAND:
+    DB 14,1,0,0,1,050h,0,14,1,0,0,1,050h,0
+    DB 14,1,0,0,1,050h,0,9,0,0,0,2
+MAIN_SUB_TIMEOUT_LIMIT EQU 65535
+""" + primitives.replace(
+        '    OUT (0FFh),A\n    IN A,(0FEh)\n    OR A\n    RET',
+        '    OUT (0FFh),A\n    LD C,004h\n    CALL MAIN_SUB_WAIT_CLEAR\n    RET C\n    OR A\n    RET', 2)
+    disk = work / 'continuous.d88'
+    subprocess.run([sys.executable, str(repo / 'tools/make_l3_testdisk.py'), str(disk),
+                    '--cylinders', '40', '--double-sided', '--sectors-per-track', '16'],
+                   check=True, capture_output=True)
+    for name, image, expected in (('continuous', rom, True), ('continuous_fault', old_rom, False)):
+        case = work / name
+        case.mkdir()
+        asm = case / 'main.asm'
+        asm.write_text(program)
+        main = z80text.Assembler().assemble(asm)
+        (case / 'N88.ROM').write_bytes(main + bytes(0x8000 - len(main)))
+        (case / 'DISK.ROM').write_bytes(image)
+        args = [str(repo / 'tools/harness/frontend/q88measure'), '--core', str(core),
+                '--rom-dir', str(case), '--disk', str(disk), '--frames', '500', '--sub-cpu-mode', '2',
+                '--io-log', str(case / 'io'), '--mem-write-log', str(case / 'mem'),
+                '--mem-write-range', '9000-9003']
+        result = subprocess.run(args, capture_output=True, timeout=120)
+        assert result.returncode == 0, f'{name}: 実行器失敗'
+        events = []
+        for line in (case / 'io').read_text().splitlines():
+            match = re.match(r'\s*\d+\s+\d+\s+\d+\s+sub\s+OUT\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
+            if match and int(match[1], 16) & 255 in (0xfd, 0xff):
+                events.append((int(match[1], 16) & 255, int(match[2], 16)))
+        recv = [(0xff, x) for x in (0x0b, 0x0a, 0x0d, 0x0c)] * 5
+        send = sum(([(0xfd, value), (0xff, 9), (0xff, 8)] for value in image[:2]), [])
+        sequence = recv + send + [(0xff, 0x0a)]
+        starts = [i for i in range(len(events)) if events[i:i+len(sequence)] == sequence]
+        done = any(re.search(r'\b9002\s+01\s*$', line) for line in (case / 'mem').read_text().splitlines())
+        passed = len(starts) == 2 and starts[1] == starts[0] + len(sequence) and done
+        assert passed == expected, f'{name}: 並びまたは完了が想定外 (一致{len(starts)}, 完了{done}) {events[-100:]}'
+    print('0E×3＋09連続run・2回目・旧経路故障注入: PASS', flush=True)
+
+check_continuous_run()
 
 arms = [('one', 0x5000, 0x5001), ('sixteen', 0x5000, 0x5010),
         ('page', 0x5000, 0x5100), ('full', 0x5000, 0x5000),
