@@ -63,17 +63,20 @@ def value_free(row):
                 if k == '入口から戻りの変化': boolean(x)
                 else: integer(x, 2 if name == 'IM' else 1)
     for k in ('EI遅延確認回数', '前処理の受理回数', '入口前の受理回数', '区間の受理回数'): integer(irq[k])
-    assert set(comm) == {'main送信完了数', 'サブ受信数', '送信値との一致回数', '配置候補', '受信順の入力一致', '戻りAと入力一致'}
+    assert set(comm) == {'main送信完了数', 'サブ受信数', '送信値との一致回数', '配置候補', '受信順の入力一致', '戻りAと入力一致', '配置候補範囲', '受信順に入力と一致'}
     for k in ('main送信完了数', 'サブ受信数'): integer(comm[k])
-    assert len(comm['送信値との一致回数']) in (1, 2)
+    assert 1 <= len(comm['送信値との一致回数']) <= 256
     for n in comm['送信値との一致回数']: integer(n, comm['サブ受信数'])
     placements(comm['配置候補'])
     for x in comm['受信順の入力一致']:
-        assert len(x) in (1, 2)
+        assert 1 <= len(x) <= 256
         for v in x: boolean(v)
     if comm['戻りAと入力一致'] is not None:
-        assert len(comm['戻りAと入力一致']) in (1, 2)
+        assert 1 <= len(comm['戻りAと入力一致']) <= 256
         for v in comm['戻りAと入力一致']: boolean(v)
+    if comm['配置候補範囲'] is not None:
+        for a in comm['配置候補範囲']: address(a)
+    if comm['受信順に入力と一致'] is not None: boolean(comm['受信順に入力と一致'])
     assert set(read) == {'コマンド受理数', '9バイト入力と一致', 'データ受信数', '自作セクタ全体と一致',
         'データ配置候補範囲', 'データ対応', '結果受信数', 'FDC結果7バイト', '結果配置候補', '追跡容量超過'}
     for k in ('コマンド受理数', 'データ受信数', '結果受信数'): integer(read[k])
@@ -156,12 +159,12 @@ def fdc_fixture(corrupt=False, duplicate=False, overwrite=False):
 def main(root):
     assert not any(k.startswith('PC88_REF_') for k in os.environ)
     catalog = list(arms())
-    assert len(catalog) == len({a['name'] for a in catalog}) == 27
+    assert len(catalog) == len({a['name'] for a in catalog}) == 64
     assert len(READ_DATA) == 9
     assert {(a['address'], a['iff']) for a in catalog if a['name'].startswith('iff-')} == {
         (a, iff) for a, _, _ in ENTRIES for iff in ('di', 'ei')}
     summary = json.loads((root / 'summary.json').read_text())
-    assert summary['腕数'] == 27 and summary['走数'] == 54
+    assert summary['腕数'] == 64 and summary['走数'] == 128
     for a in catalog:
         image, disk, labels = generate_boot(a)
         assert len(image) == 768 and len(disk) < 10000
@@ -182,7 +185,7 @@ def main(root):
     assert not pos['入力との一致']['A'] and '6400' in pos['RAM']['変化番地']
     assert neg['I/O'] == pos['I/O'] == []
     assert report(root) == summary
-    print('B88追補2: 全27腕×2走・独立走行・再集計 PASS', flush=True)
+    print('B88追補2: 全64腕×2走・独立走行・再集計 PASS', flush=True)
 
     sys.path.insert(0, str(ROOT))
     from src.l3_service.make_subrom import build
@@ -239,6 +242,16 @@ def main(root):
         a = dict(name='negative', address=None, mode='call', kind='recv', sent=sent)
         r, _ = run(a, fault=machine(RECEIVER+' XOR 255\n RET\n'))
         assert not any(r['通信']['戻りAと入力一致'])
+    for count in (3, 4, 8, 16, 256):
+        a = dict(next(a for a in catalog if a['name'] == f'06a6-length-{count}-first-10'))
+        a.update(name='negative', address=None)
+        # 受信処理はループのBを変更しない。
+        receiver = RECEIVER.replace(' LD (26624),A', ' LD (HL),A\n INC HL')
+        code = machine(f' LD HL,26624\n LD B,{count & 255}\nLOOP:\n' + receiver + ' DJNZ LOOP\n RET\n')
+        r, _ = run(a, fault=code)
+        c = r['通信']
+        assert r['結果搬送一致'] and c['サブ受信数'] == c['main送信完了数'] == count
+        assert c['受信順に入力と一致'] and c['配置候補範囲'] == ['6800', f'{0x6800+count-1:04X}']
     print('B88追補2: 1・2バイト通信・順序反転・途中帰還・破壊対照 PASS', flush=True)
 
     a = next(a for a in catalog if a['name'] == '0263-read-di')
@@ -300,7 +313,7 @@ def main(root):
         try: value_free(bad)
         except AssertionError: pass
         else: raise AssertionError('追加列の漏洩検査の検出力不足')
-    forbidden = {'values.tmp', 'mem', 'capture', 'extra', 'stderr', 'rom', 'probe.bin', 'probe.d88', 'media.d88', 'fixture.bin'}
+    forbidden = {'values.tmp', 'mem', 'capture', 'extra', 'stderr', 'rom', 'probe.bin', 'probe.d88', 'media.d88', 'media2.d88', 'fixture.bin'}
     assert all(p.name not in forbidden and p.suffix.upper() != '.ROM' for base in ('raw','controls') for p in (root/base).rglob('*'))
     assert not (root/'build').exists()
     assert sum(p.stat().st_size for p in root.rglob('*') if p.is_file()) < 512*1024*1024

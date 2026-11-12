@@ -21,6 +21,7 @@ def clean_run(directory):
     base_clean(directory)
     (directory / 'extra').unlink(missing_ok=True)
     (directory / 'media.d88').unlink(missing_ok=True)
+    (directory / 'media2.d88').unlink(missing_ok=True)
     (directory / 'fixture.bin').unlink(missing_ok=True)
 
 
@@ -65,6 +66,7 @@ def run_one(directory, arm, core, front, own_sub, frames, timeout, fault=None, f
                 'B88A2_STEPS': ','.join(f"{labels['sub'][f'step_{i}']:x}:{labels['sub'][f'step_done_{i}']:x}" for i in range(11)) if arm['kind'] == 'read' else '',
                 'B88A2_CAPTURE': str(directory / 'extra'),
                 'B88A2_MEDIA': str(directory / 'media.d88'),
+                'B88A2_MEDIA2': str(directory / 'media2.d88'),
                 'B88A2_DISK1': str(int(arm.get('disk1', True))),
                 'B88A2_DISK2': str(int(arm.get('disk2', False))),
                 'B88A2_PREPARE': f"{labels['sub']['prepare']:x}",

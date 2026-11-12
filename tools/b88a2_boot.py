@@ -175,7 +175,17 @@ WAIT_ENTRY:
  JR Z,WAIT_ENTRY
 '''
         if arm['kind'] == 'recv':
-            cooperate += ''.join(f" LD A,{v}\n CALL COOPERATE_SEND\n" for v in arm.get('sent', (0x35,)))
+            if arm.get('sequence'):
+                cooperate += f''' LD B,{len(arm['sent']) & 255}
+ LD D,{arm['sent'][0]}
+COOP_LOOP:
+ LD A,D
+ CALL COOPERATE_SEND
+ INC D
+ DJNZ COOP_LOOP
+'''
+            else:
+                cooperate += ''.join(f" LD A,{v}\n CALL COOPERATE_SEND\n" for v in arm.get('sent', (0x35,)))
             helpers = '''
 COOPERATE_SEND:
  PUSH AF
@@ -298,5 +308,6 @@ def write_arm(directory, arm, fault=None):
     (directory / 'probe.bin').write_bytes(data)
     (directory / 'probe.d88').write_bytes(disk)
     (directory / 'media.d88').write_bytes(build_d88(sectors_per_track=16, n_cylinders=1, heads=2, density=0x40, content_rule='coord-header', disk_id=0x42))
+    (directory / 'media2.d88').write_bytes(build_d88(sectors_per_track=16, n_cylinders=1, heads=2, density=0x40, content_rule='coord-header', disk_id=0x42))
     (directory / 'labels.json').write_text(json.dumps(labels) + '\n')
     return data, labels

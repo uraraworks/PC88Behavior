@@ -26,7 +26,7 @@ def read_extra(path):
         raise ValueError('追加記録の列不正')
     for k in COUNTS:
         natural(x[k], 1 if k in BOOLS else 100000000)
-    if len(x['states']) != 3 or len(x['irq']) != 3 or len(x['steps']) != 11 or len(x['recv_match']) != 2:
+    if len(x['states']) != 3 or len(x['irq']) != 3 or len(x['steps']) != 11 or not 1 <= len(x['recv_match']) <= 256:
         raise ValueError('追加記録の長さ不正')
     for state in x['states']:
         if state is not None:
@@ -55,7 +55,7 @@ def read_extra(path):
             natural(c[0], 0x7fff); natural(c[1], 1)
             if c[0] < 0x4000: raise ValueError('RAM外')
         if 'sent_match' in e:
-            if k != 2 or len(e['sent_match']) != 2: raise ValueError('通信関係不正')
+            if k != 2 or len(e['sent_match']) != len(x['recv_match']): raise ValueError('通信関係不正')
             for v in e['sent_match']: natural(v, 1)
         elif k == 2: raise ValueError('通信関係欠落')
         if 'fdc_result' in e:
@@ -102,6 +102,10 @@ def summarize_run(directory, arm):
                    '配置候補': events[2],
                    '受信順の入力一致': [[bool(v) for v in e['sent_match'][:len(arm.get('sent', (0x35,)))]] for e in x['events'] if e['kind'] == 2],
                    '戻りAと入力一致': None if values is None else [values['A'] == v for v in arm.get('sent', (0x35,))]}
+    comm_addresses = [e['単一候補番地'] for e in events[2]]
+    comm_contiguous = bool(comm_addresses) and all(a is not None and int(a, 16) == int(comm_addresses[0], 16) + i for i, a in enumerate(comm_addresses))
+    row['通信']['配置候補範囲'] = [comm_addresses[0], comm_addresses[-1]] if comm_contiguous and not x['overflow'] else None
+    row['通信']['受信順に入力と一致'] = (len(events[2]) == x['recv'] and not x['overflow'] and all(e['index'] < len(arm.get('sent', (0x35,))) and bool(e['sent_match'][e['index']]) for e in x['events'] if e['kind'] == 2)) if x['recv'] else None
     addresses = [e['単一候補番地'] for e in events[0]]
     contiguous = len(addresses) == 256 and all(a is not None for a in addresses) and all(
         int(a, 16) == int(addresses[0], 16) + i for i, a in enumerate(addresses))

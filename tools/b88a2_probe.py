@@ -52,7 +52,7 @@ def generate(arm):
         label('prepare')
         if arm['kind'] == 'read':
             command = arm['command']
-            steps = [(0x07d6, registers['A']), (0x035b, registers['A']),
+            steps = [(0x07d6, arm.get('ready_a', 0)), (0x035b, registers['A']),
                      (0x02a4, command[0])] + [(0x0020, v) for v in command[1:8]] + [(0x02a7, command[8])]
             for i, (address, value) in enumerate(steps):
                 emit('3e %02x' % value)

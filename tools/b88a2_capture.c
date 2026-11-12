@@ -22,8 +22,8 @@ static unsigned a2_step_pc[11], a2_done_pc[11], a2_steps[11], a2_done[11];
 static unsigned a2_sent, a2_recv, a2_data, a2_result, a2_command, a2_command_match=1;
 static unsigned a2_ei_delay;
 static unsigned a2_irq_before, a2_irq_inside, a2_irq_prepare;
-static unsigned a2_states[3][3], a2_seen[3], a2_sent_values[2], a2_sent_n;
-static unsigned a2_recv_match[2], a2_data_match=1;
+static unsigned a2_states[3][3], a2_seen[3], a2_sent_values[256], a2_sent_n;
+static unsigned a2_recv_match[256], a2_data_match=1;
 static const unsigned a2_command_values[9] = {6,0,0,0,4,1,4,27,255};
 static unsigned a2_env(const char *name) {
     const char *s=getenv(name); return s ? strtoul(s,NULL,16) : 0;
@@ -61,7 +61,7 @@ static void a2_configure(void) {
         a2_done_pc[i]=strtoul(s,&end,16); s=(*end ? end+1 : end);
     }
     s=getenv("B88A2_SENT");
-    while(s && *s && a2_sent_n<2) {
+    while(s && *s && a2_sent_n<256) {
         a2_sent_values[a2_sent_n++]=strtoul(s,&end,10); s=(*end ? end+1 : end);
     }
 }
@@ -92,7 +92,8 @@ void retro_b88_instr(int main_cpu, unsigned pc) {
             disk_eject(0);
             disk_insert(0,getenv("B88A2_MEDIA"),0,1);
             disk_eject(1);
-            a2_media_ok=!!disk_image_exist(0) && !disk_image_exist(1);
+            if (a2_env("B88A2_DISK2")) disk_insert(1,getenv("B88A2_MEDIA2"),0,1);
+            a2_media_ok=!!disk_image_exist(0) && (!!disk_image_exist(1) == !!a2_env("B88A2_DISK2"));
         }
         if (pc==a2_start_pc-1 && getenv("B88A2_TEST_IRQ") && !b88_starts) {
             if(getenv("PC88_REF_ROM_DIR")) abort();
@@ -178,7 +179,9 @@ int retro_b88_finish(void) {
     fprintf(f,"\"states\":["); for(i=0;i<3;++i) {if(i)fprintf(f,",");a2_print_state(f,i);} fprintf(f,"],");
     fprintf(f,"\"irq\":[%u,%u,%u],\"steps\":[",a2_irq_prepare,a2_irq_before,a2_irq_inside);
     for(i=0;i<11;++i) fprintf(f,"%s[%u,%u]",i?",":"",a2_steps[i],a2_done[i]);
-    fprintf(f,"],\"sent\":%u,\"recv\":%u,\"recv_match\":[%u,%u],",a2_sent,a2_recv,a2_recv_match[0],a2_recv_match[1]);
+    fprintf(f,"],\"sent\":%u,\"recv\":%u,\"recv_match\":[",a2_sent,a2_recv);
+    for(i=0;i<a2_sent_n;++i) fprintf(f,"%s%u",i?",":"",a2_recv_match[i]);
+    fprintf(f,"],");
     fprintf(f,"\"command\":%u,\"command_match\":%u,\"data\":%u,\"data_match\":%u,\"result\":%u,\"overflow\":%u,\"events\":[",
             a2_command,a2_command_match,a2_data,a2_data_match,a2_result,a2_overflow);
     for(i=0;i<a2_n;++i) {
@@ -186,8 +189,11 @@ int retro_b88_finish(void) {
         fprintf(f,"%s{\"kind\":%u,\"index\":%u,\"overflow\":%u,\"candidates\":[",i?",":"",e->kind,e->index,e->overflow);
         for(j=0;j<e->n;++j) fprintf(f,"%s[%u,%u]",j?",":"",e->addr[j],e->valid[j] && sub_romram[e->addr[j]]==e->value);
         fprintf(f,"]");
-        if(e->kind==2) fprintf(f,",\"sent_match\":[%u,%u]",
-            a2_sent_n>0 && e->value==a2_sent_values[0], a2_sent_n>1 && e->value==a2_sent_values[1]);
+        if(e->kind==2) {
+            fprintf(f,",\"sent_match\":[");
+            for(j=0;j<a2_sent_n;++j) fprintf(f,"%s%u",j?",":"",e->value==a2_sent_values[j]);
+            fprintf(f,"]");
+        }
         /* 唯一の値列の例外: 自作媒体に対するエミュレータFDCの結果フェーズ。 */
         if(e->kind==1 && a2_command==9 && a2_command_match && a2_result==7 && a2_media_ok)
             fprintf(f,",\"fdc_result\":%u",e->value);
