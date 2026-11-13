@@ -117,6 +117,9 @@ L1 IPL と L2 フォントも完了しており、どちらも**公式 ROM が�
   `conform_load.sh` は8腕・4腕、`conform_save.sh` は6腕・2腕、`conform_killname.sh` は10腕・10腕で
   公式の判定と一致（2026-10-02）。localは自作一式、hybridは自作main＋公式sub。
   ディスク形式の根拠は [l3-disk-format.md](docs/spec/l3-disk-format.md) 第7版。
+  **中間言語形式（通常の `SAVE`）は公式と非互換**とした（2026-11-12、自作側の判断）。自作は通常の `SAVE` も
+  ASCII で書き、公式が中間言語で保存したファイルは `LOAD` 等で ERR 59 になる。プログラムの交換は `SAVE "x",A` で行う。
+  理由と範囲は [l4-program.md](docs/spec/l4-program.md) 11.3。
 - **LIST（2026-10-01〜2026-10-03）:** 語・空白などを公式の規則で整形し、
   `l4-s5h` 723腕すべてが一致（`tools/l4_listkw_selftest.sh`）。`go sub` の詰めと行番号の途中の空白
   （`l4-s5j`）も公式の113腕と一致（`tools/l4_s5j_measure.py check`）。
