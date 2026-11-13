@@ -181,11 +181,13 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new)
 
 
+ARMS = ("A0", "A1", "A2", "A3", "A4-cont", "A4-pair", "A5")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("outdir", type=pathlib.Path)
-    ap.add_argument("--arm", required=True,
-                    choices=("A0", "A1", "A2", "A3", "A4-cont", "A4-pair", "A5"))
+    ap.add_argument("--arm", required=True, choices=ARMS)
     ap.add_argument("--work-dir", required=True, type=pathlib.Path)
     args = ap.parse_args()
 
@@ -214,7 +216,15 @@ def main() -> int:
     if args.arm == "A1":
         text = replace_once(text, SECTOR_OLD, SECTOR_NEW, "A1 R=2")
     if args.arm == "A5":
-        text = replace_once(text, BOOT_OLD, BOOT_A5, "A5 200回ラッパ")
+        # 200回ラッパは末尾に残し、保存・バンク観測ヘルパーだけを
+        # 予約前の空きへ置く。呼出し先以外の命令列と保存順は変えない。
+        boot, helpers = BOOT_A5.split("; PUSH順", 1)
+        text = replace_once(text, BOOT_OLD, boot, "A5 200回ラッパ")
+        run_path = args.work_dir / "l4_run_gen.asm"
+        run_path.write_text(replace_once(
+            run_path.read_text(encoding="utf-8"), "AEL_ROM_LAYOUT_PAD:\n",
+            "; PUSH順" + helpers + "\nAEL_ROM_LAYOUT_PAD:\n",
+            "A5 ヘルパー配置"), encoding="utf-8")
     generated.write_text(text, encoding="utf-8")
 
     rom, asm = build.assemble(combined, args.work_dir)

@@ -40,7 +40,7 @@ def no_frame_wait_and_matches(directory: pathlib.Path, work: pathlib.Path, arm: 
     """ラベルで起動部を切り、listingの命令列と原文の双方で0xE009参照を拒否する。
 
     M6IB_FRAME_COUNTはEQUとして共通表に残るため、シンボルの存在自体ではなく、
-    MAIN_SUB_READ_BOOT_ONCE..MAIN_SUB_LINK_ENDにある各命令のオペランド
+    MAIN_SUB_READ_BOOT_ONCE..MAIN_SUB_BOOT_ENDにある各命令のオペランド
     (little endian 09 E0)とlisting原文のシンボル参照を調べる。成果物との
     一致も同時に確認するので、別mainへの差替えでは検査を迂回できない。
     """
@@ -58,7 +58,7 @@ def no_frame_wait_and_matches(directory: pathlib.Path, work: pathlib.Path, arm: 
                 return False
             rom, asm = m6ib.assemble_main_for_arm(work / "b4-control", "B4")
         start = asm.labels["MAIN_SUB_READ_BOOT_ONCE"]
-        end = asm.labels["MAIN_SUB_LINK_END"]
+        end = asm.labels["MAIN_SUB_BOOT_END"]
     except (OSError, KeyError, SystemExit):
         return False
     rows = [(addr, data, raw) for addr, data, _line, raw in asm.listing

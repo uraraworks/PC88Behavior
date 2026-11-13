@@ -3731,10 +3731,12 @@ def build_subrom(break_write_ack=False,
         if inject_m6ib_b5:
             _emit_m6ib_release_gate("M6IB_B5_AFTER_ROUND0_GATE")
         elif inject_m6ie_single_read:
+            a.label("M6IE_ROUND0_INTERVENTION")
             a.in_port(P_PIO_C)
             for _ in range(4):
                 a.nop()
         elif inject_m6ie_nops_only:
+            a.label("M6IE_ROUND0_INTERVENTION")
             for _ in range(6):
                 a.nop()
         a.jr("_single_response_sent")    # 共通の戻り先を使い、フェッチ窓の余白を確保
@@ -3974,8 +3976,11 @@ def pin_entries(a, extra_hole_candidates=False, small_first=False):
     protected = set()
     # ゲート介入版は空きを確保するため送信・ヘッダ処理を共有化する。
     # 受信部とゲート直前の判定列は介入版でも時間を変えない。
-    measurement_gate = any(name.startswith("M6IB_B") and name.endswith("_GATE")
-                           for name in a.labels)
+    # E2/E3はB5の6バイト介入を置換する腕。同じ共有化・配置規則を使い、
+    # 介入外の差分とフェッチ窓の超過を生まない。
+    measurement_gate = (any(name.startswith("M6IB_B") and name.endswith("_GATE")
+                            for name in a.labels)
+                        or "M6IE_ROUND0_INTERVENTION" in a.labels)
     protected_ranges = [("SEND_BOOT_SINGLE_TRACKED", "BOOT_HANDSHAKE"),
                         ("RECV_BYTE", "SEND_BYTE"),
                         ("_exchange14_bulk_check", None)]

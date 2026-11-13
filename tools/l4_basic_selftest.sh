@@ -33,11 +33,19 @@
 #   5. 既存の tools/l3_main_selftest.sh(検査1〜18)・tools/conform_l4.sh
 #      (自作ROM側の照合)が引き続きOKであること(打鍵エコーを壊していない)。
 #
-# 使い方: tools/l4_basic_selftest.sh
+# 使い方: tools/l4_basic_selftest.sh [--only-l4]
+# --only-l4: 検査1〜4だけを実行し、他スイートの連鎖実行を省く。
 set -uo pipefail
 PARENT_CONFORM=0
-if [ "${1:-}" = "--parent-runs-conform" ]; then PARENT_CONFORM=1; shift; fi
-if [ "$#" -ne 0 ]; then echo "未知の引数" >&2; exit 2; fi
+ONLY_L4=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --parent-runs-conform) PARENT_CONFORM=1 ;;
+    --only-l4) ONLY_L4=1 ;;
+    *) echo "未知の引数" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -486,6 +494,7 @@ PYEOF
 [ $? -ne 0 ] && fail "Missing operand判定の故障注入の検出力"
 
 # -----------------------------------------------------------------------
+if [ "$ONLY_L4" -eq 0 ]; then
 say "5. 既存の自己検査が引き続きOKであること"
 
 say "5a. tools/l3_main_selftest.sh（検査1〜18）"
@@ -504,6 +513,7 @@ elif bash "$REPO/tools/conform_l4.sh" >"$WORK/conform_l4.txt" 2>&1; then
 else
   fail "tools/conform_l4.sh がNG"
   tail -40 "$WORK/conform_l4.txt" >&2
+fi
 fi
 
 # -----------------------------------------------------------------------

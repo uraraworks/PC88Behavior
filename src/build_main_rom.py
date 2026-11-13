@@ -2754,16 +2754,15 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         run_path.write_text(run_text, encoding="utf-8")
 
     if enable_l4_selftest:
-        # 表と照合器はN側へ置く。mainには既存RAM中継の呼出しだけを置き、
-        # 固定入口の本体とROM_VERSION前の予約領域を取り合わない。
-        run_text = run_path.read_text(encoding="utf-8")
-        marker = "AEL_ROM_LAYOUT_PAD:\n"
-        if run_text.count(marker) != 1:
-            raise SystemExit("自己検査の配置先が一意でない")
+        # 表と照合器はN側へ置く。15Bの呼出し口はIM2表の整列用埋め草を
+        # 同じ長さで置き換え、ROM_VERSION前のN中継格納域を圧迫しない。
+        marker = "    db 0x00\n" * 15 + "VEC_TABLE:\n"
+        if ipl_text.count(marker) != 1:
+            raise SystemExit("L4自己検査呼出し口の整列用埋め草が不足")
         includes = ('L4_SELFTEST_INIT:\n    CALL N_DETECT\n'
                     '    LD A,(MM_N_ROM_PRESENT)\n    CP 1\n    RET NZ\n'
                     f'    LD HL,0x{L4_SELFTEST_N_ADDR:04X}\n    JP N_ROM_CALL\n')
-        run_path.write_text(run_text.replace(marker, includes + marker), encoding="utf-8")
+        ipl_text = ipl_text.replace(marker, includes + "VEC_TABLE:\n")
 
     combined = (
         f"; EXTRA_LINES: --extra-lines で指定された値（スクロール試験用の埋め草行数）\n"
@@ -2797,6 +2796,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         # 動かさない（DSで使用済み領域にはしない）。
         combined += '\nORG $ + 17\n'
     combined += f'\nINCLUDE "{REPO / "src/ext_bank/capacity_main.asm"}"\n'
+    measure_driver_include = ""
     if enable_main_sub_read:
         main_sub_read_text = MAIN_SUB_READ_ASM.read_text(encoding="utf-8")
         for enabled, old, new, name in (
@@ -2848,16 +2848,17 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             replacement, arm = enabled_m6ib[0]
             if main_sub_read_text.count(M6IB_BOOT_OLD) != 1:
                 raise SystemExit(f"m6i-b {arm} main介入の対象が一意に見つからない")
-            main_sub_read_text = main_sub_read_text.replace(M6IB_BOOT_OLD, replacement)
+            # 通信本体は対照腕と同じ末尾番地へ置く。共通バンクからの
+            # 呼出先を保ち、測定専用の起動処理だけ予約前の空きへ分離する。
+            link_path = work / "main_sub_link_gen.asm"
+            link_path.write_text(main_sub_read_text.replace(M6IB_BOOT_OLD, ""), encoding="utf-8")
+            combined += f'\nINCLUDE "{link_path}"\n'
+            main_sub_read_text = ("MAIN_SUB_BOOT_START:\n" + replacement
+                                  + "\nMAIN_SUB_BOOT_END:\n")
         main_sub_read_path = work / "main_sub_read_gen.asm"
         main_sub_read_path.write_text(main_sub_read_text, encoding="utf-8")
         if enabled_m6ib:
-            # 測定ドライバはBASICの空き領域に置き、末尾容量と独立させる。
-            run_text = run_path.read_text(encoding="utf-8")
-            marker = "AEL_ROM_LAYOUT_PAD:\n"
-            if run_text.count(marker) != 1:
-                raise SystemExit("測定ドライバの配置先が一意でない")
-            run_path.write_text(run_text.replace(marker, f'INCLUDE "{main_sub_read_path}"\n' + marker), encoding="utf-8")
+            measure_driver_include = f'\nINCLUDE "{main_sub_read_path}"\n'
         else:
             combined += f'\nINCLUDE "{main_sub_read_path}"\n'
     if enable_disk_read_retry:
@@ -2899,7 +2900,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
         else:
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
-    # 本体は末尾ではなくROM_VERSION予約前の埋め草を使う。
+    # 固定入口本体を先に置き、測定ドライバの長さによらず番地を保つ。
     if enable_main_sub_read and enable_disk_read_chr:
         entries = (REPO / "src/l3_main/rom_entries.asm").read_text(encoding="utf-8")
     else:
@@ -2912,6 +2913,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     entries += (REPO / "src/l3_main/keyboard_entry.asm").read_text(encoding="utf-8")
     entries += (REPO / "src/l3_main/screen_mode.asm").read_text(encoding="utf-8")
     entries += (REPO / "src/l3_main/screen_entry.asm").read_text(encoding="utf-8")
+    entries += measure_driver_include
     run_text = run_path.read_text(encoding="utf-8")
     run_path.write_text(run_text.replace("AEL_ROM_LAYOUT_PAD:\n",
                                         entries + "\nAEL_ROM_LAYOUT_PAD:\n"), encoding="utf-8")
@@ -2926,8 +2928,10 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 ROM_VERSION_RESERVED_ADDR = 0x79D7
 ROM_VERSION_MARK = ord("4")
 MAIN_SUB_LINK_MAX_SIZE = 1160
-L4_SELFTEST_N_ADDR = 0x5000
-L4_SELFTEST_N_LIMIT = 0x6000
+# mainのRUN_FIND_LINE等の複製は自己検査併用で0x5000台まで伸びる。
+# N側では拡張窓よりN-ROMが優先するため、独立した0x6000台へ置ける。
+L4_SELFTEST_N_ADDR = 0x6000
+L4_SELFTEST_N_LIMIT = 0x7000
 
 
 def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
@@ -3168,6 +3172,9 @@ def assemble(text: str, work: pathlib.Path) -> "tuple[bytes, z80text.Assembler]"
         raise SystemExit(f"ROM に収まらない: {len(code)} > {N88_SIZE}")
     rom = bytearray([FILL] * N88_SIZE)
     rom[:len(code)] = code
+    if "L4_SELFTEST_INIT" in asm.labels:
+        if asm.labels["VEC_TABLE"] - asm.labels["L4_SELFTEST_INIT"] != 15:
+            raise SystemExit("L4自己検査呼出し口がIM2表の整列用15Bからはみ出した")
     # 明示的な予約用DSだけを許可する。0x00の命令・表も見逃さない。
     for addr, chunk, _line, raw in asm.listing:
         if addr <= ROM_VERSION_RESERVED_ADDR < addr + len(chunk):

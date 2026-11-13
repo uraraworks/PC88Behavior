@@ -119,10 +119,10 @@ _m6ib_b6_run:
     return prefix + "    LD HL,00C8h" + loop + "; PUSH順" + a5_helpers
 
 
-def assemble_main_for_arm(work: pathlib.Path, arm: str):
+def assemble_main_for_arm(work: pathlib.Path, arm: str, *, enable_l4_selftest: bool = False):
     """腕専用mainを組み、ROMと実アセンブラ情報を返す。"""
     work.mkdir(parents=True, exist_ok=True)
-    kwargs = {"enable_main_sub_read": True}
+    kwargs = {"enable_main_sub_read": True, "enable_l4_selftest": enable_l4_selftest}
     if arm in ("B1", "B2", "B3", "B4", "B5"):
         kwargs[f"inject_m6ib_{arm.lower()}"] = True
     elif arm in B6_BRANCHES:
@@ -138,7 +138,10 @@ def assemble_main_for_arm(work: pathlib.Path, arm: str):
     if arm in B6_BRANCHES:
         text = _replace_once(text, mainrom.M6IB_BOOT_B5, _b6_boot(arm), arm)
         if arm == "B6-A1":
-            text = _replace_once(text, m6ia.SECTOR_OLD, m6ia.SECTOR_NEW, arm)
+            link = work / "main_sub_link_gen.asm"
+            link.write_text(_replace_once(link.read_text(encoding="utf-8"),
+                                          m6ia.SECTOR_OLD, m6ia.SECTOR_NEW, arm),
+                            encoding="utf-8")
         generated.write_text(text, encoding="utf-8")
     return mainrom.assemble(combined, work)
 

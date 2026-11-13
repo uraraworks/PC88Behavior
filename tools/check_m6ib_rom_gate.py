@@ -50,6 +50,13 @@ def main_instruction_boundaries_valid(outdir: pathlib.Path, work: pathlib.Path,
         and end - start <= mainrom.MAIN_SUB_LINK_MAX_SIZE
         and rom[mainrom.ROM_VERSION_RESERVED_ADDR] == mainrom.ROM_VERSION_MARK
     )
+    if arm != "B0":
+        # 通信本体と分離した測定専用ドライバも発行単位境界内に収める。
+        boot_start = asm.labels.get("MAIN_SUB_BOOT_START")
+        boot_end = asm.labels.get("MAIN_SUB_BOOT_END")
+        boundary_ok &= (boot_start in boundaries and boot_end in boundaries
+                        and boot_start is not None and boot_end is not None
+                        and boot_start < boot_end <= mainrom.ROM_VERSION_RESERVED_ADDR)
     allocation_ok = True
     if arm != "B0":
         ram = memmap.addresses()
