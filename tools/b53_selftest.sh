@@ -10,14 +10,11 @@ PYTHONPATH="$REPO/src/l3_service" python3 - "$work/fault" <<'PY'
 import pathlib, sys
 import make_subrom as m
 source = pathlib.Path(m.__file__).read_text()
-# 固定入口前に3バイト足すため、同じ診断ルーチンを末尾へ移す。
-start = source.index('    a.label("FDC_TIMEOUT_MARK")')
-end = source.index('    # 1.36c: 番地・長さ', start)
-marker = source[start:end]
-source = source[:start] + source[end:]
-end = source.index('\n    return a\n\n\ndef find_fetch_window_straddles')
-source = source[:end] + '\n' + marker + source[end:]
-old = '    a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）'
+# 固定入口の配置は生成器に任せ、受信ルーチン内の手順だけを改変する。
+old = ('    a.label("RECV_FIRST_ARMED")\n'
+       '    a.call("WAIT_FE_RECV_DATA_READY")       # 手順2: 相手のデータ準備待ち(bit0=1)\n'
+       '    a.out_imm(0xFF, PH_RECV_START_CLR)      # 手順3: OUT $FF,0x0A\n'
+       '    a.in_port(P_PIO_A)                      # 手順4: IN $FC（main OUT $FDと対応）')
 assert source.count(old) == 1
 source = source.replace(old, old + '\n    a.in_port(P_PIO_A)  # 故障: ACK前、bit0立ち上がり側で2バイト目を読む\n    a.ld_c_a()')
 old = '    a.label("_general_load_pair_second")\n    a.in_port(P_PIO_A)'

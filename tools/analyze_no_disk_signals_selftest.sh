@@ -304,13 +304,16 @@ import make_subrom as subrom
 default_rom, default_used = subrom.build()
 explicit_default_rom, explicit_default_used = subrom.build(intervene_no_disk_wait=False)
 wait_rom, wait_used = subrom.build(intervene_no_disk_wait=True)
+default_asm = subrom.build_subrom()
+default_asm.resolve()
 wait_asm = subrom.build_subrom(intervene_no_disk_wait=True)
 wait_asm.resolve()
 entry = wait_asm.labels["_general_read_request"]
 sense = wait_asm.labels["FDC_SENSE_DRIVE_STATUS"]
 expected_loop = bytes((0xCD, sense & 0xFF, sense >> 8, 0x18, 0xFB))
+# 固定入口の詰め物や分岐拡張を除いた命令・表のサイズ差を比べる。
 if not (default_rom == explicit_default_rom and default_used == explicit_default_used
-        and wait_used == default_used + 5
+        and wait_asm.logical_code_size == default_asm.logical_code_size + 5
         and bytes(wait_asm.code[entry:entry + 5]) == expected_loop
         and entry + 5 < subrom.SUB_ROM_FETCH_WINDOW
         and wait_used <= subrom.SUB_ROM_FETCH_WINDOW
