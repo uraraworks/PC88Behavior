@@ -1695,8 +1695,7 @@ def build_subrom(break_write_ack=False,
         a.ld_b_a()
         a.cp_n(0x02)
         a.jp_nz("_recv_dispatch_store_received")
-        # 残留bit1で読みデータを早送りしない。次の0x06受信が解除する。
-        a.ld_mem_a(DATA_RESPONSE_CLOSED)
+        # 残留bit1による早送りは共通の読み入口で閉じる。
         # 種別はここで消費済み。読み本体が使うREQ_HDR+1..+4を受け取る。
         a.ld_b(4)
         a.label("_return_read_header")
@@ -1936,6 +1935,9 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(ENTRY_REQUEST_ACTIVE)
     a.ld_a_b()
     a.call("REQUEST_DISPATCH_A")
+    # 第6版: 00EDは09→08→0Bまで済ませてRETする。
+    # 通常の要求待ちはATNを確認してからRECV_BYTEが0Bを出す。
+    a.out_imm(0xFF, PH_RECV_START_SET)
     a.jp("ENTRY_REQUEST_RETURN")
 
     a.label("ENTRY_REQUEST_RETURN")
@@ -1959,12 +1961,13 @@ def build_subrom(break_write_ack=False,
     a.ld_a_d()
     a.cp_n(0x7F)
     a.jr_nc("_entry_seek_sense")
-    a.or_a()
-    a.rra()
-    a.push_af()
     a.ld_a(0x0F); a.rst(0x08)
     a.ld_a_c(); a.rst(0x20)
-    a.pop_af(); a.rst(0x20)
+    # FDC出力はDを保存するので、送る直前にシリンダを作ればAF退避は不要。
+    a.ld_a_d()
+    a.or_a()
+    a.rra()
+    a.rst(0x20)
     a.call("FDC_SENSE_INT")
     a.label("_entry_seek_sense")
     a.ld_a(4); a.rst(0x08)
@@ -2448,14 +2451,10 @@ def build_subrom(break_write_ack=False,
         # FILES 2では既存のbyte2 bit0伝播によりB-unit/head0を問い合わせる。
         a.call("FDC_SENSE_DRIVE_STATUS")
         a.jr("_general_read_request")
-    a.ld_hl_imm(SECTOR_BUF)
-    a.call("_general_read_at")
-    # 0x02の応答手順は従来どおり、0x06/0x12を待つ。
-    a.ld_a(0x06)
-    a.ld_mem_a(POST_BULK_ACTIVE)
+    a.call("_general_read_buffer")
     a.jp("REQUEST_DONE")
 
-    # 第5版にはレジスタと引数の個別対応がないため、06A6の受信順を使う。
+    # sub-rom-entry 第6版: 06A6の受信順で0x02と同じ読みを行う。
     # B=P1（セクタ数）、C=D（ドライブ）、D=T（論理トラック）、E=R。
     a.label("ENTRY_READ")
     a.ld_hl_imm(REQ_HDR + 1)
@@ -2463,8 +2462,13 @@ def build_subrom(break_write_ack=False,
         if index:
             a.inc_hl()
         put()
+    a.label("_general_read_buffer")
+    # 048Fも0x02も、読み終えたらデータを保持して06/12を待つ。
+    # 待ち状態を先に設定し、本体のRETを共用する。送出は12だけが開く。
+    a.ld_a(0x06)
+    a.ld_mem_a(POST_BULK_ACTIVE)
+    a.ld_mem_a(DATA_RESPONSE_CLOSED)
     a.ld_hl_imm(SECTOR_BUF)
-    # 既存0x02の読み本体へ続き、1回実行してRETする。
 
     a.label("_general_read_at")
     a.out_imm(P_F8, F8_CONTROL_VALUE)
@@ -3000,7 +3004,7 @@ def build_subrom(break_write_ack=False,
     if not break_fixed_byte_cutoff:
         # 第68版・1.37節: POST_BULK_ACTIVEには、この交換中だけ「次に待つ値」
         # 0x06/0x12を置く。受信値と段階値が一致した場合だけ専用遷移へ入り、
-        # 起動時交換中（0）・バルク完走直後（1）・交換完了後（0xFF）、および
+        # 起動時交換中（0）・バルク完走直後（1）・交換完了後（0x11）、および
         # 不一致値は従来の受信処理へ流す。これが0x06/0x12の衝突を防ぐゲート。
         a.ld_b_a()
         a.ld_a_mem(POST_BULK_ACTIVE)
@@ -3389,18 +3393,19 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(EXCHANGE3_REQUEST_ACTIVE)
         a.jr("_sector_prepare_response_pending")
 
-        # 0x06受信後はack 0xC0を既存の単発応答経路へ1件だけ保留する。
-        # SECTOR_READYは維持するため、この時点では256件送信を開始しない。
+        # 第6版: 00ED経由でも状態1バイトだけを返す。データの自動送出を
+        # 閉じたまま単発応答へ直接入り、12までSECTOR_READYを維持する。
         a.label("_post_read_received_06")
         # この0x06は汎用応答表を通らない。次のWRITEの前置Sとして保持する。
         a.ld_mem_a(WRITE_LAST_S)
         a.ld_a(0x12)
         a.ld_mem_a(POST_BULK_ACTIVE)
-        a.jr("_sector_prepare_response_pending")
+        a.ld_mem_a(DATA_RESPONSE_CLOSED)
+        a.jp("_exchange3_status_response")
 
         # 次の0x12を受信して初めて保持済みSECTOR_BUFを256件応答へ接続する。
         a.label("_post_read_received_12")
-        a.ld_a(0xFF)
+        a.dec_a()                       # 12→11: 非0かつ06/12以外の完了状態
         a.ld_mem_a(POST_BULK_ACTIVE)
         a.ld_mem_a(DATA_RESPONSE_CLOSED)   # 第223版: 送り終えたら以後は渡さない
         a.jr("_post_read_activate_response")
@@ -3663,6 +3668,7 @@ def build_subrom(break_write_ack=False,
     # ST0の出所: FDC_ABORTが立っていればデータフェーズへ進まず結果がSECTOR_BUF先頭に
     # 入っている（m7cm）。立っていなければ結果フェーズはFDC_IN_7が読み、1件目を
     # LAST_ST0に残している（データのCRCエラーはこちら。m7lh）。
+    a.label("_exchange3_status_response")
     a.ld_a_mem(FDC_ABORT)
     a.or_a()
     a.ld_a_mem(SECTOR_BUF)          # FDC_ABORT≠0: 結果フェーズr0 = ST0（ld はフラグを変えない）
@@ -3876,7 +3882,7 @@ def build_subrom(break_write_ack=False,
 
 
 def emit_result_entries(a):
-    """sub-rom-entry 第5版。割込み許可・モードには触れない。"""
+    """sub-rom-entry 第6版。割込み許可・モードには触れない。"""
     a.label("ENTRY_FDC_RESULT")
     a.push_bc()
     a.push_hl()
@@ -3892,10 +3898,11 @@ def emit_result_entries(a):
     a.djnz("_entry_result_byte")
     a.ld_l_n(0x0D)
     a.ld_a_hl()
+    a.and_a(0xC0)                   # 正常ヘッド1のHDビットをエラーに含めない
     a.inc_hl()
     a.or_hl()
     a.inc_hl()
-    a.or_hl()                       # A=ST0 OR ST1 OR ST2、P/V=パリティ
+    a.or_hl()                       # A=(ST0 AND C0) OR ST1 OR ST2、P/V=パリティ
     a.pop_hl()
     a.pop_bc()
     a.and_reg_a()                   # パリティを維持。正常: Z=1・H=1・Cy=0
@@ -4063,6 +4070,7 @@ def pin_entries(a, extra_hole_candidates=False, small_first=False):
                        ("ENTRY_RECV_FOUR", None),
                        ("ENTRY_SEEK", "FDC_BEGIN"),
                        ("ENTRY_F7", "ENTRY_REQUEST"),
+                       ("ENTRY_REQUEST", "ENTRY_REQUEST_RETURN"),
                        ("IRQ_HANDLER", "WAIT_FE_RECV_ACK_DONE"),
                        ("FDC_IN_7", "FDC_WAIT"),
                        ("FDC_READ_SECTOR", "FDC_OUT_THEN_N1"),

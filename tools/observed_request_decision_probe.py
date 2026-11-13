@@ -111,6 +111,20 @@ class MiniZ80:
                 self.a = self.mem[self._imm16()]
             elif op == 0x32:  # LD (nn),A。WRITE前置Sの記録
                 self.mem[self._imm16()] = self.a
+            elif op == 0xF7:  # RST 30h + 状態ページのインライン引数
+                operand = self._imm8()
+                address = 0x7c00 | (operand & 0x3f)
+                if operand & 0xc0 == 0x80:
+                    self.mem[address] = self.a
+                elif operand & 0xc0 in (0, 0xc0):
+                    self.a = self.mem[address]
+                    if operand & 0xc0:
+                        self.zf = self.a == 0
+                        self.cf = False
+                else:
+                    raise RuntimeError('決定関数内に想定外のPIO出力')
+            elif op == 0xDF:  # RST 18h — 固定入口経由の単発送信
+                self.pc = 0x18
             elif op == 0x3E:  # LD A,n
                 self.a = self._imm8()
             elif op == 0x79:  # LD A,C
