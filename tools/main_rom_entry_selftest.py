@@ -202,12 +202,25 @@ def screen_disk(work, values):
     LD A,7
     LD (0xEF86),A
     LD (0xEF87),A
+    XOR A
+    OUT (0xE6),A               ; 戻り直後の割り込み受理を防ぐ
     LD A,0xA1
     OUT (0x10),A               ; 自作プローブの開始印
     LD A,0x96
     LD IX,0x1234
     LD IY,0x5678
+    DI
     CALL 0x7071
+    PUSH AF
+    PUSH HL
+    LD A,I
+    DI                         ; 採取後の検査中は割り込みを禁止
+    PUSH AF
+    POP HL
+    LD A,L                     ; P/V は IFF2、A は I レジスタの値
+    LD (0xDF2E),A
+    POP HL
+    POP AF
     PUSH AF
     LD (0xDF20),BC
     LD (0xDF22),DE
@@ -276,6 +289,7 @@ def check_screen(work, tag, result, values, obj):
     assert result.get('hook'), '7071: RAMのED36が未実行'
     assert (result.get(0xDFF8), result.get(0xDFF9)) == (0, 0xE5), '7071: RET後のSP不一致'
     assert [result.get(0xDF20+i) for i in range(14)] == [0, 0, 0x80, 0xFF, 0x16, 0xE6, 0x34, 0x12, 0x78, 0x56, 0x54, 0x96, 1, 1], '7071: 戻りレジスタ・カーソル不一致'
+    assert 0xDF2E in result and result[0xDF2E] & 4, '7071: DI呼出しからIFF=1で戻らない'
     expected = (b' ' * 80 + bytes((0x80, 0xE8)) * 20) * 25
     assert bytes(result.get(0xD100+i, 0) for i in range(3000)) == expected, '7071: CLSの文字・属性域が不一致'
     state = [80, 24, 0, 25, 3, (values[0] & 0xFC) | 1, 0x21, 0, 0, 0xC8, 0xF3]
@@ -315,6 +329,7 @@ def screen_cases(work, rom, obj, code):
         check_screen(work, tag, observed, values, obj)
     hook_call = obj.labels['ENTRY_7071_RETURN'] - 3
     assert code[hook_call:hook_call+3] == b'\xCD\x36\xED', 'ED36はRAM番地へのCALLが必要'
+    assert code[obj.labels['ENTRY_7071_RET']:obj.labels['ENTRY_7071_RET']+2] == b'\xFB\xC9', 'EI・RETが必要'
     faults = {
         'hook': (hook_call, bytes(3), 'ED36'),
         'cls': (hook_call-3, bytes(3), 'CLS'),
@@ -324,6 +339,7 @@ def screen_cases(work, rom, obj, code):
         'dma-low': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
         'p31': (obj.labels['wb_wa_31']-1, b'\xFF', '画面作業域'),
         'ret': (obj.labels['ENTRY_7071_RET'], b'\x76', '未完了'),
+        'ei': (obj.labels['ENTRY_7071_RET'], b'\x00', 'IFF'),
         'cursor': (obj.labels['ENTRY_7071_CURSOR']+3, bytes(3), 'カーソル'),
         'registers': (obj.labels['ENTRY_7071_REGS'], bytes(3), 'レジスタ'),
     }
@@ -336,6 +352,8 @@ def screen_cases(work, rom, obj, code):
         (broken/'N88.ROM').write_bytes(mutated)
         values = arms[1]
         observed = execute(work, broken, screen_disk(work, values), tag, screen=True)
+        if name == 'ei':
+            assert 0xDF2E in observed and not (observed[0xDF2E] & 4), '7071: EIなしの陰性対照がIFF=0を示さない'
         try:
             check_screen(work, tag, observed, values, obj)
         except AssertionError as exc:

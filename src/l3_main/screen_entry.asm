@@ -1,4 +1,4 @@
-; main-rom-entry.md 第7版 1.6。未確定のEF89等の分岐は実装しない。
+; main-rom-entry.md 第8版 1.6。未確定のEF89等の分岐は実装しない。
 ENTRY_7071:
     PUSH AF
     PUSH IX
@@ -36,6 +36,7 @@ ENTRY_7071_REGS:
     LD DE,0FF80h
     LD HL,0E616h
 ENTRY_7071_RET:
+    EI
     RET
 ; この入口で観測された11DF相当の部分だけを定義する。
 ; 11DF単独の未確定のスタック契約へ一般化しない。
