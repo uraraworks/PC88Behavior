@@ -1,0 +1,99 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -61,6 +61,7 @@
+    $(CORE_DIR)/q88h_memlog.c \
+    $(CORE_DIR)/q88h_boundary.c \
+    $(CORE_DIR)/b92_intervention.c \
++   $(CORE_DIR)/b93_intervention.c \
+    $(CORE_DIR)/q88h_sub_boundary.c \
+    $(CORE_DIR)/q88h_sub_read.c \
+    $(CORE_DIR)/q88h_sub_rom_read.c \
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2970,6 +2970,7 @@
+ #include "q88h_memlog.h"
+ #include "q88h_boundary.h"
+ #include "b92_intervention.h"
++#include "b93_intervention.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -3173,6 +3174,10 @@
+                   b92_in_array(p, main_rom_n, 0x8000);
+     byte *dest = b92_ram_pointer((word)q88h_b92_address());
+     q88h_timeline_main_rom(is_main);
++    if (q88h_b93_instr(bd, addr, cls, is_main, sp, top)) {
++      z80main_cpu.R = (byte)q88h_b93_value();
++      z80main_cpu.R_saved = (byte)q88h_b93_value();
++    }
+     if (q88h_b92_instr(bd, addr, cls, is_main, sp, top,
+           b92_in_array(dest, main_ram, 0x10000) ||
+           b92_in_array(dest, main_high_ram, 0x1000),
+@@ -3379,6 +3384,7 @@
+   v = q88h_exchange_intervention_process( Q88H_IOLOG_IN, port,
+                                             (word)(z80main_cpu.PC.W - 2), v );
+   v = q88h_main_in_force_process( port, v );   /* 0017: IN 返り値の1ビット強制 */
++  q88h_b93_io(0, Q88H_IOLOG_IN, port, (word)(z80main_cpu.PC.W - 2));
+   q88h_main_event_record('I', port, v );
+   if( l->enabled ){
+     /* PC_prev は「モニタ用のダミー」(z80.h のコメントどおり) で、
+@@ -3407,6 +3413,7 @@
+ 
+   data = q88h_exchange_intervention_process( Q88H_IOLOG_OUT, port,
+                                                (word)(z80main_cpu.PC.W - 2), data );
++  q88h_b93_io(0, Q88H_IOLOG_OUT, port, (word)(z80main_cpu.PC.W - 2));
+   q88h_main_event_record('O', port, data );
+   if( l->enabled ){
+     /* 発行元PCの逆算については q88h_io_in のコメントを参照。 */
+--- a/src/pc88sub.c
++++ b/src/pc88sub.c
+@@ -395,6 +395,7 @@
+ #include "q88h_trap.h"
+ #include "q88h_iolog.h"
+ #include "q88h_sub_boundary.h"
++#include "b93_intervention.h"
+ #include "q88h_sub_read.h"
+ #include "q88h_sub_rom_read.h"
+ #include "q88h_sub_snapshot.h"
+@@ -436,6 +437,7 @@
+ 
+   q88h_boundary_t *b = retro_q88h_sub_boundary();
+   int start = q88h_sub_pending == 0;
++  if (start) q88h_b93_fetch(1, addr, q88h_sub_addr_is_rom(addr) ? Q88H_BND_ROM : Q88H_BND_RAM);
+   if( retro_q88h_sub_read()->enabled && start ) q88h_sub_read_instr(addr);
+   if( start ) q88h_sra_instr(addr);
+   if( start && q88h_sub_event_enabled() ) q88h_sub_event_instr(addr);
+@@ -551,6 +553,7 @@
+   t->io_in[port] = 1;
+   t->n_in++;
+   v = sub_io_in( port );
++  q88h_b93_io(1, Q88H_IOLOG_IN, port, (word)(z80sub_cpu.PC.W - 2));
+ 
+   if( l->enabled ){
+     /* PC_prev が使えない理由は pc88main.c の q88h_io_in のコメント参照。
+@@ -576,6 +579,7 @@
+                         (word)(z80sub_cpu.PC.W - 2) );
+   }
+ 
++  q88h_b93_io(1, Q88H_IOLOG_OUT, port, (word)(z80sub_cpu.PC.W - 2));
+   sub_io_out( port, data );
+ }
+ 
+--- a/src/q88h_boundary.c
++++ b/src/q88h_boundary.c
+@@ -10,6 +10,7 @@
+ #include <limits.h>
+ #include "q88h_clock.h"
+ #include "q88h_boundary.h"
++#include "b93_intervention.h"
+ 
+ static q88h_boundary_t g_boundary;
+ static FILE *timeline;
+@@ -94,6 +95,7 @@
+   if (!id) id = ++tl_id;
+   fprintf(timeline, "%u %u %04X %s %" PRIu64 "\n", tl_frame, clock, target, kind, id);
+   tl_count++;
++  q88h_b93_boundary();
+   return id;
+ }
+ void q88h_timeline_accept(void) { tl_event("accept", 0, 0); }
