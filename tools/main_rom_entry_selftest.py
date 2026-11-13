@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 import build_main_rom as build
 import z80text
+import memmap
+import compare_screen_signatures as sig
 import make_l3_testdisk as diskgen
 
 
@@ -22,7 +24,7 @@ def assemble(work, name, text, origin):
     return z80text.Assembler().assemble(path)[origin:]
 
 
-def boot_disk(work):
+def boot_disk(work, screen_source=None):
     boot = assemble(work, 'boot', '''
     ORG 0xC000
     LD SP,0xE500
@@ -104,7 +106,7 @@ boot_failed:
               '    LD (0xDFFF),A', '    JR done', 'probe_target:', '    PUSH AF', '    PUSH HL',
               '    LD HL,4', '    ADD HL,SP', '    LD (0xD870),HL',
               '    POP HL', '    POP AF', '    RET']
-    body = assemble(work, 'stage', '\n'.join(stage), 0xC100)
+    body = assemble(work, 'stage', screen_source or '\n'.join(stage), 0xC100)
     assert len(boot) <= 256 and len(body) <= 2048
     payload = boot.ljust(256, b'\0') + body.ljust(2048, b'\0')
     disk = bytearray(diskgen.build_d88(16, 40, 2, content_rule='coord-header', disk_id=0x41))
@@ -115,7 +117,7 @@ boot_failed:
     return bytes(disk), coords
 
 
-def execute(work, rom, disk, tag):
+def execute(work, rom, disk, tag, screen=False):
     image = work / (tag + '.d88')
     image.write_bytes(disk)
     log = work / (tag + '.memory')
@@ -125,10 +127,14 @@ def execute(work, rom, disk, tag):
            '--rom-dir', str(rom), '--disk', str(image), '--frames', '1200',
            '--mem-write-log', str(log), '--mem-write-range', 'D100-DFFF',
            '--screen-signature-only', '--screen-signature-at', 'end:1199', '--out', str(work/(tag+'.report'))]
+    if screen:
+        cmd += ['--io-log', str(work/(tag+'.io')), '--expect-exec', '0xED36']
     result = subprocess.run(cmd, capture_output=True, timeout=180)
-    if result.returncode:
+    hook_missing = screen and 'NG: exec ED36' in result.stderr.decode()
+    if result.returncode and not (result.returncode == 1 and hook_missing):
         raise AssertionError(f'{tag}: 実行失敗 rc={result.returncode}: {result.stderr.decode()[-500:]}')
-    values = {}
+    values = {'hook': screen and not hook_missing}
+    assert '取りこぼし: 0件' in log.read_text(), 'メモリ記録が欠落'
     for line in log.read_text().splitlines():
         m = re.fullmatch(r'\s*\d+\s+\d+\s+[0-9A-F]{4}\s+([0-9A-F]{4})\s+([0-9A-F]{2})', line)
         if m:
@@ -166,7 +172,159 @@ def placement_cases(work):
         build.PINNED_ENTRIES = saved
 
 
-def numeric_regression(rom, work):
+def screen_disk(work, values):
+    """汚した全25行と非既定の窓から7071を呼ぶ。ED36は自作のRETだけ。"""
+    source = memmap.asm_prelude() + '''
+    ORG 0xC100
+    DI
+    LD SP,0xE500
+    LD A,0xC9
+    LD (0xED36),A
+    LD HL,MM_TEXT_BASE
+    LD DE,MM_TEXT_BASE+1
+    LD BC,2999
+    LD (HL),0x5A
+    LDIR
+    XOR A
+    LD (MM_SCR_MODE),A
+    LD A,40
+    LD (MM_SCR_COLS),A
+    LD HL,0x0503
+    LD (MM_SCR_WTOP),HL
+    LD A,7
+    LD (MM_SCR_MAXROW),A
+    LD (MM_VAR_ROW),A
+    LD (MM_VAR_COL),A
+'''
+    for addr, value in zip((0xE6C0, 0xE6C1, 0xE6C4, 0xE6C5), values):
+        source += f'    LD A,{value}\n    LD (0x{addr:04X}),A\n'
+    source += '''
+    LD A,0xA1
+    OUT (0x10),A               ; 自作プローブの開始印
+    CALL 0x7071
+    LD A,0xA2
+    OUT (0x10),A               ; 戻り印（この間だけのI/Oを検査）
+    LD HL,0
+    ADD HL,SP
+    LD (0xDFF8),HL
+    LD HL,MM_TEXT_BASE
+    LD DE,0xD100
+    LD BC,3000
+    LDIR                       ; 本文を出力せず、全バイトを内部比較する
+'''
+    states = ('MM_SCR_COLS', 'MM_SCR_MAXROW', 'MM_SCR_WTOP', 'MM_SCR_WN',
+              'MM_SCR_MODE', 'MM_SCR_P30', 'MM_SCR_P31',
+              'MM_VAR_ROW', 'MM_VAR_COL', 'MM_VAR_ROWBASE', 'MM_VAR_ROWBASE+1')
+    for i, state in enumerate(states):
+        source += f'    LD A,({state})\n    LD (0x{0xDF00+i:04X}),A\n'
+    # 入口+1故障の実走でも、画面状態を設定しないRETを完了扱いしない。
+    source += '''
+    LD A,(MM_SCR_MODE)
+    CP 3
+    JR NZ,screen_done
+    LD A,0xA5
+    LD (0xDFFF),A
+screen_done:
+    JR screen_done
+'''
+    return boot_disk(work, source)[0]
+
+
+def read_io(path):
+    text = path.read_text()
+    assert '取りこぼし: 0件' in text and not re.search(r'取りこぼし: [1-9]', text)
+    events = []
+    for line in text.splitlines():
+        m = re.fullmatch(r'\s*\d+\s+\d+\s+\d+\s+main\s+(IN|OUT)\s+'
+                         r'([0-9A-F]{4})\s+([0-9A-F]{2})\s+([0-9A-F]{4})', line)
+        if m:
+            events.append((m[1], int(m[2], 16), int(m[3], 16), int(m[4], 16)))
+    return events
+
+
+def mode_outputs(cols, rows, color):
+    """移設した実装の表を読まず、既存WIDTHの仕様から期待列を作る。"""
+    p31, length, params = ((0x39, 2999, (0xCE, 0x98, 0x6F, 0x58, 0x13)) if rows == 25
+                          else (0x19, 2399, (0xCE, 0x93, 0x73, 0x38, 0x13)))
+    return [(0x31, p31), (0x30, 0x20 | (cols == 80) | (0 if color else 2)),
+            (0x51, 0), (0x68, 0xA0), (0x64, 0xC8), (0x64, 0xF3),
+            (0x65, length & 255), (0x65, 0x80 | (length >> 8)),
+            *[(0x50, p | (0x40 if color and i == 4 else 0)) for i, p in enumerate(params)],
+            (0x51, 0x43), (0x68, 0xE4), (0x51, 0x20)]
+
+
+def check_screen(work, tag, result, values, obj):
+    assert result.get(0xDFFF) == 0xA5, '7071: 復帰・状態設定が未完了'
+    assert result.get('hook'), '7071: RAMのED36が未実行'
+    assert (result.get(0xDFF8), result.get(0xDFF9)) == (0, 0xE5), '7071: RET後のSP不一致'
+    expected = (b' ' * 80 + bytes((0x80, 0xE8)) * 20) * 25
+    assert bytes(result.get(0xD100+i, 0) for i in range(3000)) == expected, '7071: CLSの文字・属性域が不一致'
+    state = [80, 24, 0, 25, 3, (values[0] & 0xFC) | 1, 0x21, 0, 0, 0xC8, 0xF3]
+    assert [result.get(0xDF00+i) for i in range(len(state))] == state, '7071: 画面作業域が不一致'
+    assert sig.read_report(work/(tag+'.report'), 'end').char_count == 0, '7071: 画面に文字が残る'
+    events = read_io(work/(tag+'.io'))
+    starts = [i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA1)]
+    ends = [i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA2)]
+    assert len(starts) == len(ends) == 1 and starts[0] < ends[0], '7071: 呼出区間が不正'
+    events = events[starts[0]+1:ends[0]]
+    expected_io = mode_outputs(80, 25, True)
+    expected_io[0] = (0x31, 0x21)
+    expected_io[1] = (0x30, (values[0] & 0xFC) | 1)
+    expected_io[4:6] = [(0x64, values[2]), (0x64, values[3])]
+    expected_io.insert(2, (0x40, values[1] | 8))
+    expected_io.append((0x40, values[1] & 0xF7))
+    actual = [(p, v) for kind, p, v, _ in events if kind == 'OUT' and p not in (0x71, 0x32)]
+    assert actual == expected_io, '7071: OUTの順序・RAM値との関係が不一致'
+    # バンク中継のI/Oとは区別し、ED36から戻った後の11DF相当を厳密に4回確認。
+    restore = obj.labels['ENTRY_7071_RESTORE']
+    tail = events[-12:]
+    for i in range(4):
+        triple = tail[3*i:3*i+3]
+        assert [(k, p) for k, p, _, _ in triple] == [('IN', 0x71), ('OUT', 0x71), ('OUT', 0x71)], '7071: 復帰I/Oの回数・順序が不一致'
+        assert len({v for _, _, v, _ in triple}) == 1, '7071: IN 71の値を保持していない'
+        assert [pc for _, _, _, pc in triple] == [restore, restore+2, restore+4], '7071: 復帰処理の発行元が不一致'
+    assert sum(restore <= pc < restore+6 for _, _, _, pc in events) == 12
+
+
+def screen_cases(work, rom, obj, code):
+    # 上位ビット、カラー/桁ビット、同期bit3、DMAの上下を独立に振る。
+    arms = ((0xA6, 0xD3, 0xC8, 0xF3), (0x59, 0x2C, 0x24, 0xD2),
+            (0xFF, 0xFF, 0xA5, 0xE1), (0, 0, 0x5A, 0xC6))
+    for i, values in enumerate(arms):
+        tag = f'screen-{i}'
+        observed = execute(work, rom, screen_disk(work, values), tag, screen=True)
+        check_screen(work, tag, observed, values, obj)
+    hook_call = obj.labels['ENTRY_7071_RETURN'] - 3
+    assert code[hook_call:hook_call+3] == b'\xCD\x36\xED', 'ED36はRAM番地へのCALLが必要'
+    faults = {
+        'hook': (hook_call, bytes(3), 'ED36'),
+        'cls': (hook_call-3, bytes(3), 'CLS'),
+        'restore-count': (obj.labels['ENTRY_7071_RETURN'], bytes(3), '復帰'),
+        'restore-value': (obj.labels['ENTRY_7071_RESTORE']+2, b'\xAF\x00', '復帰'),
+        'p30-mask': (obj.labels['wb_wa_30store']-3, b'\xE6\x00', '画面作業域'),
+        'dma-low': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
+        'p31': (obj.labels['wb_wa_31']-1, b'\xFF', '画面作業域'),
+        'ret': (obj.labels['ENTRY_7071_RESTORE']-1, b'\x76', '未完了'),
+    }
+    for name, (address, replacement, reason) in faults.items():
+        tag = 'screen-fault-'+name
+        broken = work/tag
+        shutil.copytree(rom, broken)
+        mutated = bytearray(code)
+        mutated[address:address+len(replacement)] = replacement
+        (broken/'N88.ROM').write_bytes(mutated)
+        values = arms[1]
+        observed = execute(work, broken, screen_disk(work, values), tag, screen=True)
+        try:
+            check_screen(work, tag, observed, values, obj)
+        except AssertionError as exc:
+            assert reason in str(exc), f'{name}: 意図と違う理由で失敗: {exc}'
+        else:
+            raise AssertionError(f'7071: {name}故障を見逃した')
+    print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・8種の故障注入', flush=True)
+
+
+def numeric_regression(rom, work, obj):
     # 演算単体の既存検査に加え、今回ずれた配布ROMのDFIN/DFOUTを通す。
     from l4_nrom_selftest import execute as execute_basic, has_line
     commands = [
@@ -177,11 +335,27 @@ def numeric_regression(rom, work):
         'poke &he001,-(1#/8#=0.125#)',
         'poke &he002,-(3.75#-2.5#=1.25#)',
     ]
+    for color in (0, 1):
+        commands.append(f'console ,,,{color}')
+        for cols in (40, 80):
+            for rows in (20, 25):
+                commands.append(f'width {cols},{rows}:cls')
+    commands += ['poke &he003,-(peek(&hefba)=80)',
+                 'poke &he004,-(peek(&hfffe)=57)']
     values, screens = execute_basic(rom, work, commands, (0, 1, 2))
     for i, expected in enumerate((' 3.75', ' 123456789.125', '-.0001220703125')):
         assert has_line(screens[i], [expected]), f'配布ROMの倍精度入出力{i}が不一致'
     assert all(values.get(0xE000+i) == 1 for i in range(3))
     print('PASS: 配置後の配布ROMで倍精度入出力・四則演算', flush=True)
+    assert values.get(0xE003) == values.get(0xE004) == 1
+    outputs = [(p, v) for kind, p, v, pc in read_io(work/'io.log')
+               if kind == 'OUT' and obj.labels['SCREEN_MODE_APPLY'] <= pc < obj.labels['ENTRY_7071']]
+    for color in (False, True):
+        for cols in (40, 80):
+            for rows in (20, 25):
+                expected = mode_outputs(cols, rows, color)
+                assert any(outputs[i:i+len(expected)] == expected for i in range(len(outputs))), '既存WIDTH/CONSOLEの出力列が変化'
+    print('PASS: 既存WIDTH/CONSOLE/CLSの40・80桁/20・25行/白黒・カラー8設定', flush=True)
 
 
 def main():
@@ -196,7 +370,7 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         build.check_pinned_entries(code, obj)
-        print('PASS: 5入口のJP・飛び先・listing非重複', flush=True)
+        print('PASS: 6入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)
         result = execute(work, rom, disk, 'normal')
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
@@ -278,10 +452,12 @@ def main():
                 pass
             else:
                 raise AssertionError('配置検査が入口+1を見逃した')
-            observed = execute(work, broken, disk, f'fault-{address:04X}')
+            probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3)) if address == 0x7071 else disk
+            observed = execute(work, broken, probe_disk, f'fault-{address:04X}')
             assert observed.get(0xDFFF) != 0xA5, f'{address:04X}: 故障を実走で見逃した'
-        print('PASS: 全5入口+1の故障を配置検査・実走で拒否', flush=True)
-        numeric_regression(rom, work)
+        print('PASS: 全6入口+1の故障を配置検査・実走で拒否', flush=True)
+        screen_cases(work, rom, obj, code)
+        numeric_regression(rom, work, obj)
         pad = 0x79D7 - obj.labels['AEL_ROM_LAYOUT_PAD']
         print(f'PASS: main予約前の空き={pad - 92}B（N中継92Bを除く）、末尾={0x8000-len(obj.code)}B')
 

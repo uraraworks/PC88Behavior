@@ -680,91 +680,14 @@ wb_w_lprint:
 wb_w_else:
     DB "ELSE",0
 
-; 行数ごとの表: ポート0x31の値・DMAC転送長（下位,上位）・CRTC RESETの5パラメータ（5.6.5の手順1・6・7）
-wb_w_tab20:
-    DB 019h,05Fh,089h,0CEh,093h,073h,038h,013h
-wb_w_tab25:
-    DB 039h,0B7h,08Bh,0CEh,098h,06Fh,058h,013h
-
 ; width が受理されたら CONSOLE の窓は全画面に戻る（5.4.6 (2)・5.6.8）。ファンクションキー表示（f）は変えない。
 wb_w_reset:
     LD HL,25<<8
     LD (MM_SCR_WTOP),HL
 wb_w_apply:
-    LD A,(MM_FN_AUX)
-    LD (MM_SCR_COLS),A
-    LD C,A
-    LD A,(MM_FN_AUX+1)
-    LD B,A
-    LD HL,wb_w_tab20
-    LD A,B
-    CP 25
-    JR NZ,wb_wa_tab
-    LD HL,wb_w_tab25
-wb_wa_tab:
-    LD A,(MM_SCR_ZT)           ; 上位3bit（現在の COLOR 値）は保つ
-    AND 0E0h
-    LD B,A
-    LD A,C                     ; コンマ欄の改行閾値T=(⌊W÷14⌋-1)×14（80桁56・40桁14）の半分を下位5bitへ
-    CP 80
-    LD A,28
-    JR Z,wb_wa_zt
-    LD A,7
-wb_wa_zt:
-    OR B
-    LD (MM_SCR_ZT),A
-    LD A,(HL)                  ; 1: OUT 0x31（20行0x19／25行0x39）。垂直同期ごとに同じ値を出す
-    LD (MM_SCR_P31),A
-    OUT (0x31),A
-    INC HL
-    LD A,C                     ; 2: OUT 0x30（80桁0x23／40桁0x22。差はbit0だけ）
-    CP 80
-    LD A,023h
-    JR Z,wb_wa_30
-    LD A,022h
-wb_wa_30:
-    LD B,A                     ; カラーモードは bit1=0（console ,,,1 の 0x21 と同じ形。自作判断: width 後の値は未測定）
-    LD A,(MM_SCR_MODE)
-    RRCA
-    LD A,B
-    JR NC,wb_wa_30o
-    AND 0FDh
-wb_wa_30o:
-    LD (MM_SCR_P30),A          ; l4-program.md 第12節。
-    OUT (0x30),A
-    XOR A                      ; 3: CRTC RESET
-    OUT (0x51),A
-    LD A,0A0h                  ; 4: DMAC
-    OUT (0x68),A
-    LD A,0C8h                  ; 5: DMAアドレス F3C8
-    OUT (0x64),A
-    LD A,0F3h
-    OUT (0x64),A
-    LD A,(HL)                  ; 6: 転送長（下位・上位）
-    OUT (0x65),A
-    INC HL
-    LD A,(HL)
-    OUT (0x65),A
-    INC HL
-    LD B,4                     ; 7: CRTC RESETの5パラメータ（5つ目はカラーモードで bit6 を足す）
-wb_wa_crtc:
-    LD A,(HL)
-    OUT (0x50),A
-    INC HL
-    DJNZ wb_wa_crtc
-    LD A,(MM_SCR_MODE)
-    RRCA
-    LD A,(HL)
-    JR NC,wb_wa_p5
-    OR 040h
-wb_wa_p5:
-    OUT (0x50),A
-    LD A,043h                  ; 8
-    OUT (0x51),A
-    LD A,0E4h                  ; 9
-    OUT (0x68),A
-    LD A,020h                  ; 10
-    OUT (0x51),A
+    LD D,0
+    LD IX,WB_MODE_ADDR
+    CALL FN_MAIN_CALL_ADDR
     CALL wb_win_calc           ; 窓の下端（行数・ファンクションキー表示から）。P31 は上で更新済み
     LD IX,WB_CLEAR_ADDR        ; 3000バイト全体（25行）を消す（mainのCLEAR_N_ROWS）
     LD HL,MM_TEXT_BASE
@@ -785,6 +708,7 @@ wb_keyrow:
     JP FN_MAIN_CALL_ADDR
 
 WB_CLEAR_ADDR EQU 0x1787
+WB_MODE_ADDR EQU 0x1787
 
 ; ---- CONSOLE（文の種別43。l4-program.md 5.4.6、l4-s9r・l4-s9s）
 ; 書式: CONSOLE [開始行][,[行数][,[ファンクションキー][,[カラー]]]]。
@@ -936,3 +860,6 @@ wb_cn_end:
     LD A,22                    ; 全省略・末尾のコンマ
     JP fn_error
 
+
+    ORG 0x7FC0
+    JP wb_win_calc             ; 7071もCONSOLEと同じ窓計算を使う

@@ -767,6 +767,7 @@ EXT_BANK0_DEFFN_ADDR_LABELS = {
     "TS_ZONE_ADDR": "ZONE_PAD",
     # 第4.22節 WIDTH（3000バイト全体の消去）
     "WB_CLEAR_ADDR": "CLEAR_N_ROWS",
+    "WB_MODE_ADDR": "SCREEN_MODE_APPLY",
     # 第4.21節 型宣言文・プログラム中のRUN
     "DT_LINENUM_ADDR": "PARSE_LINENUM_CUR",
     "DT_FIND_ADDR": "RUN_FIND_LINE",
@@ -2901,6 +2902,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                              ("ENTRY_37D2", "MAIN_SUB_SEND_CONT"),
                              ("ENTRY_3847", "MAIN_SUB_RECV")):
             entries += f"{name} EQU {target if enable_main_sub_read else 'ENTRY_369A'}\n"
+    entries += (REPO / "src/l3_main/screen_mode.asm").read_text(encoding="utf-8")
+    entries += (REPO / "src/l3_main/screen_entry.asm").read_text(encoding="utf-8")
     run_text = run_path.read_text(encoding="utf-8")
     run_path.write_text(run_text.replace("AEL_ROM_LAYOUT_PAD:\n",
                                         entries + "\nAEL_ROM_LAYOUT_PAD:\n"), encoding="utf-8")
@@ -3046,6 +3049,7 @@ PINNED_ENTRIES = {
     0x3391: "ENTRY_3391",
     0x369A: "ENTRY_369A", 0x37C9: "ENTRY_37C9",
     0x37D2: "ENTRY_37D2", 0x3847: "ENTRY_3847",
+    0x7071: "ENTRY_7071",
 }
 
 
