@@ -61,10 +61,10 @@ candidate_rom, candidate_used = subrom.build(early_response_after=5)
 # そちらを直接書く。既定サイズが動いても腐らない。
 # 2026-11-01: 3774436で既定側のPOST_BULK_ACTIVE判定の分岐をJPからJRへ縮めた
 # (既定側の判定列6バイト、介入側9バイト)ので、差は2から3になった。
-# 固定入口の詰め物と共通化による圧縮量を除き、元の介入差3バイトを保つ。
+# 固定入口回避・分岐の拡張・共有化前のサイズで、元の介入差3バイトを保つ。
 def logical_size(length):
     a = assembled(length)
-    return len(a.code) - a.layout_padding + a.state_access_saved
+    return a.logical_code_size
 if logical_size(5) - logical_size(None) != 3:
     raise SystemExit(
         f"NG: 介入版と既定版の差が3バイトでない: {default_used}/{candidate_used}")
