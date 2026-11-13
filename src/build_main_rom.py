@@ -2449,7 +2449,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     # 検査4a/4b（frames=60の枠内で350件のI/O列を数える、サイクル数に敏感な
     # 検査）が壊れる（実測: 350件中343件しか出ない）。既定では呼ばず、
     # tools/l4_basic_selftest.sh がこのフラグを立てたビルドでだけ呼ぶ。
-    bank_init_call = "    CALL L4_SELFTEST_INIT\n" if enable_l4_selftest else "    CALL EXT_BANK_INIT\n"
+    bank_init_call = "    CALL EXT_BANK_INIT\n"
     # 拡張ROMバンク: 割り込み無しで行える範囲の自己検査(常駐部からの
     # 呼び出し・窓の中からの呼び出し)はSCREEN_MAINと同じ挿入点(まだ
     # IM2/I/EIの設定前)で呼べる。l4_selftest_callと同じ理由で既定offにする
@@ -2503,6 +2503,14 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             raise SystemExit(f"STEADY_WAITの挿入点が一意でない: {STEADY_WAIT_MARK!r}")
         ipl_text = ipl_text.replace(
             STEADY_WAIT_MARK, "STEADY_WAIT:\n" + steady_wait_calls + "    HALT")
+
+    if enable_l4_selftest:
+        # N中継はEIするのでIM2/I設定後に一度だけ呼ぶ。
+        # HALTループのラベルより前に置き、毎フレームの再実行を避ける。
+        if ipl_text.count(BOOT_SECTOR_MARK) != 1:
+            raise SystemExit("L4自己検査の挿入点が一意でない")
+        ipl_text = ipl_text.replace(
+            BOOT_SECTOR_MARK, "    CALL L4_SELFTEST_INIT\n" + BOOT_SECTOR_MARK)
 
     if enable_boot_sector:
         if not (enable_main_sub_read and enable_disk_read_retry):
@@ -2746,14 +2754,15 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         run_path.write_text(run_text, encoding="utf-8")
 
     if enable_l4_selftest:
-        # 自己検査用の表は予約済み空き領域に置き、通常コードの
-        # 配置や固定ORGを動かさない。照合器は常駐部の末尾に置く。
+        # 表と照合器はN側へ置く。mainには既存RAM中継の呼出しだけを置き、
+        # 固定入口の本体とROM_VERSION前の予約領域を取り合わない。
         run_text = run_path.read_text(encoding="utf-8")
         marker = "AEL_ROM_LAYOUT_PAD:\n"
         if run_text.count(marker) != 1:
             raise SystemExit("自己検査の配置先が一意でない")
-        includes = (f'INCLUDE "{tokens_path}"\n'
-                    'L4_SELFTEST_INIT:\n    CALL EXT_BANK_INIT\n    JP LEX_SELFTEST\n')
+        includes = ('L4_SELFTEST_INIT:\n    CALL N_DETECT\n'
+                    '    LD A,(MM_N_ROM_PRESENT)\n    CP 1\n    RET NZ\n'
+                    f'    LD HL,0x{L4_SELFTEST_N_ADDR:04X}\n    JP N_ROM_CALL\n')
         run_path.write_text(run_text.replace(marker, includes + marker), encoding="utf-8")
 
     combined = (
@@ -2890,8 +2899,6 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
             combined += f'\nINCLUDE "{main_sub_chr_path}"\n'
         else:
             combined += f'\nINCLUDE "{MAIN_SUB_READ_CHR_ASM}"\n'
-    if enable_l4_selftest:
-        combined += f'\nINCLUDE "{lexer_path}"\n'
     # 本体は末尾ではなくROM_VERSION予約前の埋め草を使う。
     if enable_main_sub_read and enable_disk_read_chr:
         entries = (REPO / "src/l3_main/rom_entries.asm").read_text(encoding="utf-8")
@@ -2919,10 +2926,12 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
 ROM_VERSION_RESERVED_ADDR = 0x79D7
 ROM_VERSION_MARK = ord("4")
 MAIN_SUB_LINK_MAX_SIZE = 1160
+L4_SELFTEST_N_ADDR = 0x5000
+L4_SELFTEST_N_LIMIT = 0x6000
 
 
-def build_n_rom(main_rom, main_asm, work):
-    """自作mainを同番地に複製し、N専用DELETEを空き領域へ配置する。"""
+def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
+    """必要なmain処理を複製し、N専用処理と任意のL4自己検査を配置する。"""
     def assembled(name, source):
         path = work / name
         path.write_text(source, encoding='utf-8')
@@ -2992,12 +3001,24 @@ def build_n_rom(main_rom, main_asm, work):
         nsource += f"MC_MAIN_{name} EQU 0x{address:04X}\n"
     nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += merge_source
+    if enable_l4_selftest:
+        # 共通RAM別名のうち、N側ですでに定義したものは重複させない。
+        state = (REPO / 'src/l4_basic/state.asm').read_text(encoding='utf-8')
+        declared = set(re.findall(r'(?m)^(\w+)\s+EQU\b', nsource))
+        nsource += '\n'.join(line for line in state.splitlines()
+                             if not line.split() or line.split()[0] not in declared) + '\n'
+        nsource += f'    ORG 0x{L4_SELFTEST_N_ADDR:04X}\n    JP LEX_SELFTEST\n'
+        nsource += f'INCLUDE "{work / "l4_lexer_gen.asm"}"\n'
+        nsource += f'INCLUDE "{work / "l4_tokens_gen.asm"}"\n'
+        nsource += 'L4_SELFTEST_N_END:\n'
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
     edit_source = (REPO / 'src/n_rom/edit.asm').read_text(encoding='utf-8')
     for name in re.findall(r'(?m)^edit_cb_(\w+):', edit_source):
         nsource += f"EDIT_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n"
     nsource += edit_source
     ncode, n_asm = assembled('n_rom_gen.asm', nsource)
+    if enable_l4_selftest and n_asm.labels['L4_SELFTEST_N_END'] > L4_SELFTEST_N_LIMIT:
+        raise SystemExit('N側L4自己検査が予約領域を超過')
     # 同一番地に必要なルーチンだけを複製する。N表示中のVSYNCフックは
     # N_ACTIVEにより再入側へ必ず分岐し、バンクを呼ぶ通常側には入らない。
     spans = [(0x0038, 0x003B), (0x0066, 0x0068),
@@ -3019,8 +3040,11 @@ def build_n_rom(main_rom, main_asm, work):
         image[start:end] = main_rom[start:end]
         used.update(range(start, end))
     for addr, chunk, _, _ in n_asm.listing:
-        if not (0x2000 <= addr < 0x5000 or 0x7600 <= addr < 0x7980) or addr + len(chunk) > 0x7980:
-            raise SystemExit('N側DELETEが予約領域からはみ出した')
+        regions = [(0x2000, 0x5000), (0x7600, 0x7980)]
+        if enable_l4_selftest:
+            regions.append((L4_SELFTEST_N_ADDR, L4_SELFTEST_N_LIMIT))
+        if not any(start <= addr < addr + len(chunk) <= end for start, end in regions):
+            raise SystemExit('N側コード/表が予約領域からはみ出した')
         if used.intersection(range(addr, addr+len(chunk))):
             raise SystemExit(f'N側コードと複製ルーチンが重複: 0x{addr:04X}')
         image[addr:addr+len(chunk)] = chunk
@@ -3592,7 +3616,7 @@ def main():
                                        enable_boot_sector=enable_boot_sector)
         rom, asm = assemble(combined, work)
 
-        relay, nrom, n_used = build_n_rom(rom, asm, work)
+        relay, nrom, n_used = build_n_rom(rom, asm, work, enable_l4_selftest=args.enable_l4_selftest)
         # ビルドごとに測定コードの長さが異なる。明示された埋め草と
         # 未使用末尾だけから中継の格納場所を選び、コードを上書きしない。
         occupied = bytearray(N88_SIZE)
@@ -3614,16 +3638,17 @@ def main():
                 raise SystemExit('N中継の格納番地が一意に見つからない')
             combined = combined.replace(old, f'MM_N_RELAY_SOURCE EQU 0x{relay_start:04X}\n')
             rom, asm = assemble(combined, work)
-            relay, nrom, n_used = build_n_rom(rom, asm, work)
+            relay, nrom, n_used = build_n_rom(rom, asm, work, enable_l4_selftest=args.enable_l4_selftest)
         rom_data = bytearray(rom)
         rom_data[relay_start:relay_start + len(relay)] = relay
         rom = bytes(rom_data)
 
         args.outdir.mkdir(parents=True, exist_ok=True)
         (args.outdir / "N88.ROM").write_bytes(rom)
-        # main/sub測定用の起動コードはN側へ切り替えない。旧来の
-        # 測定ROM集合を保ち、通常のBASICビルドにはN側を含める。
-        if not main_sub_measure_build:
+        # main/sub測定構成でもL4自己検査を明示した場合はN側が必要。
+        # 自己検査なしの測定ROM集合は従来どおりに保つ。
+        include_n_rom = not main_sub_measure_build or args.enable_l4_selftest
+        if include_n_rom:
             (args.outdir / "N88N.ROM").write_bytes(nrom)
         if args.labels_out:
             import hashlib
@@ -3680,10 +3705,10 @@ def main():
                              mbf_add_addr=mbf_add_addr, addr_overrides=addr_overrides)
 
         used = len(combined.splitlines())
-        n_description = "" if main_sub_measure_build else f" / N88N.ROM {N88_SIZE} bytes"
+        n_description = f" / N88N.ROM {N88_SIZE} bytes" if include_n_rom else ""
         print(f"生成した: {args.outdir} (N88.ROM {N88_SIZE} bytes{n_description} / DISK.ROM / FONT.ROM / "
               f"N88_0.ROM〜N88_3.ROM 各0x2000 bytes)")
-        if not main_sub_measure_build:
+        if include_n_rom:
             print(f"  N88N.ROM 使用={n_used} bytes 空き={N88_SIZE - n_used} bytes")
         print(f"  組み合わせ.asm行数={used} extra_lines={args.extra_lines} "
               f"inject_address_fault={args.inject_address_fault} "

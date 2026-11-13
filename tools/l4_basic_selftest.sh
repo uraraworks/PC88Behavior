@@ -117,10 +117,16 @@ sys.path.insert(0, sys.argv[2])
 import memmap
 addr = {k:f"{v:04X}" for k,v in memmap.addresses().items()}
 last = {}
+starts = 0
 for line in open(sys.argv[1]):
     m = re.match(r'\s*(\d+)\s+(\d+)\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{2})', line)
     if m:
         last[m.group(4).upper()] = m.group(5)
+        if m.group(4).upper() == addr["MM_SELFTEST_TOTAL"] and int(m.group(5), 16) == 0:
+            starts += 1
+if starts != 1:
+    print("0 0 256")  # 未実行・HALTループでの再実行はいずれも不合格
+    sys.exit(0)
 total = int(last.get(addr["MM_SELFTEST_TOTAL"], "00"), 16)
 passed = int(last.get(addr["MM_SELFTEST_PASS"], "00"), 16)
 failix = int(last.get(addr["MM_SELFTEST_FAILIX"], "FF"), 16)
@@ -135,6 +141,16 @@ if [ "$LEX_TOTAL" = "$KEYWORDS_TOTAL" ] && [ "$LEX_PASS" = "$KEYWORDS_TOTAL" ] &
   echo "OK: 表の全語(${KEYWORDS_TOTAL}語)が正しいトークンに変換された(不一致0件)"
 else
   fail "LEX_SELFTEST: total=$LEX_TOTAL pass=$LEX_PASS failix=${LEX_FAILIX} (期待 total=pass=$KEYWORDS_TOTAL, failix=255=無し)"
+fi
+
+# 固定入口本体・main通信を含む構成でも、表の配置と全語の照合を確認。
+FULL_SELFTEST_ROM="$WORK/rom_selftest_full"
+python3 "$BUILD" "$FULL_SELFTEST_ROM" --enable-l4-selftest >"$WORK/build_selftest_full.txt" 2>&1 || { fail "build_main_rom.py(selftest、main通信あり)が失敗"; cat "$WORK/build_selftest_full.txt" >&2; }
+read -r FULL_TOTAL FULL_PASS FULL_FAILIX <<< "$(read_lex_selftest "$FULL_SELFTEST_ROM" "$WORK/lex_full.memlog.txt")"
+if [ "$FULL_TOTAL" = "$KEYWORDS_TOTAL" ] && [ "$FULL_PASS" = "$KEYWORDS_TOTAL" ] && [ "$FULL_FAILIX" = "255" ]; then
+  echo "OK: main通信ありでも自己検査を1回実行、全${KEYWORDS_TOTAL}語一致"
+else
+  fail "LEX_SELFTEST(main通信あり): total=$FULL_TOTAL pass=$FULL_PASS failix=$FULL_FAILIX"
 fi
 
 # -----------------------------------------------------------------------
