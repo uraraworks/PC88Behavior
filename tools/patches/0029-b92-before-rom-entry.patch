@@ -1,0 +1,88 @@
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -60,6 +60,7 @@
+    $(CORE_DIR)/q88h_iolog.c \
+    $(CORE_DIR)/q88h_memlog.c \
+    $(CORE_DIR)/q88h_boundary.c \
++   $(CORE_DIR)/b92_intervention.c \
+    $(CORE_DIR)/q88h_sub_boundary.c \
+    $(CORE_DIR)/q88h_sub_read.c \
+    $(CORE_DIR)/q88h_sub_rom_read.c \
+--- a/src/pc88main.c
++++ b/src/pc88main.c
+@@ -2969,6 +2969,7 @@
+ #include "q88h_main_in_force.h"
+ #include "q88h_memlog.h"
+ #include "q88h_boundary.h"
++#include "b92_intervention.h"
+ 
+ /* ----------------------------------------------------------------------
+  * トラップROM足場（M2）
+@@ -3128,6 +3129,26 @@
+   }
+ }
+ 
++/* 0029: 書込み先の実体。VRAM・拡張RAMを作業域と取り違えない。 */
++static byte *b92_ram_pointer(word addr)
++{
++  if (addr < 0x8000) return write_mem_0000_7fff + addr;
++  if (addr < 0x8400) {
++    if (write_mem_8000_83ff) return write_mem_8000_83ff + (addr & 0x3ff);
++    addr = (addr & 0x3ff) + window_offset;
++    return addr < 0xf000 ? main_ram + addr : main_high_ram + (addr & 0xfff);
++  }
++  if (addr < 0xc000) return main_ram + addr;
++  if (vram_access_way == VRAM_ACCESS_ALU || vram_access_way == VRAM_ACCESS_BANK) return NULL;
++  return addr < 0xf000 ? write_mem_c000_efff + (addr & 0x3fff) :
++                       write_mem_f000_ffff + (addr & 0xfff);
++}
++static int b92_in_array(const byte *p, const byte *base, unsigned size)
++{
++  return p && (uintptr_t)p >= (uintptr_t)base &&
++         (uintptr_t)p - (uintptr_t)base < size;
++}
++
+ /* 命令の先頭 fetch を ROM 境界の記録へ渡す（enabled のときだけ呼ぶ）。
+  * スタック先頭の1語は、RAM → ROM の横断かどうかの判定にだけ使い、
+  * 判定が済めば捨てる（記録しない）。それ以外の瞬間は読まない
+@@ -3148,9 +3169,15 @@
+     else if (addr >= 0xc000 && vram_access_way != VRAM_ACCESS_ALU &&
+              vram_access_way != VRAM_ACCESS_BANK)
+       p = addr < 0xf000 ? read_mem_c000_efff : read_mem_f000_ffff;
+-    q88h_timeline_main_rom(p &&
+-      ((p >= main_rom && p < main_rom + 0x8000) ||
+-       (p >= main_rom_n && p < main_rom_n + 0x8000)));
++    int is_main = b92_in_array(p, main_rom, 0x8000) ||
++                  b92_in_array(p, main_rom_n, 0x8000);
++    byte *dest = b92_ram_pointer((word)q88h_b92_address());
++    q88h_timeline_main_rom(is_main);
++    if (q88h_b92_instr(bd, addr, cls, is_main, sp, top,
++          b92_in_array(dest, main_ram, 0x10000) ||
++          b92_in_array(dest, main_high_ram, 0x1000),
++          text_dma_addr.W, crtc_byte_per_line * crtc_sz_lines))
++      main_mem_write((word)q88h_b92_address(), (byte)q88h_b92_value());
+   }
+   q88h_boundary_on_instr( bd, addr, cls, sp, top, z80main_cpu.HL.W );
+ }
+@@ -3312,6 +3339,11 @@
+     q88h_memlog_record( m, addr, data, q88h_instr_pc );
+   }
+ 
++  {
++    byte *dest = b92_ram_pointer(addr);
++    q88h_b92_write(addr, b92_in_array(dest, main_ram, 0x10000) ?
++                  (int)(dest - main_ram) : -1);
++  }
+   main_mem_write( addr, data );
+ }
+ 
+@@ -3382,7 +3414,9 @@
+                         (word)(z80main_cpu.PC.W - 2) );
+   }
+ 
++  q88h_b92_out(port, data);
+   main_io_out( port, data );
++  q88h_b92_display(text_dma_addr.W, crtc_byte_per_line * crtc_sz_lines);
+ }
+ 
+ void	pc88main_bus_setup( void )

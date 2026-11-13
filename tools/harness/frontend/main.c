@@ -181,6 +181,9 @@ static bool            g_memlog_available = false;
 static int (*p_main_read_open)(const char *, uint32_t, uint32_t, uint32_t);
 static int (*p_main_read_close)(void);
 static void (*p_main_read_frame)(uint32_t);
+static int (*p_b92_open)(const char *, unsigned, int, unsigned, unsigned);
+static int (*p_b92_close)(void);
+static void (*p_b92_frame)(uint32_t);
 static int (*p_timeline_open)(const char *, uint64_t);
 static int (*p_timeline_close)(void);
 static void (*p_timeline_frame)(uint32_t);
@@ -961,6 +964,9 @@ static bool load_core(const char *path)
     *(void **)(&p_main_read_open) = dlsym(h, "retro_q88h_main_read_open");
     *(void **)(&p_main_read_close) = dlsym(h, "retro_q88h_main_read_close");
     *(void **)(&p_main_read_frame) = dlsym(h, "retro_q88h_main_read_frame");
+    *(void **)(&p_b92_open) = dlsym(h, "retro_q88h_b92_open");
+    *(void **)(&p_b92_close) = dlsym(h, "retro_q88h_b92_close");
+    *(void **)(&p_b92_frame) = dlsym(h, "retro_q88h_b92_frame");
     *(void **)(&p_timeline_open) = dlsym(h, "retro_q88h_timeline_open");
     *(void **)(&p_timeline_close) = dlsym(h, "retro_q88h_timeline_close");
     *(void **)(&p_timeline_frame) = dlsym(h, "retro_q88h_timeline_frame");
@@ -1126,6 +1132,29 @@ static bool path_is_inside_repo_but_not_tmp(const char *path)
 
 /* 呼び出し側の共通エラー処理。だめなら NULL は返さずここで終了させたいので、
  * 呼び出し元で「拒否なら return 1」の1行にまとめられるよう bool を返す。 */
+/* B92 は tmp/ の例外も認めず、未解決パスも拒否する。 */
+static bool b92_external_path(const char *path)
+{
+    char resolved[PATH_MAX], parent[PATH_MAX], root[PATH_MAX];
+    struct stat st;
+    const char *slash;
+    size_t n;
+    if (!g_repo_root[0] || !realpath(g_repo_root, root)) return false;
+    if (!realpath(path, resolved)) {
+        /* 未作成のリンク先へ fopen が追従する抜け道を防ぐ。 */
+        if (lstat(path, &st) == 0 || errno != ENOENT) return false;
+        slash = strrchr(path, '/');
+        n = slash ? (size_t)(slash - path) : 0;
+        if (n >= sizeof(parent)) return false;
+        if (!slash) strcpy(parent, ".");
+        else if (!n) strcpy(parent, "/");
+        else { memcpy(parent, path, n); parent[n] = 0; }
+        if (!realpath(parent, resolved)) return false;
+    }
+    n = strlen(root);
+    return strncmp(root, resolved, n) || (resolved[n] != '/' && resolved[n] != 0);
+}
+
 static bool reject_if_unsafe_output_path(const char *opt, const char *path)
 {
     if (path_is_inside_repo_but_not_tmp(path)) {
@@ -1737,6 +1766,8 @@ static void usage(void)
         "                   [--trap-stop-after N]\n"
         "                   [--expect-trap-exec ADDR] [--expect-trap-data ADDR]\n"
         "                   [--io-log FILE] [--io-log-from-frame FRAME]\n"
+        "                   [--intervene-before-rom-entry ENTRY:ADDR=VAL] (16進、1個、入口命令実行前に1回)\n"
+        "                   [--b92-log FILE] [--b92-entry ENTRY] (既定7071、生記録はリポジトリ外)\n"
         "                   [--main-in-force PORT:BIT:VALUE] (最大8個。main CPUの\n"
         "                    INの返り値のBITをVALUE(0/1)に強制。PORTは0x付き可)\n"
         "                   [--exchange-intervention RUN:MODE:VALUE] (最大64個)\n"
@@ -1865,6 +1896,9 @@ int main(int argc, char **argv)
     const char *mem_write_log_path = NULL;
     const char *boundary_log_path = NULL;
     const char *timeline_path = NULL;
+    const char *b92_path = NULL;
+    unsigned b92_entry = 0x7071, b92_addr = 0xe700, b92_value = 0;
+    int b92_intervene = 0, b92_entry_set = 0;
     const char *main_read_path = NULL;
     uint32_t main_read_first = 0, main_read_last = UINT32_MAX, main_read_limit = 65536;
     int main_read_window = 0;
@@ -2092,6 +2126,34 @@ int main(int argc, char **argv)
             }
             xi[n_xi].run = (int32_t)run;
             n_xi++;
+        }
+        else if (!strcmp(argv[i], "--b92-log") && i + 1 < argc) {
+            if (b92_path) return 2;
+            b92_path = argv[++i];
+        }
+        else if (!strcmp(argv[i], "--b92-entry") && i + 1 < argc) {
+            char hex[5], extra;
+            if (b92_entry_set || b92_intervene ||
+                sscanf(argv[++i], "%4[0123456789abcdefABCDEF]%c", hex, &extra) != 1)
+                return 2;
+            b92_entry = (unsigned)strtoul(hex, NULL, 16);
+            if (b92_entry >= 0x8000) return 2;
+            b92_entry_set = 1;
+        }
+        else if (!strcmp(argv[i], "--intervene-before-rom-entry") && i + 1 < argc) {
+            char entry[5], addr[5], val[3], extra;
+            unsigned parsed_entry;
+            if (b92_intervene || sscanf(argv[++i],
+                "%4[0123456789abcdefABCDEF]:%4[0123456789abcdefABCDEF]=%2[0123456789abcdefABCDEF]%c",
+                entry, addr, val, &extra) != 3) {
+                fprintf(stderr, "[q88measure] 介入は ENTRY:ADDR=VAL (16進) を1個指定\n"); return 2;
+            }
+            parsed_entry = (unsigned)strtoul(entry, NULL, 16);
+            b92_addr = (unsigned)strtoul(addr, NULL, 16);
+            b92_value = (unsigned)strtoul(val, NULL, 16);
+            if (parsed_entry >= 0x8000 || b92_addr < 0x8000 ||
+                (b92_entry_set && b92_entry != parsed_entry)) return 2;
+            b92_entry = parsed_entry; b92_intervene = 1;
         }
         else if (!strcmp(argv[i], "--main-in-force") && i + 1 < argc) {
             char *end;
@@ -2576,6 +2638,12 @@ int main(int argc, char **argv)
     }
     /* 出力先の安全策（禁止事項5/7）。走らせる前、コアの読み込みより先に
      * 検査する——「走らせたのに書けなかった」という遅い失敗より分かりやすい。 */
+    if ((b92_intervene || b92_entry_set) && !b92_path) {
+        fprintf(stderr, "[q88measure] B92には --b92-log が必要\n"); return 2;
+    }
+    if (b92_path && !b92_external_path(b92_path)) {
+        fprintf(stderr, "[q88measure] B92生記録はリポジトリ外の実在ディレクトリへ\n"); return 2;
+    }
     if (mem_write_log_path && reject_if_unsafe_output_path("--mem-write-log", mem_write_log_path))
         return 1;
     if (main_event_path && reject_if_unsafe_output_path("--main-event-log", main_event_path)) return 1;
@@ -2907,7 +2975,10 @@ int main(int argc, char **argv)
 
     /* ROM 境界の横断記録（ゴールB）。コアを走らせる前に有効化する。
      * 故障注入は boundary_selftest.sh 専用（既定では環境変数が無く何もしない）。 */
-    if (boundary_log_path || timeline_path || main_read_path) {
+    if (boundary_log_path || timeline_path || main_read_path || b92_path) {
+        if (b92_path && (!g_boundary_available || !p_b92_open || !p_b92_close || !p_b92_frame)) {
+            fprintf(stderr, "[q88measure] B92はパッチ0029のコアが必要\n"); return 1;
+        }
         if (main_read_path && (!g_boundary_available || !p_main_read_open || !p_main_read_close || !p_main_read_frame)) { fprintf(stderr, "[q88measure] main-rom-ram-read-log はコアにありません\n"); return 1; }
         if (timeline_path && (!g_boundary_available || !p_timeline_open || !p_timeline_close || !p_timeline_frame)) { fprintf(stderr, "[q88measure] boundary-timeline はコアにありません\n"); return 1; }
         if (!g_boundary_available) {
@@ -2929,10 +3000,13 @@ int main(int argc, char **argv)
             p_boundary_set_fault(fault_kind);
             p_boundary_set_enabled(1);
             fprintf(stderr, "[q88measure] ROM境界の記録 有効: out=%s%s\n",
-                    boundary_log_path ? boundary_log_path : (timeline_path ? timeline_path : main_read_path), fault_kind ? " (故障注入)" : "");
+                    boundary_log_path ? boundary_log_path : (timeline_path ? timeline_path : (main_read_path ? main_read_path : b92_path)), fault_kind ? " (故障注入)" : "");
         }
     }
 
+    if (b92_path && !p_b92_open(b92_path, b92_entry, b92_intervene, b92_addr, b92_value)) {
+        fprintf(stderr, "[q88measure] B92記録を開始できない\n"); return 1;
+    }
     if (main_read_path && !p_main_read_open(main_read_path, main_read_first, main_read_last, main_read_limit)) { perror(main_read_path); return 1; }
     if (timeline_path && !p_timeline_open(timeline_path, timeline_limit)) { perror(timeline_path); return 1; }
 
@@ -2994,6 +3068,7 @@ int main(int argc, char **argv)
         if (g_iolog_available) p_iolog_set_frame(g_frame);
         if (g_intlog_available) p_intlog_set_frame(g_frame);
         if (timeline_path) p_timeline_frame(g_frame);
+        if (b92_path) p_b92_frame(g_frame);
         if (main_read_path) p_main_read_frame(g_frame);
         if (io_log_path && g_iolog_available && g_frame == io_log_from_frame)
             p_iolog_set_enabled(1);
@@ -3343,6 +3418,9 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (b92_path && !p_b92_close()) {
+                fprintf(stderr, "[q88measure] B92記録の書込み失敗\n"); return 1;
+            }
             if (main_read_path && !p_main_read_close()) { fprintf(stderr, "[q88measure] main-rom-ram-read-log 書き込み失敗\n"); return 1; }
             if (timeline_path && !p_timeline_close()) { fprintf(stderr, "[q88measure] boundary-timeline 書き込み失敗\n"); return 1; }
             if (main_event_path && !p_main_event_close()) return 1;
