@@ -1,5 +1,8 @@
-; main-rom-entry.md 第6版 1.6。未確定のEF89等の分岐は実装しない。
+; main-rom-entry.md 第7版 1.6。未確定のEF89等の分岐は実装しない。
 ENTRY_7071:
+    PUSH AF
+    PUSH IX
+    PUSH IY
     LD A,3                     ; カラー、ファンクションキー行なし
     LD (MM_SCR_MODE),A
     LD HL,(25<<8)|80
@@ -18,6 +21,21 @@ ENTRY_7071_RETURN:
     CALL ENTRY_7071_RESTORE
     CALL ENTRY_7071_RESTORE
     CALL ENTRY_7071_RESTORE
+ENTRY_7071_CURSOR:
+    LD HL,0101h
+    LD (0EF86h),HL
+    POP IY
+    POP IX
+    POP AF
+    LD H,A
+    LD L,054h
+    PUSH HL
+    POP AF
+ENTRY_7071_REGS:
+    LD BC,0000h
+    LD DE,0FF80h
+    LD HL,0E616h
+ENTRY_7071_RET:
     RET
 ; この入口で観測された11DF相当の部分だけを定義する。
 ; 11DF単独の未確定のスタック契約へ一般化しない。

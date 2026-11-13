@@ -199,9 +199,27 @@ def screen_disk(work, values):
     for addr, value in zip((0xE6C0, 0xE6C1, 0xE6C4, 0xE6C5), values):
         source += f'    LD A,{value}\n    LD (0x{addr:04X}),A\n'
     source += '''
+    LD A,7
+    LD (0xEF86),A
+    LD (0xEF87),A
     LD A,0xA1
     OUT (0x10),A               ; 自作プローブの開始印
+    LD A,0x96
+    LD IX,0x1234
+    LD IY,0x5678
     CALL 0x7071
+    PUSH AF
+    LD (0xDF20),BC
+    LD (0xDF22),DE
+    LD (0xDF24),HL
+    LD (0xDF26),IX
+    LD (0xDF28),IY
+    POP HL
+    LD (0xDF2A),HL
+    LD A,(0xEF86)
+    LD (0xDF2C),A
+    LD A,(0xEF87)
+    LD (0xDF2D),A
     LD A,0xA2
     OUT (0x10),A               ; 戻り印（この間だけのI/Oを検査）
     LD HL,0
@@ -257,6 +275,7 @@ def check_screen(work, tag, result, values, obj):
     assert result.get(0xDFFF) == 0xA5, '7071: 復帰・状態設定が未完了'
     assert result.get('hook'), '7071: RAMのED36が未実行'
     assert (result.get(0xDFF8), result.get(0xDFF9)) == (0, 0xE5), '7071: RET後のSP不一致'
+    assert [result.get(0xDF20+i) for i in range(14)] == [0, 0, 0x80, 0xFF, 0x16, 0xE6, 0x34, 0x12, 0x78, 0x56, 0x54, 0x96, 1, 1], '7071: 戻りレジスタ・カーソル不一致'
     expected = (b' ' * 80 + bytes((0x80, 0xE8)) * 20) * 25
     assert bytes(result.get(0xD100+i, 0) for i in range(3000)) == expected, '7071: CLSの文字・属性域が不一致'
     state = [80, 24, 0, 25, 3, (values[0] & 0xFC) | 1, 0x21, 0, 0, 0xC8, 0xF3]
@@ -304,7 +323,9 @@ def screen_cases(work, rom, obj, code):
         'p30-mask': (obj.labels['wb_wa_30store']-3, b'\xE6\x00', '画面作業域'),
         'dma-low': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
         'p31': (obj.labels['wb_wa_31']-1, b'\xFF', '画面作業域'),
-        'ret': (obj.labels['ENTRY_7071_RESTORE']-1, b'\x76', '未完了'),
+        'ret': (obj.labels['ENTRY_7071_RET'], b'\x76', '未完了'),
+        'cursor': (obj.labels['ENTRY_7071_CURSOR']+3, bytes(3), 'カーソル'),
+        'registers': (obj.labels['ENTRY_7071_REGS'], bytes(3), 'レジスタ'),
     }
     for name, (address, replacement, reason) in faults.items():
         tag = 'screen-fault-'+name
@@ -321,7 +342,7 @@ def screen_cases(work, rom, obj, code):
             assert reason in str(exc), f'{name}: 意図と違う理由で失敗: {exc}'
         else:
             raise AssertionError(f'7071: {name}故障を見逃した')
-    print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・8種の故障注入', flush=True)
+    print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・10種の故障注入', flush=True)
 
 
 def numeric_regression(rom, work, obj):
