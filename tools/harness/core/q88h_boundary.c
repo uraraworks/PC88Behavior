@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <stdlib.h>
+#include <limits.h>
 #include "q88h_clock.h"
 #include "q88h_boundary.h"
 
@@ -14,6 +16,56 @@ static FILE *timeline;
 static uint64_t tl_limit, tl_count, tl_dropped, tl_id;
 static uint32_t tl_frame;
 static int tl_main_rom;
+#define MR_CAP 65536u
+typedef struct { uint16_t entry, addr; uint64_t count; int used; } mr_row;
+static mr_row mr_rows[MR_CAP];
+static FILE *mr_file;
+static uint32_t mr_first, mr_last, mr_frame, mr_limit, mr_count;
+static uint16_t mr_entry;
+static int mr_active, mr_operand;
+static uint64_t mr_dropped, mr_unattributed, mr_saturated;
+int retro_q88h_main_read_open(const char *path, uint32_t first, uint32_t last, uint32_t limit)
+{
+  mr_file = fopen(path, "w");
+  memset(mr_rows, 0, sizeof(mr_rows));
+  mr_first = first; mr_last = last; mr_limit = limit; mr_frame = mr_count = 0;
+  mr_active = mr_operand = 0; mr_dropped = mr_unattributed = mr_saturated = 0;
+  return mr_file != NULL;
+}
+void retro_q88h_main_read_frame(uint32_t frame) { mr_frame = frame; }
+void q88h_main_read_operand(int active) { mr_operand = active; }
+void q88h_main_read_note(uint16_t addr, int is_main)
+{
+  uint32_t i, start;
+  if (!mr_file || mr_operand || g_boundary.in_int || !tl_main_rom ||
+      g_boundary.cur_class != Q88H_BND_ROM || addr < 0x8000 || !is_main ||
+      mr_frame < mr_first || mr_frame > mr_last) return;
+  if (!mr_active) { mr_unattributed++; return; }
+  start = (((uint32_t)mr_entry * 65599u) ^ addr) % MR_CAP;
+  for (i = 0; i < MR_CAP; i++) {
+    mr_row *r = &mr_rows[(start + i) % MR_CAP];
+    if (!r->used) {
+      if (mr_count >= mr_limit) { mr_dropped++; return; }
+      r->used = 1; r->entry = mr_entry; r->addr = addr; mr_count++;
+    }
+    if (r->entry == mr_entry && r->addr == addr) {
+      if (r->count == UINT64_MAX) mr_saturated++; else r->count++;
+      return;
+    }
+  }
+  mr_dropped++;
+}
+int retro_q88h_main_read_close(void)
+{
+  uint32_t i; int failed;
+  if (!mr_file) return 0;
+  fprintf(mr_file, "# entry ram_address reads\n# limit=%u rows=%u dropped_reads=%" PRIu64 " unattributed_reads=%" PRIu64 " saturated_reads=%" PRIu64 "\n", mr_limit, mr_count, mr_dropped, mr_unattributed, mr_saturated);
+  for (i = 0; i < MR_CAP; i++) if (mr_rows[i].used)
+    fprintf(mr_file, "%04X %04X %" PRIu64 "\n", mr_rows[i].entry, mr_rows[i].addr, mr_rows[i].count);
+  failed = ferror(mr_file); if (fclose(mr_file)) failed = 1; mr_file = NULL;
+  return !failed;
+}
+
 void q88h_timeline_main_rom(int is_main) { tl_main_rom = is_main; }
 int retro_q88h_timeline_open(const char *path, uint64_t limit)
 {
@@ -108,6 +160,12 @@ void q88h_boundary_on_instr( q88h_boundary_t *b, uint16_t addr, int cls,
                              uint16_t sp, uint16_t top, uint16_t fault_reg )
 {
   int was_int = b->int_pending;
+  if (mr_file) {
+    if (cls == Q88H_BND_ROM && b->last_class == Q88H_BND_RAM && tl_main_rom && addr < 0x8000) {
+      mr_entry = addr; mr_active = 1;
+    } else if (cls != Q88H_BND_ROM) mr_active = 0;
+  }
+
 
   b->n_instr[cls]++;
   b->int_pending = 0;

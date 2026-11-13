@@ -178,6 +178,9 @@ static void           (*p_memlog_set_range)(uint32_t, uint32_t);
 static bool            g_memlog_available = false;
 
 /* ROM 境界の横断記録（ゴールB）。無いコアでは黙って機能を落とす。 */
+static int (*p_main_read_open)(const char *, uint32_t, uint32_t, uint32_t);
+static int (*p_main_read_close)(void);
+static void (*p_main_read_frame)(uint32_t);
 static int (*p_timeline_open)(const char *, uint64_t);
 static int (*p_timeline_close)(void);
 static void (*p_timeline_frame)(uint32_t);
@@ -955,6 +958,9 @@ static bool load_core(const char *path)
     *(void **)(&p_srr) = dlsym(h, "retro_q88h_sub_rom_read");
     *(void **)(&p_srr_reset) = dlsym(h, "retro_q88h_sub_rom_read_reset");
     *(void **)(&p_srr_config) = dlsym(h, "retro_q88h_sub_rom_read_config");
+    *(void **)(&p_main_read_open) = dlsym(h, "retro_q88h_main_read_open");
+    *(void **)(&p_main_read_close) = dlsym(h, "retro_q88h_main_read_close");
+    *(void **)(&p_main_read_frame) = dlsym(h, "retro_q88h_main_read_frame");
     *(void **)(&p_timeline_open) = dlsym(h, "retro_q88h_timeline_open");
     *(void **)(&p_timeline_close) = dlsym(h, "retro_q88h_timeline_close");
     *(void **)(&p_timeline_frame) = dlsym(h, "retro_q88h_timeline_frame");
@@ -1742,6 +1748,7 @@ static void usage(void)
         "                   [--sub-cpu-mode 0|1|2]\n"
         "                   [--int-log FILE] [--int-log-from-frame FRAME] [--font-log FILE]\n"
         "                   [--screenshot FILE.ppm] [--frame-hash-every N --frame-hash-log FILE]\n"
+        "                   [--main-rom-ram-read-log FILE] [--main-rom-ram-read-window START-END] [--main-rom-ram-read-limit N]\n"
         "                   [--boundary-log FILE] [--boundary-timeline FILE] [--boundary-timeline-limit N] [--sub-boundary-log FILE] [--sub-read-log FILE]\n"
         "                   [--main-event-log FILE] [--main-event-from-frame N] [--sub-event-log FILE] [--sub-reg-log FILE] [--sub-snapshot FILE --sub-snapshot-at-fc N]\n"
         "                   [--sub-rom-access-log FILE] [--sub-rom-access-window FROM,TO]\n"
@@ -1858,6 +1865,9 @@ int main(int argc, char **argv)
     const char *mem_write_log_path = NULL;
     const char *boundary_log_path = NULL;
     const char *timeline_path = NULL;
+    const char *main_read_path = NULL;
+    uint32_t main_read_first = 0, main_read_last = UINT32_MAX, main_read_limit = 65536;
+    int main_read_window = 0;
     uint64_t timeline_limit = 1000000;
     const char *sub_boundary_log_path = NULL;
     const char *sub_read_log_path = NULL;
@@ -2301,6 +2311,19 @@ int main(int argc, char **argv)
             sub_read_log_path = argv[++i];
         else if (!strcmp(argv[i], "--sub-boundary-log") && i + 1 < argc)
             sub_boundary_log_path = argv[++i];
+        else if (!strcmp(argv[i], "--main-rom-ram-read-log") && i + 1 < argc)
+            main_read_path = argv[++i];
+        else if (!strcmp(argv[i], "--main-rom-ram-read-window") && i + 1 < argc) {
+            unsigned long a, b; char extra;
+            if (sscanf(argv[++i], "%lu-%lu%c", &a, &b, &extra) != 2 || a > b || b > UINT32_MAX) return 2;
+            main_read_first = (uint32_t)a; main_read_last = (uint32_t)b; main_read_window = 1;
+        }
+        else if (!strcmp(argv[i], "--main-rom-ram-read-limit") && i + 1 < argc) {
+            char *end; unsigned long n; const char *v = argv[++i];
+            errno = 0; n = strtoul(v, &end, 10);
+            if (errno || *v == 0 || *end || n > 65536) return 2;
+            main_read_limit = (uint32_t)n;
+        }
         else if (!strcmp(argv[i], "--boundary-timeline") && i + 1 < argc)
             timeline_path = argv[++i];
         else if (!strcmp(argv[i], "--boundary-timeline-limit") && i + 1 < argc) {
@@ -2569,6 +2592,8 @@ int main(int argc, char **argv)
     if (srr_path && reject_if_unsafe_output_path("--sub-rom-read-log", srr_path)) return 1;
     if (sub_read_log_path && reject_if_unsafe_output_path("--sub-read-log", sub_read_log_path)) return 1;
     if (sub_boundary_log_path && reject_if_unsafe_output_path("--sub-boundary-log", sub_boundary_log_path)) return 1;
+    if (main_read_window && !main_read_path) return 2;
+    if (main_read_path && reject_if_unsafe_output_path("--main-rom-ram-read-log", main_read_path)) return 1;
     if (timeline_path && reject_if_unsafe_output_path("--boundary-timeline", timeline_path)) return 1;
     if (boundary_log_path && reject_if_unsafe_output_path("--boundary-log", boundary_log_path))
         return 1;
@@ -2882,7 +2907,8 @@ int main(int argc, char **argv)
 
     /* ROM 境界の横断記録（ゴールB）。コアを走らせる前に有効化する。
      * 故障注入は boundary_selftest.sh 専用（既定では環境変数が無く何もしない）。 */
-    if (boundary_log_path || timeline_path) {
+    if (boundary_log_path || timeline_path || main_read_path) {
+        if (main_read_path && (!g_boundary_available || !p_main_read_open || !p_main_read_close || !p_main_read_frame)) { fprintf(stderr, "[q88measure] main-rom-ram-read-log はコアにありません\n"); return 1; }
         if (timeline_path && (!g_boundary_available || !p_timeline_open || !p_timeline_close || !p_timeline_frame)) { fprintf(stderr, "[q88measure] boundary-timeline はコアにありません\n"); return 1; }
         if (!g_boundary_available) {
             fprintf(stderr, "[q88measure] 注記: --boundary-log が指定されたが、"
@@ -2903,10 +2929,11 @@ int main(int argc, char **argv)
             p_boundary_set_fault(fault_kind);
             p_boundary_set_enabled(1);
             fprintf(stderr, "[q88measure] ROM境界の記録 有効: out=%s%s\n",
-                    boundary_log_path ? boundary_log_path : timeline_path, fault_kind ? " (故障注入)" : "");
+                    boundary_log_path ? boundary_log_path : (timeline_path ? timeline_path : main_read_path), fault_kind ? " (故障注入)" : "");
         }
     }
 
+    if (main_read_path && !p_main_read_open(main_read_path, main_read_first, main_read_last, main_read_limit)) { perror(main_read_path); return 1; }
     if (timeline_path && !p_timeline_open(timeline_path, timeline_limit)) { perror(timeline_path); return 1; }
 
     /* 範囲指定の書き込み記録（M7器具2）も iolog と同じ位置・同じ理由で
@@ -2967,6 +2994,7 @@ int main(int argc, char **argv)
         if (g_iolog_available) p_iolog_set_frame(g_frame);
         if (g_intlog_available) p_intlog_set_frame(g_frame);
         if (timeline_path) p_timeline_frame(g_frame);
+        if (main_read_path) p_main_read_frame(g_frame);
         if (io_log_path && g_iolog_available && g_frame == io_log_from_frame)
             p_iolog_set_enabled(1);
         if (g_memlog_available) p_memlog_set_frame(g_frame);
@@ -3315,6 +3343,7 @@ int main(int argc, char **argv)
                         io_log_path, l->n_events, l->n_dropped, ls->n_events, ls->n_dropped);
             }
 
+            if (main_read_path && !p_main_read_close()) { fprintf(stderr, "[q88measure] main-rom-ram-read-log 書き込み失敗\n"); return 1; }
             if (timeline_path && !p_timeline_close()) { fprintf(stderr, "[q88measure] boundary-timeline 書き込み失敗\n"); return 1; }
             if (main_event_path && !p_main_event_close()) return 1;
             if (event_path && !p_event_close()) { fprintf(stderr, "[q88measure] sub-event 記録の書込失敗\n"); return 1; }

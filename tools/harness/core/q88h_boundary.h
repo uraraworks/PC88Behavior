@@ -143,6 +143,14 @@ void q88h_boundary_int_end(q88h_boundary_t *b);
 void q88h_boundary_on_read(q88h_boundary_t *b, uint16_t addr, int addr_cls);
 void q88h_boundary_on_write(q88h_boundary_t *b, uint16_t addr);
 
+/* ROM 実行中の main RAM 読み。値と命令 PC は保存しない。 */
+int retro_q88h_main_read_open(const char *path, uint32_t first, uint32_t last, uint32_t limit);
+int retro_q88h_main_read_close(void);
+void retro_q88h_main_read_frame(uint32_t frame);
+void q88h_main_read_note(uint16_t addr, int is_main);
+void q88h_main_read_operand(int active);
+
+
 #ifdef __cplusplus
 }
 #endif
