@@ -2884,7 +2884,26 @@ def build_subrom(break_write_ack=False,
         a.inc_hl()
         a.djnz("_resp_loop")
 
+        a.ld_a_mem(ENTRY_REQUEST_ACTIVE)
+        a.or_a()
+        a.ret_nz()
         a.jr("REQ_LOOP")
+
+        # 旧構造は要求を一括受信するため、受信済み先頭バイトを格納し
+        # 残り7バイトを既存ループで受け取る。
+        a.label("REQUEST_DISPATCH_A")
+        a.ld_hl_imm(REQ_HDR)
+        a.ld_hl_a()
+        a.inc_hl()
+        a.ld_b(7)
+        a.jp("_hdr_loop")
+
+        # 旧構造の通常経路は使わないが、公開要求入口からの復帰先は必要。
+        a.label("REQUEST_DONE")
+        a.ld_a_mem(ENTRY_REQUEST_ACTIVE)
+        a.or_a()
+        a.ret_nz()
+        a.jp("IDLE_DISPATCH")
 
         return pin_entries(emit_result_entries(a))
 
