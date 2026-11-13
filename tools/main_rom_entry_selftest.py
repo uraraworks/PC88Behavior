@@ -176,7 +176,7 @@ def placement_cases(work):
         build.PINNED_ENTRIES = saved
 
 
-def screen_disk(work, values):
+def screen_disk(work, values, entry=0x7071):
     """汚した全25行と非既定の窓から7071を呼ぶ。ED36は自作のRETだけ。"""
     source = memmap.asm_prelude() + '''
     ORG 0xC100
@@ -210,11 +210,12 @@ def screen_disk(work, values):
     OUT (0xE6),A               ; 戻り直後の割り込み受理を防ぐ
     LD A,0xA1
     OUT (0x10),A               ; 自作プローブの開始印
+    LD HL,0x9ABC
     LD A,0x96
     LD IX,0x1234
     LD IY,0x5678
     DI
-    CALL 0x7071
+    CALL ENTRY_TARGET
     PUSH AF
     PUSH HL
     LD A,I
@@ -262,6 +263,7 @@ def screen_disk(work, values):
 screen_done:
     JR screen_done
 '''
+    source = source.replace('ENTRY_TARGET', f'0x{entry:04X}')
     return boot_disk(work, source)[0]
 
 
@@ -288,11 +290,13 @@ def mode_outputs(cols, rows, color):
             (0x51, 0x43), (0x68, 0xE4), (0x51, 0x20)]
 
 
-def check_screen(work, tag, result, values, obj):
+def check_screen(work, tag, result, values, obj, entry=0x7071):
     assert result.get(0xDFFF) == 0xA5, '7071: 復帰・状態設定が未完了'
-    assert result.get('hook'), '7071: RAMのED36が未実行'
+    if entry == 0x7071:
+        assert result.get('hook'), '7071: RAMのED36が未実行'
     assert (result.get(0xDFF8), result.get(0xDFF9)) == (0, 0xE5), '7071: RET後のSP不一致'
-    assert [result.get(0xDF20+i) for i in range(14)] == [0, 0, 0x80, 0xFF, 0x16, 0xE6, 0x34, 0x12, 0x78, 0x56, 0x54, 0x96, 1, 1], '7071: 戻りレジスタ・カーソル不一致'
+    regs = ([0, 0, 0x80, 0xFF, 0x16, 0xE6, 0x34, 0x12, 0x78, 0x56, 0x54, 0x96, 1, 1] if entry == 0x7071 else [0, 0x20, 0, 4, 0xBC, 0x9A, 0x34, 0x12, 0x78, 0x56, 0x44, 0, 1, 1])
+    assert [result.get(0xDF20+i) for i in range(14)] == regs, '戻りレジスタ・カーソル不一致'
     assert 0xDF2E in result and result[0xDF2E] & 4, '7071: DI呼出しからIFF=1で戻らない'
     expected = (b' ' * 80 + bytes((0x80, 0xE8)) * 20) * 25
     assert bytes(result.get(0xD100+i, 0) for i in range(3000)) == expected, '7071: CLSの文字・属性域が不一致'
@@ -314,7 +318,12 @@ def check_screen(work, tag, result, values, obj):
     assert actual == expected_io, '7071: OUTの順序・RAM値との関係が不一致'
     # バンク中継のI/Oとは区別し、ED36から戻った後の11DF相当を厳密に4回確認。
     restore = obj.labels['ENTRY_7071_RESTORE']
-    tail = events[-12:]
+    tail = [e for e in events if restore <= e[3] < restore+6]
+    if entry == 0x6F6B:
+        assert not tail, '6F6B: 11DF相当を実行した'
+        return
+    first_mode = next(i for i, e in enumerate(events) if e[0:2] == ('OUT', 0x31))
+    assert all(e in events[:first_mode] for e in tail), '7071: 画面処理より前に11DFを実行していない'
     for i in range(4):
         triple = tail[3*i:3*i+3]
         assert [(k, p) for k, p, _, _ in triple] == [('IN', 0x71), ('OUT', 0x71), ('OUT', 0x71)], '7071: 復帰I/Oの回数・順序が不一致'
@@ -333,19 +342,19 @@ def screen_cases(work, rom, obj, code):
         check_screen(work, tag, observed, values, obj)
     hook_call = obj.labels['ENTRY_7071_RETURN'] - 3
     assert code[hook_call:hook_call+3] == b'\xCD\x36\xED', 'ED36はRAM番地へのCALLが必要'
-    assert code[obj.labels['ENTRY_7071_RET']:obj.labels['ENTRY_7071_RET']+2] == b'\xFB\xC9', 'EI・RETが必要'
+    assert code[obj.labels['ENTRY_6F6B_EI']] == 0xFB, '途中のEIが必要'
     faults = {
         'hook': (hook_call, bytes(3), 'ED36'),
-        'cls': (hook_call-3, bytes(3), 'CLS'),
-        'restore-count': (obj.labels['ENTRY_7071_RETURN'], bytes(3), '復帰'),
+        'cls': (obj.labels['ENTRY_6F6B_CLS'], bytes(3), 'CLS'),
+        'restore-count': (obj.labels['ENTRY_7071_RETURN']+3, bytes(3), '復帰'),
         'restore-value': (obj.labels['ENTRY_7071_RESTORE']+2, b'\xAF\x00', '復帰'),
         'p30-mask': (obj.labels['wb_wa_30store']-3, b'\xE6\x00', '画面作業域'),
         'dma-low': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
         'p31': (obj.labels['wb_wa_31']-1, b'\xFF', '画面作業域'),
         'ret': (obj.labels['ENTRY_7071_RET'], b'\x76', '未完了'),
-        'ei': (obj.labels['ENTRY_7071_RET'], b'\x00', 'IFF'),
+        'ei': (obj.labels['ENTRY_6F6B_EI'], b'\x00', 'IFF'),
         'cursor': (obj.labels['ENTRY_7071_CURSOR']+3, bytes(3), 'カーソル'),
-        'registers': (obj.labels['ENTRY_7071_REGS'], bytes(3), 'レジスタ'),
+        'registers': (obj.labels['ENTRY_7071_REGS'], b'\x21\x01\x00', 'レジスタ'),
     }
     for name, (address, replacement, reason) in faults.items():
         tag = 'screen-fault-'+name
@@ -364,6 +373,33 @@ def screen_cases(work, rom, obj, code):
             assert reason in str(exc), f'{name}: 意図と違う理由で失敗: {exc}'
         else:
             raise AssertionError(f'7071: {name}故障を見逃した')
+    for i, values in enumerate(arms):
+        tag = f'screen-6f6b-{i}'
+        observed = execute(work, rom, screen_disk(work, values, 0x6F6B), tag, screen=True)
+        check_screen(work, tag, observed, values, obj, 0x6F6B)
+    direct_faults = {
+        'cls': (obj.labels['ENTRY_6F6B_CLS'], bytes(3), 'CLS'),
+        'ei': (obj.labels['ENTRY_6F6B_EI'], b'\x00', 'IFF'),
+        'cursor': (obj.labels['ENTRY_7071_CURSOR']+3, bytes(3), 'カーソル'),
+        'registers': (obj.labels['ENTRY_6F6B']+1, b'\x21\x00\x00', 'レジスタ'),
+        'out': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
+    }
+    for name, (address, replacement, reason) in direct_faults.items():
+        tag = '6f6b-fault-' + name
+        broken = work / tag
+        shutil.copytree(rom, broken)
+        mutated = bytearray(code)
+        mutated[address:address+len(replacement)] = replacement
+        (broken/'N88.ROM').write_bytes(mutated)
+        values = arms[1]
+        observed = execute(work, broken, screen_disk(work, values, 0x6F6B), tag, screen=True)
+        try:
+            check_screen(work, tag, observed, values, obj, 0x6F6B)
+        except AssertionError as exc:
+            assert reason in str(exc), f'{name}: 意図と違う理由で失敗: {exc}'
+        else:
+            raise AssertionError(f'6F6B: {name}故障を見逃した')
+    print('PASS: 6F6Bの画面・OUT・戻り値・IFFと故障注入', flush=True)
     print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・10種の故障注入', flush=True)
 
 
@@ -526,7 +562,7 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         build.check_pinned_entries(code, obj)
-        print('PASS: 7入口のJP・飛び先・listing非重複', flush=True)
+        print('PASS: 8入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)
         result = execute(work, rom, disk, 'normal')
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
@@ -608,7 +644,7 @@ def main():
                 pass
             else:
                 raise AssertionError('配置検査が入口+1を見逃した')
-            probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3)) if address == 0x7071 else keyboard_disk(work) if address == 0x3080 else disk
+            probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3), address) if address in (0x7071, 0x6F6B) else keyboard_disk(work) if address == 0x3080 else disk
             observed = execute(work, broken, probe_disk, f'fault-{address:04X}', keyboard=address == 0x3080)
             if address == 0x3080:
                 try:
@@ -617,7 +653,7 @@ def main():
                     continue
                 raise AssertionError('3080: 入口故障を見逃した')
             assert observed.get(0xDFFF) != 0xA5, f'{address:04X}: 故障を実走で見逃した'
-        print('PASS: 全7入口+1の故障を配置検査・実走で拒否', flush=True)
+        print('PASS: 全8入口+1の故障を配置検査・実走で拒否', flush=True)
         keyboard_cases(work, rom, obj, code)
         screen_cases(work, rom, obj, code)
         numeric_regression(rom, work, obj)

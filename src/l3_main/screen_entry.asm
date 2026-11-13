@@ -1,11 +1,51 @@
-; main-rom-entry.md 第8版 1.6。未確定のEF89等の分岐は実装しない。
-ENTRY_7071_DE_RETURN_VALUE EQU 0FF80h ; main-rom-entry.md 1.6: 戻り時のDE値
-ENTRY_7071_HL_RETURN_VALUE EQU 0E616h ; main-rom-entry.md 1.6: 戻り時のHL値
+; main-rom-entry.md 第10版 1.6・1.7。
+ENTRY_7071_DE_RETURN_VALUE EQU 0FF80h
+ENTRY_7071_HL_RETURN_VALUE EQU 0E616h
 ENTRY_7071:
     PUSH AF
+    CALL MM_GAME_WA_ED36
+ENTRY_7071_RETURN:
+    LD HL,MM_GAME_WA_E60D
+    CALL ENTRY_7071_RESTORE
+    CALL ENTRY_7071_RESTORE
+    CALL ENTRY_7071_RESTORE
+    CALL ENTRY_7071_RESTORE
+    INC HL
+    POP AF
+    ; 共通処理へ渡す戻り値をスタックに用意する。
+    LD H,A
+    LD L,054h
+    PUSH HL
+ENTRY_7071_REGS:
+    LD HL,0000h
+    PUSH HL
+    LD HL,ENTRY_7071_DE_RETURN_VALUE
+    PUSH HL
+    LD HL,ENTRY_7071_HL_RETURN_VALUE
+    PUSH HL
+    JP ENTRY_6F6B_COMMON
+
+ENTRY_6F6B:
+    PUSH HL
+    LD HL,0044h
+    PUSH HL
+    LD HL,02000h
+    PUSH HL
+    LD HL,00400h
+    PUSH HL
+    ; 並びを共通の HL, DE, BC, AF にする。
+    POP DE
+    POP BC
+    POP AF
+    POP HL
+    PUSH AF
+    PUSH BC
+    PUSH DE
+    PUSH HL
+ENTRY_6F6B_COMMON:
     PUSH IX
     PUSH IY
-    LD A,3                     ; カラー、ファンクションキー行なし
+    LD A,3
     LD (MM_SCR_MODE),A
     LD HL,(25<<8)|80
     LD (MM_FN_AUX),HL
@@ -13,37 +53,28 @@ ENTRY_7071:
     LD (MM_SCR_WTOP),HL
     LD D,1
     CALL SCREEN_MODE_APPLY
-    LD HL,07FC0h               ; CONSOLEと共通の窓計算
+    LD HL,07FC0h
     XOR A
     CALL EXT_BANK_CALL
-    CALL CLS_SCREEN            ; 既存CLSを使い、Okは出さない
-    CALL MM_GAME_WA_ED36                ; RAM上のフック。戻り先は下記の復帰処理
-ENTRY_7071_RETURN:
-    CALL ENTRY_7071_RESTORE
-    CALL ENTRY_7071_RESTORE
-    CALL ENTRY_7071_RESTORE
-    CALL ENTRY_7071_RESTORE
+ENTRY_6F6B_CLS:
+    CALL CLS_SCREEN
 ENTRY_7071_CURSOR:
     LD HL,0101h
     LD (MM_GAME_WA_EF86),HL
+ENTRY_6F6B_EI:
+    EI
     POP IY
     POP IX
+    POP HL
+    POP DE
+    POP BC
     POP AF
-    LD H,A
-    LD L,054h
-    PUSH HL
-    POP AF
-ENTRY_7071_REGS:
-    LD BC,0000h
-    LD DE,ENTRY_7071_DE_RETURN_VALUE
-    LD HL,ENTRY_7071_HL_RETURN_VALUE
 ENTRY_7071_RET:
-    EI
     RET
-; この入口で観測された11DF相当の部分だけを定義する。
-; 11DF単独の未確定のスタック契約へ一般化しない。
 ENTRY_7071_RESTORE:
     IN A,(0x71)
     OUT (0x71),A
     OUT (0x71),A
+    INC HL
+    INC HL
     RET

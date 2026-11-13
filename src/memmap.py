@@ -1099,6 +1099,7 @@ ALIASES = {
 CONSTANTS = {
     # main-rom-entry.md 1.5.1・1.6: ゲームと共有する固定作業域。
     # BASIC側の領域と重なるため、新たな占有領域ではなく仕様上の番地。
+    'MM_GAME_WA_E60D': 0xE60D,  # 7071の11DF相当が進む作業域
     'MM_GAME_WA_E6C0': 0xE6C0,
     'MM_GAME_WA_E6C1': 0xE6C1,
     'MM_GAME_WA_E6C3': 0xE6C3,
