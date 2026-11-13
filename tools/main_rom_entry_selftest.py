@@ -125,24 +125,25 @@ def execute(work, rom, disk, tag, screen=False, keyboard=False):
     core = next(p for p in cores if p.suffix in ('.dylib', '.so', '.dll'))
     cmd = [str(ROOT/'tools/harness/frontend/q88measure'), '--core', str(core),
            '--rom-dir', str(rom), '--disk', str(image), '--frames', '1200',
-           '--mem-write-log', str(log), '--mem-write-range', 'D100-DFFF',
+           '--mem-write-log', str(log), '--mem-write-range', 'D100-EFFF' if isinstance(keyboard, tuple) else 'D100-DFFF',
            '--screen-signature-only', '--screen-signature-at', 'end:1199', '--out', str(work/(tag+'.report'))]
-    if keyboard:
+    if keyboard or isinstance(keyboard, tuple):
         cmd += ['--io-log', str(work/(tag+'.io'))]
-        for row in range(12):
-            cmd += ['--key-matrix', f'{row}:{row % 8}:0:1200']
+        for row, bit in (keyboard if isinstance(keyboard, tuple) else ((r, r % 8) for r in range(12))):
+            cmd += ['--key-matrix', f'{row}:{bit}:0:1200']
     if screen:
         cmd += ['--io-log', str(work/(tag+'.io')), '--expect-exec', '0xED36']
     result = subprocess.run(cmd, capture_output=True, timeout=180)
     hook_missing = screen and 'NG: exec ED36' in result.stderr.decode()
     if result.returncode and not (result.returncode == 1 and hook_missing):
         raise AssertionError(f'{tag}: 実行失敗 rc={result.returncode}: {result.stderr.decode()[-500:]}')
-    values = {'hook': screen and not hook_missing}
+    values = {'hook': screen and not hook_missing, 'writes': []}
     assert '取りこぼし: 0件' in log.read_text(), 'メモリ記録が欠落'
     for line in log.read_text().splitlines():
         m = re.fullmatch(r'\s*\d+\s+\d+\s+[0-9A-F]{4}\s+([0-9A-F]{4})\s+([0-9A-F]{2})', line)
         if m:
             values[int(m[1], 16)] = int(m[2], 16)
+            values['writes'].append((int(m[1], 16), int(m[2], 16)))
     return values
 
 
@@ -403,7 +404,7 @@ def screen_cases(work, rom, obj, code):
     print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・10種の故障注入', flush=True)
 
 
-def keyboard_disk(work):
+def keyboard_disk(work, idle=False):
     source = """    ORG 0xC100
     DI
     LD SP,0xE500
@@ -411,8 +412,19 @@ def keyboard_disk(work):
     OUT (0xE6),A
 """
     for row in range(12):
-        source += f'    LD A,{row+0x30}\n    LD (0x{0xE6D0+row:04X}),A\n'
-    source += """    LD A,2
+        source += f'    LD A,{row+0x30 if idle else 1 << (row % 8)}\n    LD (0x{0xE6D0+row:04X}),A\n'
+    source += """    XOR A
+    LD (0xE6CD),A
+    LD (0xE6CB),A
+    LD (0xE6CC),A
+    LD (0xEFCD),A
+    LD A,7
+    LD (0xEFD0),A
+    LD HL,0xD180
+    LD (0xEFD1),HL
+    LD A,0xC9
+    LD (0xECDF),A
+    LD A,2
     LD (0xE6CF),A
     LD A,0xA1
     OUT (0x10),A
@@ -473,15 +485,18 @@ finished:
     return boot_disk(work, source)[0]
 
 
-def check_keyboard(work, tag, result):
+def check_keyboard(work, tag, result, idle=False):
     assert result.get(0xDFFF) == 0xA5, '3080: 復帰失敗'
-    expected = [1 << (r % 8) for r in range(12)]
+    expected = [0 if idle else 1 << (r % 8) for r in range(12)]
+    previous = [r+0x30 for r in range(12)] if idle else expected
     assert [result.get(0xD100+r) for r in range(12)] == expected, '3080: 入力値'
-    assert [result.get(0xD10C+r) for r in range(12)] == [r+0x30 for r in range(12)], '3080: 前回値'
-    assert [result.get(0xDF20+i) for i in range(12)] == [0x34,0x12,0x78,0x56,0,0xF0,0xBC,0x9A,0xF0,0xDE,0x50,7], '3080: レジスタ'
+    assert [result.get(0xD10C+r) for r in range(12)] == previous, '3080: 前回値'
+    returned = [0x34,0x12,0x78,0x56] + ([0,0xF0] if idle else [0xCF,0xE6]) + [0xBC,0x9A,0xF0,0xDE,0x50 if idle else 0x02,7]
+    # 第11版では押し続けのFの具体値は未確定。キーなしのFだけ照合する。
+    assert all(result.get(0xDF20+i) == returned[i] for i in range(12) if idle or i != 10), '3080: レジスタ'
     assert result.get(0xDF2E, 0) & 4, '3080: IFF'
     assert result.get(0xDF30) == 7 and result.get(0xDF31) == 0, '3080: E6C3/EFFF'
-    assert [result.get(0xDF32+i) for i in range(6)] == [255,1,4,4,255,3], '3080: リピート'
+    assert [result.get(0xDF32+i) for i in range(6)] == ([0,2]*3 if idle else [255,1,255,4,255,3]), '3080: リピート'
     events = read_io(work/(tag+'.io'))
     start = next(i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA1))
     end = next(i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA2))
@@ -493,10 +508,11 @@ def check_keyboard(work, tag, result):
 
 
 def keyboard_cases(work, rom, obj, code):
+    check_keyboard(work, 'keyboard-idle', execute(work, rom, keyboard_disk(work, idle=True), 'keyboard-idle', keyboard=()), idle=True)
     disk = keyboard_disk(work)
     check_keyboard(work, 'keyboard', execute(work, rom, disk, 'keyboard', keyboard=True))
     for name, address, replacement in (
-        ('input', obj.labels['ENTRY_3080_IN_05']+2, b'\x00'),
+        ('input', obj.labels['ENTRY_3080_IN']+2, b'\x00'),
         ('output', obj.labels['ENTRY_3080_OUT'], b'\x00\x00'),
         ('ei', obj.labels['ENTRY_3080_RET'], b'\x00'),
     ):
@@ -514,6 +530,265 @@ def keyboard_cases(work, rom, obj, code):
         else:
             raise AssertionError(f'3080: {name}故障を見逃した')
     print('PASS: 3080の入力・前回値・I/O・レジスタ・IFFと故障注入', flush=True)
+
+
+def ring_disk(work, key=78):
+    """自作8文字輪をページ境界に置き、呼出し回数で反復を観測する。"""
+    source = '''    ORG 0xC100
+    DI
+    LD SP,0xE500
+    XOR A
+    OUT (0xE6),A
+    LD HL,0xE6CB
+    LD B,29
+clear_matrix:
+    LD (HL),A
+    INC HL
+    DJNZ clear_matrix
+    LD (0xD110),A
+    LD (0xEFCD),A
+    LD (0xEFCE),A
+    LD (0xEFCF),A
+    INC A                       ; 別の前回キーがあっても、新しいエッジを検出する
+    LD (0xE6D0),A
+    LD A,7
+    LD (0xEFD0),A
+    LD HL,0xD1FD
+    LD (0xEFD1),HL
+    LD A,0xC3
+    LD (0xECDF),A
+    LD HL,hook
+    LD (0xECE0),HL
+    LD HL,0xEFF9
+    LD B,7
+sentinels:
+    LD (HL),0xA7
+    INC HL
+    DJNZ sentinels
+    LD A,0xA1
+    OUT (0x10),A
+    LD A,1
+    LD (0xDF00),A
+    LD B,37
+    LD DE,0xD300
+repeat_loop:
+    CALL scan_probe
+    DJNZ repeat_loop
+    LD A,2
+    LD (0xDF00),A
+    LD A,0xA2
+    OUT (0x10),A
+    ; 0,28,32,36回目の4文字。先読みを1回挟み、索引を動かさない。
+    LD HL,0xD600
+    LD (0xD120),HL
+'''
+    for i in range(5):
+        if i == 1:
+            source += '    LD A,0x58\n    LD (0xEFCF),A\n'
+        source += ('    DI\n' if i % 2 == 0 else '    EI\n') + '    CALL take_probe\n'
+    source += '''    ; 読み索引・書き索引がマスクで巻き戻ることも確認。
+    LD A,7
+    LD (0xEFCD),A
+    LD (0xEFCE),A
+    LD A,1
+    LD (0xE6CF),A
+    LD DE,0xD500
+    CALL scan_probe
+    EI
+    CALL take_probe
+    ; E6CBとE6CCは各々積込みだけを抑止。押し始め・フックは実行。
+    LD A,1
+    LD (0xE6CB),A
+    LD A,3
+    LD (0xDF00),A
+'''
+    for inhibit in (0xE6CB, 0xE6CC):
+        source += f'''    XOR A
+    LD (0x{0xE6D0+key//8:04X}),A
+    LD A,1
+    LD (0x{inhibit:04X}),A
+    LD DE,0x{0xD510+(inhibit-0xE6CB)*16:04X}
+    CALL scan_probe
+    XOR A
+    LD (0x{inhibit:04X}),A
+'''
+    source += '''    ; E6CD非0では共有域を一切更新せず、INも出さない。
+    LD A,1
+    LD (0xE6CD),A
+    LD A,4
+    LD (0xDF00),A
+    LD A,0xB1
+    OUT (0x10),A
+    LD DE,0xD530
+    CALL scan_probe
+    LD A,0xB2
+    OUT (0x10),A
+    LD A,5
+    LD (0xDF00),A
+    LD A,0xA5
+    LD (0xDFFF),A
+finished:
+    JR finished
+scan_probe:
+    DI
+    CALL 0x3080
+    PUSH AF
+    LD A,L
+    LD (DE),A
+    INC DE
+    LD A,H
+    LD (DE),A
+    INC DE
+    LD A,I
+    DI
+    PUSH AF
+    POP HL
+    LD A,L
+    LD (DE),A
+    INC DE
+    POP HL
+    LD A,H
+    LD (DE),A
+    INC DE
+'''
+    for addr in (0xEFCD, 0xE6CF, 0xEFF9, 0xEFFE, 0xD110):
+        source += f'    LD A,(0x{addr:04X})\n    LD (DE),A\n    INC DE\n'
+    source += '''    RET
+hook:
+    LD (0xD111),A
+    LD (0xD112),HL
+    LD HL,0
+    ADD HL,SP
+    LD (0xD114),HL
+    LD A,I
+    LD A,0
+    JP PO,hook_iff
+    LD A,4
+hook_iff:
+    LD (0xD116),A
+    LD HL,0xD110
+    INC (HL)
+    RET
+take_probe:
+    LD BC,0x1234
+    LD DE,0x5678
+    LD HL,0x9ABC
+    LD IX,0x1357
+    LD IY,0x2468
+    CALL 0x35CE
+    PUSH AF
+    PUSH BC
+    PUSH DE
+    PUSH HL
+    PUSH IX
+    PUSH IY
+    LD A,I
+    DI
+    PUSH AF
+    LD HL,0
+    ADD HL,SP
+    LD DE,(0xD120)
+    LD BC,14
+    LDIR
+    LD A,(0xEFCE)
+    LD (DE),A
+    INC DE
+    LD A,(0xEFCF)
+    LD (DE),A
+    INC DE
+    LD (0xD120),DE
+    LD HL,14
+    ADD HL,SP
+    LD SP,HL
+    RET
+'''
+    return boot_disk(work, source)[0]
+
+
+def check_ring(work, tag, result, key=78):
+    def data(addr, size):
+        return [result.get(addr+i) for i in range(size)]
+    char = 32 if key == 78 else 13
+    assert result.get(0xDFFF) == 0xA5, '輪: 復帰'
+    for n in range(37):
+        row = data(0xD300+n*9, 9)
+        count = 1 + (max(0, n-24)//4)
+        timer = 28-n if n < 28 else 4-(n-28) % 4
+        hl = 0xEFCD if n in (0,28,32,36) else 0xE6CF
+        assert row[:2] == [hl & 255, hl >> 8] and row[3] == 7, f'輪: 戻り値{n}: {row}'
+        assert row[2] & 4, f'輪: IFF{n}'
+        assert row[4:] == [count,timer,1 if n == 0 else 255,char,1], f'輪: 反復{n}: {row}'
+    assert data(0xD1FE, 4) == [char]*4, '輪: 文字格納'
+    assert data(0xD111, 5) == [key,(0xE6DC+key//8)&255,0xE6,0xF2,0xE4], '輪: フックA/HL/SP'
+    assert result[0xD116] & 4, '輪: フックIFF'
+    for i, (char_out, index) in enumerate(((char,1),(0x58,1),(char,2),(char,3),(char,4),(char,0))):
+        row = data(0xD600+i*16, 16)
+        assert bool(row[0] & 4) == bool(i % 2), f'35CE: IFF{i}'
+        assert row[2:] == [0x68,0x24,0x57,0x13,0xBC,0x9A,0x78,0x56,0x34,0x12,0,char_out,index,0], f'35CE: 戻り・先読み・索引{i}: {row}'
+    assert data(0xD500+4,5) == [0,4,255,char,1], '輪: 書き索引の巻戻り'
+    for i in range(2):
+        assert data(0xD510+i*16+4,5) == [0,28,1,char,2+i], '輪: 積込み抑止'
+    writes = result['writes']
+    def phase(a, b):
+        start = writes.index((0xDF00,a))
+        end = writes.index((0xDF00,b))
+        return writes[start+1:end]
+    first = phase(1,2)
+    # 押し始めの行での記録→残りの行→前回行上書き→フック→文字→索引。
+    row = key//8
+    ordered = [(0xE6D0+row,1 << (key%8)), (0xEFF9,1),
+               (0xEFFB,(0xE6DC+row)&255), (0xEFFC,0xE6),
+               (0xEFFA,1 << (key%8)), (0xEFFD,key),
+               (0xE6D0,0), (0xEFFF,0), (0xE6DC+row,1 << (key%8)),
+               (0xE6CF,28), (0xD110,1), (0xEFFE,char),
+               (0xEFC6,0), (0xEFC7,0), (0xD1FE,char), (0xEFCD,1)]
+    pos = 0
+    for event in ordered:
+        assert event in first[pos:], f'輪: 押し始めの書込み順序{event}'
+        pos = first.index(event,pos)+1
+    assert min(a for a,_ in first if 0xE400 <= a < 0xE500) == 0xE4F2, '輪: ROMのスタック使用量'
+    assert sum(addr == 0xD110 for addr,_ in first) == 1, '輪: フックは押し始めだけ'
+    for addr in range(0xEFFA,0xEFFF):
+        assert sum(a == addr for a,_ in first) == 1, '輪: 押し続けでイベント情報を書いた'
+    inhibited = phase(4,5)
+    shared = set(range(0xE6CB,0xE6E8)) | set(range(0xEFC6,0xEFD3)) | set(range(0xEFF9,0xF000))
+    assert not any(addr in shared for addr,_ in inhibited), '輪: E6CD抑止の書込み'
+    assert data(0xD530,2) == [0,0xF0] and data(0xD534,5) == [0,28,1,char,3], '輪: E6CD抑止の状態'
+    events = read_io(work/(tag+'.io'))
+    start = next(i for i,e in enumerate(events) if e[:3] == ('OUT',0x10,0xB1))
+    end = next(i for i,e in enumerate(events) if e[:3] == ('OUT',0x10,0xB2))
+    assert [e[:3] for e in events[start+1:end]] == [('OUT',0xE4,1),('OUT',0xE4,7)], '輪: E6CD抑止のI/O'
+
+
+def ring_cases(work, rom, obj, code):
+    for key in (78,15):
+        tag = f'ring-{key}'
+        disk = ring_disk(work,key)
+        check_ring(work,tag,execute(work,rom,disk,tag,keyboard=((key//8,key%8),)),key)
+    disk = ring_disk(work)
+    for name, address, replacement in (
+        ('delay',obj.labels['ENTRY_3080_DELAY']+1,b'\x1e'),
+        ('hook',obj.labels['ENTRY_3080_HOOK'],bytes(3)),
+        ('store',obj.labels['ENTRY_3080_STORE'],b'\x00'),
+        ('inhibit',obj.labels['ENTRY_3080_INHIBIT'],b'\xAF\x00\x00'),
+        ('take-index',obj.labels['ENTRY_35CE_ADVANCE'],bytes(3)),
+        ('lookahead',obj.labels['ENTRY_35CE_LOOKAHEAD']+3,bytes(2)),
+        ('flags',obj.labels['ENTRY_35CE_RETURN']+2,b'\x01'),
+    ):
+        tag = 'ring-fault-'+name
+        broken = work/tag
+        shutil.copytree(rom,broken)
+        mutated = bytearray(code)
+        mutated[address:address+len(replacement)] = replacement
+        (broken/'N88.ROM').write_bytes(mutated)
+        observed = execute(work,broken,disk,tag,keyboard=((9,6),))
+        try:
+            check_ring(work,tag,observed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f'輪: {name}故障を見逃した')
+    print('PASS: 3080の輪・28/4回リピート・フック順序・抑止、35CEの先読み・全レジスタ・IFFと故障注入',flush=True)
 
 
 def numeric_regression(rom, work, obj):
@@ -562,7 +837,7 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         build.check_pinned_entries(code, obj)
-        print('PASS: 8入口のJP・飛び先・listing非重複', flush=True)
+        print('PASS: 9入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)
         result = execute(work, rom, disk, 'normal')
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
@@ -644,6 +919,13 @@ def main():
                 pass
             else:
                 raise AssertionError('配置検査が入口+1を見逃した')
+            if address == 0x35CE:
+                observed = execute(work, broken, ring_disk(work), 'fault-35ce', keyboard=((9,6),))
+                try:
+                    check_ring(work, 'fault-35ce', observed)
+                except AssertionError:
+                    continue
+                raise AssertionError('35CE: 入口故障を見逃した')
             probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3), address) if address in (0x7071, 0x6F6B) else keyboard_disk(work) if address == 0x3080 else disk
             observed = execute(work, broken, probe_disk, f'fault-{address:04X}', keyboard=address == 0x3080)
             if address == 0x3080:
@@ -653,8 +935,9 @@ def main():
                     continue
                 raise AssertionError('3080: 入口故障を見逃した')
             assert observed.get(0xDFFF) != 0xA5, f'{address:04X}: 故障を実走で見逃した'
-        print('PASS: 全8入口+1の故障を配置検査・実走で拒否', flush=True)
+        print('PASS: 全9入口+1の故障を配置検査・実走で拒否', flush=True)
         keyboard_cases(work, rom, obj, code)
+        ring_cases(work, rom, obj, code)
         screen_cases(work, rom, obj, code)
         numeric_regression(rom, work, obj)
         pad = 0x79D7 - obj.labels['AEL_ROM_LAYOUT_PAD']

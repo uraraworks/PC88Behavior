@@ -3077,6 +3077,7 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
 PINNED_ENTRIES = {
     0x3080: "ENTRY_3080",
     0x3391: "ENTRY_3391",
+    0x35CE: "ENTRY_35CE",
     0x369A: "ENTRY_369A", 0x37C9: "ENTRY_37C9",
     0x37D2: "ENTRY_37D2", 0x3847: "ENTRY_3847",
     0x6F6B: "ENTRY_6F6B",

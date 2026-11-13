@@ -1097,7 +1097,7 @@ ALIASES = {
 }
 
 CONSTANTS = {
-    # main-rom-entry.md 1.5.1・1.6: ゲームと共有する固定作業域。
+    # main-rom-entry.md 1.5.1・1.5.2・1.6: ゲームと共有する固定作業域。
     # BASIC側の領域と重なるため、新たな占有領域ではなく仕様上の番地。
     'MM_GAME_WA_E60D': 0xE60D,  # 7071の11DF相当が進む作業域
     'MM_GAME_WA_E6C0': 0xE6C0,
@@ -1111,6 +1111,23 @@ CONSTANTS = {
     'MM_GAME_WA_ED36': 0xED36,  # 7071から実行するフック
     'MM_GAME_WA_EF86': 0xEF86,  # カーソル行・桁
     'MM_GAME_WA_EFF9': 0xEFF9,
+    'MM_GAME_WA_E6CB': 0xE6CB,  # 積込み抑止1
+    'MM_GAME_WA_E6CC': 0xE6CC,  # 積込み抑止2
+    'MM_GAME_WA_E6CD': 0xE6CD,  # キー処理抑止
+    'MM_GAME_WA_ECDF': 0xECDF,  # 押し始めのフック
+    'MM_GAME_WA_EFC6': 0xEFC6,  # ファンクションキー残り
+    'MM_GAME_WA_EFC7': 0xEFC7,  # ファンクションキー残り
+    'MM_GAME_WA_EFCD': 0xEFCD,  # 輪の書き索引
+    'MM_GAME_WA_EFCE': 0xEFCE,  # 輪の読み索引
+    'MM_GAME_WA_EFCF': 0xEFCF,  # 1文字の先読み枠
+    'MM_GAME_WA_EFD0': 0xEFD0,  # 輪の索引マスク
+    'MM_GAME_WA_EFD1': 0xEFD1,  # 輪の先頭番地下位
+    'MM_GAME_WA_EFD2': 0xEFD2,  # 輪の先頭番地上位
+    'MM_GAME_WA_EFFA': 0xEFFA,  # 押されたビット
+    'MM_GAME_WA_EFFB': 0xEFFB,  # 前回行番地下位
+    'MM_GAME_WA_EFFC': 0xEFFC,  # 前回行番地上位
+    'MM_GAME_WA_EFFD': 0xEFFD,  # キー番号
+    'MM_GAME_WA_EFFE': 0xEFFE,  # 文字コード
     'MM_GAME_WA_EFFF': 0xEFFF,
     'MM_N_ROM_CALL': 0xFF9D,
     'MM_N_PROBE': 0xFFDC,
