@@ -10,6 +10,7 @@ from b86_add7 import Code
 from b86_add1 import word, ranges
 
 VALUES = (0, 1, 2, 4, 8, 16, 32, 64, 128, 255)
+SHADOW_MASKS = (1, 8, 16, 32, 64, 128)
 PORTS = (0x31, 0x30, 0x40, 0x51, 0x50, 0x64, 0x65, 0x68)
 REGS = ('A', 'F', 'BC', 'DE', 'HL', 'IX', 'IY', 'SP', 'IFF')
 # 需要観測の読み番地。範囲の重複は集合で除く。
@@ -21,22 +22,27 @@ def addresses():
              (0xef86,0xef89),(0xf136,0xf137),(0xff08,0xfff7))
     return sorted({x for lo,hi in spans for x in range(lo,hi+1)})
 
+def values_for(target, addr):
+    return SHADOW_MASKS if target == '7071' and addr == 0xe6c2 else VALUES
+
 def arms():
     for target in ('7071','3e0d'):
         yield f'{target}-base', dict(target=target, addr=None, value=None)
         for addr in addresses()+[0xe700]:
-            for value in VALUES:
+            for value in values_for(target, addr):
                 yield f'{target}-{addr:04x}-{value:02x}', dict(target=target,addr=addr,value=value)
 
 def generate(a):
     c=Code(); c.emit('f3 31 00 d0'); c.label('bootmem'); c.emit('32 f2 cf'); c.label('boot'); c.emit('d3 7e')
     if a['addr'] is not None:
-        c.emit('3e %02x 32'%a['value']); c.b+=word(a['addr'])
+        if a['target'] == '7071' and a['addr'] == 0xe6c2:
+            c.emit('3a c2 e6 ee %02x 32'%a['value'])
+        else:
+            c.emit('3e %02x 32'%a['value'])
+        c.b+=word(a['addr'])
     c.emit('31 00 d0'); c.addr(0x21,'end'); c.emit('e5')
     c.emit('21 00 35 e5 f1 01 34 12 11 00 c9 21 00 c8 dd 21 57 13 fd 21 68 24')
     c.label('startmem'); c.emit('32 f0 cf'); c.label('start'); c.emit('d3 7f')
-    # 7071 の直前の OUT 31。A は全腕で自作の 00 に固定。
-    if a['target']=='7071': c.emit('3e 00 d3 31')
     c.emit('c3'); c.b+=word(int(a['target'],16))
     c.label('end'); c.emit('d3 7d'); c.label('endmem'); c.emit('32 f1 cf f5 c5 d5 e5 dd e5 fd e5 ed 57 f5 f3')
     c.emit('e1 7d'); c.label('snap0'); c.emit('d3 7c')
@@ -55,8 +61,6 @@ def extract(path,a):
     start=next(i for i,e in enumerate(ev) if e[0]=='OUT' and e[1]==0x7f and e[3]==m['start'])
     stop=next((i for i,e in enumerate(ev[start+1:],start+1) if e[0]=='OUT' and ((e[1]==0x7d and e[3]==m['end']) or (e[1]==0x7e and e[3]==m['boot']))),len(ev))
     seg=ev[start+1:stop]
-    # 自作 OUT 31 は区間の先頭で、ROM の出力には数えない。
-    if a['target']=='7071' and seg and seg[0][0:2]==('OUT',0x31): seg=seg[1:]
     out={}
     for d,p,v,pc in seg:
         if d=='OUT' and p in PORTS: out.setdefault(str(p),[]).append(v)
@@ -87,7 +91,7 @@ def report(root):
     for target in ('7071','3e0d'):
         base=rows[f'{target}-base']; bv=vals.get(f'{target}-base')
         for addr in addresses()+[0xe700]:
-            names=[f'{target}-{addr:04x}-{v:02x}' for v in VALUES]
+            names=[f'{target}-{addr:04x}-{v:02x}' for v in values_for(target, addr)]
             valid=[(aa[n]['value'],vals[n]) for n in names if vals.get(n)]
             o={}
             for p in PORTS:
@@ -101,7 +105,7 @@ def report(root):
             comparisons={n:{'画面書込が基準と異なる':None if '画面書込' not in rows[n] or '画面書込' not in base else rows[n]['画面書込']!=base['画面書込'],
                 '戻りが基準と異なる':None if '戻り' not in rows[n] or '戻り' not in base else rows[n]['戻り']!=base['戻り'],
                 '戻りレジスタが基準と異なる':{r:None if not vals.get(n) or not vals[n].get('regs') or not bv or not bv.get('regs') else vals[n]['regs'][r]!=bv['regs'][r] for r in REGS}} for n in names}
-            groups[f'{target}-{addr:04x}']={'入力番地':f'{addr:04X}','陰性対照':addr==0xe700,'有効数':len(valid),'OUT関係':o,'戻りレジスタ関係':regs,'基準との差':comparisons}
+            groups[f'{target}-{addr:04x}']={'入力番地':f'{addr:04X}','陰性対照':addr==0xe700,'入力の意味':'起動後の値へのXORマスク' if target=='7071' and addr==0xe6c2 else '設定値','有効数':len(valid),'OUT関係':o,'戻りレジスタ関係':regs,'基準との差':comparisons}
     (root/'summary.json').write_text(json.dumps({'腕':rows,'組':groups},ensure_ascii=False,indent=2)+'\n')
 
 def main():
