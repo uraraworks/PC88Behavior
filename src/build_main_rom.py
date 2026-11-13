@@ -2902,6 +2902,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                              ("ENTRY_37D2", "MAIN_SUB_SEND_CONT"),
                              ("ENTRY_3847", "MAIN_SUB_RECV")):
             entries += f"{name} EQU {target if enable_main_sub_read else 'ENTRY_369A'}\n"
+    entries += (REPO / "src/l3_main/keyboard_entry.asm").read_text(encoding="utf-8")
     entries += (REPO / "src/l3_main/screen_mode.asm").read_text(encoding="utf-8")
     entries += (REPO / "src/l3_main/screen_entry.asm").read_text(encoding="utf-8")
     run_text = run_path.read_text(encoding="utf-8")
@@ -3046,6 +3047,7 @@ def build_n_rom(main_rom, main_asm, work):
 
 
 PINNED_ENTRIES = {
+    0x3080: "ENTRY_3080",
     0x3391: "ENTRY_3391",
     0x369A: "ENTRY_369A", 0x37C9: "ENTRY_37C9",
     0x37D2: "ENTRY_37D2", 0x3847: "ENTRY_3847",

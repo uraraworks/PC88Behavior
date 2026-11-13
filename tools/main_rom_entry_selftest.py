@@ -117,7 +117,7 @@ boot_failed:
     return bytes(disk), coords
 
 
-def execute(work, rom, disk, tag, screen=False):
+def execute(work, rom, disk, tag, screen=False, keyboard=False):
     image = work / (tag + '.d88')
     image.write_bytes(disk)
     log = work / (tag + '.memory')
@@ -127,6 +127,10 @@ def execute(work, rom, disk, tag, screen=False):
            '--rom-dir', str(rom), '--disk', str(image), '--frames', '1200',
            '--mem-write-log', str(log), '--mem-write-range', 'D100-DFFF',
            '--screen-signature-only', '--screen-signature-at', 'end:1199', '--out', str(work/(tag+'.report'))]
+    if keyboard:
+        cmd += ['--io-log', str(work/(tag+'.io'))]
+        for row in range(12):
+            cmd += ['--key-matrix', f'{row}:{row % 8}:0:1200']
     if screen:
         cmd += ['--io-log', str(work/(tag+'.io')), '--expect-exec', '0xED36']
     result = subprocess.run(cmd, capture_output=True, timeout=180)
@@ -363,6 +367,119 @@ def screen_cases(work, rom, obj, code):
     print('PASS: 7071のRAM値4組・OUT列・25行CLS・ED36/RET・10種の故障注入', flush=True)
 
 
+def keyboard_disk(work):
+    source = """    ORG 0xC100
+    DI
+    LD SP,0xE500
+    XOR A
+    OUT (0xE6),A
+"""
+    for row in range(12):
+        source += f'    LD A,{row+0x30}\n    LD (0x{0xE6D0+row:04X}),A\n'
+    source += """    LD A,2
+    LD (0xE6CF),A
+    LD A,0xA1
+    OUT (0x10),A
+    LD BC,0x1234
+    LD DE,0x5678
+    LD IX,0x9ABC
+    LD IY,0xDEF0
+    DI
+    CALL 0x3080
+    PUSH AF
+    PUSH HL
+    LD A,I
+    DI
+    PUSH AF
+    POP HL
+    LD A,L
+    LD (0xDF2E),A
+    POP HL
+    LD (0xDF24),HL
+    LD (0xDF20),BC
+    LD (0xDF22),DE
+    LD (0xDF26),IX
+    LD (0xDF28),IY
+    POP HL
+    LD (0xDF2A),HL
+    LD A,0xA2
+    OUT (0x10),A
+    LD HL,0xE6D0
+    LD DE,0xD100
+    LD BC,24
+    LDIR
+    LD A,(0xEFF9)
+    LD (0xDF32),A
+    LD A,(0xE6CF)
+    LD (0xDF33),A
+    DI
+    CALL 0x3080
+    DI
+    LD A,(0xEFF9)
+    LD (0xDF34),A
+    LD A,(0xE6CF)
+    LD (0xDF35),A
+    CALL 0x3080
+    DI
+    LD A,(0xEFF9)
+    LD (0xDF36),A
+    LD A,(0xE6CF)
+    LD (0xDF37),A
+    LD A,(0xE6C3)
+    LD (0xDF30),A
+    LD A,(0xEFFF)
+    LD (0xDF31),A
+    LD A,0xA5
+    LD (0xDFFF),A
+finished:
+    JR finished
+"""
+    return boot_disk(work, source)[0]
+
+
+def check_keyboard(work, tag, result):
+    assert result.get(0xDFFF) == 0xA5, '3080: 復帰失敗'
+    expected = [1 << (r % 8) for r in range(12)]
+    assert [result.get(0xD100+r) for r in range(12)] == expected, '3080: 入力値'
+    assert [result.get(0xD10C+r) for r in range(12)] == [r+0x30 for r in range(12)], '3080: 前回値'
+    assert [result.get(0xDF20+i) for i in range(12)] == [0x34,0x12,0x78,0x56,0,0xF0,0xBC,0x9A,0xF0,0xDE,0x50,7], '3080: レジスタ'
+    assert result.get(0xDF2E, 0) & 4, '3080: IFF'
+    assert result.get(0xDF30) == 7 and result.get(0xDF31) == 0, '3080: E6C3/EFFF'
+    assert [result.get(0xDF32+i) for i in range(6)] == [255,1,4,4,255,3], '3080: リピート'
+    events = read_io(work/(tag+'.io'))
+    start = next(i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA1))
+    end = next(i for i, e in enumerate(events) if e[:3] == ('OUT', 0x10, 0xA2))
+    actual = [(k,p,v) for k,p,v,_ in events[start+1:end]]
+    wanted = [('OUT',0xE4,1),('OUT',0x51,0x80),('OUT',0x50,0x16),('OUT',0x50,1)]
+    wanted += [('IN',r, 0xFF ^ expected[r]) for r in reversed(range(12))]
+    wanted += [('OUT',0xE4,7)]
+    assert actual == wanted, '3080: I/O列'
+
+
+def keyboard_cases(work, rom, obj, code):
+    disk = keyboard_disk(work)
+    check_keyboard(work, 'keyboard', execute(work, rom, disk, 'keyboard', keyboard=True))
+    for name, address, replacement in (
+        ('input', obj.labels['ENTRY_3080_IN_05']+2, b'\x00'),
+        ('output', obj.labels['ENTRY_3080_OUT'], b'\x00\x00'),
+        ('ei', obj.labels['ENTRY_3080_RET'], b'\x00'),
+    ):
+        tag = 'keyboard-fault-'+name
+        broken = work/tag
+        shutil.copytree(rom, broken)
+        mutated = bytearray(code)
+        mutated[address:address+len(replacement)] = replacement
+        (broken/'N88.ROM').write_bytes(mutated)
+        observed = execute(work, broken, disk, tag, keyboard=True)
+        try:
+            check_keyboard(work, tag, observed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f'3080: {name}故障を見逃した')
+    print('PASS: 3080の入力・前回値・I/O・レジスタ・IFFと故障注入', flush=True)
+
+
 def numeric_regression(rom, work, obj):
     # 演算単体の既存検査に加え、今回ずれた配布ROMのDFIN/DFOUTを通す。
     from l4_nrom_selftest import execute as execute_basic, has_line
@@ -409,7 +526,7 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         build.check_pinned_entries(code, obj)
-        print('PASS: 6入口のJP・飛び先・listing非重複', flush=True)
+        print('PASS: 7入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)
         result = execute(work, rom, disk, 'normal')
         assert result.get(0xDFFF) == 0xA5, f'完了印なし stage={result.get(0xDFFE)} result={result.get(0xDFFF)}'
@@ -491,10 +608,17 @@ def main():
                 pass
             else:
                 raise AssertionError('配置検査が入口+1を見逃した')
-            probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3)) if address == 0x7071 else disk
-            observed = execute(work, broken, probe_disk, f'fault-{address:04X}')
+            probe_disk = screen_disk(work, (0xA6, 0xD3, 0xC8, 0xF3)) if address == 0x7071 else keyboard_disk(work) if address == 0x3080 else disk
+            observed = execute(work, broken, probe_disk, f'fault-{address:04X}', keyboard=address == 0x3080)
+            if address == 0x3080:
+                try:
+                    check_keyboard(work, f'fault-{address:04X}', observed)
+                except AssertionError:
+                    continue
+                raise AssertionError('3080: 入口故障を見逃した')
             assert observed.get(0xDFFF) != 0xA5, f'{address:04X}: 故障を実走で見逃した'
-        print('PASS: 全6入口+1の故障を配置検査・実走で拒否', flush=True)
+        print('PASS: 全7入口+1の故障を配置検査・実走で拒否', flush=True)
+        keyboard_cases(work, rom, obj, code)
         screen_cases(work, rom, obj, code)
         numeric_regression(rom, work, obj)
         pad = 0x79D7 - obj.labels['AEL_ROM_LAYOUT_PAD']
