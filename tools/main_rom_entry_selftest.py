@@ -144,6 +144,7 @@ def placement_cases(work):
         cases = {
             "instruction": "    ORG 0xF0\n" + "    NOP\n" * 20 + "BODY: RET\n",
             "table": "    ORG 0xE0\n    NOP\nTABLE: DB " + ",".join(map(str, range(48))) + "\nBODY: RET\n",
+            "long_table": "    ORG 0x20\n    NOP\nTABLE: DB " + ",".join(map(str, range(240))) + "\nBODY: RET\n",
             "relative": "    ORG 0x90\n    JR BODY\n" + "    NOP\n" * 126 + "BODY: RET\n",
         }
         for name, source in cases.items():
@@ -154,10 +155,13 @@ def placement_cases(work):
             if name == 'table':
                 start = obj.labels['TABLE']
                 assert rom[start:start+48] == bytes(range(48))
+            if name == 'long_table':
+                start = obj.labels['TABLE']
+                assert rom[0x20] == 0xC3 and rom[start:start+240] == bytes(range(240))
             if name == 'relative':
                 # 近傍の候補は既存JRを範囲外にする。JR自身より前へ戻る必要がある。
                 assert rom[0x90] == 0x18 and rom[0x103] == 0x18
-        print('PASS: 命令先頭・連続表の回避・相対分岐限界の再配置', flush=True)
+        print('PASS: 命令先頭・連続表の回避・JP代替・相対分岐限界の再配置', flush=True)
     finally:
         build.PINNED_ENTRIES = saved
 

@@ -2896,7 +2896,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         entries = (REPO / "src/l3_main/rom_entries.asm").read_text(encoding="utf-8")
     else:
         # 通信を省略する既存の部品検査構成も配置検査の対象にする。
-        entries = "ENTRY_369A:\n    SCF\n    RET\n"
+        entries = "ENTRY_3391:\n    JP (HL)\nENTRY_369A:\n    SCF\n    RET\n"
         for name, target in (("ENTRY_37C9", "MAIN_SUB_SEND"),
                              ("ENTRY_37D2", "MAIN_SUB_SEND_CONT"),
                              ("ENTRY_3847", "MAIN_SUB_RECV")):
@@ -3067,7 +3067,8 @@ def assemble_pinned(src_path):
 
     各入口を昇順で確定する。候補は近い境界からJRの届く範囲で後退し、
     既存JR/DJNZが範囲外になれば別の境界を試す。後続入口が置けない場合も
-    前の候補へ戻る。表の行は候補にしないのでDB/DW/DSを分断しない。
+    前の候補へ戻る。JRで配置できなければ更に手前からJPで飛び越す。
+    表の行は候補にしないのでDB/DW/DSを分断しない。
     """
     original = src_path.read_text(encoding="utf-8")
     loader = z80text.Assembler()
@@ -3090,11 +3091,17 @@ def assemble_pinned(src_path):
         address, body = entries[index]
         lower = entries[index - 1][0] + 3 if index else 0
         candidates = [(pc, no) for pc, chunk, no, raw in obj.listing
-                      if max(lower, address - 126) <= pc <= address - 2
+                      if lower <= pc <= address - 2
                       and z80text.parse_line(no, raw).kind == "instr"]
-        for pc, no in reversed(candidates):
+        choices = [(pc, no, "JR") for pc, no in reversed(candidates)
+                   if pc >= address - 126]
+        choices += [(pc, no, "JP") for pc, no in reversed(candidates)
+                    if pc < address - 126]
+        choices += [(pc, no, "JP") for pc, no in reversed(candidates)
+                    if address - 126 <= pc <= address - 3]
+        for pc, no, jump in choices:
             after = f"PINNED_{address:04X}_AFTER"
-            block = [f"    JR {after}", f"    DS 0x{address:04X}-$",
+            block = [f"    {jump} {after}", f"    DS 0x{address:04X}-$",
                      f"PINNED_{address:04X}: JP {body}", f"{after}:"]
             trial = rows[:no - 1] + block + rows[no - 1:]
             try:
@@ -3108,7 +3115,7 @@ def assemble_pinned(src_path):
 
     result = place(lines, compile_lines(lines), 0)
     if result is None:
-        raise z80text.AsmError("固定入口をJR到達範囲内の命令境界へ配置できない")
+        raise z80text.AsmError("固定入口を命令境界へ配置できない")
     rows, obj = result
     src_path.write_text("\n".join(origins + rows) + "\n", encoding="utf-8")
     # 出力ソースの行番号とも一致させ、自己検査で再アセンブル可能にする。
