@@ -43,6 +43,9 @@ def fixture(work):
     emit('3a c2 e6 32 01 a0 f3 76 18 fd')
     for offset, label in patches:
         sector[offset:offset+2] = labels[label].to_bytes(2, 'little')
+    sector += bytes(0x80-len(sector))
+    # 区間内で ROM から呼ばれる自作 RAM サブルーチン。
+    sector += bytes.fromhex('3e 55 d3 7c c9')
     sector += bytes(256-len(sector))
     (work/'boot.bin').write_bytes(sector)
     media = work/'games'
@@ -60,14 +63,14 @@ def fixture(work):
         '3e 00 d3 51 3e 4e d3 50 3e 18 d3 50 3e 07 d3 50 '
         '3e 00 d3 50 3e 13 d3 50 '
         '3e 80 d3 68 3e 00 d3 64 3e f3 d3 64 '
-        '3e ad 32 c2 e6 32 0e e6 cd 00 10 '
+        '3e ad 32 c2 e6 32 0e e6 00 00 00 '
         '21 00 03 11 00 90 01 00 01 ed b0 c3 00 90')
     rom[0x100:0x100+len(boot)] = boot
     # D88に載せた同一のセクタをROMの自作ローダへ埋め込む。
     offset = int.from_bytes(disk[32:36], 'little') + 16
     assert disk[offset:offset+256] == sector
     rom[0x300:0x400] = disk[offset:offset+256]
-    routine = bytes.fromhex('3a c2 e6 d3 7e 32 00 f3 3a 0e e6 d3 7d 32 01 f3 c9')
+    routine = bytes.fromhex('cd 80 90 3a c2 e6 d3 7e 32 00 f3 3a 0e e6 d3 7d 32 01 f3 c9')
     rom[0x1000:0x1000+len(routine)] = routine
     (romdir/'N88.ROM').write_bytes(rom)
     (romdir/'DISK.ROM').write_bytes(bytes.fromhex('18 fe') + bytes(0x7fe))
@@ -94,7 +97,7 @@ def main():
             assert run['complete'] and run['reached'] and run['returned'], '自作入口の区間採取失敗'
             assert run['interventions'] == 1 and run['prior_out31'] and run['prior_e6c2']
             assert run['sp'] == 0xB000 and run['frames'] == 0
-            assert run['out'] == [[0x7E, value if addr == 0xE6C2 else 173], [0x7D, 173]]
+            assert run['out'] == [[0x7C, 0x55], [0x7E, value if addr == 0xE6C2 else 173], [0x7D, 173]]
             assert run['screen'] == [0xF300, 0xF301], 'テキスト書込み範囲の検査失敗'
             markers = []
             for line in (directory/'markers').read_text().splitlines():
@@ -105,13 +108,13 @@ def main():
             data['arms'].append(dict(address=addr, input=value, run=run))
     report = summarize(data)
     assert report['基準安定']
-    assert all(x['OUT値一致'] == [True, True] and x['画面件数変化'] == 0 and not x['画面範囲変化']
+    assert all(x['OUT値一致'] == [True, True, True] and x['画面件数変化'] == 0 and not x['画面範囲変化']
                for x in report['腕']['E700'].values())
     assert all({k: v for k, v in arm['run'].items() if k != 'interventions'} ==
                {k: v for k, v in data['baseline'][0].items() if k != 'interventions'}
                for arm in data['arms'] if arm['address'] == 0xE700)
-    assert all(x['OUT値一致'] == [False, True] for x in report['腕']['E6C2'].values())
-    assert 'そのまま' in report['関係']['E6C2'][0]
+    assert all(x['OUT値一致'] == [True, False, True] for x in report['腕']['E6C2'].values())
+    assert 'そのまま' in report['関係']['E6C2'][1]
     assert '定数（値はリポジトリ外）' in report['関係']['E700'][0]
     public = json.dumps(report, ensure_ascii=False)
 
@@ -136,6 +139,14 @@ def main():
     changed = copy.deepcopy(data)
     changed['arms'][0]['run'] = empty_run('生記録の欠落または形式不正')
     assert summarize(changed)['関係']['E6C2'] is None
+    # RAM サブルーチンから ROM へ戻った後に無限ループする陰性対照。
+    image = bytearray((rom/'N88.ROM').read_bytes())
+    image[0x1000:0x1006] = bytes.fromhex('cd 80 90 c3 03 10')
+    (rom/'N88.ROM').write_bytes(image)
+    timeout = run_one(front, core, rom, disks, work/'timeout', 35, entry=0x1000)
+    assert timeout['complete'] and timeout['reached'] and not timeout['returned']
+    assert not timeout['escaped'] and timeout['frames'] == 30
+    assert timeout['out'] == [[0x7C, 0x55]]
     # frontend の書式・重複・外部出力制約。エラー出力は画面へ流さない。
     dangling = work/'dangling'
     dangling.symlink_to(ROOT/'b92-forbidden')
