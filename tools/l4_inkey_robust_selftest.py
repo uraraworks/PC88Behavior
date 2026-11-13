@@ -27,9 +27,8 @@ def fast_rom(rom, asm_dir, work):
     assembler = z80text.Assembler()
     assembler.assemble(asm_dir / 'n88_main_gen.asm')
     labels = assembler.labels
-    start = labels['AEL_ROM_LAYOUT_PAD']
     source = memmap.asm_prelude() + f'''
-    ORG {start}
+    ORG {{start}}
     DI
     LD HL,fast_name
     LD DE,MM_IDENT_BUF
@@ -61,12 +60,25 @@ fast_drain:
     JR NZ,fast_show
     LD HL,fast_good
 fast_show:
+    PUSH HL
+    LD HL,MM_TEXT_BASE
+    LD B,80
+fast_clear:
+    LD (HL),32
+    LD DE,120
+    ADD HL,DE
+    LD (HL),32
+    OR A
+    SBC HL,DE
+    INC HL
+    DJNZ fast_clear
+    POP HL
     LD DE,MM_TEXT_BASE
-    LD BC,80
+    LD BC,8
     LDIR
     LD HL,fast_done
     LD DE,MM_TEXT_BASE+120
-    LD BC,80
+    LD BC,5
     LDIR
 fast_stop:
     JP fast_stop
@@ -90,25 +102,37 @@ fast_name:
     DB "INKEY",0,0
 fast_good:
     DB "iks 1 97"
-    DS 72,32
 fast_bad:
     DB "iks 0 0"
-    DS 73,32
+    DB 32
 fast_done:
     DB "ikd 1"
-    DS 75,32
 '''
     path = work / 'fast.asm'
-    path.write_text(source)
-    driver = z80text.Assembler().assemble(path)[start:]
-    # 通常コードを上書きせず、0x79D7の印とその直前の予約ゼロも残す。
-    # このドライバはmainへ戻ってから呼ぶのでバンク窓内に置ける。
-    assert start + len(driver) <= 0x79D6
+    path.write_text(source.format(start=0))
+    size = len(z80text.Assembler().assemble(path))
     target = work / 'fast-rom'
     shutil.copytree(rom, target)
     image = bytearray((target / 'N88.ROM').read_bytes())
+    # ビルドと同じくレイアウト用DSだけを空きとし、ゼロの命令も保護する。
+    occupied = bytearray(len(image))
+    for addr, chunk, _, raw in assembler.listing:
+        if addr == labels['AEL_ROM_LAYOUT_PAD'] and raw.strip().upper().startswith('DS '):
+            continue
+        occupied[addr:addr + len(chunk)] = b'\1' * len(chunk)
+    # N中継はlistingの後に注入される。ゼロを含むため全体を予約する。
+    relay = assembler.symtab['MM_N_RELAY_SOURCE']
+    occupied[relay:relay + 92] = b'\1' * 92
+    occupied[0x79D6:0x79D8] = b'\1\1'
     assert image[0x79D7] == ord('4')
-    assert image[start:start+len(driver)] == bytes(len(driver))
+    start = next((i for i in range(len(image) - size + 1)
+                  if not any(occupied[i:i + size]) and
+                  image[i:i + size] == bytes(size)), None)
+    if start is None:
+        raise RuntimeError('検査ドライバ用の連続空き領域がない')
+    path.write_text(source.format(start=start))
+    driver = z80text.Assembler().assemble(path)[start:]
+    assert len(driver) == size
     image[start:start+len(driver)] = driver
     entry = labels['STEADY_WAIT']
     image[entry:entry+3] = bytes((0xC3, start & 255, start >> 8))
