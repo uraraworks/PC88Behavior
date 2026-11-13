@@ -18,6 +18,10 @@ import z80text
 
 # 番地ではない値のみ。ファイル・命令全体・個数を固定し、新規の直書きは許さない。
 ALLOW = {
+    ("l3_main/keyboard_entry.asm", "ENTRY_3080_HL_RETURN_VALUE EQU 0F000h"): "3080の戻り時HL値（main-rom-entry.md 1.5.1）",
+    ("l3_main/rom_entries.asm", "ENTRY_369A_ERROR_HL_VALUE EQU 0EF60h"): "369A異常時のHL値（main-rom-entry.md 第4版追加）",
+    ("l3_main/screen_entry.asm", "ENTRY_7071_DE_RETURN_VALUE EQU 0FF80h"): "7071の戻り時DE値（main-rom-entry.md 1.6）",
+    ("l3_main/screen_entry.asm", "ENTRY_7071_HL_RETURN_VALUE EQU 0E616h"): "7071の戻り時HL値（main-rom-entry.md 1.6）",
     ("l3_main/main_sub_read.asm", "MAIN_SUB_TIMEOUT_LIMIT EQU 0FFFFh"): "待機回数65535",
     ("l3_main/vsync_regcheck.asm", "LD IY,0x99AA"): "レジスタ保持試験のデータ",
     ("l4_basic/interp.asm", "LD HL,0FFFFh"): "真値-1",

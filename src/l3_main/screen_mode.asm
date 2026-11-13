@@ -60,7 +60,7 @@ wb_wa_30o:
     JR Z,wb_wa_30store
     AND 3
     LD B,A
-    LD A,(0xE6C0)
+    LD A,(MM_GAME_WA_E6C0)
     AND 0FCh
     OR B
 wb_wa_30store:
@@ -69,7 +69,7 @@ wb_wa_30store:
     LD A,D
     OR A
     JR Z,wb_wa_reset
-    LD A,(0xE6C1)
+    LD A,(MM_GAME_WA_E6C1)
     OR 8                       ; 起動時CRTC設定の同期ビットを立てる
     OUT (0x40),A
 wb_wa_reset:
@@ -81,14 +81,14 @@ wb_wa_reset:
     OR A
     LD A,0C8h                  ; 5: BASICではDMAアドレス F3C8
     JR Z,wb_wa_dma_low
-    LD A,(0xE6C4)
+    LD A,(MM_GAME_WA_E6C4)
 wb_wa_dma_low:
     OUT (0x64),A
     LD A,D
     OR A
     LD A,0F3h
     JR Z,wb_wa_dma_high
-    LD A,(0xE6C5)
+    LD A,(MM_GAME_WA_E6C5)
 wb_wa_dma_high:
     OUT (0x64),A
     LD A,(HL)                  ; 6: 転送長（下位・上位）
@@ -119,7 +119,7 @@ wb_wa_p5:
     LD A,D
     OR A
     RET Z
-    LD A,(0xE6C1)
+    LD A,(MM_GAME_WA_E6C1)
     AND 0F7h                   ; 同期ビットを戻し、それ以外はRAM値を保つ
     OUT (0x40),A
     RET

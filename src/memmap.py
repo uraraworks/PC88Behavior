@@ -1097,6 +1097,20 @@ ALIASES = {
 }
 
 CONSTANTS = {
+    # main-rom-entry.md 1.5.1・1.6: ゲームと共有する固定作業域。
+    # BASIC側の領域と重なるため、新たな占有領域ではなく仕様上の番地。
+    'MM_GAME_WA_E6C0': 0xE6C0,
+    'MM_GAME_WA_E6C1': 0xE6C1,
+    'MM_GAME_WA_E6C3': 0xE6C3,
+    'MM_GAME_WA_E6C4': 0xE6C4,
+    'MM_GAME_WA_E6C5': 0xE6C5,
+    'MM_GAME_WA_E6CF': 0xE6CF,
+    'MM_GAME_WA_E6D0': 0xE6D0,  # 今回のキー行列12バイト
+    'MM_GAME_WA_E6DC': 0xE6DC,  # 前回のキー行列12バイト
+    'MM_GAME_WA_ED36': 0xED36,  # 7071から実行するフック
+    'MM_GAME_WA_EF86': 0xEF86,  # カーソル行・桁
+    'MM_GAME_WA_EFF9': 0xEFF9,
+    'MM_GAME_WA_EFFF': 0xEFFF,
     'MM_N_ROM_CALL': 0xFF9D,
     'MM_N_PROBE': 0xFFDC,
     'MM_N_RELAY_SOURCE': 0x7980,
