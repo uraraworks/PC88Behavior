@@ -119,6 +119,7 @@ BUILD="$REPO/src/build_main_rom.py"
 say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 fail() { echo "NG: $1" >&2; FAILED=1; }
 
+export PC88_BUILD_DATE=2026-11-12 PC88_BUILD_REV=fc61024
 FAILED=0
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -151,8 +152,12 @@ import sys
 data = open(sys.argv[1], "rb").read()
 STRIDE = 120
 COLS = 80
-BANNER_LEN = len("PC88Behavior v0.1")  # src/l3_main/screen.asm BANNER_TXT と同じ(自作文言)
-OK_LEN = len("Ok")                      # 同 OK_TXT
+BANNER_LINES = [
+    b"PC88Behavior Compatible ROM  2026-11-12 (fc61024)",
+    b"(C) 2026 URARA-works",
+    b"Welcome back to the 80s!",
+    b"Ok",
+]
 
 def row_text(row):
     base = row * STRIDE
@@ -163,18 +168,9 @@ def row_attr(row):
     return data[base:base + 40]
 
 ok = True
-
-t0 = row_text(0)
-if t0[0] == 0x20:
-    print("NG: バナー行(row0)がcol0から始まっていない"); ok = False
-if any(b == 0x20 for b in t0[:1]) is False and t0[BANNER_LEN] != 0x20:
-    print("NG: バナー行の長さがBANNER_LENと合わない"); ok = False
-
-t1 = row_text(1)
-if t1[0] == 0x20:
-    print("NG: Ok行(row1)がcol0から始まっていない"); ok = False
-if t1[OK_LEN] != 0x20:
-    print("NG: Ok行の長さがOK_LENと合わない"); ok = False
+for row, expected in enumerate(BANNER_LINES):
+    if row_text(row) != expected.ljust(COLS, b" "):
+        print(f"NG: 起動表示の行{row}が期待と異なる"); ok = False
 
 # l3-main.md 第14節(nonzero_pattern)の白黒既定: (位置,値)=(0x80,0x00)×20組
 # ＝40バイト。src/l3_main/screen.asm DEFAULT_ATTRと同じ値をここで
@@ -191,6 +187,24 @@ else:
     sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "画面出力の検査"
+
+# 起動セクタ無効の経路でも同じ3行とOkを出す。
+say "2b. 起動セクタ無効の表示"
+NOBOOT_ROM="$WORK/rom_noboot"
+python3 "$BUILD" "$NOBOOT_ROM" --disable-boot-sector >"$WORK/build_noboot.txt" 2>&1 || fail "起動セクタ無効のビルド"
+"$FRONTEND" --core "$CORE" --rom-dir "$NOBOOT_ROM" --frames 90 \
+    --vram-dump "$WORK/noboot.vram.bin" --vram-dump-at 89 \
+    >"$WORK/noboot.stdout.txt" 2>"$WORK/noboot.stderr.txt" || fail "起動セクタ無効の実行"
+python3 - "$WORK/noboot.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], "rb").read()
+lines = [b"PC88Behavior Compatible ROM  2026-11-12 (fc61024)",
+         b"(C) 2026 URARA-works", b"Welcome back to the 80s!", b"Ok"]
+ok = all(data[i*120:i*120+80] == line.ljust(80, b" ") for i, line in enumerate(lines))
+print("OK: 起動セクタ無効の表示" if ok else "NG: 起動セクタ無効の表示")
+sys.exit(0 if ok else 1)
+PYEOF
+[ $? -ne 0 ] && fail "起動セクタ無効の表示"
 
 # -----------------------------------------------------------------------
 say "3. スクロールの検査（extra-lines=25 で20行を超えさせる）"
@@ -307,8 +321,8 @@ python3 "$REPO/tools/gen_l3_key_table.py" --check
 
 # -----------------------------------------------------------------------
 say "7. キー直押し（--key-matrix）: 無修飾・CAPS・GRPH・SHIFT・RETURN"
-# 待機後にバナー・Okの表示が終わっている前提で、行2(row0=2)のcol0を見る
-# (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=2,VAR_COL=0になる)。
+# 待機後にバナー・Okの表示が終わっている前提で、行4(row0=4)のcol0を見る
+# (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=4,VAR_COL=0になる)。
 check_key() {
   local label="$1"; shift
   local expect_hex="$1"; shift
@@ -322,7 +336,7 @@ import sys
 data = open(sys.argv[1], "rb").read()
 expect = int(sys.argv[2], 16)
 label = sys.argv[3]
-got = data[2*120]
+got = data[4*120]
 if got == expect:
     print(f"OK: {label} の打鍵結果は期待どおり")
 else:
@@ -336,13 +350,13 @@ check_key "base_Q" 0x71 --key-matrix 0x04:1:60:10
 check_key "caps_Q" 0x51 --key-matrix 0x0A:7:50:40 --key-matrix 0x04:1:60:10
 # GRPH(08H:4)保持+Q→0x9C（第10節）
 check_key "grph_Q" 0x9C --key-matrix 0x08:4:50:40 --key-matrix 0x04:1:60:10
-# CTRL(08H:7)保持+Q→無視（第10節、Qは「無」＝書かない）。row2col0は空白のまま
+# CTRL(08H:7)保持+Q→無視（第10節、Qは「無」＝書かない）。row4col0は空白のまま
 check_key "ctrl_Q_ignored" 0x20 --key-matrix 0x08:7:50:40 --key-matrix 0x04:1:60:10
 # SHIFT(08H:6)保持+Q→0x51（第10節SHIFT列、`e915172`実測。0x20のビットが落ちる）
 check_key "shift_Q" 0x51 --key-matrix 0x08:6:50:40 --key-matrix 0x04:1:60:10
 # SHIFT(08H:6)保持+テンキー1(00H:1)→0x31（第10節SHIFT列、数字キーは変化なし）
 check_key "shift_tenkey1" 0x31 --key-matrix 0x08:6:50:40 --key-matrix 0x00:1:60:10
-# RETURN(01H:7)単独→文字は書かない。改行してOkが出るのでrow3にOkが現れる
+# RETURN(01H:7)単独→文字は書かない。改行してOkが出るのでrow5にOkが現れる
 "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 --key-matrix 0x01:7:60:10 \
     --vram-dump "$WORK/km_return.vram.bin" --vram-dump-at 250 \
     >"$WORK/km_return.stdout.txt" 2>"$WORK/km_return.stderr.txt"
@@ -350,10 +364,10 @@ if [ $? -ne 0 ]; then fail "q88measure(key:return)が失敗"; cat "$WORK/km_retu
 python3 - "$WORK/km_return.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row2 = data[2*120:2*120+2]
-row3 = data[3*120:3*120+2]
-ok = row2 == b"  " and row3 == b"Ok"
-print(("OK" if ok else "NG") + f": RETURN row2長={len(row2)} row3長={len(row3)}（本文非出力）")
+row4 = data[4*120:4*120+2]
+row5 = data[5*120:5*120+2]
+ok = row4 == b"  " and row5 == b"Ok"
+print(("OK" if ok else "NG") + f": RETURN row4長={len(row4)} row5長={len(row5)}（本文非出力）")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "RETURNキーの検査"
@@ -368,18 +382,18 @@ if [ $? -ne 0 ]; then fail "q88measure(type)が失敗"; cat "$WORK/type.stderr.t
 python3 - "$WORK/type.vram.bin" "$TYPE_ROM_IOLOG" <<'PYEOF'
 import re, sys
 data = open(sys.argv[1], "rb").read()
-row2 = data[2*120:2*120+2]
-ok = row2 == b"ab"
-print(("OK" if ok else "NG") + f": エコー row2長={len(row2)}（本文非出力）")
+row4 = data[4*120:4*120+2]
+ok = row4 == b"ab"
+print(("OK" if ok else "NG") + f": エコー row4長={len(row4)}（本文非出力）")
 if not ok:
     sys.exit(1)
 pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
 vals = pat.findall(open(sys.argv[2]).read())
 last_pair = vals[-2:]
-if last_pair == ["02", "02"]:
-    print(f"OK: カーソル追従 最後のOUT(50)組={last_pair}（col=2,row=2）")
+if last_pair == ["02", "04"]:
+    print(f"OK: カーソル追従 最後のOUT(50)組={last_pair}（col=2,row=4）")
 else:
-    print(f"NG: カーソル追従 最後のOUT(50)組={last_pair}（期待 ['02','02']）")
+    print(f"NG: カーソル追従 最後のOUT(50)組={last_pair}（期待 ['02','04']）")
     sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "行入力の検査"
@@ -395,7 +409,7 @@ if [ $? -ne 0 ]; then fail "q88measure(ktfault)が失敗"; cat "$WORK/ktfault.st
 python3 - "$WORK/ktfault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-got = data[2*120]
+got = data[4*120]
 if got != 0x71:
     print("OK(検出力): 表の故障注入を検出できた")
     sys.exit(0)
@@ -417,8 +431,8 @@ import re, sys
 pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
 vals = pat.findall(open(sys.argv[1]).read())
 last_pair = vals[-2:]
-if last_pair != ["02", "02"]:
-    print(f"OK(検出力): カーソル故障注入がかかると最後のOUT(50)組={last_pair}(期待['02','02']と不一致)になり区別できた")
+if last_pair != ["02", "04"]:
+    print(f"OK(検出力): カーソル故障注入がかかると最後のOUT(50)組={last_pair}(期待['02','04']と不一致)になり区別できた")
     sys.exit(0)
 else:
     print("NG(検出力不足): カーソルを故障注入しても検査8と区別できない"); sys.exit(1)
@@ -540,7 +554,7 @@ if [ $? -ne 0 ]; then fail "q88measure(shiftfault)が失敗"; cat "$WORK/shiftfa
 python3 - "$WORK/shiftfault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-got = data[2*120]
+got = data[4*120]
 if got != 0x51:
     print("OK(検出力): SHIFT表の故障注入を検出できた")
     sys.exit(0)
@@ -553,7 +567,7 @@ PYEOF
 say "17. キー直押し（--key-matrix）: A→SPACE→B の順で、Bがcol0のAから2桁先に出る"
 # A(02H:1、無修飾0x61)→SPACE(09H:6)→B(02H:2、無修飾0x62)の順に単独で押す。
 # 重ならないよう開始フレームを離す(各キー10フレーム押す、次のキーは
-# 前のキーが離れた後に始める)。row2(バナー・Ok後の行)のcol0=A,col1=SPACE
+# 前のキーが離れた後に始める)。row4(バナー・Ok後の行)のcol0=A,col1=SPACE
 # の0x20,col2=Bという並びを期待する(l3-main.md第9節末尾の追記、
 # 「打った1がPRINTの直後ではなく1桁先に出る」という観測と同型)。
 "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 300 \
@@ -564,9 +578,9 @@ if [ $? -ne 0 ]; then fail "q88measure(key:space)が失敗"; cat "$WORK/km_space
 python3 - "$WORK/km_space.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row2 = data[2*120:2*120+3]
+row4 = data[4*120:4*120+3]
 expect = bytes([0x61, 0x20, 0x62])  # A, SPACE(0x20を書く選択), B
-if row2 == expect:
+if row4 == expect:
     print("OK: SPACEでカーソルが1桁進む")
 else:
     print("NG: SPACE後の位置が期待と異なる"); sys.exit(1)
@@ -585,9 +599,9 @@ if [ $? -ne 0 ]; then fail "q88measure(spacefault)が失敗"; cat "$WORK/spacefa
 python3 - "$WORK/spacefault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row2 = data[2*120:2*120+3]
+row4 = data[4*120:4*120+3]
 expect_normal = bytes([0x61, 0x20, 0x62])
-if row2 != expect_normal:
+if row4 != expect_normal:
     print("OK(検出力): SPACE故障注入を検出できた")
     sys.exit(0)
 else:

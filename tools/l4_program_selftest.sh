@@ -59,7 +59,7 @@ import sys, subprocess, pathlib
 frontend, core, rom, work = sys.argv[1:5]
 work = pathlib.Path(work)
 STRIDE = 120
-BOOT_ROW = 2   # l4_basic_selftest.sh と同じ規約(バナー行0・最初のOk行1の次)
+BOOT_ROW = 4   # バナー3行と最初のOk行の次（l4_basic_selftest.shと同じ）
 FAILED = False
 
 

@@ -139,12 +139,12 @@ fi
 
 # -----------------------------------------------------------------------
 say "3. 直接モードPRINTの書式（通常ビルド、--typeで打鍵）"
-# 打った行は row0=2(バナー行0・最初のOk行1の次)、出力行はrow0=3、
-# Okはrow0=4という並びになる(docs/spec/l4-basic.md 第1節の相対+1/+2)。
+# 打った行は row0=4(バナー3行・最初のOk行の次)、出力行はrow0=5、
+# Okはrow0=6という並びになる(docs/spec/l4-basic.md 第1節の相対+1/+2)。
 # STRIDE=120, COLS=80はl3-main.md 第1〜2節。
 STRIDE=120
-ROW_OUTPUT=3
-ROW_OK=4
+ROW_OUTPUT=5
+ROW_OK=6
 
 # 数値の書式(l4-basic.md 第2節): 前置1桁(正/0は空白、負は'-') + 数字 +
 # 後置空白1。文字列(第3節): 前後空白なし。ゾーン(第4節): ','は次の14刻み
@@ -195,9 +195,9 @@ got = row_text(row_out, len(expected))
 ok_txt = row_text(row_ok, 2)
 result_ok = (got == expected) and (ok_txt == "Ok")
 if result_ok:
-    print(f"OK: {label} 出力行='{got}' Ok行='{ok_txt}'")
+    print("OK: 画面の比較（本文非出力）")
 else:
-    print(f"NG: {label} 出力行='{got}'(期待'{expected}') Ok行='{ok_txt}'(期待'Ok')")
+    print("NG: 画面の比較（本文非出力）")
     sys.exit(1)
 PYEOF
   [ $? -ne 0 ] && fail "PRINT書式($label)"
@@ -263,7 +263,7 @@ say "3f. 範囲外・0除算(l4-basic.md 第5.6節): 出力2行・Okが相対+3"
 # 文言は第7.1節のマニュアル一覧(Overflow=6, Division by zero=11)。
 # 1行目(空行)の扱いは仕様書に無い判断(interp.asmヘッダコメント参照、
 # 実際の画面表示の文言・中身そのものは未確認、第10節5)。
-ROW_OK_RUNTIME=5
+ROW_OK_RUNTIME=7
 check_runtime_err() {
   local label="$1" typed="$2" expected_msg="$3"
   local dump="$WORK/${label}.vram.bin"
@@ -290,9 +290,9 @@ got_msg = row_text(row_msg, len(expected_msg))
 ok_txt = row_text(row_ok, 2)
 result_ok = (got_blank == "") and (got_msg == expected_msg) and (ok_txt == "Ok")
 if result_ok:
-    print(f"OK: {label} 1行目=空 2行目='{got_msg}' Ok行='{ok_txt}'")
+    print("OK: 画面の比較（本文非出力）")
 else:
-    print(f"NG: {label} 1行目='{got_blank}' 2行目='{got_msg}'(期待'{expected_msg}') Ok行='{ok_txt}'(期待'Ok')")
+    print("NG: 画面の比較（本文非出力）")
     sys.exit(1)
 PYEOF
   [ $? -ne 0 ] && fail "範囲外/0除算($label)"
@@ -335,7 +335,7 @@ say "3b. PRINT 1（実際にSPACEキーを打鍵）: エコーの1桁前進と�
 # 読み飛ばすため、実行結果(出力行)はスペース無しのcase_p1と変わらない
 # はず。
 check_row_with_echo() {
-  # $1=label $2=typed $3=期待するエコー行(row2)の文字列 $4=期待する出力行(row3)
+  # $1=label $2=typed $3=期待するエコー行(row4)の文字列 $4=期待する出力行(row5)
   local label="$1" typed="$2" expected_echo="$3" expected_out="$4"
   local dump="$WORK/${label}.vram.bin"
   "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 600 --type "$typed" --type-at 60 \
@@ -354,13 +354,13 @@ def row_text(row, n):
     base = row * stride
     return data[base:base + n].decode("ascii", errors="replace")
 
-ROW_ECHO = 2  # 打った行のエコー(l4_basic_selftest.sh冒頭コメント参照)
+ROW_ECHO = 4  # 打った行のエコー(l4_basic_selftest.sh冒頭コメント参照)
 got_echo = row_text(ROW_ECHO, len(expected_echo))
-got_out = row_text(3, len(expected_out))
+got_out = row_text(5, len(expected_out))
 if got_echo == expected_echo and got_out == expected_out:
-    print(f"OK: {label} エコー行='{got_echo}' 出力行='{got_out}'")
+    print(f"OK: {label} エコーと出力が一致")
 else:
-    print(f"NG: {label} エコー行='{got_echo}'(期待'{expected_echo}') 出力行='{got_out}'(期待'{expected_out}')")
+    print(f"NG: {label} エコーまたは出力が不一致")
     sys.exit(1)
 PYEOF
   [ $? -ne 0 ] && fail "PRINT書式+エコー($label)"
@@ -382,12 +382,12 @@ python3 - "$WORK/l3spacefault.vram.bin" "$STRIDE" << 'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
 stride = int(sys.argv[2])
-got_echo = data[2*stride:2*stride+7].decode("ascii", errors="replace")
+got_echo = data[4*stride:4*stride+7].decode("ascii", errors="replace")
 expect_normal = "print 1"
 if got_echo != expect_normal:
-    print(f"OK(検出力): SPACE故障注入がかかるとエコー行='{got_echo}'(期待'{expect_normal}'と不一致)になり、検査3bと区別できた")
+    print("OK: 画面の比較（本文非出力）")
     sys.exit(0)
-print(f"NG(検出力不足): 故障注入してもエコー行='{got_echo}'のままで検査3bと区別できない")
+print("NG: 画面の比較（本文非出力）")
 sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "SPACE故障注入(l4)の検出力"
@@ -409,9 +409,9 @@ stride = int(sys.argv[2]); row = int(sys.argv[3])
 got = data[row*stride:row*stride+3].decode("ascii", errors="replace")
 expect_normal = " 1 "
 if got != expect_normal:
-    print(f"OK(検出力): 前置空白の故障注入で出力行='{got}'(正常時'{expect_normal}'と不一致)になり区別できた")
+    print("OK: 画面の比較（本文非出力）")
     sys.exit(0)
-print(f"NG(検出力不足): 故障注入しても出力行='{got}'のままで正常時と区別できない")
+print("NG: 画面の比較（本文非出力）")
 sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "前置空白の故障注入の検出力"
@@ -462,9 +462,9 @@ stride = int(sys.argv[2]); row = int(sys.argv[3])
 expect_normal = sys.argv[4]
 got = data[row*stride:row*stride+len(expect_normal)].decode("ascii", errors="replace")
 if got != expect_normal:
-    print(f"OK(検出力): Missing operandの判定を外した故障注入で出力行='{got}'(正常時'{expect_normal}'と不一致)になり区別できた")
+    print("OK: 画面の比較（本文非出力）")
     sys.exit(0)
-print(f"NG(検出力不足): 故障注入しても出力行='{got}'のままで正常時と区別できない")
+print("NG: 画面の比較（本文非出力）")
 sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "Missing operand判定の故障注入の検出力"

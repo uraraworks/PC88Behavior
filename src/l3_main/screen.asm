@@ -93,6 +93,12 @@ SCREEN_BANNER:
     LD HL,BANNER_TXT
     CALL PRINT_STR
     CALL NEWLINE
+    LD HL,BANNER_TXT2
+    CALL PRINT_STR
+    CALL NEWLINE
+    LD HL,BANNER_TXT3
+    CALL PRINT_STR
+    CALL NEWLINE
 
     LD A,EXTRA_LINES
     OR A
@@ -320,7 +326,11 @@ SCROLL:
 ; データ
 ; ---------------------------------------------------------------------
 BANNER_TXT:
-    DB "PC88Behavior v0.1",0
+    DB "PC88Behavior Compatible ROM  @BUILD_DATE@ (@BUILD_REV@)",0
+BANNER_TXT2:
+    DB "(C) 2026 URARA-works",0
+BANNER_TXT3:
+    DB "Welcome back to the 80s!",0
 FILLER_TXT:
     DB "----FILLER----",0
 OK_TXT:

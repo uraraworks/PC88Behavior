@@ -55,6 +55,7 @@ say() { printf '\n\033[36m==>\033[0m %s\n' "$1"; }
 ok() { echo "OK: $1"; }
 fail() { echo "NG: $1" >&2; FAILED=1; }
 
+export PC88_BUILD_DATE=2026-11-12 PC88_BUILD_REV=fc61024
 FAILED=0
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -76,10 +77,10 @@ python3 "$BUILD" "$FAULT_ROM" --inject-editkey-home-clr-fault >"$WORK/build_faul
 python3 "$BUILD" "$REPEAT_FAULT_ROM" --inject-key-repeat-fault >"$WORK/build_repeat_fault.txt" 2>&1 \
   || { fail "build_main_rom.py(キーリピート故障注入)が失敗"; cat "$WORK/build_repeat_fault.txt" >&2; }
 
-# row_signatureはrow0-1のnonblank件数(banner=16, Ok=2)なので、これを
+# row_signatureは各行のnonblank件数なので、これを
 # 「起動直後のまま」の判定基準として使い回す。
-BOOT_NONBLANK="[16, 2, 0]"
-CLEARED_NONBLANK="[0, 0, 0]"
+BOOT_NONBLANK="[44, 18, 20, 2, 0]"
+CLEARED_NONBLANK="[0, 0, 0, 0, 0]"
 
 check_clr_or_home() {
   # $1=rom $2=key(0x08:0 単独 or SHIFT併用の最後のkey-matrix文字列群)
@@ -94,7 +95,7 @@ check_clr_or_home() {
 import sys
 sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import row_signature
-r = row_signature(sys.argv[1], [0, 1, 2])
+r = row_signature(sys.argv[1], [0, 1, 2, 3, 4])
 print([e["nonblank_count"] for e in r["row_signatures"]])
 PYEOF
 )"
@@ -131,8 +132,8 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-ok = len(cc) == 1 and cc[0]["row0"] == 1 and cc[0]["col0"] == 79 and cc[0].get("was_blank") is True
-print("OK: wrap_prev_line_end(row1,col79)" if ok else f"NG: wrap_prev_line_end 不一致: {cc}")
+ok = len(cc) == 1 and cc[0]["row0"] == 3 and cc[0]["col0"] == 79 and cc[0].get("was_blank") is True
+print("OK: wrap_prev_line_end(row3,col79)" if ok else f"NG: wrap_prev_line_end 不一致: {cc}")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "←境界(wrap_prev_line_end)の検査"
@@ -150,8 +151,8 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-ok = len(cc) == 1 and cc[0]["row0"] == 2 and cc[0]["col0"] == 0 and cc[0].get("was_blank") is True
-print("OK: wrap_to_next_line(row2,col0)" if ok else f"NG: wrap_to_next_line 不一致: {cc}")
+ok = len(cc) == 1 and cc[0]["row0"] == 4 and cc[0]["col0"] == 0 and cc[0].get("was_blank") is True
+print("OK: wrap_to_next_line(row4,col0)" if ok else f"NG: wrap_to_next_line 不一致: {cc}")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "→境界(wrap_to_next_line)の検査"
@@ -169,8 +170,8 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-ok = len(cc) == 1 and cc[0]["row0"] == 1 and cc[0]["col0"] == 0
-print("OK: row_move上(row1,col0)" if ok else f"NG: row_move上 不一致: {cc}")
+ok = len(cc) == 1 and cc[0]["row0"] == 3 and cc[0]["col0"] == 0
+print("OK: row_move上(row3,col0)" if ok else f"NG: row_move上 不一致: {cc}")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "↑(row_move)の検査"
@@ -188,8 +189,8 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-ok = len(cc) == 1 and cc[0]["row0"] == 3 and cc[0]["col0"] == 0 and cc[0].get("was_blank") is True
-print("OK: row_move下(row3,col0)" if ok else f"NG: row_move下 不一致: {cc}")
+ok = len(cc) == 1 and cc[0]["row0"] == 5 and cc[0]["col0"] == 0 and cc[0].get("was_blank") is True
+print("OK: row_move下(row5,col0)" if ok else f"NG: row_move下 不一致: {cc}")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "↓(row_move)の検査"
@@ -227,10 +228,10 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps, row_signature
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-before_nb = row_signature(sys.argv[1], [2])["row_signatures"][0]["nonblank_count"]
-after_nb = row_signature(sys.argv[2], [2])["row_signatures"][0]["nonblank_count"]
-ok = len(cc) == 1 and cc[0]["row0"] == 2 and cc[0]["col0"] == 2 and before_nb == 3 and after_nb == 2
-print("OK: del_left(row2,col2のみ変化, nonblank 3->2)" if ok
+before_nb = row_signature(sys.argv[1], [4])["row_signatures"][0]["nonblank_count"]
+after_nb = row_signature(sys.argv[2], [4])["row_signatures"][0]["nonblank_count"]
+ok = len(cc) == 1 and cc[0]["row0"] == 4 and cc[0]["col0"] == 2 and before_nb == 3 and after_nb == 2
+print("OK: del_left(row4,col2のみ変化, nonblank 3->2)" if ok
       else f"NG: del_left 不一致: {cc} before_nb={before_nb} after_nb={after_nb}")
 sys.exit(0 if ok else 1)
 PYEOF
@@ -252,11 +253,11 @@ sys.path.insert(0, "$REPO/tools")
 from l4_vram_probe import diff_vram_dumps, row_signature
 d = diff_vram_dumps(sys.argv[1], sys.argv[2], None)
 cc = d["char_changes"]
-before_nb = row_signature(sys.argv[1], [2])["row_signatures"][0]["nonblank_count"]
-after_nb = row_signature(sys.argv[2], [2])["row_signatures"][0]["nonblank_count"]
-ok = (len(cc) == 1 and cc[0]["row0"] == 2 and cc[0]["col0"] == 2
+before_nb = row_signature(sys.argv[1], [4])["row_signatures"][0]["nonblank_count"]
+after_nb = row_signature(sys.argv[2], [4])["row_signatures"][0]["nonblank_count"]
+ok = (len(cc) == 1 and cc[0]["row0"] == 4 and cc[0]["col0"] == 2
       and cc[0].get("was_blank") is True and before_nb == 2 and after_nb == 3)
-print("OK: ins_mode_only(row2,col2に押し出され, nonblank 2->3)" if ok
+print("OK: ins_mode_only(row4,col2に押し出され, nonblank 2->3)" if ok
       else f"NG: ins_mode_only 不一致: {cc} before_nb={before_nb} after_nb={after_nb}")
 sys.exit(0 if ok else 1)
 PYEOF
@@ -268,8 +269,8 @@ say "10. RETURN第17節: whole_line・reads_whole_row・reexec_overwrites_below"
 # (列6)へ、'1'を'5'に上書き(古い列7-8の'0','0'は未編集のまま残る=
 # reads_whole_row)、←で行末以外へ動かしてからRETURN。
 # 期待:
-#   - 打ったprint行(row2)自体はRETURNで書き換わらない(hashが直前と同じ)
-#   - 出力行(row3)だけが上書きされる(reexec_overwrites_below)。
+#   - 打ったprint行(row4)自体はRETURNで書き換わらない(hashが直前と同じ)
+#   - 出力行(row5)だけが上書きされる(reexec_overwrites_below)。
 #   - 変化したセルは出力行の1個だけ(旧"100"→新"500"は千の位のみ違う形)。
 mk_return_seq() {
   local f=60 args=()
@@ -303,14 +304,14 @@ from l4_vram_probe import diff_vram_dumps, row_signature
 before, after = sys.argv[1], sys.argv[2]
 d = diff_vram_dumps(before, after, None)
 cc = d["char_changes"]
-row2_before = row_signature(before, [2])["row_signatures"][0]
-row2_after = row_signature(after, [2])["row_signatures"][0]
-ok = (row2_before["row_sha256"] == row2_after["row_sha256"]     # 打った行自体は不変
-      and len(cc) == 1 and cc[0]["row0"] == 3                    # 変化は出力行(row3)だけ
+row4_before = row_signature(before, [4])["row_signatures"][0]
+row4_after = row_signature(after, [4])["row_signatures"][0]
+ok = (row4_before["row_sha256"] == row4_after["row_sha256"]     # 打った行自体は不変
+      and len(cc) == 1 and cc[0]["row0"] == 5                    # 変化は出力行(row5)だけ
       and cc[0].get("was_blank") is False)                       # 既存のOk出力を上書き
 print("OK: whole_line/reads_whole_row/reexec_overwrites_below" if ok
       else f"NG: 第17節の検査が一致しない: cc={cc} "
-           f"row2_before={row2_before['row_sha256']} row2_after={row2_after['row_sha256']}")
+           f"row4_before={row4_before['row_sha256']} row4_after={row4_after['row_sha256']}")
 sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "RETURN(第17節)の検査"

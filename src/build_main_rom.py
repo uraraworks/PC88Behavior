@@ -32,6 +32,7 @@ build_main_rom.py — M7段階2a: ディスク無しで自作バナー→Ok→�
 """
 
 import argparse
+import os
 import pathlib
 import re
 import shutil
@@ -2549,6 +2550,30 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
     ipl_text = ipl_text.replace(vec_pad, "VEC_TABLE:\n", 1)
 
     screen_text = SCREEN_ASM.read_text(encoding="utf-8")
+    def build_value(env_name, pattern, fallback, git_args, git_prefix=None):
+        value = os.environ.get(env_name)
+        if value is None:
+            try:
+                value = subprocess.check_output(
+                    ["git", "-C", str(REPO), *git_args], stderr=subprocess.DEVNULL,
+                    env={**os.environ, "TZ": "UTC0"}, text=True).strip()
+                if git_prefix is not None:
+                    value = value[:git_prefix]
+            except (OSError, subprocess.CalledProcessError):
+                value = fallback
+        if not re.fullmatch(pattern, value):
+            raise SystemExit(f"{env_name} の形式が不正です")
+        return value
+
+    build_date = build_value("PC88_BUILD_DATE", r"[0-9]{4}-[0-9]{2}-[0-9]{2}",
+                             "0000-00-00", ["log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%d"])
+    build_rev = build_value("PC88_BUILD_REV", r"(?:[0-9a-f]{7}|unknown)",
+                            "unknown", ["rev-parse", "--verify", "HEAD"], git_prefix=7)
+
+    for marker, value in (("@BUILD_DATE@", build_date), ("@BUILD_REV@", build_rev)):
+        if screen_text.count(marker) != 1:
+            raise SystemExit("バナーの置換点が一意に見つかりません")
+        screen_text = screen_text.replace(marker, value)
     if inject_fault:
         if screen_text.count(FAULT_OLD) != 1:
             raise SystemExit("故障注入の対象行が一意に見つからない（screen.asm が変わった？）")

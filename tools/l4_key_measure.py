@@ -17,10 +17,10 @@ FIELDS=('stage','ready','finish','ERROR_FLAG','count','first_err','first_stage',
 RANGE='E600-E60F'
 SECRET='synthetic-screen-secret'
 
-# 禁止事項6に基づく自作判断。bootのバナー2行だけは製品名が異なる。
+# 禁止事項6に基づく自作判断。bootの自作バナー3行と後続のOk行は位置・内容が異なる。
 KNOWN_DIFFERENCES = {
-    'boot': dict(kind='banner-nonblank-rows-0-1',
-                 reason='禁止事項6に従い自作名・版を表示するためバナー2行の非空白数が異なる',
+    'boot': dict(kind='banner-nonblank-rows-0-3',
+                 reason='禁止事項6に従い自作バナーとOkの配置により先頭4行の非空白数が異なる',
                  section='docs/spec/l4-program.md §5.7')
 }
 
@@ -429,9 +429,9 @@ def check(exp,measured):
                 and (v['display']['state']!='valid' or g['display']==v['display'])):
             if aid in KNOWN_DIFFERENCES: now_matches.append(aid)
             continue
-        # bootに限り、行0・1のnonblankのみを許す。他の全フィールドは公式値と同じ。
+        # bootに限り、行0〜3のnonblankのみを許す。他の全フィールドは公式値と同じ。
         if aid in KNOWN_DIFFERENCES and g is not None:
-            strict=(g['values']==v['values'] and g['nonblank'][2:]==v['nonblank'][2:]
+            strict=(g['values']==v['values'] and g['nonblank'][4:]==v['nonblank'][4:]
                     and all(g[k]==v[k] for k in ('geometry','bottom_row','bottom_nonblank'))
                     and (v['display']['state']!='valid' or g['display']==v['display']))
             if strict:
@@ -450,17 +450,18 @@ def check_selftest(work):
         assert emit(measured,rs) and expected(exp,[measured])==len(rs)
         want=json.loads(next(r['expected'] for r in csv.DictReader(exp.open(),delimiter='\t') if r['arm']=='boot'))
         boot_runs=next(r for r in rs if r['arm']['id']=='boot')['obs']
-        # バナー2行だけの変化がKNOWN。完全一致はKNOWN-NOW-MATCHES。
+        # 先頭4行だけの変化がKNOWN。完全一致はKNOWN-NOW-MATCHES。
         for boot in boot_runs:
-            boot['rows'][0]['nonblank']=0 if boot['rows'][0]['nonblank'] else 1
-            boot['rows'][1]['nonblank']=0 if boot['rows'][1]['nonblank'] else 1
+            for row in range(4):
+                boot['rows'][row]['nonblank']=0 if boot['rows'][row]['nonblank'] else 1
         assert emit(measured,rs) and check(exp,measured)==(len(rs),[],['boot'],[])
         for boot in boot_runs:
-            boot['rows'][0]['nonblank']=want['nonblank'][0]; boot['rows'][1]['nonblank']=want['nonblank'][1]
+            for row in range(4):
+                boot['rows'][row]['nonblank']=want['nonblank'][row]
         assert emit(measured,rs) and check(exp,measured)==(len(rs),[],[],['boot'])
         negatives=[]
         for aid,mutate in (
-            ('boot',lambda o:o['rows'].__setitem__(2,dict(o['rows'][2],nonblank=(o['rows'][2]['nonblank']+1)%81))),
+            ('boot',lambda o:o['rows'].__setitem__(4,dict(o['rows'][4],nonblank=(o['rows'][4]['nonblank']+1)%81))),
             ('boot',lambda o:o.__setitem__('bottom_nonblank',(o['bottom_nonblank']+1)%81)),
             ('width-80-25',lambda o:o['rows'].__setitem__(0,dict(o['rows'][0],nonblank=(o['rows'][0]['nonblank']+1)%81)))):
             broken=copy.deepcopy(rs); target=next(r for r in broken if r['arm']['id']==aid)
@@ -469,7 +470,7 @@ def check_selftest(work):
             result=check(exp,measured)
             assert result[1], result
             negatives.append(aid)
-    print('OK 合成check: boot許容・完全一致・行2/bottom/他腕行0の陰性対照',flush=True)
+    print('OK 合成check: boot許容・完全一致・行4/bottom/他腕行0の陰性対照',flush=True)
 
 
 def synth(a):
