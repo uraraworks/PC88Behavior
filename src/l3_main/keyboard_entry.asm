@@ -1,4 +1,4 @@
-; main-rom-entry 仕様 第11版 1.5.1・1.5.2。
+; main-rom-entry 仕様 第12版 1.5.1・1.5.2。
 ENTRY_3080_HL_RETURN_VALUE EQU 0F000h ; キーがない道筋だけの戻りHL
 ENTRY_3080:
     PUSH BC
@@ -114,22 +114,31 @@ ENTRY_3080_PUSH:
     LD HL,0                     ; 仕様 第11版で未確定。既存の空の値0を代用
     LD (MM_GAME_WA_EFC6),HL
     LD HL,(MM_GAME_WA_E6CB)
-    LD A,H
-    OR L
-    JR NZ,ENTRY_3080_DONE
-    LD D,A                      ; 抑止値がともに0なので、索引の上位も0
-    LD A,(MM_GAME_WA_EFD0)
-    LD B,A
-    LD A,(MM_GAME_WA_EFCD)
+    LD A,(HL)
     INC A
-    AND B
+    LD C,A
+    INC HL
+    LD B,(HL)                   ; 読み索引
+    INC HL
+    INC HL
+    LD A,(HL)
+    AND C
+    CP B
+ENTRY_3080_FULL:
+    JR Z,ENTRY_3080_DONE
     LD E,A
-    LD HL,(MM_GAME_WA_EFD1)
+    LD D,0
+    INC HL
+    LD C,(HL)
+    INC HL
+    LD B,(HL)
+    LD H,B
+    LD L,C
     ADD HL,DE
     LD A,(MM_GAME_WA_EFFE)
 ENTRY_3080_STORE:
     LD (HL),A
-    LD HL,MM_GAME_WA_EFCD
+    LD HL,(MM_GAME_WA_E6CB)
     LD (HL),E                   ; 文字を先に書き、最後に書き索引を公開する
     JR ENTRY_3080_DONE
 ENTRY_3080_IDLE:
@@ -151,34 +160,54 @@ ENTRY_3080_RET:
 ENTRY_35CE:
     PUSH BC
     PUSH HL
-    LD A,(MM_GAME_WA_EFCF)
+    LD C,A                      ; 空のとき入口のAを返す
+    LD HL,(MM_GAME_WA_E6CB)
+    INC HL
+    INC HL
+    LD A,(HL)
     OR A
     JR NZ,ENTRY_35CE_LOOKAHEAD
-    LD A,(MM_GAME_WA_EFD0)
-    LD B,A
-    LD A,(MM_GAME_WA_EFCE)
+    DEC HL
+    LD B,(HL)
+    DEC HL
+    LD A,(HL)
+    CP B
+ENTRY_35CE_EMPTY_CHECK:
+    JR Z,ENTRY_35CE_EMPTY
+    LD A,B
     INC A
-    AND B
+    INC HL
+    INC HL
+    INC HL
+    AND (HL)
     LD C,A
     LD B,0
-    LD HL,(MM_GAME_WA_EFD1)
+    INC HL
+    LD A,(HL)
+    INC HL
+    LD H,(HL)
+    LD L,A
     ADD HL,BC
     LD B,(HL)
-    XOR A
-    LD (MM_GAME_WA_EFCF),A
-    LD A,C
+    LD HL,(MM_GAME_WA_E6CB)
+    INC HL
+    LD (HL),C
 ENTRY_35CE_ADVANCE:
-    LD (MM_GAME_WA_EFCE),A
+    INC HL
+    LD (HL),0
     LD A,B
     JR ENTRY_35CE_RETURN
 ENTRY_35CE_LOOKAHEAD:
-    LD HL,MM_GAME_WA_EFCF
     LD (HL),0
+    JR ENTRY_35CE_RETURN
+ENTRY_35CE_EMPTY:
+    LD A,C
+    CP A
+    POP HL
+    POP BC
+    RET
 ENTRY_35CE_RETURN:
-    LD H,A
-    LD L,0
-    PUSH HL
-    POP AF                      ; A=文字、F=00。割り込み状態は変えない
+    OR A                        ; 文字の符号・ゼロ・パリティを返す
     POP HL
     POP BC
     RET

@@ -1111,8 +1111,8 @@ CONSTANTS = {
     'MM_GAME_WA_ED36': 0xED36,  # 7071から実行するフック
     'MM_GAME_WA_EF86': 0xEF86,  # カーソル行・桁
     'MM_GAME_WA_EFF9': 0xEFF9,
-    'MM_GAME_WA_E6CB': 0xE6CB,  # 積込み抑止1
-    'MM_GAME_WA_E6CC': 0xE6CC,  # 積込み抑止2
+    'MM_GAME_WA_E6CB': 0xE6CB,  # 輪バッファ制御ブロックのポインタ下位
+    'MM_GAME_WA_E6CC': 0xE6CC,  # 輪バッファ制御ブロックのポインタ上位
     'MM_GAME_WA_E6CD': 0xE6CD,  # キー処理抑止
     'MM_GAME_WA_ECDF': 0xECDF,  # 押し始めのフック
     'MM_GAME_WA_EFC6': 0xEFC6,  # ファンクションキー残り

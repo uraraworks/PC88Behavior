@@ -9,8 +9,14 @@
 ; ---------------------------------------------------------------
 EXT_BANK_SELFTEST:
     XOR A
-    LD (EXT_BANK_ST_PASS),A
-    LD (EXT_BANK_ST_WINCALL),A
+    LD HL,EXT_BANK_ST_PASS
+    LD (HL),A
+    INC HL
+    LD (HL),A
+    INC HL
+    LD (HL),A
+    INC HL
+    LD (HL),A
     LD (EXT_BANK_ST_ABS_OK),A
     ; EXT_BANK_ST_LOOP_DONE/LOOP_OKもここで明示的に0初期化する。
     ; RAM(main_ram)は起動時にゼロクリアされる保証が無く(vendor/
@@ -21,27 +27,20 @@ EXT_BANK_SELFTEST:
     ; で検出)。EXT_BANK_SELFTESTはSTEADY_WAITより必ず先に走る(build_main_rom.py
     ; の挿入順)ため、ここで0にしておけば確実にEXT_BANK_LOOP_TESTが
     ; 初回実行される。
-    LD (EXT_BANK_ST_LOOP_DONE),A
-    LD (EXT_BANK_ST_LOOP_OK),A
-
-    LD A,0
-    LD HL,EXT_BANK_WINDOW_BASE
-    CALL EXT_BANK_CALL
+    XOR A
+    CALL _ebst_call_base
     LD (EXT_BANK_ST_VAL0),A
 
     LD A,1
-    LD HL,EXT_BANK_WINDOW_BASE
-    CALL EXT_BANK_CALL
+    CALL _ebst_call_base
     LD (EXT_BANK_ST_VAL1),A
 
     LD A,2
-    LD HL,EXT_BANK_WINDOW_BASE
-    CALL EXT_BANK_CALL
+    CALL _ebst_call_base
     LD (EXT_BANK_ST_VAL2),A
 
     LD A,3
-    LD HL,EXT_BANK_WINDOW_BASE
-    CALL EXT_BANK_CALL
+    CALL _ebst_call_base
     LD (EXT_BANK_ST_VAL3),A
 
     LD B,0
@@ -76,7 +75,7 @@ _ebst_v3ng:
 
     ; バンク0の絶対番地試験(src/ext_bank/bank0.asm
     ; EXT_BANK0_ABS_TEST_ENTRY)。ORGが正しければ期待値0xC5が返る。
-    LD A,0
+    XOR A
     LD HL,EXT_BANK_WINDOW_BASE+EXT_BANK0_ABS_ENTRY_OFFSET
     CALL EXT_BANK_CALL
     LD (EXT_BANK_ST_ABS_VAL),A
@@ -91,7 +90,6 @@ _ebst_absng:
     ; 第2節 制約3)。
     XOR A
     LD (EXT_BANK_ST_MBF_OK),A
-    LD A,0
     LD HL,EXT_BANK_WINDOW_BASE+EXT_BANK0_MBF_ENTRY_OFFSET
     CALL EXT_BANK_CALL
     LD (EXT_BANK_ST_MBF_OK),A
@@ -115,8 +113,7 @@ EXT_BANK_LOOP_TEST:
     LD (EXT_BANK_ST_LOOP_CNT),HL
 _ebst_loop:
     LD A,0
-    LD HL,EXT_BANK_WINDOW_BASE
-    CALL EXT_BANK_CALL
+    CALL _ebst_call_base
     CP EXT_BANK_EXPECT0
     JR NZ,_ebst_loop_fail
     LD HL,(EXT_BANK_ST_LOOP_CNT)
@@ -137,3 +134,7 @@ _ebst_loop_fail:
     LD (EXT_BANK_ST_LOOP_OK),A
     RET
 
+
+_ebst_call_base:
+    LD HL,EXT_BANK_WINDOW_BASE
+    JP EXT_BANK_CALL

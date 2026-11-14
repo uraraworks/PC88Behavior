@@ -125,7 +125,7 @@ def execute(work, rom, disk, tag, screen=False, keyboard=False):
     core = next(p for p in cores if p.suffix in ('.dylib', '.so', '.dll'))
     cmd = [str(ROOT/'tools/harness/frontend/q88measure'), '--core', str(core),
            '--rom-dir', str(rom), '--disk', str(image), '--frames', '1200',
-           '--mem-write-log', str(log), '--mem-write-range', 'D100-EFFF' if isinstance(keyboard, tuple) else 'D100-DFFF',
+           '--mem-write-log', str(log), '--mem-write-range', 'D080-EFFF' if isinstance(keyboard, tuple) else 'D100-DFFF',
            '--screen-signature-only', '--screen-signature-at', 'end:1199', '--out', str(work/(tag+'.report'))]
     if keyboard or isinstance(keyboard, tuple):
         cmd += ['--io-log', str(work/(tag+'.io'))]
@@ -415,8 +415,8 @@ def keyboard_disk(work, idle=False):
         source += f'    LD A,{row+0x30 if idle else 1 << (row % 8)}\n    LD (0x{0xE6D0+row:04X}),A\n'
     source += """    XOR A
     LD (0xE6CD),A
-    LD (0xE6CB),A
-    LD (0xE6CC),A
+    LD HL,0xEFCD
+    LD (0xE6CB),HL
     LD (0xEFCD),A
     LD A,7
     LD (0xEFD0),A
@@ -546,15 +546,17 @@ clear_matrix:
     INC HL
     DJNZ clear_matrix
     LD (0xD110),A
-    LD (0xEFCD),A
-    LD (0xEFCE),A
-    LD (0xEFCF),A
+    LD HL,0xD080
+    LD (0xE6CB),HL
+    LD (0xD080),A
+    LD (0xD081),A
+    LD (0xD082),A
     INC A                       ; 別の前回キーがあっても、新しいエッジを検出する
     LD (0xE6D0),A
     LD A,7
-    LD (0xEFD0),A
+    LD (0xD083),A
     LD HL,0xD1FD
-    LD (0xEFD1),HL
+    LD (0xD084),HL
     LD A,0xC3
     LD (0xECDF),A
     LD HL,hook
@@ -565,6 +567,8 @@ sentinels:
     LD (HL),0xA7
     INC HL
     DJNZ sentinels
+    LD A,0x58
+    LD (0xD082),A
     LD A,0xA1
     OUT (0x10),A
     LD A,1
@@ -579,40 +583,54 @@ repeat_loop:
     LD A,0xA2
     OUT (0x10),A
     ; 0,28,32,36回目の4文字。先読みを1回挟み、索引を動かさない。
+    XOR A
+    LD (0xD082),A
     LD HL,0xD600
     LD (0xD120),HL
 '''
     for i in range(5):
         if i == 1:
-            source += '    LD A,0x58\n    LD (0xEFCF),A\n'
+            source += '    LD A,0x58\n    LD (0xD082),A\n'
         source += ('    DI\n' if i % 2 == 0 else '    EI\n') + '    CALL take_probe\n'
     source += '''    ; 読み索引・書き索引がマスクで巻き戻ることも確認。
     LD A,7
-    LD (0xEFCD),A
-    LD (0xEFCE),A
+    LD (0xD080),A
+    LD (0xD081),A
     LD A,1
     LD (0xE6CF),A
     LD DE,0xD500
     CALL scan_probe
     EI
     CALL take_probe
-    ; E6CBとE6CCは各々積込みだけを抑止。押し始め・フックは実行。
+    ; 次の書き索引が読み索引と等しい満杯状態。
     LD A,1
-    LD (0xE6CB),A
-    LD A,3
-    LD (0xDF00),A
-'''
-    for inhibit in (0xE6CB, 0xE6CC):
-        source += f'''    XOR A
-    LD (0x{0xE6D0+key//8:04X}),A
+    LD (0xD081),A
+    LD A,0x58
+    LD (0xD082),A
+    LD A,0xA6
+    LD (0xD1FE),A
     LD A,1
-    LD (0x{inhibit:04X}),A
-    LD DE,0x{0xD510+(inhibit-0xE6CB)*16:04X}
+    LD (0xE6CF),A
+    LD DE,0xD510
     CALL scan_probe
+    ; 空のとき入口Aを保ち、Zを立てる。
     XOR A
-    LD (0x{inhibit:04X}),A
-'''
-    source += '''    ; E6CD非0では共有域を一切更新せず、INも出さない。
+    LD (0xD081),A
+    LD (0xD082),A
+    LD A,0xA5
+    DI
+    CALL take_probe
+    LD A,0x80
+    LD (0xD082),A
+    EI
+    CALL take_probe
+    LD A,1
+    LD (0xD080),A
+    LD A,3
+    LD (0xD1FE),A
+    DI
+    CALL take_probe
+    ; E6CD非0では共有域を一切更新せず、INも出さない。
     LD A,1
     LD (0xE6CD),A
     LD A,4
@@ -651,7 +669,7 @@ scan_probe:
     LD (DE),A
     INC DE
 '''
-    for addr in (0xEFCD, 0xE6CF, 0xEFF9, 0xEFFE, 0xD110):
+    for addr in (0xD080, 0xE6CF, 0xEFF9, 0xEFFE, 0xD110):
         source += f'    LD A,(0x{addr:04X})\n    LD (DE),A\n    INC DE\n'
     source += '''    RET
 hook:
@@ -690,10 +708,10 @@ take_probe:
     LD DE,(0xD120)
     LD BC,14
     LDIR
-    LD A,(0xEFCE)
+    LD A,(0xD081)
     LD (DE),A
     INC DE
-    LD A,(0xEFCF)
+    LD A,(0xD082)
     LD (DE),A
     INC DE
     LD (0xD120),DE
@@ -714,25 +732,32 @@ def check_ring(work, tag, result, key=78):
         row = data(0xD300+n*9, 9)
         count = 1 + (max(0, n-24)//4)
         timer = 28-n if n < 28 else 4-(n-28) % 4
-        hl = 0xEFCD if n in (0,28,32,36) else 0xE6CF
+        hl = 0xD080 if n in (0,28,32,36) else 0xE6CF
         assert row[:2] == [hl & 255, hl >> 8] and row[3] == 7, f'輪: 戻り値{n}: {row}'
         assert row[2] & 4, f'輪: IFF{n}'
         assert row[4:] == [count,timer,1 if n == 0 else 255,char,1], f'輪: 反復{n}: {row}'
-    assert data(0xD1FE, 4) == [char]*4, '輪: 文字格納'
+    assert data(0xD1FE, 4) == [3]+[char]*3, '輪: 文字格納'
     assert data(0xD111, 5) == [key,(0xE6DC+key//8)&255,0xE6,0xF2,0xE4], '輪: フックA/HL/SP'
     assert result[0xD116] & 4, '輪: フックIFF'
     for i, (char_out, index) in enumerate(((char,1),(0x58,1),(char,2),(char,3),(char,4),(char,0))):
         row = data(0xD600+i*16, 16)
         assert bool(row[0] & 4) == bool(i % 2), f'35CE: IFF{i}'
-        assert row[2:] == [0x68,0x24,0x57,0x13,0xBC,0x9A,0x78,0x56,0x34,0x12,0,char_out,index,0], f'35CE: 戻り・先読み・索引{i}: {row}'
+        assert row[2:] == [0x68,0x24,0x57,0x13,0xBC,0x9A,0x78,0x56,0x34,0x12,(char_out & 0x80) | (4 if char_out.bit_count() % 2 == 0 else 0),char_out,index,0], f'35CE: 戻り・先読み・索引{i}: {row}'
     assert data(0xD500+4,5) == [0,4,255,char,1], '輪: 書き索引の巻戻り'
-    for i in range(2):
-        assert data(0xD510+i*16+4,5) == [0,28,1,char,2+i], '輪: 積込み抑止'
+    assert data(0xD514,5) == [0,4,255,char,1] and (0xD1FE,0xA6) in result['writes'], '輪: 満杯'
+    empty = data(0xD660,16)
+    assert not (empty[0] & 4), '35CE: 空のIFF'
+    assert empty[12] & 0x40 and empty[13:] == [0xA5,0,0], f'35CE: 空 {empty}'
+    for n, expected in ((7, (0x80, 0x80, 0)), (8, (0x04, 3, 1))):
+        row = data(0xD600+n*16,16)
+        assert (row[12], row[13], row[14]) == expected and row[15] == 0, f'35CE: フラグ{n}: {row}'
+        assert bool(row[0] & 4) == (n == 7), f'35CE: IFF{n}'
     writes = result['writes']
     def phase(a, b):
         start = writes.index((0xDF00,a))
         end = writes.index((0xDF00,b))
         return writes[start+1:end]
+    assert [v for a,v in phase(2,4) if a == 0xD1FE] == [0xA6,3], '輪: 満杯時のデータ上書き'
     first = phase(1,2)
     # 押し始めの行での記録→残りの行→前回行上書き→フック→文字→索引。
     row = key//8
@@ -741,7 +766,7 @@ def check_ring(work, tag, result, key=78):
                (0xEFFA,1 << (key%8)), (0xEFFD,key),
                (0xE6D0,0), (0xEFFF,0), (0xE6DC+row,1 << (key%8)),
                (0xE6CF,28), (0xD110,1), (0xEFFE,char),
-               (0xEFC6,0), (0xEFC7,0), (0xD1FE,char), (0xEFCD,1)]
+               (0xEFC6,0), (0xEFC7,0), (0xD1FE,char), (0xD080,1)]
     pos = 0
     for event in ordered:
         assert event in first[pos:], f'輪: 押し始めの書込み順序{event}'
@@ -753,7 +778,7 @@ def check_ring(work, tag, result, key=78):
     inhibited = phase(4,5)
     shared = set(range(0xE6CB,0xE6E8)) | set(range(0xEFC6,0xEFD3)) | set(range(0xEFF9,0xF000))
     assert not any(addr in shared for addr,_ in inhibited), '輪: E6CD抑止の書込み'
-    assert data(0xD530,2) == [0,0xF0] and data(0xD534,5) == [0,28,1,char,3], '輪: E6CD抑止の状態'
+    assert data(0xD530,2) == [0,0xF0] and data(0xD534,5) == [1,4,255,char,1], '輪: E6CD抑止の状態'
     events = read_io(work/(tag+'.io'))
     start = next(i for i,e in enumerate(events) if e[:3] == ('OUT',0x10,0xB1))
     end = next(i for i,e in enumerate(events) if e[:3] == ('OUT',0x10,0xB2))
@@ -771,9 +796,11 @@ def ring_cases(work, rom, obj, code):
         ('hook',obj.labels['ENTRY_3080_HOOK'],bytes(3)),
         ('store',obj.labels['ENTRY_3080_STORE'],b'\x00'),
         ('inhibit',obj.labels['ENTRY_3080_INHIBIT'],b'\xAF\x00\x00'),
-        ('take-index',obj.labels['ENTRY_35CE_ADVANCE'],bytes(3)),
-        ('lookahead',obj.labels['ENTRY_35CE_LOOKAHEAD']+3,bytes(2)),
-        ('flags',obj.labels['ENTRY_35CE_RETURN']+2,b'\x01'),
+        ('full',obj.labels['ENTRY_3080_FULL'],bytes(2)),
+        ('empty',obj.labels['ENTRY_35CE_EMPTY_CHECK'],b'\x00\x00'),
+        ('take-index',obj.labels['ENTRY_35CE_ADVANCE']-1,b'\x00'),
+        ('lookahead',obj.labels['ENTRY_35CE_LOOKAHEAD'],bytes(2)),
+        ('flags',obj.labels['ENTRY_35CE_RETURN'],b'\x00'),
     ):
         tag = 'ring-fault-'+name
         broken = work/tag
@@ -788,7 +815,7 @@ def ring_cases(work, rom, obj, code):
             pass
         else:
             raise AssertionError(f'輪: {name}故障を見逃した')
-    print('PASS: 3080の輪・28/4回リピート・フック順序・抑止、35CEの先読み・全レジスタ・IFFと故障注入',flush=True)
+    print('PASS: 3080の輪・28/4回リピート・フック順序・満杯、35CEの先読み・全レジスタ・IFFと故障注入',flush=True)
 
 
 def numeric_regression(rom, work, obj):
