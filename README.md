@@ -248,8 +248,17 @@ MIT License（[LICENSE](LICENSE)）。文書・測定結果・ツールを含め
 MIT の対象ではなかった。経緯は前節）。
 
 土台に使っている QUASI88 / QUASI88-libretro は BSD 3-Clause で、
-本リポジトリには第三者のコードを含まない（ピン留めコミットへのパッチのみ）。
+本リポジトリにはそのコードを含まず、ピン留めコミットへのパッチのみを含む。
+BASIC の数値演算部には GW-BASIC（MIT License）由来の移植を含み、各ファイルに
+原著作権表示と許諾条項を残している。
 詳細は [docs/notes/m1-quasi88-survey.md](docs/notes/m1-quasi88-survey.md)。
+
+東雲フォント `fonts/shinonome-0.9.11` も同梱する（[ライセンス](fonts/shinonome-0.9.11/LICENSE)）。
+
+## 商標・非提携
+
+記載の機種名・製品名は各権利者の商標または登録商標である。
+本プロジェクトは各権利者とは無関係の非公式プロジェクトであり、承認・支援を受けていない。
 
 ## 測定結果について
 
