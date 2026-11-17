@@ -873,6 +873,20 @@ def build_n88(stop_after=None, font_sample=False):
     if stop_after == "P2":
         return _finish(a, 63)
 
+    # 起動済みの場合だけ3面を消去。既存のP3が面選択をRAMへ戻す。
+    sig = memmap.addresses()['BOOT_SIGNATURE']
+    a.db(0x3A, sig & 255, sig >> 8, 0xFE, 0xA5)  # LD A,(sig); CP A5
+    a.jr_nz("_cold_boot")
+    a.db(0x3A, (sig + 1) & 255, (sig + 1) >> 8, 0xFE, 0x5A)
+    a.jr_nz("_cold_boot")
+    for port in (0x5C, 0x5D, 0x5E):
+        a.xor_a(); a.out_a(port)
+        # C000-FFFF の16 KiBをLDIRで0埋め。
+        a.db(0x21, 0x00, 0xC0, 0x36, 0x00, 0x11, 0x01, 0xC0,
+             0x01, 0xFF, 0x3F, 0xED, 0xB0)
+    a.xor_a(); a.out_a(0x5F)
+    a.label("_cold_boot")
+
     # ---- P3. 周辺の初期化とパレット再設定（付録A 64-107）----
     a.call("USART"); a.record_all(USART_OUTS)          # 64-75
     a.out_seq([
@@ -945,6 +959,8 @@ def build_n88(stop_after=None, font_sample=False):
     # （第7節。二重の検査の「1」と「2」の役割分担どおり）。
     a.record_all(vsync_outs)
     a.label("STEADY_WAIT")
+    a.ld_a(0xA5); a.st_a(sig)
+    a.ld_a(0x5A); a.st_a(sig + 1)
     a.halt()                                 # 次の VSYNC まで待つ
     a.jp("STEADY_WAIT")
 

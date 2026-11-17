@@ -265,7 +265,7 @@ KEY_REPEAT_DELAY_FAULT_NEW = "KEY_REPEAT_DELAY    EQU 255"
 # 呼ぶ自己検査)の呼び出しを差し込む。STEADY_WAITはHALT/JPで毎フレーム
 # 回るループなので、呼び出し先は自前で「実行済みフラグ」を見て
 # 2回目以降は素通りする(src/ext_bank/selftest.asm EXT_BANK_LOOP_TEST)。
-STEADY_WAIT_MARK = "STEADY_WAIT:\n    HALT"
+STEADY_WAIT_MARK = "STEADY_WAIT:\n"
 
 # 起動用セクタの受け渡し（docs/spec/l3-boot-sector.md 第2版）。配布ビルドで
 # IM2/EIの設定直後・STEADY_WAITの手前に1回だけ通る位置へ差し込む（MAINから
@@ -2502,7 +2502,7 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
         if ipl_text.count(STEADY_WAIT_MARK) != 1:
             raise SystemExit(f"STEADY_WAITの挿入点が一意でない: {STEADY_WAIT_MARK!r}")
         ipl_text = ipl_text.replace(
-            STEADY_WAIT_MARK, "STEADY_WAIT:\n" + steady_wait_calls + "    HALT")
+            STEADY_WAIT_MARK, "STEADY_WAIT:\n" + steady_wait_calls)
 
     if enable_l4_selftest:
         # N中継はEIするのでIM2/I設定後に一度だけ呼ぶ。
