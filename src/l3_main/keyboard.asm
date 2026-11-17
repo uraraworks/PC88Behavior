@@ -512,8 +512,8 @@ _kr_use_base:
 _kr_lookup:
     ADD HL,DE
     LD A,(HL)
-    OR A
-    JR Z,_kr_ignore
+    CP 020h                  ; 行入力では制御コードを文字として表示しない
+    JR C,_kr_ignore
     LD E,A
     LD A,1
     CALL ARM_REPEAT_CHAR       ; 第8節: 文字キーにはキーリピートが効く。
