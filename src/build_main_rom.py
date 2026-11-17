@@ -2910,7 +2910,14 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                              ("ENTRY_37D2", "MAIN_SUB_SEND_CONT"),
                              ("ENTRY_3847", "MAIN_SUB_RECV")):
             entries += f"{name} EQU {target if enable_main_sub_read else 'ENTRY_369A'}\n"
-    entries += (REPO / "src/l3_main/keyboard_entry.asm").read_text(encoding="utf-8")
+    keyboard_entries = (REPO / "src/l3_main/keyboard_entry.asm").read_text(encoding="utf-8")
+    if enable_ext_bank_selftest:
+        # この専用ROMは3080を呼ばない。自己検査コードの領域を確保し、
+        # 固定入口の配置と他の入口は引き続き検査する。
+        start = keyboard_entries.index("ENTRY_3080:\n")
+        end = keyboard_entries.index("ENTRY_35CE:\n", start)
+        keyboard_entries = keyboard_entries[:start] + "ENTRY_3080:\n    RET\n\n" + keyboard_entries[end:]
+    entries += keyboard_entries
     entries += (REPO / "src/l3_main/screen_mode.asm").read_text(encoding="utf-8")
     entries += (REPO / "src/l3_main/screen_entry.asm").read_text(encoding="utf-8")
     entries += measure_driver_include

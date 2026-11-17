@@ -39,7 +39,8 @@ Z80TEXT="tools/asm/z80text.py"
 # 2026-10-04 RAM 配置の段B（docs/notes/memory-map-redesign-plan.md）で、CPU スタックを
 # 0xF000 から 0xF3C8 へ移したため再度更新した。旧値との差は N88.ROM の 3〜4 バイト目
 # （LD SP の即値 00 F0 → C8 F3）の2バイトだけであることを cmp -l で確かめた。
-EXPECT_N88_SHA="13d42c1d7b0b8e169b664cdc21e9f1b49e349c1be5cdf3525fdfe52609134435"
+# 途中リセット時のGVRAM消去を追加した現行IPLの出力。
+EXPECT_N88_SHA="53f897ce9e58ce756179c11c184b57cffd50b74938f12b4d87b688ef02e8d8e9"
 EXPECT_IPL_DISK_SHA="9c7e2a5d8c69b54d7bcc404c8e863e90f0ea2013f4273c9318c1343e5e9f6c5b"
 # 2026-11-01 CI修復: 古いコミットの再ビルドではなく、現在の生成器を固定値で検査する。
 # shallow checkout・ソース配布でも履歴なしで同じ検出力を持たせる。

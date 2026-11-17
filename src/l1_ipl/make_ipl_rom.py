@@ -325,6 +325,12 @@ class Asm:
     def ld_c(self, n):   self.db(0x0E, n)
     def and_a(self, n):  self.db(0xE6, n)
     def ld_sp(self, nn): self.db(0x31, nn & 0xFF, (nn >> 8) & 0xFF)
+    def ld_hl_nn(self, nn): self.db(0x21, nn & 0xFF, nn >> 8)
+    def ld_de_nn(self, nn): self.db(0x11, nn & 0xFF, nn >> 8)
+    def ld_bc_nn(self, nn): self.db(0x01, nn & 0xFF, nn >> 8)
+    def ld_hl_byte(self, n): self.db(0x36, n)
+    def cp_hl(self): self.db(0xBE)
+    def ldir(self): self.db(0xED, 0xB0)
     def ld_hl(self, name):  self.db(0x21); self._abs(name)
     def call(self, name):   self.db(0xCD); self._abs(name)
     def jp(self, name):     self.db(0xC3); self._abs(name)
@@ -440,6 +446,12 @@ _ASM_TEMPLATES = {
     "ld_c": lambda n: f"LD C,{hex8(n)}",
     "and_a": lambda n: f"AND {hex8(n)}",
     "ld_sp": lambda nn: f"LD SP,{hex16(nn)}",
+    "ld_hl_nn": lambda nn: f"LD HL,{hex16(nn)}",
+    "ld_de_nn": lambda nn: f"LD DE,{hex16(nn)}",
+    "ld_bc_nn": lambda nn: f"LD BC,{hex16(nn)}",
+    "ld_hl_byte": lambda n: f"LD (HL),{hex8(n)}",
+    "cp_hl": lambda: "CP (HL)",
+    "ldir": lambda: "LDIR",
     "ld_hl": lambda name: f"LD HL,{name}",
     "call": lambda name: f"CALL {name}",
     "jp": lambda name: f"JP {name}",
@@ -879,18 +891,18 @@ def build_n88(stop_after=None, font_sample=False):
     # 電源投入時は各16バイト区画が均一。RAMだけを読み、I/Oは出さない。
     for index, address in enumerate((0x8000, 0x9000, 0xA000, 0xB000,
                                      0xC000, 0xD000, 0xE000, 0xF210, 0xFFB0)):
-        a.db(0x21, address & 255, address >> 8, 0x7E, 0x06, 15)
+        a.ld_hl_nn(address); a.ld_a_hl(); a.ld_b(15)
         a.label(f"_ram_check_{index}")
-        a.db(0x23, 0xBE)  # INC HL; CP (HL)
+        a.inc_hl(); a.cp_hl()
         a.jp_nz("_warm_boot")
-        a.db(0x10, 0xF9)  # DJNZ: INC HLへ
+        a.djnz(f"_ram_check_{index}")
     a.jp("_cold_boot")
     a.label("_warm_boot")
     for port in (0x5C, 0x5D, 0x5E):
         a.xor_a(); a.out_a(port)
         # C000-FFFF の16 KiBをLDIRで0埋め。
-        a.db(0x21, 0x00, 0xC0, 0x36, 0x00, 0x11, 0x01, 0xC0,
-             0x01, 0xFF, 0x3F, 0xED, 0xB0)
+        a.ld_hl_nn(0xC000); a.ld_hl_byte(0); a.ld_de_nn(0xC001)
+        a.ld_bc_nn(0x3FFF); a.ldir()
     a.xor_a(); a.out_a(0x5F)
     a.label("_cold_boot")
 

@@ -21,7 +21,7 @@ import memmap
 def fast_rom(rom, asm_dir, work):
     """BASIC解析の重さを除いた、実ルーチンの短周期ドライバ。
 
-    自作ROMの通常起動後、レイアウト用のゼロ埋め領域に置いたドライバへ移る。
+    自作ROMの通常起動後、この検査では使わない3080処理をドライバで置き換える。
     生産コードのS9C_POLL/INIT/TRYとバンクはそのまま使う。
     """
     assembler = z80text.Assembler()
@@ -129,7 +129,17 @@ fast_done:
                   if not any(occupied[i:i + size]) and
                   image[i:i + size] == bytes(size)), None)
     if start is None:
-        raise RuntimeError('検査ドライバ用の連続空き領域がない')
+        # 3080の本体はこの検査の起動・INKEY$経路では呼ばれない。
+        # 隣の公開入口やN中継は上書きしない。
+        start, end = labels['ENTRY_3080'], labels['ENTRY_35CE']
+        if (end - start < size or
+                any(start <= labels[name] < start + size
+                    for name in ('STEADY_WAIT', 'S9C_INIT', 'S9C_POLL', 'S9C_TRY_INKEY')) or
+                any(start <= addr < start + size and not name.startswith('ENTRY_3080')
+                    for name, addr in labels.items()) or
+                start <= 0x79D7 < start + size or
+                start < relay + 92 and relay < start + size):
+            raise RuntimeError('検査ドライバ用の領域がない')
     path.write_text(source.format(start=start))
     driver = z80text.Assembler().assemble(path)[start:]
     assert len(driver) == size
