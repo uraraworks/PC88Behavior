@@ -96,7 +96,7 @@ def main():
         subprocess.run([sys.executable, str(h.ROOT/'src/build_main_rom.py'), str(rom),
                         '--work-dir', str(asm)], check=True, stdout=subprocess.DEVNULL)
         cycles = h.idle_cycles((rom/'N88.ROM').read_bytes())
-        assert cycles < 3016, f'3080 キーなし {cycles} T'
+        assert abs(cycles - 3016) <= 8, f'3080 キーなし {cycles} T'
         print(f'PASS: 3080 キーなし {cycles} T', flush=True)
         obj = h.z80text.Assembler()
         obj.assemble(asm/'n88_main_gen.asm')

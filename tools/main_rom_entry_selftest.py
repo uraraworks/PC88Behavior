@@ -872,7 +872,7 @@ def main():
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
         cycles = idle_cycles(code)
-        assert cycles < 3016, f'3080 キーなし {cycles} T'
+        assert abs(cycles - 3016) <= 8, f'3080 キーなし {cycles} T'
         print(f'PASS: 3080 キーなし {cycles} T', flush=True)
         build.check_pinned_entries(code, obj)
         print('PASS: 9入口のJP・飛び先・listing非重複', flush=True)
@@ -919,11 +919,9 @@ def main():
         broken = work/'fault-3847-di'
         shutil.copytree(rom, broken)
         mutated = bytearray(code)
-        stub = obj.labels['AEL_ROM_LAYOUT_PAD'] + 92
-        assert stub + 4 < 0x79D7 and code[stub:stub+4] == bytes(4)
-        target = obj.labels['ENTRY_3847']
-        mutated[stub:stub+4] = bytes((0xF3, 0xC3, target & 255, target >> 8))
-        mutated[0x3848:0x384A] = struct.pack('<H', stub)
+        probe = obj.labels['ENTRY_3847_IFF_PROBE']
+        assert code[probe] == 0x00
+        mutated[probe] = 0xF3  # NOPをDIに替え、IFF規約の検出力を検査。
         (broken/'N88.ROM').write_bytes(mutated)
         observed = execute(work, broken, disk, 'fault-3847-di')
         assert observed.get(0xDFFF) == 0xA5

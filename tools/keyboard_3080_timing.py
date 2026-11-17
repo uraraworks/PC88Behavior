@@ -1,7 +1,11 @@
 """キーなし・前回もキーなしの3080を機械語から実行し、T数を数える。"""
-def idle_cycles(rom):
+def idle_cycles(rom, released=False):
     m = bytearray(65536)
     m[:len(rom)] = rom
+    if released:
+        m[0xeffe] = 0x41
+        m[0xeffa] = 1
+        m[0xeffb:0xeffd] = (0xe6dc).to_bytes(2, "little")
     pc, sp, a, b, c, de, hl, z, sign, t = 0x3080, 0xe500, 0, 0, 0, 0, 0, False, False, 0
     def word(p): return m[p] | m[p+1] << 8
     for _ in range(10000):
@@ -12,6 +16,8 @@ def idle_cycles(rom):
         elif op == 0x3e: a = m[pc]; pc += 1; t += 7
         elif op == 0x0e: c = m[pc]; pc += 1; t += 7
         elif op == 0x06: b = m[pc]; pc += 1; t += 7
+        elif op == 0x01: c = m[pc]; b = m[pc+1]; pc += 2; t += 10
+        elif op == 0x2a: hl = word(word(pc)); pc += 2; t += 16
         elif op == 0x21: hl = word(pc); pc += 2; t += 10
         elif op == 0x11: de = word(pc); pc += 2; t += 10
         elif op == 0x32: m[word(pc)] = a; pc += 2; t += 13
@@ -37,6 +43,7 @@ def idle_cycles(rom):
         elif op == 0x69: hl = (hl&0xff00)|c; t += 4
         elif op == 0x6f: hl = (hl&0xff00)|a; t += 4
         elif op == 0x19: hl = (hl+de)&65535; t += 11
+        elif op == 0x09: hl = (hl+(b<<8)+c)&65535; t += 11
         elif op == 0x23: hl = (hl+1)&65535; t += 6
         elif op == 0xfe: v = (a-m[pc])&255; pc += 1; z = v == 0; sign = bool(v & 128); t += 7
         elif op == 0xc3: pc = word(pc); t += 10
@@ -53,7 +60,7 @@ def idle_cycles(rom):
             sub = m[pc]; pc += 1
             if sub == 0x78: a = 255; z = False; sign = True; t += 12
             else: raise AssertionError(f'ED {sub:02X} at {pc-2:04X}')
-        elif op == 0xfb: t += 4
+        elif op in (0x00, 0xfb): t += 4
         elif op == 0xc9: return t+10
         else: raise AssertionError(f'命令 {op:02X} at {pc-1:04X}')
     raise AssertionError('3080が戻らない')

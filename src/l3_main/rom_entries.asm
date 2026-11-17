@@ -8,6 +8,11 @@ ENTRY_3391:
 ENTRY_37D2:
     PUSH AF
     PUSH BC
+    ; B98: 実サブでの自作391T・公式567T の差 +176T を埋める(13*13+2+NOP)。
+    LD B,13
+_entry_37d2_wait:
+    DJNZ _entry_37d2_wait
+    NOP
     PUSH DE
     CALL MAIN_SUB_SEND_CONT
     POP DE
@@ -17,6 +22,10 @@ ENTRY_37D2:
 ENTRY_37C9:
     PUSH AF
     PUSH BC
+    ; B98: 実サブでの自作756T・公式966T の差 +210T を埋める(13*16+2)。
+    LD B,16
+_entry_37c9_wait:
+    DJNZ _entry_37c9_wait
     PUSH DE
     PUSH HL
     XOR A
@@ -49,7 +58,9 @@ _entry_send:
     POP HL
     RET
 ENTRY_3847:
-    PUSH BC
+ENTRY_3847_IFF_PROBE:
+    NOP                         ; 故障注入ではDIに置換
+    PUSH BC                     ; B98: 実サブでは自作624T>公式588Tなので待ちは足さない
     PUSH DE
     PUSH HL
     PUSH AF
