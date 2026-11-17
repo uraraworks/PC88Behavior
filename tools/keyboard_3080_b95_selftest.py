@@ -109,7 +109,7 @@ def main():
         check(run('kana-a', [(8,5),(2,1)]), 1, [17], [0xC1,0xC1])
         check(run('shift-1', [(8,6),(0,1)]), 1, [1], [49,49])
         check(run('valid-and-zero', [(2,1),(10,0)]), 1, [17], [97,97])
-        check(run('multi', [(2,2),(0,1),(2,1)]), 3, [1,17,18], [49,97,98,98])
+        check(run('multi', [(2,2),(0,1),(2,1)]), 3, [18,17,1], [98,97,49,49])
         for row, bit in ((9,1),(10,0),(11,0)):
             check(run(f'zero-{row}-{bit}', [(row,bit)]), 0, [], [], 77)
         broken = work/'broken'

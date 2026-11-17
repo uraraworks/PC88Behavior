@@ -328,6 +328,7 @@ class Asm:
     def ld_hl(self, name):  self.db(0x21); self._abs(name)
     def call(self, name):   self.db(0xCD); self._abs(name)
     def jp(self, name):     self.db(0xC3); self._abs(name)
+    def jp_nz(self, name):  self.db(0xC2); self._abs(name)
     def jr(self, name):     self.db(0x18); self._rel(name)
     def jr_nz(self, name):  self.db(0x20); self._rel(name)
     def jr_z(self, name):   self.db(0x28); self._rel(name)
@@ -442,6 +443,7 @@ _ASM_TEMPLATES = {
     "ld_hl": lambda name: f"LD HL,{name}",
     "call": lambda name: f"CALL {name}",
     "jp": lambda name: f"JP {name}",
+    "jp_nz": lambda name: f"JP NZ,{name}",
     "jr": lambda name: f"JR {name}",
     "jr_nz": lambda name: f"JR NZ,{name}",
     "jr_z": lambda name: f"JR Z,{name}",
@@ -874,11 +876,16 @@ def build_n88(stop_after=None, font_sample=False):
         return _finish(a, 63)
 
     # 起動済みの場合だけ3面を消去。既存のP3が面選択をRAMへ戻す。
-    sig = memmap.addresses()['BOOT_SIGNATURE']
-    a.db(0x3A, sig & 255, sig >> 8, 0xFE, 0xA5)  # LD A,(sig); CP A5
-    a.jr_nz("_cold_boot")
-    a.db(0x3A, (sig + 1) & 255, (sig + 1) >> 8, 0xFE, 0x5A)
-    a.jr_nz("_cold_boot")
+    # 電源投入時は各16バイト区画が均一。RAMだけを読み、I/Oは出さない。
+    for index, address in enumerate((0x8000, 0x9000, 0xA000, 0xB000,
+                                     0xC000, 0xD000, 0xE000, 0xF210, 0xFFB0)):
+        a.db(0x21, address & 255, address >> 8, 0x7E, 0x06, 15)
+        a.label(f"_ram_check_{index}")
+        a.db(0x23, 0xBE)  # INC HL; CP (HL)
+        a.jp_nz("_warm_boot")
+        a.db(0x10, 0xF9)  # DJNZ: INC HLへ
+    a.jp("_cold_boot")
+    a.label("_warm_boot")
     for port in (0x5C, 0x5D, 0x5E):
         a.xor_a(); a.out_a(port)
         # C000-FFFF の16 KiBをLDIRで0埋め。
@@ -959,8 +966,6 @@ def build_n88(stop_after=None, font_sample=False):
     # （第7節。二重の検査の「1」と「2」の役割分担どおり）。
     a.record_all(vsync_outs)
     a.label("STEADY_WAIT")
-    a.ld_a(0xA5); a.st_a(sig)
-    a.ld_a(0x5A); a.st_a(sig + 1)
     a.halt()                                 # 次の VSYNC まで待つ
     a.jp("STEADY_WAIT")
 

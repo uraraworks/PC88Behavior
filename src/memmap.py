@@ -92,7 +92,6 @@ REGIONS = (
     Region('INKEY_QUEUE', 0xF1EA, 32, '保持', 'INKEYキュー', 'normal'),
     Region('PROGRAM_WORK', 0xFF80, 29, '一時', '本文編集・LISTポインタ', 'normal'),
     Region('MEMDYN', 0xF20A, 16, '保持/一時', 'LIMIT・ヒープ開始/末尾・空き上端・FOR/GOSUB位置・捕捉上端・検索種別・画面モード', 'normal'),
-    Region('BOOT_SIGNATURE', 0xF22C, 2, '保持', '起動完了署名（リセット後のVRAM消去判定）', 'normal'),
     Region('STACK_CONFIG', 0xF238, 14, '保持/一時', 'スタック量・下端・16bit深さ・CLEAR候補', 'normal'),
     Region('CONSOLE', 0xF246, 2, '保持', 'CONSOLE: 窓の開始行（実効）・指定された行数（l4-program.md 5.4.6）', 'normal'),
     Region('FKEY', 0xFFD4, 4, '保持', 'KEY: ヒープ内10組のポインタ・表示ON/OFFとAUTO状態・番号作業', 'normal'),
@@ -121,7 +120,6 @@ REGIONS = (
 
 # 排他的なコマンド経路に限って共用する。割込みは画面・キー・INKEYのみ。
 OVERLAPS = {
-    frozenset(('BOOT_SIGNATURE', 'SAVE_ALLOC')): 'SAVEの割当作業で署名が失われることがある。',
     frozenset(('AUTO_STATE', 'SAVE')): 'AUTO入力中はSAVEを実行しない。',
     frozenset(('PAINT_BITMAP_LOW', 'MEASURE_REGS')): '試験ビルド専用でPAINTと排他的。',
     frozenset(('PAINT_BITMAP_LOW', 'EXT_TEST_LOW')): '試験ビルド専用でPAINTと排他的。',
@@ -164,7 +162,6 @@ for _region in REGIONS:
         OVERLAPS[frozenset(('ARRAY_WORK', _region.name))] = '添字の評価・整数化完了後に配列作業値を書く。再入中の名前と添字はCPUスタックに保持し、値の数値変換は要素解決後に行う。PAINT訪問ビットは引数評価後だけ使う。'
 
 FIELDS = {
-    'BOOT_SIGNATURE': ('BOOT_SIGNATURE', 0),
     'MM_RUN_INPUT_COUNT': ('SEQ_STATE', 35),
     'MM_RUN_INPUT_VARS': ('SEQ_STATE', 36),
     'MM_SQ_HANDLES': ('SEQ_STATE', 0),

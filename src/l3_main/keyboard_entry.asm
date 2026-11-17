@@ -1,4 +1,4 @@
-; main-rom-entry 仕様 第14版 1.5.1・1.5.2。
+; main-rom-entry 仕様 第15版 1.5.1・1.5.2。
 ENTRY_3080_HL_RETURN_VALUE EQU 0F000h ; キーがない道筋だけの戻りHL
 ENTRY_3080:
     PUSH BC
@@ -36,8 +36,8 @@ ENTRY_3080_NEXT:
     JP P,ENTRY_3080_SCAN
     XOR A
     LD (MM_GAME_WA_EFFF),A
-    ; 読取りは降順、押し始めは行・ビットの昇順で処理する。
-    LD C,0
+    ; 読取りは降順、押し始めは行・ビットの降順で処理する。
+    LD C,11
 ENTRY_3080_EVENT_ROW:
     LD H,0
     LD L,C
@@ -50,7 +50,7 @@ ENTRY_3080_EVENT_ROW:
     ADD HL,DE
     AND (HL)
     JP Z,ENTRY_3080_NEXT_ROW
-    LD B,0
+    LD B,7
 ENTRY_3080_EVENT_BIT:
     PUSH BC
     LD H,0
@@ -155,16 +155,12 @@ ENTRY_3080_HOOK:
     CALL ENTRY_3080_PUSH
 ENTRY_3080_SKIP:
     POP BC
-    INC B
-    LD A,B
-    CP 8
-    JP NZ,ENTRY_3080_EVENT_BIT
+    DEC B
+    JP P,ENTRY_3080_EVENT_BIT
 ENTRY_3080_NEXT_ROW:
     POP AF
-    INC C
-    LD A,C
-    CP 12
-    JP NZ,ENTRY_3080_EVENT_ROW
+    DEC C
+    JP P,ENTRY_3080_EVENT_ROW
     LD A,(MM_GAME_WA_EFF9)
     OR A
     JR Z,ENTRY_3080_REPEAT
@@ -177,7 +173,7 @@ ENTRY_3080_REPEAT:
     JR NZ,ENTRY_3080_REPEAT_ACTIVE
     ; 前回もキーなしの場合の走査時間を合わせる。BC とフラグは保存する。
     PUSH BC
-    LD B,21
+    LD B,31
 ENTRY_3080_IDLE_WAIT:
     DJNZ ENTRY_3080_IDLE_WAIT
     POP BC
@@ -249,7 +245,7 @@ ENTRY_3080_RET:
 ; 解放後も EFFE は残るため、この経路にもキーなしの待ちを置く。
 ENTRY_3080_RELEASE_DELAY:
     PUSH BC
-    LD B,16
+    LD B,26
 ENTRY_3080_RELEASE_WAIT:
     DJNZ ENTRY_3080_RELEASE_WAIT
     POP BC
