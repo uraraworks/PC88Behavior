@@ -1097,7 +1097,7 @@ _hook_done:
     CALL SET_CURSOR
     RET
 
-; 既存の生成表と修飾優先順位を共有。編集キーは表の0で無視し画面に触れない。
+; 既存の生成表と修飾優先順位を共有。編集キーも INKEY$ の値を返す。
 IK_DECODE_MAIN:
     CALL FKEY_EVENT
     JR Z,fkey_decode_normal

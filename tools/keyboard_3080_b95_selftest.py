@@ -108,10 +108,20 @@ def main():
         check(run('shift-a', [(8,6),(2,1)]), 1, [17], [65,65])
         check(run('kana-a', [(8,5),(2,1)]), 1, [17], [0xC1,0xC1])
         check(run('shift-1', [(8,6),(0,1)]), 1, [1], [49,49])
-        check(run('valid-and-zero', [(2,1),(10,0)]), 1, [17], [97,97])
+        check(run('valid-and-zero', [(2,1),(10,4)]), 1, [17], [97,97])
         check(run('multi', [(2,2),(0,1),(2,1)]), 3, [18,17,1], [98,97,49,49])
-        for row, bit in ((9,1),(10,0),(11,0)):
+        for row, bit in ((9,1),(10,4),(7,7)):
             check(run(f'zero-{row}-{bit}', [(row,bit)]), 0, [], [], 77)
+        for row, bit, value in ((9,7,0x1b), (8,1,0x1e), (10,1,0x1f),
+                                (10,2,0x1d), (8,2,0x1c), (8,0,0x0c),
+                                (8,3,0x7f), (10,0,9), (11,0,0xf8),
+                                (11,1,0xf9), (10,3,1)):
+            check(run(f'special-{row}-{bit}', [(row,bit)]), 1,
+                  [row*8+bit], [value,value])
+        for bit, value in ((0,0x0b),(3,0x12)):
+            check(run(f'shift-special-{bit}', [(8,6),(8,bit)]), 1,
+                  [64+bit], [value,value])
+        print('PASS: 3080 特殊キー')
         broken = work/'broken'
         shutil.copytree(rom, broken)
         code = bytearray((broken/'N88.ROM').read_bytes())

@@ -237,6 +237,20 @@ def generate():
     caps = build_table(CAPS_ROWS)
     shift = build_table(SHIFT_ROWS)
 
+    # 第9a節: INKEY$ の値。第9・10節の画面出力の集計は上の元表で維持。
+    special = {(9, 7): 0x1B, (8, 0): 0x0C, (8, 1): 0x1E,
+               (8, 2): 0x1C, (8, 3): 0x7F, (10, 0): 0x09,
+               (10, 1): 0x1F, (10, 2): 0x1D, (10, 3): 0x01,
+               (11, 0): 0xF8, (11, 1): 0xF9}
+    for (port, bit), value in special.items():
+        base[port * 8 + bit] = value
+        shift[port * 8 + bit] = value
+    shift[8 * 8] = 0x0B
+    shift[8 * 8 + 3] = 0x12
+    for port, bit, code in BASE_ROWS:
+        if 0x61 <= code <= 0x7A and code not in (0x63, 0x6F, 0x73):
+            ctrl[port * 8 + bit] = code - 0x60
+
     header = (
         "; key_table_gen.asm — tools/gen_l3_key_table.py が生成した。手で編集しない。\n"
         ";\n"
