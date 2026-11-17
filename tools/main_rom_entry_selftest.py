@@ -16,6 +16,7 @@ import z80text
 import memmap
 import compare_screen_signatures as sig
 import make_l3_testdisk as diskgen
+from keyboard_3080_timing import idle_cycles
 
 
 def assemble(work, name, text, origin):
@@ -426,6 +427,12 @@ def keyboard_disk(work, idle=False):
     LD (0xECDF),A
     LD A,2
     LD (0xE6CF),A
+    LD HL,0xE6DC
+    LD (0xEFFB),HL
+    LD A,1
+    LD (0xEFFA),A
+    LD A,0x30
+    LD (0xEFFE),A
     LD A,0xA1
     OUT (0x10),A
     LD BC,0x1234
@@ -737,7 +744,8 @@ def check_ring(work, tag, result, key=78):
         assert row[2] & 4, f'輪: IFF{n}'
         assert row[4:] == [count,timer,1 if n == 0 else 255,char,1], f'輪: 反復{n}: {row}'
     assert data(0xD1FE, 4) == [3]+[char]*3, '輪: 文字格納'
-    assert data(0xD111, 5) == [key,(0xE6DC+key//8)&255,0xE6,0xF2,0xE4], '輪: フックA/HL/SP'
+    hook_sp = 0xE500 - 2 - 2 - 10  # scan_probeと3080のCALL、3080入口から10バイト
+    assert data(0xD111, 5) == [key,(0xE6DC+key//8)&255,0xE6,hook_sp & 255,hook_sp >> 8], '輪: フックA/HL/SP'
     assert result[0xD116] & 4, '輪: フックIFF'
     for i, (char_out, index) in enumerate(((char,1),(0x58,1),(char,2),(char,3),(char,4),(char,0))):
         row = data(0xD600+i*16, 16)
@@ -759,12 +767,12 @@ def check_ring(work, tag, result, key=78):
         return writes[start+1:end]
     assert [v for a,v in phase(2,4) if a == 0xD1FE] == [0xA6,3], '輪: 満杯時のデータ上書き'
     first = phase(1,2)
-    # 押し始めの行での記録→残りの行→前回行上書き→フック→文字→索引。
+    # 全行読取り後、押し始めの情報→フック→文字→索引。
     row = key//8
-    ordered = [(0xE6D0+row,1 << (key%8)), (0xEFF9,1),
+    ordered = [(0xE6D0+row,1 << (key%8)), (0xE6D0,0), (0xEFFF,0),
+               (0xEFF9,1), (0xEFFD,key),
                (0xEFFB,(0xE6DC+row)&255), (0xEFFC,0xE6),
-               (0xEFFA,1 << (key%8)), (0xEFFD,key),
-               (0xE6D0,0), (0xEFFF,0), (0xE6DC+row,1 << (key%8)),
+               (0xE6DC+row,1 << (key%8)), (0xEFFA,1 << (key%8)),
                (0xE6CF,28), (0xD110,1), (0xEFFE,char),
                (0xEFC6,0), (0xEFC7,0), (0xD1FE,char), (0xD080,1)]
     pos = 0
@@ -863,6 +871,9 @@ def main():
         obj = z80text.Assembler()
         obj.assemble(asmwork/'n88_main_gen.asm')
         code = (rom/'N88.ROM').read_bytes()
+        cycles = idle_cycles(code)
+        assert cycles < 3016, f'3080 キーなし {cycles} T'
+        print(f'PASS: 3080 キーなし {cycles} T', flush=True)
         build.check_pinned_entries(code, obj)
         print('PASS: 9入口のJP・飛び先・listing非重複', flush=True)
         disk, coords = boot_disk(work)

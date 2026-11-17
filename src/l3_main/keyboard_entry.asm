@@ -1,4 +1,4 @@
-; main-rom-entry 仕様 第12版 1.5.1・1.5.2。
+; main-rom-entry 仕様 第14版 1.5.1・1.5.2。
 ENTRY_3080_HL_RETURN_VALUE EQU 0F000h ; キーがない道筋だけの戻りHL
 ENTRY_3080:
     PUSH BC
@@ -29,32 +29,6 @@ ENTRY_3080_IN:
     IN A,(C)
     CPL
     LD (HL),A
-    XOR B
-    AND (HL)                    ; 前回0・今回1だけを押し始めとする
-    JR Z,ENTRY_3080_NEXT
-    LD B,A
-    XOR A
-    SUB B
-    AND B                       ; 同時押しの優先順は未確定。最下位ビットを選ぶ
-    LD B,A
-    LD A,1                      ; 仕様 第11版で未確定。既存のイベント有りの値
-    LD (MM_GAME_WA_EFF9),A
-    LD (MM_GAME_WA_EFFB),DE
-    LD A,B
-    LD (MM_GAME_WA_EFFA),A
-    LD B,0
-ENTRY_3080_BIT:
-    RRCA
-    JR C,ENTRY_3080_NUMBER
-    INC B
-    JR ENTRY_3080_BIT
-ENTRY_3080_NUMBER:
-    LD A,C
-    ADD A,A
-    ADD A,A
-    ADD A,A
-    ADD A,B
-    LD (MM_GAME_WA_EFFD),A
 ENTRY_3080_NEXT:
     DEC HL
     DEC DE
@@ -62,15 +36,150 @@ ENTRY_3080_NEXT:
     JP P,ENTRY_3080_SCAN
     XOR A
     LD (MM_GAME_WA_EFFF),A
+    ; 読取りは降順、押し始めは行・ビットの昇順で処理する。
+    LD C,0
+ENTRY_3080_EVENT_ROW:
+    LD H,0
+    LD L,C
+    LD DE,MM_GAME_WA_E6DC
+    ADD HL,DE
+    LD A,(HL)
+    PUSH AF                      ; 行の元の前回値を保持
+    CPL
+    LD DE,-12
+    ADD HL,DE
+    AND (HL)
+    JP Z,ENTRY_3080_NEXT_ROW
+    LD B,0
+ENTRY_3080_EVENT_BIT:
+    PUSH BC
+    LD H,0
+    LD L,C
+    LD DE,MM_GAME_WA_E6D0
+    ADD HL,DE
+    LD A,(HL)
+    LD E,A
+    LD D,0
+    LD A,B
+    OR A
+    LD A,1
+    JR Z,ENTRY_3080_MASK_READY
+ENTRY_3080_MASK:
+    ADD A,A
+    DJNZ ENTRY_3080_MASK
+ENTRY_3080_MASK_READY:
+    AND E
+    JR Z,ENTRY_3080_SKIP
+    LD E,A
+    LD HL,3
+    ADD HL,SP
+    LD A,(HL)
+    AND E
+    JR NZ,ENTRY_3080_SKIP
+    POP BC
+    PUSH BC
+    ; ファンクションキーは IK_DECODE_MAIN に副作用があるため事前除外。
+    LD A,C
+    CP 9
+    JR NZ,ENTRY_3080_DECODE
+    LD A,B
+    CP 1
+    JR C,ENTRY_3080_DECODE
+    CP 6
+    JR C,ENTRY_3080_SKIP
+ENTRY_3080_DECODE:
+    CALL fkey_decode_normal
+    OR A
+    JR Z,ENTRY_3080_SKIP
+    PUSH AF
+    LD A,1
+    LD (MM_GAME_WA_EFF9),A
+    POP AF
+    PUSH AF
+    POP DE                       ; D=文字コード
+    POP BC
+    PUSH BC
+    LD A,C
+    ADD A,A
+    ADD A,A
+    ADD A,A
+    ADD A,B
+    LD (MM_GAME_WA_EFFD),A
+    LD H,0
+    LD L,C
+    LD BC,MM_GAME_WA_E6DC
+    ADD HL,BC
+    LD (MM_GAME_WA_EFFB),HL
+    LD BC,-12
+    ADD HL,BC
+    LD A,(HL)
+    LD HL,(MM_GAME_WA_EFFB)
+    LD (HL),A
+    POP BC
+    PUSH BC
+    LD A,1
+    INC B
+ENTRY_3080_EVENT_MASK:
+    DEC B
+    JR Z,ENTRY_3080_EVENT_MASK_DONE
+    ADD A,A
+    JR ENTRY_3080_EVENT_MASK
+ENTRY_3080_EVENT_MASK_DONE:
+    LD (MM_GAME_WA_EFFA),A
+    POP BC
+    LD A,D
+    LD (MM_GAME_WA_EFC6),A       ; フック中の文字を作業域に保持
+ENTRY_3080_DELAY:
+    LD A,28
+    LD (MM_GAME_WA_E6CF),A
+    LD A,(MM_GAME_WA_EFFD)
+    PUSH BC
+    EI
+ENTRY_3080_HOOK:
+    CALL MM_GAME_WA_ECDF
+    POP BC
+    LD A,(MM_GAME_WA_EFC6)
+    LD (MM_GAME_WA_EFFE),A
+    LD A,(MM_GAME_WA_EFFD)
+    LD B,A
+    AND 7
+    LD C,A
+    LD A,B
+    RRCA
+    RRCA
+    RRCA
+    AND 15
+    LD B,C
+    LD C,A
+    PUSH BC
+    CALL ENTRY_3080_PUSH
+ENTRY_3080_SKIP:
+    POP BC
+    INC B
+    LD A,B
+    CP 8
+    JP NZ,ENTRY_3080_EVENT_BIT
+ENTRY_3080_NEXT_ROW:
+    POP AF
+    INC C
+    LD A,C
+    CP 12
+    JP NZ,ENTRY_3080_EVENT_ROW
     LD A,(MM_GAME_WA_EFF9)
     OR A
-    JR NZ,ENTRY_3080_NEW
-    LD HL,MM_GAME_WA_E6D0
-    LD B,12
-ENTRY_3080_ANY:
-    OR (HL)
-    INC HL
-    DJNZ ENTRY_3080_ANY
+    JR Z,ENTRY_3080_REPEAT
+    LD HL,(MM_GAME_WA_E6CB)
+    JR ENTRY_3080_DONE
+ENTRY_3080_REPEAT:
+    ; 最後に押し始めた文字キーが現在も押されているときだけ反復。
+    LD A,(MM_GAME_WA_EFFE)
+    OR A
+    JR Z,ENTRY_3080_IDLE
+    LD HL,(MM_GAME_WA_EFFB)
+    LD BC,-12
+    ADD HL,BC
+    LD A,(MM_GAME_WA_EFFA)
+    AND (HL)
     JR Z,ENTRY_3080_IDLE
     LD A,0FFh
     LD (MM_GAME_WA_EFF9),A
@@ -78,54 +187,24 @@ ENTRY_3080_ANY:
     DEC (HL)
     JR NZ,ENTRY_3080_DONE
     LD (HL),KEY_REPEAT_INTERVAL
-    JR ENTRY_3080_PUSH
-ENTRY_3080_NEW:
-    LD HL,(MM_GAME_WA_EFFB)
-    PUSH HL
-    LD BC,-12
-    ADD HL,BC
-    LD A,(HL)
-    POP HL
-    LD (HL),A
-ENTRY_3080_DELAY:
-    LD A,28                     ; 押し始めを0回目とした呼出し回数
-    LD (MM_GAME_WA_E6CF),A
-    LD A,(MM_GAME_WA_EFFD)
-    PUSH BC
-    PUSH DE
-    EI
-ENTRY_3080_HOOK:
-    CALL MM_GAME_WA_ECDF         ; フック入口SP=3080入口SP-10、A=番号、HL=前回行
-    POP DE
-    POP BC
-    LD A,(MM_GAME_WA_EFFD)
-    LD C,A
-    AND 7
-    LD B,A
-    LD A,C
-    RRCA
-    RRCA
-    RRCA
-    AND 15
-    LD C,A
-    CALL IK_DECODE_MAIN          ; INKEY$と同じ既存変換
-    LD (MM_GAME_WA_EFFE),A
+    CALL ENTRY_3080_PUSH
+    JR ENTRY_3080_DONE
 ENTRY_3080_PUSH:
-    LD HL,0                     ; 仕様 第11版で未確定。既存の空の値0を代用
+    LD HL,0
     LD (MM_GAME_WA_EFC6),HL
     LD HL,(MM_GAME_WA_E6CB)
     LD A,(HL)
     INC A
     LD C,A
     INC HL
-    LD B,(HL)                   ; 読み索引
+    LD B,(HL)
     INC HL
     INC HL
     LD A,(HL)
     AND C
     CP B
 ENTRY_3080_FULL:
-    JR Z,ENTRY_3080_DONE
+    RET Z
     LD E,A
     LD D,0
     INC HL
@@ -139,8 +218,8 @@ ENTRY_3080_FULL:
 ENTRY_3080_STORE:
     LD (HL),A
     LD HL,(MM_GAME_WA_E6CB)
-    LD (HL),E                   ; 文字を先に書き、最後に書き索引を公開する
-    JR ENTRY_3080_DONE
+    LD (HL),E
+    RET
 ENTRY_3080_IDLE:
     LD HL,0750h
     PUSH HL
