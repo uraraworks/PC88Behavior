@@ -52,7 +52,14 @@ ENTRY_6F6B_COMMON:
     LD HL,25<<8
     LD (MM_SCR_WTOP),HL
     LD D,1
+    LD A,I                     ; CRTC設定中のVSYNC割り込みを抑止
+    PUSH AF
+    DI
     CALL SCREEN_MODE_APPLY
+    POP AF
+    JP PO,ENTRY_6F6B_MODE_DONE
+    EI
+ENTRY_6F6B_MODE_DONE:
     LD HL,07FC0h
     XOR A
     CALL EXT_BANK_CALL

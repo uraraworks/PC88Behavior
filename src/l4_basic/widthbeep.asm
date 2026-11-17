@@ -687,7 +687,14 @@ wb_w_reset:
 wb_w_apply:
     LD D,0
     LD IX,WB_MODE_ADDR
+    LD A,I                     ; CRTC設定中のVSYNC割り込みを抑止
+    PUSH AF
+    DI
     CALL FN_MAIN_CALL_ADDR
+    POP AF
+    JP PO,wb_w_mode_done
+    EI
+wb_w_mode_done:
     CALL wb_win_calc           ; 窓の下端（行数・ファンクションキー表示から）。P31 は上で更新済み
     LD IX,WB_CLEAR_ADDR        ; 3000バイト全体（25行）を消す（mainのCLEAR_N_ROWS）
     LD HL,MM_TEXT_BASE
