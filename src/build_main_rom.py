@@ -3151,7 +3151,7 @@ def assemble_pinned(src_path):
         nonlocal attempts
         for pc, no, jump in choices:
             attempts += 1
-            if attempts > 32:
+            if attempts > 4096:
                 raise z80text.AsmError("固定入口を命令境界へ配置できない（探索上限）")
             after = f"PINNED_{address:04X}_AFTER"
             block = [f"    {jump} {after}", f"    DS 0x{address:04X}-$",
