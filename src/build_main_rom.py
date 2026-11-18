@@ -2911,8 +2911,8 @@ def build_combined_asm(work: pathlib.Path, extra_lines: int, inject_fault: bool,
                              ("ENTRY_3847", "MAIN_SUB_RECV")):
             entries += f"{name} EQU {target if enable_main_sub_read else 'ENTRY_369A'}\n"
     keyboard_entries = (REPO / "src/l3_main/keyboard_entry.asm").read_text(encoding="utf-8")
-    if enable_ext_bank_selftest:
-        # この専用ROMは3080を呼ばない。自己検査コードの領域を確保し、
+    if enable_ext_bank_selftest or enable_vsync_regcheck or inject_m6ik_arm is not None:
+        # これらの自己検査・通信測定専用ROMは3080を呼ばない。領域を確保し、
         # 固定入口の配置と他の入口は引き続き検査する。
         start = keyboard_entries.index("ENTRY_3080:\n")
         end = keyboard_entries.index("ENTRY_35CE:\n", start)
@@ -3128,6 +3128,12 @@ def assemble_pinned(src_path):
         return obj
 
     entries = sorted(PINNED_ENTRIES.items())
+    initial = compile_lines(lines)
+    size = max((pc + len(chunk) for pc, chunk, _, _ in initial.listing), default=0)
+    if size > N88_SIZE:
+        raise z80text.AsmError(f"ROM に収まらない: {size} > {N88_SIZE}")
+    attempts = 0
+
     def place(rows, obj, index):
         if index == len(entries):
             return rows, obj
@@ -3142,7 +3148,11 @@ def assemble_pinned(src_path):
                     if pc < address - 126]
         choices += [(pc, no, "JP") for pc, no in reversed(candidates)
                     if address - 126 <= pc <= address - 3]
+        nonlocal attempts
         for pc, no, jump in choices:
+            attempts += 1
+            if attempts > 32:
+                raise z80text.AsmError("固定入口を命令境界へ配置できない（探索上限）")
             after = f"PINNED_{address:04X}_AFTER"
             block = [f"    {jump} {after}", f"    DS 0x{address:04X}-$",
                      f"PINNED_{address:04X}: JP {body}", f"{after}:"]
@@ -3156,7 +3166,7 @@ def assemble_pinned(src_path):
                 return result
         return None
 
-    result = place(lines, compile_lines(lines), 0)
+    result = place(lines, initial, 0)
     if result is None:
         raise z80text.AsmError("固定入口を命令境界へ配置できない")
     rows, obj = result
