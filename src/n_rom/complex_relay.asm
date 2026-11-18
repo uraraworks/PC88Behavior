@@ -1,4 +1,4 @@
-; ファイル文専用。ROM表示切替中だけ割込みを禁止する。
+; 双方向呼出し用。ROM表示切替中だけ割込みを禁止する。
     ORG 0 ; ビルド時にMM_N_ROM_CALLへ置換する
 n_complex_call:
     CALL n_complex_toggle

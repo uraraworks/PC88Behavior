@@ -151,7 +151,8 @@ _ki_loop:
 ; ---------------------------------------------------------------------
 ; KEY_READ — 1回ぶんのキースキャンをして、立ち上がりを1個だけ拾う。
 ;   戻り値: A = 0 (イベント無し) / 1 (通常の文字。Eに文字コード) /
-;               2 (RETURNの押下)
+;               2 (RETURN) / 3 (TAB、E=空白数) / 4 (DEL) /
+;               5 (語頭移動、E=戻った桁数)
 ; ---------------------------------------------------------------------
  ; l4-program.md 5.7.6: キー文字列を入力 FIFO に順に格納する。
 ; C=ポート、B=ビット。認識時 A=1。呼出側がレジスタを退避する。
@@ -466,7 +467,7 @@ _kr_ins_or_del:
     RET
 _kr_do_del:
     CALL KEY_DEL_LEFT
-    XOR A
+    LD A,4                  ; INPUT_READLINEにも削除を通知
     RET
 _kr_not_edit:
     ; index = port*8 + bit
@@ -512,13 +513,83 @@ _kr_use_base:
 _kr_lookup:
     ADD HL,DE
     LD A,(HL)
-    CP 020h                  ; 行入力では制御コードを文字として表示しない
-    JR C,_kr_ignore
+    CP 0F8h                 ; ROLLは行入力に入れない
+    JR Z,_kr_ignore
+    CP 0F9h
+    JR Z,_kr_ignore
+    CP 020h                  ; 行入力だけで編集用制御コードを扱う
+    JR C,_kr_control
     LD E,A
     LD A,1
     CALL ARM_REPEAT_CHAR       ; 第8節: 文字キーにはキーリピートが効く。
                                 ; C=port・B=bitはここまで書き換わっていない。
                                 ; A・Eは変えない(呼び出し規約)
+    RET
+_kr_control:
+    CP 09h
+    JR Z,_kr_tab
+    CP 08h
+    JR Z,_kr_do_del
+    CP 0Dh
+    JR Z,_kr_return_control
+    CP 02h
+    JR Z,_kr_word_left
+    JR _kr_ignore
+_kr_return_control:
+    LD A,2
+    RET
+_kr_tab:
+    LD A,(VAR_COL)
+    PUSH AF
+_kr_tab_loop:
+    LD A,020h
+    CALL LINE_PUTCHAR
+    LD A,(VAR_COL)
+    AND 7
+    JR NZ,_kr_tab_loop
+    POP AF
+    AND 7
+    LD E,A
+    LD A,8
+    SUB E
+    LD E,A
+    LD A,3
+    RET
+; 左側の空白を越えてから、文字列の先頭まで戻る。同じ画面行内で止める。
+_kr_word_left:
+    LD A,(VAR_COL)
+    PUSH AF
+_kr_word_skip:
+    LD A,(VAR_COL)
+    OR A
+    JR Z,_kr_word_done
+    DEC A
+    CALL CELL_PTR
+    LD A,(HL)
+    CP 020h
+    JR NZ,_kr_word_chars
+    CALL KEY_CURSOR_LEFT
+    JR _kr_word_skip
+_kr_word_chars:
+    CALL KEY_CURSOR_LEFT
+_kr_word_more:
+    LD A,(VAR_COL)
+    OR A
+    JR Z,_kr_word_done
+    DEC A
+    CALL CELL_PTR
+    LD A,(HL)
+    CP 020h
+    JR Z,_kr_word_done
+    CALL KEY_CURSOR_LEFT
+    JR _kr_word_more
+_kr_word_done:
+    LD A,(VAR_COL)
+    LD E,A
+    POP AF
+    SUB E
+    LD E,A
+    LD A,5
     RET
 _kr_ignore:
     XOR A
@@ -1085,6 +1156,8 @@ _hook_enter:
 _hook_have_event:
     CP 2
     JR Z,_hook_return
+    CP 1
+    JR NZ,_hook_done
     LD A,E
     CALL LINE_PUTCHAR
     JR _hook_done

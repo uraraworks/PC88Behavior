@@ -372,6 +372,94 @@ sys.exit(0 if ok else 1)
 PYEOF
 [ $? -ne 0 ] && fail "RETURNキーの検査"
 
+# 16a: 2文字の後に編集キーを押し、3文字目の位置を検査する。
+check_edit_key() {
+  local label="$1" expected="$2"; shift 2
+  local dump="$WORK/edit_${label}.vram.bin"
+  "$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 250 \
+    --key-matrix 0x02:1:60:10 --key-matrix 0x02:2:90:10 "$@" \
+    --key-matrix 0x02:3:170:10 --vram-dump "$dump" --vram-dump-at 220 \
+    >"$WORK/edit_${label}.stdout.txt" 2>"$WORK/edit_${label}.stderr.txt"
+  if [ $? -ne 0 ]; then fail "編集キー実行($label)"; return; fi
+  python3 - "$dump" "$expected" "$label" <<'PYEOF'
+import sys
+row = open(sys.argv[1], 'rb').read()[4*120:4*120+9]
+expected = bytes.fromhex(sys.argv[2])
+ok = row[:len(expected)] == expected
+print(('OK' if ok else 'NG') + ': 編集キー ' + sys.argv[3])
+sys.exit(not ok)
+PYEOF
+  [ $? -ne 0 ] && fail "編集キー($label)"
+}
+check_edit_key tab 616220202020202063 --key-matrix 0x0A:0:120:10
+check_edit_key shift_tab 616220202020202063 --key-matrix 0x08:6:110:40 --key-matrix 0x0A:0:120:10
+check_edit_key ctrl_i 616220202020202063 --key-matrix 0x08:7:110:40 --key-matrix 0x03:1:120:10
+check_edit_key ctrl_h 616320 --key-matrix 0x08:7:110:40 --key-matrix 0x03:0:120:10
+check_edit_key ctrl_b 636220 --key-matrix 0x08:7:110:40 --key-matrix 0x02:2:120:10
+check_edit_key ctrl_b_spaces 636220 --key-matrix 0x09:6:110:8 --key-matrix 0x08:7:130:30 --key-matrix 0x02:2:140:8
+check_edit_key roll_up 616263 --key-matrix 0x0B:0:120:10
+check_edit_key roll_down 616263 --key-matrix 0x0B:1:120:10
+"$FRONTEND" --core "$CORE" --rom-dir "$NORMAL_ROM" --frames 250 \
+  --key-matrix 0x08:7:50:40 --key-matrix 0x03:5:60:10 \
+  --vram-dump "$WORK/edit_ctrl_m.vram.bin" --vram-dump-at 220 \
+  >"$WORK/edit_ctrl_m.stdout.txt" 2>"$WORK/edit_ctrl_m.stderr.txt"
+if [ $? -ne 0 ]; then fail "編集キー実行(ctrl_m)"; fi
+python3 - "$WORK/edit_ctrl_m.vram.bin" <<'PYEOF'
+import sys
+data = open(sys.argv[1], 'rb').read()
+ok = data[4*120:4*120+2] == b'  ' and data[5*120:5*120+2] == b'Ok'
+print(('OK' if ok else 'NG') + ': 編集キー ctrl_m')
+sys.exit(not ok)
+PYEOF
+[ $? -ne 0 ] && fail "編集キー(ctrl_m)"
+
+# LINE INPUTは画面とは別の生バッファを返すため、編集結果をPRINTで確認する。
+python3 - "$FRONTEND" "$CORE" "$NORMAL_ROM" "$WORK" <<'PYEOF'
+import subprocess, sys
+from pathlib import Path
+frontend, core, rom, work = sys.argv[1:]
+base = {' ': (9, 6), '\n': (1, 7), '$': (6, 4)}
+for i, c in enumerate('abcdefghijklmnopqrstuvwxyz'):
+    base[c] = ((17+i)//8, (17+i)%8)
+cases = [
+    ('tab', [(10, 0)], b'ab      c'),
+    ('ctrl_h', [(8, 7), (3, 0)], b'ac'),
+    ('ctrl_b', [(8, 7), (2, 2)], b'cb'),
+    ('ctrl_m', [(8, 7), (3, 5)], b'ab'),
+]
+for name, editing, expected in cases:
+    args = [frontend, '--core', core, '--rom-dir', rom, '--frames', '1200']
+    def key(c, frame):
+        p, b = base[c]
+        if c == '$':
+            args.extend(['--key-matrix', f'0x08:6:{frame-5}:18'])
+        args.extend(['--key-matrix', f'0x{p:02X}:{b}:{frame}:8'])
+    for i, c in enumerate('line input a$\n'):
+        key(c, 60 + i*20)
+    key('a', 400)
+    key('b', 430)
+    for p, b in editing:
+        args.extend(['--key-matrix', f'0x{p:02X}:{b}:460:8'])
+    if name != 'ctrl_m':
+        key('c', 490)
+        key('\n', 520)
+    for i, c in enumerate('print a$\n'):
+        key(c, 650 + i*20)
+    dump = str(Path(work) / ('line_input_' + name + '.bin'))
+    args.extend(['--vram-dump', dump, '--vram-dump-at', '1150'])
+    proc = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if proc.returncode:
+        print('NG: LINE INPUT ' + name, flush=True)
+        sys.exit(1)
+    data = Path(dump).read_bytes()
+    rows = [data[r*120:r*120+80].rstrip() for r in range(25)]
+    if rows[8] != expected:
+        print('NG: LINE INPUT ' + name, flush=True)
+        sys.exit(1)
+    print('OK: LINE INPUT ' + name, flush=True)
+PYEOF
+[ $? -ne 0 ] && fail "LINE INPUT編集結果"
+
 # -----------------------------------------------------------------------
 say "8. 行入力（--type \"ab\"）: エコー位置・カーソル追従のI/O列"
 TYPE_ROM_IOLOG="$WORK/type.iolog.txt"

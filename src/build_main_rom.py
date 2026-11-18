@@ -2984,6 +2984,16 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
         nsource += f"{name} EQU 0x{main_asm.labels[EXT_BANK1_MAIN_ADDR_LABELS[name]]:04X}\n"
     for name in ('SKIP_SPACES', 'PEEK_CHAR', 'ADV_PTR', 'PARSE_LINENUM_CUR', 'PROGRAM_FIND_END', 'ERR_SET_A', 'RUN_FIND_LINE'):
         nsource += f'{name} EQU 0x{main_asm.labels[name]:04X}\n'
+    flow_source = (REPO / 'src/n_rom/flow.asm').read_text(encoding='utf-8')
+    for name in re.findall(r'(?m)^slow_cb_(\w+):', flow_source):
+        nsource += f'SLOW_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n'
+    for name in ('RUN_TMP16', 'ERROR_FLAG', 'RUN_CTRL', 'RUN_GOSUB_SP',
+                 'LINE_END', 'CUR_PTR', 'RUN_CUR_RECORD', 'RUN_CUR_LINENO',
+                 'IDENT_BUF', 'RUN_FOR_VARNAME', 'CUR_TYPE', 'CUR_DATA',
+                 'RUN_FOR_LIMIT_TYPE', 'RUN_FOR_LIMIT_DATA',
+                 'RUN_FOR_STEP_TYPE', 'RUN_FOR_STEP_DATA', 'RUN_SCAN_DEPTH',
+                 'RUN_KW_TEXT', 'RUN_KW_LEN', 'FKEY_OFF_WORD'):
+        nsource += f'{name} EQU 0x{main_asm.symtab[name]:04X}\n'
     nsource += (REPO / 'src/n_rom/auto.asm').read_text(encoding='utf-8')
     nsource += (REPO / 'src/n_rom/for_fast.asm').read_text(encoding='utf-8')
     file_source = (REPO / 'src/n_rom/file_statements.asm').read_text(encoding='utf-8')
@@ -2993,8 +3003,7 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
             raise SystemExit(f'N側ファイル文のmain呼出先が不正: {name}')
         nsource += f"MAIN_{name} EQU 0x{address:04X}\n"
     # 文字列定数はmain側で読む。その他は共有RAMへの別名。
-    for name in ('sq_for_word', 'sq_as_word', 'sq_modes', 'ERROR_FLAG',
-                 'LINE_END', 'CUR_PTR', 'ERROR_KIND', 'RUN_ASSIGN_KIND',
+    for name in ('sq_for_word', 'sq_as_word', 'sq_modes', 'ERROR_KIND', 'RUN_ASSIGN_KIND',
                  'RUN_STR_TMP_LEN', 'RUN_STR_TMP_BUF'):
         nsource += f"{name} EQU 0x{main_asm.symtab[name]:04X}\n"
     nsource += file_source
@@ -3012,6 +3021,7 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
         nsource += f"MC_MAIN_{name} EQU 0x{address:04X}\n"
     nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += merge_source
+    nsource += flow_source
     if enable_l4_selftest:
         # 共通RAM別名のうち、N側ですでに定義したものは重複させない。
         state = (REPO / 'src/l4_basic/state.asm').read_text(encoding='utf-8')
@@ -3022,6 +3032,10 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
         nsource += f'INCLUDE "{work / "l4_lexer_gen.asm"}"\n'
         nsource += f'INCLUDE "{work / "l4_tokens_gen.asm"}"\n'
         nsource += 'L4_SELFTEST_N_END:\n'
+    input_source = (REPO / 'src/n_rom/input_editor.asm').read_text(encoding='utf-8')
+    for name in re.findall(r'(?m)^ni_cb_(\w+):', input_source):
+        nsource += f'NI_MAIN_{name} EQU 0x{main_asm.labels[name]:04X}\n'
+    nsource += input_source
     nsource += (REPO / 'src/n_rom/delete.asm').read_text(encoding='utf-8')
     edit_source = (REPO / 'src/n_rom/edit.asm').read_text(encoding='utf-8')
     for name in re.findall(r'(?m)^edit_cb_(\w+):', edit_source):
@@ -3051,7 +3065,7 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
         image[start:end] = main_rom[start:end]
         used.update(range(start, end))
     for addr, chunk, _, _ in n_asm.listing:
-        regions = [(0x2000, 0x5000), (0x7600, 0x7980)]
+        regions = [(0x2000, 0x5000), (0x7000, 0x7980)]
         if enable_l4_selftest:
             regions.append((L4_SELFTEST_N_ADDR, L4_SELFTEST_N_LIMIT))
         if not any(start <= addr < addr + len(chunk) <= end for start, end in regions):

@@ -1635,57 +1635,8 @@ _rsros_loop:
 ;   NEXTを探し、その直後(変数名があれば消費した位置)まで進める。
 ;   見つからなければFOR without NEXT(26)。破壊多数。
 RUN_SKIP_TO_MATCHING_NEXT:
-    XOR A
-    LD (RUN_SCAN_DEPTH),A
-_rstmn_stmt_loop:
-    CALL SKIP_SPACES
-    CALL AT_END
-    JR Z,_rstmn_next_record
-    CALL TRY_MATCH_FOR
-    OR A
-    JR Z,_rstmn_try_next_kw
-    LD A,(RUN_SCAN_DEPTH)
-    INC A
-    LD (RUN_SCAN_DEPTH),A
-    JR _rstmn_skip_rest_of_stmt
-_rstmn_try_next_kw:
-    CALL TRY_MATCH_NEXT
-    OR A
-    JR Z,_rstmn_skip_rest_of_stmt
-    CALL SKIP_SPACES
-    CALL LEX_IDENT_PEEK
-    OR A
-    JR Z,_rstmn_next_noname
-    CALL LEX_IDENT_CONSUME
-_rstmn_next_noname:
-    LD A,(RUN_SCAN_DEPTH)
-    OR A
-    JR Z,_rstmn_found
-    DEC A
-    LD (RUN_SCAN_DEPTH),A
-    JR _rstmn_after_stmt
-_rstmn_skip_rest_of_stmt:
-    CALL RUN_SKIP_REST_OF_STATEMENT
-_rstmn_after_stmt:
-    CALL AT_END
-    JR Z,_rstmn_next_record
-    CALL PEEK_CHAR
-    CP ':'
-    JR NZ,_rstmn_next_record
-    CALL ADV_PTR
-    JR _rstmn_stmt_loop
-_rstmn_next_record:
-    CALL RUN_ADVANCE_RECORD
-    OR A
-    JR Z,_rstmn_notfound
-    JR _rstmn_stmt_loop
-_rstmn_found:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_rstmn_notfound:
-    LD A,26
-    JP ERR_SET_A
+    LD HL,0x3E03
+    JP N_COMPLEX_CALL
 
 ; =======================================================================
 ; GOSUBスタック
@@ -1820,6 +1771,7 @@ _ret_nogosub:
     LD A,3
     JP ERR_SET_A
 
+
 FOR_STMT:
     CALL SKIP_SPACES
     CALL LEX_IDENT_CONSUME
@@ -1919,6 +1871,8 @@ _for_syntax:
 _for_typeerr:
     LD A,13
     JP ERR_SET_A
+
+
 
 ; 前方走査の一時的な現在行と、識別子解析の全作業域をスタックへ退避。
 ; 式の作業域とRUN_CUR_RECORDはどちらの検査でも変更しない。
@@ -2144,66 +2098,8 @@ INPUT_TARGET:
 ; 数値は既存の式字句・型変換を用いる。空項目は0。
 ; 自作判断: 未測定の任意式は、数値字で始まる式に限って受理する。
 INPUT_NUMBER:
-    LD HL,(CUR_PTR)
-    PUSH HL
-    LD HL,(LINE_END)
-    PUSH HL
-    LD HL,RUN_STR_TMP_BUF
-    LD (CUR_PTR),HL
-    LD A,(RUN_STR_TMP_LEN)
-    LD E,A
-    LD D,0
-    ADD HL,DE
-    LD (LINE_END),HL
-    OR A
-    JR NZ,_in_number
-    LD HL,0
-    CALL VAL_SET_INT
-    CALL ASSIGN_CONVERT_CUR
-    JR _in_restore
-_in_number:
-    CALL INPUT_RANGE
-    LD A,(ERROR_FLAG)
-    OR A
-    JR NZ,_in_restore
-    CALL PEEK_CHAR
-    CP '+'
-    JR Z,_in_eval
-    CP '-'
-    JR Z,_in_eval
-    CP '&'
-    JR Z,_in_eval
-    CP '.'
-    JR Z,_in_eval
-    CP '0'
-    JR C,_in_bad
-    CP '9'+1
-    JR NC,_in_bad
-_in_eval:
-    CALL PEEK_CHAR
-    CP '+'
-    CALL Z,ADV_PTR
-    CALL LOGIC_OR_EXPR
-    LD A,(ERROR_FLAG)
-    OR A
-    JR NZ,_in_restore
-    CALL INPUT_FIX_LITERAL
-    CALL SKIP_SPACES
-    CALL AT_END
-    JR NZ,_in_bad
-    CALL ASSIGN_CONVERT_CUR
-    JR _in_restore
-_in_bad:
-    LD A,13
-    LD (ERROR_KIND),A
-    LD A,1
-    LD (ERROR_FLAG),A
-_in_restore:
-    POP HL
-    LD (LINE_END),HL
-    POP HL
-    LD (CUR_PTR),HL
-    RET
+    LD HL,0x3E00
+    JP N_COMPLEX_CALL
 
 ; 式の整数リテラル器が単項マイナス用に許す32768を、INPUTでは
 ; 符号つき字面で解釈する。正の十進32768を単精度へ昇格させ、
@@ -2228,36 +2124,10 @@ INPUT_STORE:
     LD IX,0x708B
     JP CAPACITY_BANK_CALL
 
-; 254文字で格納・エコーを止める。編集キーは本段では未対応。
+; 入力待ちと編集バッファの同期はN側。最大254文字を保存する。
 INPUT_READLINE:
-    XOR A
-    LD (RUN_INPUT_RAW_LEN),A
-_irl_loop:
-    CALL CURSOR_INPUT
-    CALL KEY_READ
-    OR A
-    JR Z,_irl_loop
-    CP 2
-    RET Z
-    PUSH DE
-    LD A,(RUN_INPUT_RAW_LEN)
-    CP 254
-    JR NC,_irl_skip
-    LD HL,MM_INPUT_RAW
-    LD D,0
-    LD E,A
-    ADD HL,DE
-    POP DE
-    LD (HL),E
-    LD A,(RUN_INPUT_RAW_LEN)
-    INC A
-    LD (RUN_INPUT_RAW_LEN),A
-    LD A,E
-    CALL PRINT_CHAR
-    JR _irl_loop
-_irl_skip:
-    POP DE
-    JR _irl_loop
+    LD HL,0x7000
+    JP N_COMPLEX_CALL
 
 ; =======================================================================
 ; エラー・停止の出力(RUNは常に1行、l4-program.md第4.5節)
@@ -4062,135 +3932,11 @@ FKEY_STATE_SLOT:
     ADD HL,DE
     RET
 FKEY_MODE_STMT:
-    LD A,'('
-    CALL EXPECT_CHAR
-    CALL PARSE_INT_ARG
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    LD A,D
-    OR A
-    JR NZ,_fkm_illegal
-    LD A,E
-    DEC A
-    CP 10
-    JR NC,_fkm_illegal
-    LD (MM_FKEY_INDEX),A
-    LD A,')'
-    CALL EXPECT_CHAR
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    CALL SKIP_SPACES
-    CALL TRY_MATCH_ON
-    OR A
-    JR NZ,_fkm_on
-    CALL TRY_MATCH_STOP
-    OR A
-    JR NZ,_fkm_off
-    LD HL,FKEY_OFF_WORD
-    LD (RUN_KW_TEXT),HL
-    LD A,3
-    LD (RUN_KW_LEN),A
-    CALL TRY_MATCH_KEYWORD_GENERIC
-    OR A
-    JR Z,_fk_syntax
-_fkm_off:
-    LD A,0
-    JR _fkm_set
-_fkm_on:
-    LD HL,MM_FKEY_ON
-    SET 3,(HL)                  ; 一度でも捕捉を有効にしたら高速連続実行を抑止
-    LD A,1
-_fkm_set:
-    PUSH AF
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    OR A
-    JR Z,_fkm_end
-    CP ':'
-    JR NZ,_fkm_bad_end
-_fkm_end:
-    CALL FKEY_ENSURE
-    LD A,(ERROR_FLAG)
-    OR A
-    JR NZ,_fkm_error
-    CALL FKEY_STATE_SLOT
-    POP AF
-    LD B,A
-    LD A,(HL)
-    AND 080h                 ; RETURNまでは捕捉停止を保つ
-    OR B
-    LD (HL),A
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
-_fkm_bad_end:
-    POP AF
-    JP _fk_syntax
-_fkm_error:
-    POP AF
-    RET
-_fkm_illegal:
-    LD A,5
-    JP ERR_SET_A
-_fk_syntax:
-    LD A,2
-    JP ERR_SET_A
+    LD HL,0x3E06
+    JP N_COMPLEX_CALL
 FKEY_ON_STMT:
-    CALL SKIP_SPACES
-    CALL TRY_MATCH_GOSUB
-    OR A
-    JR Z,_fk_syntax
-    CALL FKEY_ENSURE
-    LD A,(ERROR_FLAG)
-    OR A
-    RET NZ
-    XOR A
-    LD (MM_FKEY_INDEX),A
-    CALL FKEY_SLOT
-    LD B,20
-_fko_clear:
-    LD (HL),A
-    INC HL
-    DJNZ _fko_clear
-_fko_list:
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR Z,_fko_next
-    OR A
-    JR Z,_fko_done
-    CP ':'
-    JR Z,_fko_done
-    CALL PARSE_LINENUM_CUR
-    JR C,_fk_syntax
-    PUSH HL
-    CALL RUN_FIND_LINE
-    POP HL
-    JR C,_fko_undefined
-    PUSH HL
-    CALL FKEY_SLOT
-    POP DE
-    LD (HL),E
-    INC HL
-    LD (HL),D
-    CALL SKIP_SPACES
-    CALL PEEK_CHAR
-    CP ','
-    JR NZ,_fko_done
-_fko_next:
-    CALL ADV_PTR
-    LD A,(MM_FKEY_INDEX)
-    INC A
-    CP 10
-    JR NC,_fk_syntax
-    LD (MM_FKEY_INDEX),A
-    JR _fko_list
-_fko_done:
-    XOR A
-    LD (ERROR_FLAG),A
-    RET
+    LD HL,0x3E09
+    JP N_COMPLEX_CALL
 _fko_undefined:
     LD A,8
     JP ERR_SET_A
