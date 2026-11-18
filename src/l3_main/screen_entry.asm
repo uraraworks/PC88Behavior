@@ -1,7 +1,17 @@
 ; main-rom-entry.md 第10版 1.6・1.7。
 ENTRY_7071_DE_RETURN_VALUE EQU 0FF80h
 ENTRY_7071_HL_RETURN_VALUE EQU 0E616h
+ENTRY_6F6B_WAIT_N EQU 14662   ; 26*14662+101 = 381313T 追加
+ENTRY_7071_WAIT_N EQU 14468   ; 26*14468+74 = 376242T 追加
 ENTRY_7071:
+    ; main-rom-entry.md 1.8節: 公式の最頻値 378058T に合わせる待ち。
+    ; 自作の待ち前は 1823T(G5 無入力、境界時系列で計時)。追加は 26n+74T。
+    PUSH AF
+    PUSH BC
+    LD BC,ENTRY_7071_WAIT_N
+    CALL ENTRY_WAIT_BC
+    POP BC
+    POP AF
     PUSH AF
     CALL MM_GAME_WA_ED36
 ENTRY_7071_RETURN:
@@ -26,6 +36,18 @@ ENTRY_7071_REGS:
     JP ENTRY_6F6B_COMMON
 
 ENTRY_6F6B:
+    ; main-rom-entry.md 1.8節: 公式の最頻値 460709T に合わせる待ち。
+    ; 自作の待ち前は 79401T(G5 無入力、境界時系列で計時)。待ちは 6F6B から
+    ; 入ったときだけで、7071 から共通部分へ来る道には入れない。追加は 26n+101T。
+    CALL ENTRY_6F6B_BODY
+    PUSH AF
+    PUSH BC
+    LD BC,ENTRY_6F6B_WAIT_N
+    CALL ENTRY_WAIT_BC
+    POP BC
+    POP AF
+    RET
+ENTRY_6F6B_BODY:
     PUSH HL
     LD HL,0044h
     PUSH HL
@@ -84,4 +106,11 @@ ENTRY_7071_RESTORE:
     OUT (0x71),A
     INC HL
     INC HL
+    RET
+; BC 回の待ち(26*BC-5T+RET)。A・F・BC を壊す。
+ENTRY_WAIT_BC:
+    DEC BC
+    LD A,B
+    OR C
+    JR NZ,ENTRY_WAIT_BC
     RET

@@ -383,7 +383,7 @@ def screen_cases(work, rom, obj, code):
         'cls': (obj.labels['ENTRY_6F6B_CLS'], bytes(3), 'CLS'),
         'ei': (obj.labels['ENTRY_6F6B_EI'], b'\x00', 'IFF'),
         'cursor': (obj.labels['ENTRY_7071_CURSOR']+3, bytes(3), 'カーソル'),
-        'registers': (obj.labels['ENTRY_6F6B']+1, b'\x21\x00\x00', 'レジスタ'),
+        'registers': (obj.labels['ENTRY_6F6B_BODY']+1, b'\x21\x00\x00', 'レジスタ'),
         'out': (obj.labels['wb_wa_dma_low']-3, b'\x3E\xC8\x00', 'OUT'),
     }
     for name, (address, replacement, reason) in direct_faults.items():
