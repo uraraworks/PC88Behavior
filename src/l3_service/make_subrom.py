@@ -2422,7 +2422,7 @@ def build_subrom(break_write_ack=False,
     a.out_a(P_PIO_B)
     a.inc_hl()
     a.ld_mem_hl(RESP_PTR)
-    a.jp("SEND_DATA_END")             # 第231版容量圧縮: SEND_BYTEの末尾を共有
+    a.jp("SEND_DATA_END")
 
     # ---- 第65版・m7bj: 一般読み出し要求のハンドラ（1.36節）。
     # 先頭バイト0x02・run長5であることは呼び出し側（表引き、下記
@@ -3951,7 +3951,7 @@ PINNED_ENTRIES = {
     0x0008: "FDC_BEGIN", 0x0010: "RECV_BYTE", 0x0018: "SEND_BYTE",
     0x0020: "FDC_OUT", 0x0028: "FDC_IN", 0x0030: "STATE_ACCESS",
     0x0038: "IRQ_HANDLER", 0x00C1: "SUB_REQUEST_RETURN",
-    0x00ED: "ENTRY_REQUEST", 0x0263: "ENTRY_FDC_RESULT", 0x02A4: None, 0x02A7: "FDC_OUT",
+    0x00ED: "ENTRY_REQUEST", 0x0263: "ENTRY_FDC_RESULT", 0x029A: "INLINE_FDC_READ", 0x02A4: None, 0x02A7: "FDC_OUT",
     0x02B4: "ENTRY_CALCULATE", 0x035B: "ENTRY_F7",
     0x048F: "ENTRY_READ", 0x06A6: "ENTRY_RECV_FOUR", 0x07D6: "ENTRY_SEEK",
 }
@@ -4131,6 +4131,14 @@ def pin_entries(a, extra_hole_candidates=False, small_first=False):
             b.label(f"PIN_{addr:04X}")
             if isinstance(target, bytes):
                 b.data(*target)
+            elif target == "INLINE_FDC_READ":
+                b.label("_pinned_fdc_read_wait")
+                b.in_port(P_FDC_STAT)
+                b.and_a(RQM)
+                b.jr_z("_pinned_fdc_read_wait")
+                b.in_port(P_FDC_DATA)
+                b.ret()
+                b.nop()  # 02A4の固定入口まで埋める
             elif target is None:
                 b.ld_mem_a(0x7F0C)
             else:
