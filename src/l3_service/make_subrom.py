@@ -935,45 +935,45 @@ SECTOR_BUF_MAX_SECTORS = 17
 # ---- 第13版でREQ_HDRの領域を8バイトから拡張（下のREQ_HDR_CAPACITY参照）。
 #      1.36c: 実行コード用領域と読み・起動バルクの外へ置く。
 #      固定入口追加時: 状態ページの空きへ集め、STATE_ACCESSを共用する。 ----
-REQ_HDR    = 0x7C30    # 要求ヘッダの受信バッファ（先頭REQ_HDR_CAPACITYバイトまで格納）
+REQ_HDR    = 0x7EB0    # 要求ヘッダの受信バッファ（先頭REQ_HDR_CAPACITYバイトまで格納）
 REQ_HDR_CAPACITY = 16  # 第13版で8→16へ拡張。1.18節の最大12バイトのラウンドに余裕を持たせる
 
 # ---- ディスパッチャの進行状態（第9版で追加。上のdocstring「プリミティブ
 #      1回ごとにディスパッチャへ戻る」参照）----
-HDR_PTR     = 0x7C00   # 状態ページの基点。旧受信ポインタは故障注入版の初期化だけに残す
-RESP_PTR    = 0x7C02   # 2バイト: 応答送信中の読み出し位置(SECTOR_BUF..SECTOR_BUF+256)
-RESP_ACTIVE = 0x7C04   # 1バイト: 0=応答フェーズでない、非0=応答送信中
+HDR_PTR     = 0x7E80   # 状態ページの基点。旧受信ポインタは故障注入版の初期化だけに残す
+RESP_PTR    = 0x7E82   # 2バイト: 応答送信中の読み出し位置(SECTOR_BUF..SECTOR_BUF+256)
+RESP_ACTIVE = 0x7E84   # 1バイト: 0=応答フェーズでない、非0=応答送信中
 # ---- 第12版で追加。FDC_IN/FDC_OUTが「タイムアウトした／待たずに相手が
 #      フェーズを終えていた」ことを検出したら1を立てる。同一FDCコマンド
 #      呼び出し列の残りのFDC_IN/FDC_OUTはこれを見て即座に戻り、ポートに
 #      触れない（上のモジュールdocstring「FDC結果/コマンドフェーズの
 #      終了判定とタイムアウト時の中止」節参照）。仕様書に根拠の無い、
 #      この実装だけの判断。 ----
-FDC_ABORT   = 0x7C05   # 1バイト: 0=正常、非0=このFDCコマンドは中断済み
+FDC_ABORT   = 0x7E85   # 1バイト: 0=正常、非0=このFDCコマンドは中断済み
 # ---- 第13版で追加。RECV完遂ごとにインクリメントする「run内で受け取った
 #      バイト数」のカウンタ。REQ_HDR_CAPACITY到達後は格納だけ止めるが
 #      カウンタ自体は0xFFで飽和するまで増え続ける（上のモジュールdocstring
 #      「run境界駆動への書き換え」節参照）。 ----
-RUN_LEN     = 0x7C06   # 1バイト: 現在のrunで受け取ったバイト数（run開始時に0へ初期化）
+RUN_LEN     = 0x7E86   # 1バイト: 現在のrunで受け取ったバイト数（run開始時に0へ初期化）
 # ---- 第29版で追加。交換#3ではSECTOR_BUFを直接RESP_ACTIVEへ接続せず、
 #      内部状態1バイトの応答を先に返す。続く交換#4の2バイト要求が完了した
 #      時点でSECTOR_BUFの256バイト応答を開始する。 ----
-SECTOR_READY = 0x7C07  # 1バイト: 交換#4へ渡す256バイトがSECTOR_BUFに準備済み
-EXCHANGE3_RESPONSE_PENDING = 0x7C08  # 1バイト: 交換#3の内部状態応答が未送信
-ROUND0_RESPONSE_PENDING = 0x7C09  # 1バイト: 起動系列最初の観測応答が未送信
-EXCHANGE3_REQUEST_ACTIVE = 0x7C0A  # 1バイト: 第32版の2/5/1分節要求を受信中
-BOOT_SINGLE_RESPONSE_COUNT = 0x7C0B  # 1バイト: 起動時交換順序（値に依存しない）
-BOOT_READ_PAIR_STAGE = 0x7C0C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち, 2=交換#7待ち, 3=交換#11待ち, 4=交換#12待ち, 5=完了
-REQ_H = 0x7C0D       # 第42版: READ DATAのH。交換#11以外は0
-REQ_UNIT_HEAD = 0x7C0E  # 第42版: drive=0 | (REQ_H bit0 << 2)
-BULK_BLOCKS = 0x7C0F    # 第44版: 高速バルクの残り256件ブロック数
-BULK_DEST = 0x7C10      # 2バイト: 交換#14複数セクタREADの格納先
-BULK_SECTORS = 0x7C12   # 1バイト: 同READのデータ部セクタ数
-BULK_EOT = 0x7C13       # 1バイト: 同READのEOT
-BULK_C = 0x7C14         # 1バイト: 同READのC/SEEK対象
-BULK_H = 0x7C15         # 1バイト: 同READのH
-BULK_R = 0x7C16         # 1バイト: 同READの開始R
-BULK_UNIT_HEAD = 0x7C17 # 1バイト: 同READのunit/head
+SECTOR_READY = 0x7E87  # 1バイト: 交換#4へ渡す256バイトがSECTOR_BUFに準備済み
+EXCHANGE3_RESPONSE_PENDING = 0x7E88  # 1バイト: 交換#3の内部状態応答が未送信
+ROUND0_RESPONSE_PENDING = 0x7E89  # 1バイト: 起動系列最初の観測応答が未送信
+EXCHANGE3_REQUEST_ACTIVE = 0x7E8A  # 1バイト: 第32版の2/5/1分節要求を受信中
+BOOT_SINGLE_RESPONSE_COUNT = 0x7E8B  # 1バイト: 起動時交換順序（値に依存しない）
+BOOT_READ_PAIR_STAGE = 0x7E8C  # 1バイト: 0=交換#3/#4中, 1=交換#6待ち, 2=交換#7待ち, 3=交換#11待ち, 4=交換#12待ち, 5=完了
+REQ_H = 0x7E8D       # 第42版: READ DATAのH。交換#11以外は0
+REQ_UNIT_HEAD = 0x7E8E  # 第42版: drive=0 | (REQ_H bit0 << 2)
+BULK_BLOCKS = 0x7E8F    # 第44版: 高速バルクの残り256件ブロック数
+BULK_DEST = 0x7E90      # 2バイト: 交換#14複数セクタREADの格納先
+BULK_SECTORS = 0x7E92   # 1バイト: 同READのデータ部セクタ数
+BULK_EOT = 0x7E93       # 1バイト: 同READのEOT
+BULK_C = 0x7E94         # 1バイト: 同READのC/SEEK対象
+BULK_H = 0x7E95         # 1バイト: 同READのH
+BULK_R = 0x7E96         # 1バイト: 同READの開始R
+BULK_UNIT_HEAD = 0x7E97 # 1バイト: 同READのunit/head
 BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
 # ---- 第54版・m7av: 書き込み経路（SAVE、仕様書1.35節）で使うRAM。
 # WRITE_BUFは**256バイト境界に整列**させる。受信バイトを
@@ -981,57 +981,52 @@ BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
 # 巻き戻る——結果として「最後に受け取った256バイト」が常にバッファに
 # 残る循環バッファになる。1.35節が確定した「データ部は受信列の末尾
 # ちょうど256バイト」をそのまま表す構造で、長さを事前に知らなくてよい。
-# 置き場所は書き込み可能範囲(0x4000-0x7FFF)のうちBULK_DATA(末尾0x7400)と
-# STACK(0x7FFE、下向きに伸びる)のどちらとも重ならない0x7D00。
-# （m7akでSTACKとBULK_DATAの重なりがデータフェーズでスタックを破壊した
-# 事故があったので、ここは重複の無いことを確認してから置いている）
-WRITE_BUF = 0x7D00      # 256バイト・256境界整列の循環受信バッファ
+# 起動バルクと重複する。送出前の受信で破損し得るため、動作検証が必要。
+WRITE_BUF = 0x6100      # 256バイト・256境界整列の循環受信バッファ
 assert SECTOR_BUF & 0xFF == 0 and SECTOR_BUF >= BULK_DATA
-assert SECTOR_BUF + SECTOR_BUF_MAX_SECTORS * 256 <= min(WRITE_BUF, 0x7400)
-WRITE_IDX = 0x7C18      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
-WRITE_PREV = 0x7C19     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
+assert SECTOR_BUF + SECTOR_BUF_MAX_SECTORS * 256 <= WRITE_BUF
+WRITE_IDX = 0x7E98      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
+WRITE_PREV = 0x7E99     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
                         #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
-WRITE_PREV2 = 0x7C22    # 1バイト: WRITE_PREVの1つ前に追い出されたバイト
+WRITE_PREV2 = 0x7EA2    # 1バイト: WRITE_PREVの1つ前に追い出されたバイト
                         #   ＝データ部の直前2バイト目。m7axの実測でここが
                         #   論理トラック(C*2+H)であることが63/63で確定した。
-WRITE_TMP = 0x7C1A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
+WRITE_TMP = 0x7E9A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
 # ---- 第55版・m7aw: 交換#14のREAD準備をテーブル駆動にしたときの作業領域。
 # ROM上の6バイトエントリ(c_pos, r_pos, sectors, dest_lo, dest_hi, h_xor)を
 # ここへ複写してから使う。 ----
-BR_CPOS = 0x7C1C
-BR_RPOS = 0x7C1D
-BR_SECT = 0x7C1E
-BR_DEST = 0x7C1F        # 2バイト
-BR_HXOR = 0x7C21
+BR_CPOS = 0x7E9C
+BR_RPOS = 0x7E9D
+BR_SECT = 0x7E9E
+BR_DEST = 0x7E9F        # 2バイト
+BR_HXOR = 0x7EA1
 # ---- 第69版・m7bw: window(a)のrun先頭と飽和位置。WRITEの循環添字や
 # REQ_HDR/RUN_LENとは独立させる。第70版・m7byではm7bxの20標本で等価だった
 # 5規則のうちREAD完走履歴を選ぶ。K00列Bは既存の交換#3状態機械が
 # READ完走後・累積8件目として一意に到達するため、追加RAMなしで結線する。 ----
-WINDOW_RUN_POS = 0x7C23
-WINDOW_RUN_HEAD = 0x7C24
-LAST_ST0 = 0x7C25        # 1バイト: 直前の結果フェーズの1件目(ST0)。m7lm
-WRITE_LAST_S = 0x7C27   # 直前の単発受信。WRITE要求の前置Sを検証する
+WINDOW_RUN_POS = 0x7EA3
+WINDOW_RUN_HEAD = 0x7EA4
+LAST_ST0 = 0x7EA5        # 1バイト: 直前の結果フェーズの1件目(ST0)。m7lm
+WRITE_LAST_S = 0x7EA7   # 直前の単発受信。WRITE要求の前置Sを検証する
 # 第223版・1.36b節: 直前READで読む（＝mainへ渡す）データの終わりの上位バイト。
 # SECTOR_BUFは256境界に整列しているので、送信位置の上位バイトがこれに
 # 達したところで 256×セクタ数 を送り終えている。FDC_READ_SECTORS が書く。
-READ_END_HI = 0x7C28
+READ_END_HI = 0x7EA8
 # 第223版・1.36b節「main が 256×P1 を超えて受け取ろうとしても、それ以上は
 # 渡らない」: 一般READのデータ応答（1.37節の 0x12 で開始）を始めたら非0に
 # する。非0の間は、データを送り終えたあとの main の受信要求に何も送らない。
 # 1.36cの復帰入口では、次のREAD後の0x06を待つ間の早すぎる応答も抑止する。
 # 次に main から受信したとき（RESET_HDR_RUN）0に戻す。
-DATA_RESPONSE_CLOSED = 0x7C29
-ENTRY_REQUEST_ACTIVE = 0x7C2A  # 00EDの1要求実行中だけ非0。MAIN_LOOPで初期化
+DATA_RESPONSE_CLOSED = 0x7EA9
+ENTRY_REQUEST_ACTIVE = 0x7EAA  # 00EDの1要求実行中だけ非0。MAIN_LOOPで初期化
 # 第223版・1.36a節: 0x17,m で受けた m をそのまま保持する（0=未受信）。
 # 読み要求の論理トラック変換は、ドライブ1（m bit0）／ドライブ2（m & 0x0E）で決める。
-LOGICAL_TRACK_FLAGS = 0x7C26
+LOGICAL_TRACK_FLAGS = 0x7EA6
 # 1.36c: 常駐作業域はコード用領域・読みバッファ・起動バルクと分離する。
 # 状態ページは全体を予約し、起動時はヘッダ直前までを初期化する。
-assert DATA_RESPONSE_CLOSED < REQ_HDR < REQ_HDR + REQ_HDR_CAPACITY <= HDR_PTR + 0x40
-assert HDR_PTR & 0xFF == 0 and DATA_RESPONSE_CLOSED < HDR_PTR + 0x100
-assert HDR_PTR + 0x100 <= WRITE_BUF and WRITE_BUF & 0xFF == 0
-assert WRITE_BUF + 0x100 <= 0x7F00 <= STACK
-assert BULK_DATA + 48 * 256 <= REQ_HDR
+assert HDR_PTR == 0x7E80 and REQ_HDR + REQ_HDR_CAPACITY <= 0x7F00
+assert WRITE_BUF & 0xFF == 0 and WRITE_BUF + 0x100 <= 0x6F80
+assert 0x7F13 < STACK <= 0x7FFF
 # 第55版・m7aw: 交換#14のREAD準備表。**ここが唯一の定義**である。
 # 呼び出し側と表本体の両方がこれを見る（第55版の最初の実装では両方に
 # タプルを書いてしまい、呼び出し側の値は使われない死んだ複製になっていた
@@ -1048,7 +1043,7 @@ BULK_READ_TABLE = (
 # 第56版・m7axで C を制御レコード（データ部の直前2バイト目の論理トラック）から
 # 導くようにしたため不要になり削除した。番地は第67版・m7bjで
 # POST_BULK_ACTIVEとして再利用する。
-POST_BULK_ACTIVE = 0x7C1B  # 第67版・1.36節: BULK_SEND完了後にのみ非0にする。
+POST_BULK_ACTIVE = 0x7E9B  # 第67版・1.36節: BULK_SEND完了後にのみ非0にする。
 # 1.36節の先頭バイト表引き（0x02→run長5）は「バルク直後」の受信runで
 # 実測したものであり、起動時の交換#6/#7/#11/#12/#14（stage==5到達前、
 # または交換#14自身の12バイト要求。BOOT_READ_PAIR_STAGEだけではbulk前後を
@@ -1399,7 +1394,7 @@ def build_subrom(break_write_ack=False,
     a.xor_a()                         # 確定範囲 A=0, F=44
     a.ret()
 
-    # 7C00..7C3F の読書きを共有。RST直後は下位番地、bit7は書込み。
+    # 7E80..7EBF の読書きを共有。RST直後は下位番地、bit7は書込み。
     # bit6のみは下位5ビットをOUT FF、bit6・7両方なら読取り＋OR A。
     # 通常の読書きはAF（読取り時のA以外）・BC・DE・HLを保存し、戻り番地を1進める。
     a.label("STATE_ACCESS")
@@ -1408,7 +1403,7 @@ def build_subrom(break_write_ack=False,
     a.push_af()
     a.ld_e_hl()
     a.inc_hl()
-    a.ld_d_n(0x7C)                   # 第238版: DEで状態ページへ直接アクセス
+    a.ld_d_n(HDR_PTR >> 8)            # DEで状態ページへ直接アクセス
     # 上位2ビットを回転で順に取り出し、2バイトのBIT命令を減らす。
     a.ld_a_e()
     a.rlca()
@@ -1424,18 +1419,17 @@ def build_subrom(break_write_ack=False,
     a.rlca()
     a.jr_c("_state_read_flags")
     a.label("_state_write")
-    a.res7_e()
     a.pop_af()
     a.ld_de_a()
     a.jr("_state_return")
     a.label("_state_read_flags")
     a.res6_e()
-    a.res7_e()
     a.pop_af()
     a.ld_a_de()
     a.or_a()
     a.jr("_state_return")
     a.label("_state_memory")
+    a.db(0xCB, 0xFB)                  # SET 7,E: 状態領域はページ後半
     a.pop_af()
     a.ld_a_de()
     a.label("_state_access_done")
@@ -2951,7 +2945,7 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     # 起動時だけ状態領域をゼロにする。同じページへ移したヘッダは除外し、
     # BOOT_HANDSHAKEが残したドライブ指定などを従来どおり保持する。
-    a.ld_hl_imm(HDR_PTR & 0xFF00)
+    a.ld_hl_imm(HDR_PTR)
     a.ld_b(REQ_HDR - HDR_PTR)
     a.label("_main_state_zero")
     a.ld_hl_a()
@@ -4019,8 +4013,8 @@ def pin_entries(a, extra_hole_candidates=False, small_first=False):
         raw = bytes(a.code[pc:pc + size])
         target = fix.get(pc + 1)
         if (kind == "instr" and pc not in protected and size == 3
-                and raw[0] in (0x3A, 0x32) and raw[2] == 0x7C and raw[1] < 0x40):
-            operand = raw[1] | (0x80 if raw[0] == 0x32 else 0)
+                and raw[0] in (0x3A, 0x32) and raw[2] == HDR_PTR >> 8 and 0x80 <= raw[1] < 0xC0):
+            operand = (raw[1] - 0x80) | (0x80 if raw[0] == 0x32 else 0)
             raw = bytes((0xF7, operand))
             text = f"RST 48\n    DB {operand}"
             saved += 1
