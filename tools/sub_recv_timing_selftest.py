@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """0x16の定常受信2バイトを、生成命令から待ち成立時のT数で比較する。"""
+import argparse
 import importlib.util
 import subprocess
 import sys
@@ -82,12 +83,19 @@ def cycles(a, fault=False):
 
 
 def main():
-    old_source = subprocess.check_output(['git', 'show', '97430aa:src/l3_service/make_subrom.py'], cwd=ROOT)
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / 'baseline.py'
-        path.write_bytes(old_source)
-        old = assemble(path)
-        current = assemble(SOURCE)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--baseline', type=Path,
+                        help='指定した自作ソースと比較する（Git履歴を読まない）')
+    args = parser.parse_args()
+    current = assemble(SOURCE)
+    if args.baseline:
+        old = assemble(args.baseline)
+    else:
+        old_source = subprocess.check_output(['git', 'show', '97430aa:src/l3_service/make_subrom.py'], cwd=ROOT)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'baseline.py'
+            path.write_bytes(old_source)
+            old = assemble(path)
     baseline, old_io, old_instructions = cycles(old)
     actual, new_io, new_instructions = cycles(current)
     assert old_io == new_io, 'I/Oの順序または値が異なる'

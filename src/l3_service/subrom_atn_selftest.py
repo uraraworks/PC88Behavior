@@ -89,11 +89,29 @@ class CPU:
             elif op in (3, 0x13, 0x23, 0x0B, 0x1B, 0x2B):
                 i = (op >> 3) & 6
                 self.put_pair(i, self.pair(i) + (-1 if op & 8 else 1))
-            elif op == 0x3C:
-                old, carry = self.r[7], self.f & 1
-                self.logic((old + 1) & 255)
-                self.f = ((self.f & ~5) | carry | (4 if old == 127 else 0)
-                          | (0x10 if old & 15 == 15 else 0))
+            elif op == 0x19:  # ADD HL,DE
+                old, n = self.pair(4), self.pair(2)
+                self.put_pair(4, old + n)
+                self.f = ((self.f & 0xC4) | (self.r[4] & 0x28)
+                          | (1 if old + n > 65535 else 0)
+                          | (0x10 if (old & 4095) + (n & 4095) > 4095 else 0))
+            elif op & 0xC6 == 4:  # INC/DEC r（受信ヘッダ・WRITEループも検査）
+                i, down = (op >> 3) & 7, bool(op & 1)
+                old, carry, saved_a = self.get(i), self.f & 1, self.r[7]
+                value = (old + (-1 if down else 1)) & 255
+                self.logic(value)
+                self.f = ((self.f & ~0x15) | carry | (2 if down else 0)
+                          | (4 if old == (128 if down else 127) else 0)
+                          | (0x10 if (old & 15) == (0 if down else 15) else 0))
+                self.r[7] = saved_a
+                self.put(i, value)
+            elif op == 0xC6:  # ADD A,n
+                old, n = self.r[7], self.byte()
+                value = (old + n) & 255
+                self.logic(value)
+                self.f = ((self.f & ~0x15) | (1 if old + n > 255 else 0)
+                          | (0x10 if (old & 15) + (n & 15) > 15 else 0)
+                          | (4 if (~(old ^ n) & (old ^ value)) & 128 else 0))
             elif op in (0x12, 0x1A):
                 if op == 0x12:
                     self.mem[self.pair(2)] = self.r[7]
@@ -109,7 +127,7 @@ class CPU:
                     self.mem[addr] = self.r[7]
                 else:
                     self.r[7] = self.mem[addr]
-            elif op in (0xE6, 0xB0, 0xB3, 0xB7, 0xAF, 0xA7):
+            elif op in (0xE6, 0xB0, 0xB3, 0xB6, 0xB7, 0xAF, 0xA7):
                 a = self.r[7]
                 if op == 0xE6:
                     self.logic(a & self.byte(), 0x10)
@@ -119,8 +137,8 @@ class CPU:
                     self.logic(a, 0x10)
                 else:
                     self.logic(a | self.get(op & 7))
-            elif op in (0xFE, 0xB8):
-                n, a = self.byte() if op == 0xFE else self.r[0], self.r[7]
+            elif op in (0xFE, 0xB8, 0xBB):
+                n, a = self.byte() if op == 0xFE else self.get(op & 7), self.r[7]
                 result = (a - n) & 255
                 self.f = ((result & 0x80) | (n & 0x28) | 2
                           | (0x40 if a == n else 0) | (1 if a < n else 0)
@@ -161,6 +179,13 @@ class CPU:
                     self.push(self.pc)
                 if op in (0xC3, 0xCD) or self.cond((op >> 3) & 3):
                     self.pc = target
+            elif op == 0x10:  # DJNZ
+                delta = self.byte()
+                self.r[0] = (self.r[0] - 1) & 255
+                if self.r[0]:
+                    self.pc = (self.pc + (delta if delta < 128 else delta - 256)) & 65535
+            elif op in (0xF3, 0xFB):  # DI/EI（このCPUモデルは割込みを自動発生しない）
+                pass
             elif op in (0x18, 0x20, 0x28, 0x30, 0x38):
                 delta = self.byte()
                 if op == 0x18 or self.cond((op >> 3) & 3):
@@ -174,7 +199,11 @@ class CPU:
             elif op == 0xE9:
                 self.pc = self.pair(4)
             elif op == 0xED:
-                assert self.byte() in (0x46, 0x56)  # IM 0/1
+                ext = self.byte()
+                if ext == 0x4D:  # RETI（自己検査から明示的に割込みを注入）
+                    self.pc = self.pop()
+                else:
+                    assert ext in (0x46, 0x56)  # IM 0/1
             elif op in (0xDB, 0xD3):
                 port = self.byte()
                 if op == 0xDB:

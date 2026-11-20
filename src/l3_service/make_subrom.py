@@ -688,7 +688,7 @@ class Asm:
     def ld_a_d(self):     self.db(0x7A)
     def ld_l_n(self, n): self.db(0x2E, n)
     def ld_h_n(self, n):  self.db(0x26, n)   # LD H,n（256境界整列バッファの上位。LD HL,nnより1バイト短い）
-    def ld_d_a(self):     self.db(0x57)   # LD D,A（WRITE_PREV2の退避。FDC_BEGIN/OUTはDEを保存する）
+    def ld_d_a(self):     self.db(0x57)   # LD D,A（論理トラックの退避。FDC_BEGIN/OUTはDEを保存する）
     def ld_a_e(self):     self.db(0x7B)   # LD A,E（第18版で追加。FDCルーチンのドライブ番号引数化に使う）
     def ld_de_a(self):    self.db(0x12)   # LD (DE),A
     def ld_e_a(self):     self.db(0x5F)   # LD E,A
@@ -921,6 +921,7 @@ install_note_templates(Asm, _ASM_TEMPLATES)
 # 末尾0x7400まで使うため、空きは0x7400-0x7FFFしか無い）。docs/notes/
 # m7ak-exchange14-read3-stack-overlap.md参照。書き込み専用領域の外
 # （0x7400-0x7FFF）の上端へ逃がす。
+# 第241版: スタック用の予約は7FC9〜7FFF（55バイト）。SP初期値は維持する。
 STACK      = 0x7FFE
 # 第223版・1.36b節: 読み要求 0x02 の P1 は読むセクタの数で、データは
 # 256×P1 バイト続けて main へ渡る（P1 は最大16、16セクタ/トラック）。
@@ -975,23 +976,14 @@ BULK_H = 0x7E95         # 1バイト: 同READのH
 BULK_R = 0x7E96         # 1バイト: 同READの開始R
 BULK_UNIT_HEAD = 0x7E97 # 1バイト: 同READのunit/head
 BULK_DATA = 0x4400      # 第2〜第5 READを連続保持（末尾0x7400）
-# ---- 第54版・m7av: 書き込み経路（SAVE、仕様書1.35節）で使うRAM。
-# WRITE_BUFは**256バイト境界に整列**させる。受信バイトを
-# WRITE_BUF+(WRITE_IDX)へ順に格納し、WRITE_IDXは1バイトなので256で自然に
-# 巻き戻る——結果として「最後に受け取った256バイト」が常にバッファに
-# 残る循環バッファになる。1.35節が確定した「データ部は受信列の末尾
-# ちょうど256バイト」をそのまま表す構造で、長さを事前に知らなくてよい。
-# 起動バルクと重複する。送出前の受信で破損し得るため、動作検証が必要。
-WRITE_BUF = 0x6100      # 256バイト・256境界整列の循環受信バッファ
+# 第241版: 0x11の本体だけを保持する256バイト。通常受信・0x0C・0x16は使わない。
+# 公開入口の固定作業域7F0B〜7F13を飛び越す2区間。循環添字は不要。
+WRITE_BUF_RANGES = ((0x7EC0, 0x7F0B), (0x7F14, 0x7FC9))
+WRITE_BUF = WRITE_BUF_RANGES[0][0]
+WRITE_BUF_END = WRITE_BUF_RANGES[-1][1]
+assert sum(hi - lo for lo, hi in WRITE_BUF_RANGES) == 256
 assert SECTOR_BUF & 0xFF == 0 and SECTOR_BUF >= BULK_DATA
-assert SECTOR_BUF + SECTOR_BUF_MAX_SECTORS * 256 <= WRITE_BUF
-WRITE_IDX = 0x7E98      # 1バイト: WRITE_BUFへの書き込み位置（256で自然に巻き戻る）
-WRITE_PREV = 0x7E99     # 1バイト: 直前に追い出されたバイト＝データ部の直前の1バイト
-                        #   （1.35節の位置対応でR=データ直前1バイトと15/15一致した）
-WRITE_PREV2 = 0x7EA2    # 1バイト: WRITE_PREVの1つ前に追い出されたバイト
-                        #   ＝データ部の直前2バイト目。m7axの実測でここが
-                        #   論理トラック(C*2+H)であることが63/63で確定した。
-WRITE_TMP = 0x7E9A      # 1バイト: 受信バイトの一時退避（DE/BCを壊さずに格納するため）
+# 旧WRITE_IDX/PREV/TMP/PREV2の7E98〜7E9A・7EA2は未使用。
 # ---- 第55版・m7aw: 交換#14のREAD準備をテーブル駆動にしたときの作業領域。
 # ROM上の6バイトエントリ(c_pos, r_pos, sectors, dest_lo, dest_hi, h_xor)を
 # ここへ複写してから使う。 ----
@@ -1000,7 +992,7 @@ BR_RPOS = 0x7E9D
 BR_SECT = 0x7E9E
 BR_DEST = 0x7E9F        # 2バイト
 BR_HXOR = 0x7EA1
-# ---- 第69版・m7bw: window(a)のrun先頭と飽和位置。WRITEの循環添字や
+# ---- 第69版・m7bw: window(a)のrun先頭と飽和位置。
 # REQ_HDR/RUN_LENとは独立させる。第70版・m7byではm7bxの20標本で等価だった
 # 5規則のうちREAD完走履歴を選ぶ。K00列Bは既存の交換#3状態機械が
 # READ完走後・累積8件目として一意に到達するため、追加RAMなしで結線する。 ----
@@ -1023,9 +1015,9 @@ ENTRY_REQUEST_ACTIVE = 0x7EAA  # 00EDの1要求実行中だけ非0。MAIN_LOOP�
 # 読み要求の論理トラック変換は、ドライブ1（m bit0）／ドライブ2（m & 0x0E）で決める。
 LOGICAL_TRACK_FLAGS = 0x7EA6
 # 1.36c: 常駐作業域はコード用領域・読みバッファ・起動バルクと分離する。
-# 状態ページは全体を予約し、起動時はヘッダ直前までを初期化する。
+# 状態とヘッダは7E80〜7EBF。起動時はヘッダ直前までを初期化する。
 assert HDR_PTR == 0x7E80 and REQ_HDR + REQ_HDR_CAPACITY <= 0x7F00
-assert WRITE_BUF & 0xFF == 0 and WRITE_BUF + 0x100 <= 0x6F80
+assert REQ_HDR + REQ_HDR_CAPACITY <= WRITE_BUF < WRITE_BUF_END < STACK
 assert 0x7F13 < STACK <= 0x7FFF
 # 第55版・m7aw: 交換#14のREAD準備表。**ここが唯一の定義**である。
 # 呼び出し側と表本体の両方がこれを見る（第55版の最初の実装では両方に
@@ -1692,9 +1684,10 @@ def build_subrom(break_write_ack=False,
     # 測定介入は起動通信だけを対象とし、LOAD/RUN後の専用受信経路を使わない。
     # 介入版のみ通常の要求待ちへ戻し、追加命令の窓内容量を確保する。
     # 検査専用の故障注入・POST_BULK強制版も介入版と同じ復帰経路で容量を確保する。
+    # 第241版: 応答破壊・WRITE応答抑止の故障版も対象。本番の命令列は変えない。
     compact_measurement = (fast_no_disk_response_ready or early_response_after is not None
                            or inject_m6ib_b5 or compact_test_build
-                           or force_post_bulk_active)
+                           or force_post_bulk_active or break_response or break_write_ack)
     if compact_measurement:
         a.jp("IDLE_DISPATCH")
     elif not (break_dispatch_return or break_fixed_byte_cutoff
@@ -1860,15 +1853,8 @@ def build_subrom(break_write_ack=False,
     #      第11版から変わらず、run境界判別ループから複数箇所で呼ぶため
     #      切り出している（二重実装しない）。 ----
     a.label("HDR_STORE_AND_CHECK")
-    # ---- 第54版・m7av: 書き込み経路（1.35節）。受け取ったバイトを
-    # 256バイト境界整列の循環バッファWRITE_BUFへ必ず1つ格納する。
-    # WRITE_IDXは1バイトなので256で自然に巻き戻り、runがどれだけ長くても
-    # 「最後に受け取った256バイト」だけが残る。追い出される直前の値
-    # （＝そのとき捨てるバイト）をWRITE_PREVへ退避しておくと、runの終端で
-    # WRITE_PREVは「データ部256バイトの直前の1バイト」になる——1.35節の
-    # 位置対応でR（セクタ番号）が全15件でその位置に一致した。
-    # runの長さを事前に知らなくても、末尾256とその直前1バイトが取れる。
-    # 第228版容量圧縮: BCを保存し、受信値をCへ置く。メモリ退避を省く。
+    # 第241版: 通常受信はヘッダと受信窓だけを更新する。
+    # 0x11本体は別経路へ直接格納し、ゲーム領域や起動バルクには書かない。
     a.push_bc()
     a.ld_c_a()
     a.ld_hl_mem(WINDOW_RUN_POS)       # L=位置、H=先頭（連続2バイト）
@@ -1882,16 +1868,6 @@ def build_subrom(break_write_ack=False,
     a.dec_l()                         # 0xFFで飽和
     a.label("_hdr_window_pos_done")
     a.ld_mem_hl(WINDOW_RUN_POS)
-    a.ld_hl_mem(WRITE_IDX)            # L=添字、H=直前に追い出した値
-    a.ld_a_h()
-    a.ld_mem_a(WRITE_PREV2)
-    a.ld_h_n(WRITE_BUF >> 8)
-    a.ld_a_hl()
-    a.ld_mem_a(WRITE_PREV)
-    a.ld_hl_c()
-    a.inc_l()
-    a.ld_a_l()
-    a.ld_mem_a(WRITE_IDX)
     # HLは従来もヘッダ格納で破壊。全呼出元は戻りHLを使わない。
     a.ld_a_mem(RUN_LEN)
     a.cp_n(REQ_HDR_CAPACITY)
@@ -2213,23 +2189,8 @@ def build_subrom(break_write_ack=False,
         a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)
         a.jp("IDLE_DISPATCH")
 
-    # ---- READ DATA 1セクタ（256バイト固定・N=1）。
-    #      引数: (REQ_C)=シリンダ, (REQ_R)=セクタ番号。
-    #      結果は SECTOR_BUF の256バイトに入る。 ----
-    # ---- WRITE DATA 1セクタ（256バイト固定・N=1）。第54版・m7av。
-    #      仕様書1.35節（m7auの実測）に基づく:
-    #        - パラメータ8バイト・データ部256バイト・結果7バイト（15件すべて一様）
-    #        - **データ部は「受信列の末尾ちょうど256バイト」**（15/15で一致、余り0）
-    #          → 循環バッファWRITE_BUFのWRITE_IDXから256バイトを順に流す
-    #        - R（セクタ番号）は**データ部の直前の1バイト**（15/15で一致）
-    #          → WRITE_PREV
-    #        - C は直前SEEKの目的シリンダと15/15で一致 → 既存のREQ_HDR+4
-    #          （READ側が同じ位置をCとして使っている。1.30節系の座標保持）
-    #        - unit/head は drive0 | (H<<2) と15/15で一致 → 既存のREQ_UNIT_HEAD
-    #          （第42版が読み出し側で確定した規則と同じ）
-    #        - N/EOT/GPL/DTL は実測で単一値。READ側と同じ値を使う
-    #      **制御バイト6/12の内訳は未確定なので触れていない**（仕様書3節・
-    #      6節7項。推測で埋めない）。 ----
+    # 第241版: 1.35aの0x11,01,D,T,RをREQ_HDRに残し、
+    # 本体256バイトだけを作業域の2区間へ順番に保持してFDCへ渡す。
     a.label("FDC_WRITE_SECTOR")
     # 1.35a節の要求5バイトは 11,01,D,T,R。旧独自値00は書かせない。
     a.ld_hl_mem(REQ_HDR + 1)           # L=件数、H=ドライブ指定
@@ -2249,7 +2210,7 @@ def build_subrom(break_write_ack=False,
     a.label("_write_s_ok")
     a.ld_a(0x45); a.rst(0x08)   # クリア後にWRITE DATA + MF=1を送出
     if break_drive_selector:
-        a.ld_a_mem(WRITE_PREV2)         # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
+        a.ld_a_mem(REQ_HDR + 3)         # unit/head = drive0 | (H<<2)。Hは論理トラックのbit0
         a.ld_d_a()                      # 論理トラックをDへ退避（下のC・Hで読み直さない）
         a.and_a(0x01)
         a.rlca()
@@ -2260,7 +2221,7 @@ def build_subrom(break_write_ack=False,
         # をB側で発行するが、旧実装は「drive0 | (H<<2)」のみでA側に留まって
         # いた(m7go・U2成立)。FDC_SEEK入口(1.46節)と同じ情報源REQ_HDR+2
         # bit0を同じ形で読み、H<<2とOR合成する(m7gq事前登録・案1)。
-        a.ld_a_mem(WRITE_PREV2)         # unit/head = (REQ_HDR+2 bit0) | (H<<2)。Hは論理トラックのbit0
+        a.ld_a_mem(REQ_HDR + 3)         # unit/head = (REQ_HDR+2 bit0) | (H<<2)。Hは論理トラックのbit0
         a.ld_d_a()                      # 論理トラックをDへ退避（下のC・Hで読み直さない）
         a.and_a(0x01)
         a.rlca()
@@ -2274,7 +2235,7 @@ def build_subrom(break_write_ack=False,
     # 値をそのまま使うほうが測定に忠実（かつSEEKのラッチが不要になる）。
     if break_write_coords:
         # 検出力確認用の故障注入: 論理トラックをそのままCとして使い、Hを0にする
-        a.ld_a_mem(WRITE_PREV2); a.rst(0x20)
+        a.ld_a_mem(REQ_HDR + 3); a.rst(0x20)
         a.xor_a(); a.rst(0x20)
     else:
         a.ld_a_d()
@@ -2284,17 +2245,15 @@ def build_subrom(break_write_ack=False,
         a.ld_a_d()
         a.and_a(0x01)                                           # H = track & 1
         a.rst(0x20)
-    a.ld_a_mem(WRITE_PREV); a.call("FDC_OUT_THEN_N1")   # R = データ部の直前1バイト（続くN=1の送出も共有列）
+    a.ld_a_mem(REQ_HDR + 4); a.call("FDC_OUT_THEN_N1")   # R = データ部の直前1バイト（続くN=1の送出も共有列）
     # m7lp: N = 1 (256バイト/セクタ) の送出は FDC_OUT_THEN_N1 の中で行う
     # 第68版・m7bz追加測定: 公式WRITE 8/8でEOTは媒体形状（16セクタ）、
     # GPLは公開uPD765形式のN=1短GAP分類。READ側のEOT/GPL流用は6/8一致
     # にしかならなかったため、WRITE専用値に分ける。
     a.ld_a(0x10); a.call("FDC_OUT_EOT_GPL_DTL")   # EOT = 1トラックのセクタ数（GPL・DTLは共有列）
 
-    # データフェーズ: WRITE_BUFのWRITE_IDX（＝最も古い＝末尾256の先頭）から
-    # 256バイト。Lだけを進めれば256境界で自然に巻き戻る。
-    a.ld_hl_mem(WRITE_IDX)             # 隣の値を読んだHは直後に置き換える
-    a.ld_h_n(WRITE_BUF >> 8)          # 256境界整列なのでHは上位バイト即値で足りる
+    # データフェーズ: 受信順に256バイト。公開入口の固定作業域を飛ばす。
+    a.ld_hl_imm(WRITE_BUF)
     if break_write_data_window:
         # tools/verify_l3.sh の書き込み検証が検出力を持つことを確認する
         # ためだけの故障注入。データ部の開始位置を1バイトずらす
@@ -2304,7 +2263,7 @@ def build_subrom(break_write_ack=False,
     a.label("_write_loop")
     a.ld_a_hl()
     a.rst(0x20)
-    a.inc_l()
+    a.call("WRITE_NEXT")
     a.djnz("_write_loop")
 
     # 第68版訂正: FDCへのTCはIN F8。公式8/8でデータ256件直後・
@@ -2580,25 +2539,22 @@ def build_subrom(break_write_ack=False,
     a.ld_mem_a(REQ_HDR + 4)
     a.ret()
 
-    # 長いrun（RUN_LEN飽和）の終端からの入口。受信列の末尾256バイトを
-    # そのままWRITE DATAのデータ部として流し、アイドルへ戻る。
-    # **フォールスルーが来ない位置**（直上はFDC_WRITE_SECTORのret）に置く
-    # こと——最初これを_recv_dispatch_hdr_doneの直前へ置いたら、run長8で
-    # そこへ「落ちてくる」既存経路を横取りしてしまい、自己検証層の5項目が
-    # 一斉にNGになった（回帰として検出できた）。
+    # 0x11の5バイトヘッダが確定した入口。本体だけを256バイト受信する。
+    # REQ_HDRのD/T/Rを保持するため、本体をHDR_STORE_AND_CHECKへ渡さない。
     a.label("_recv_dispatch_write_stream")
     # 第69版・m7bz: 公式mainのWRITE runはK00で、位置1〜5だけが通常RECV、
     # 残る256件は128組の2件受信だった（8 run、全2088位置で例外0）。
     # WINDOW_RUN_COMPLETEのK00確定長を5にしたため、長さ1のK00はここへ
     # 到達せず、WRITEだけが位置5から入る。各組は、1件目を通常RECVの
     # 手順2〜6で取り、完了0Cを出す前に2件目を直接読む。
+    a.ld_hl_imm(WRITE_BUF)
     a.ld_b(0x80)                         # 128組 = 256バイト
     a.label("_write_recv_pair")
     a.out_imm(0xFF, PH_RECV_START_SET)
     a.call("RECV_FIRST_ARMED")
-    a.call("HDR_STORE_AND_CHECK")       # 対の1件目
+    a.call("WRITE_STORE")               # 対の1件目
     a.in_port(P_PIO_A)
-    a.call("HDR_STORE_AND_CHECK")       # 対の2件目（受理解除後のラッチ）
+    a.call("WRITE_STORE")               # 対の2件目（受理解除後のラッチ）
     a.out_imm(0xFF, PH_RECV_ACK_CLR)     # 2件をまとめて完了
     a.djnz("_write_recv_pair")
     # 128組完了時は直下のWRITE処理へフォールスルーする。
@@ -2611,7 +2567,7 @@ def build_subrom(break_write_ack=False,
     # 公式8/8のWRITE直前FDC列はSEEK→SENSE INTERRUPT→SENSE DRIVE。
     # FDC_SEEKがSENSE INTERRUPTまで含むため、制御レコードの論理トラック
     # からCを再導出してSEEKし、ドライブ状態を1回読んでからF7を出す。
-    a.ld_a_mem(WRITE_PREV2)
+    a.ld_a_mem(REQ_HDR + 3)
     a.or_a()
     a.rra()
     # m7gc事前登録（recv_dispatch_write_sector）: 共有ルーチン呼び出し直前。
@@ -2634,6 +2590,18 @@ def build_subrom(break_write_ack=False,
     a.xor_a()
     a.ld_mem_a(SECTOR_READY)
     a.jp("IDLE_DISPATCH")
+
+    # 256バイト専用の前進。7EC0から256回の範囲ではL=0Bは7F0Bだけ。
+    # BC/DEを保存。最後はHL=7FC9となり、スタックへは書かない。
+    a.label("WRITE_STORE")
+    a.ld_hl_a()
+    a.label("WRITE_NEXT")
+    a.inc_hl()
+    a.ld_a_l()
+    a.cp_n(WRITE_BUF_RANGES[0][1] & 255)
+    a.ret_nz()
+    a.ld_l_n(WRITE_BUF_RANGES[1][0] & 255)
+    a.ret()
 
     # ---- 第55版・m7aw: 交換#14のREAD準備（共通ルーチン）。
     #      引数: HL = 6バイトエントリ(c_pos, r_pos, sectors, dest_lo,

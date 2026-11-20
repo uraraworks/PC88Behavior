@@ -94,10 +94,7 @@ def rows(path, self_rom=False):
             start, end = (int(v, 16) for v in fields[3].split('-'))
             if 0x7F00 <= start <= end <= 0x7FFF:
                 continue
-            if self_rom and any(lo <= start <= end < hi for lo, hi in (
-                    (m.REQ_HDR, m.REQ_HDR + m.REQ_HDR_CAPACITY),
-                    (m.HDR_PTR, m.HDR_PTR + 0x100),
-                    (m.WRITE_BUF, m.WRITE_BUF + 0x100))):
+            if self_rom and m.HDR_PTR <= start <= end < 0x8000:
                 continue
             result[n].append(' '.join(fields[2:]))
         elif fields[2].startswith('reply='):
