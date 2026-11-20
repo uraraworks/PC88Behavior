@@ -76,6 +76,20 @@ def project_t7(data):
     return out
 
 
+T8_F1_TAIL_ARMS = ('off', 'stop', 'undefined')
+
+
+def drop_f1_tail_e007(writes):
+    """最後の E003 の書き込みより後ろにある E007 の書き込みだけを外す。
+
+    プログラム終了後に F1 の割り当てが入力されて実行される腕。公式の既定は実行すると
+    誤り56になり E007 へ書くが、自作の既定は自作の値（l4-program 5.7.6）でエラーにならない。
+    先頭側の E007（undefined 腕の未定義行へ飛んだ誤り）は本物の検査なので残す。
+    """
+    last = max((i for i, w in enumerate(writes) if w[0] == 0xe003), default=-1)
+    return [w for i, w in enumerate(writes) if not (i > last and w[0] == 0xe007)]
+
+
 def project_t8(data):
     out = {}
     for name, rec in sorted(data['records'].items()):
@@ -86,11 +100,8 @@ def project_t8(data):
         if name == 'default':
             # 既定の割り当ては自作の値を使う（l4-program 5.7.6）。長さと値は比べない。
             writes = [w for w in writes if w[0] != 0xe010]
-        elif name in ('off', 'stop', 'undefined'):
-            # プログラム終了後にF1の割り当てが入力されて実行される腕。公式の既定は実行すると
-            # 誤り56になりE007へ書くが、自作の既定は自作の値（l4-program 5.7.6）でエラーにならない。
-            # 既定の割り当ての実行結果に依存する E007 の書き込みは比べない。
-            writes = [w for w in writes if w[0] != 0xe007]
+        elif name in T8_F1_TAIL_ARMS:
+            writes = drop_f1_tail_e007(writes)
         out[name] = {'response': rec.get('response'), 'writes': writes}
     return out
 
@@ -159,6 +170,10 @@ def main():
     # l4-program.md 11.3 の自作の判断により通常 SAVE は ASCII。公式との差異。
     if a.kind == 't9':
         want.pop('merge-binary')
+    if a.kind == 't8':
+        for name in T8_F1_TAIL_ARMS:
+            if name in want:
+                want[name]['writes'] = drop_f1_tail_e007(want[name]['writes'])
     bad = 0
     for name in sorted(want):
         if name not in got:
