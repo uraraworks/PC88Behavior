@@ -215,8 +215,6 @@ fkey_expand:
     LD DE,16
     JR NZ,fkey_seek
     LD A,B
-    CP 5
-    JR NC,fkey_done
     LD HL,KEY_BOOT_DEFAULTS
     LD DE,12
 fkey_seek:
@@ -228,7 +226,6 @@ fkey_seek_loop:
     DJNZ fkey_seek_loop
 fkey_found:
     LD A,(HL)
-    AND 07Fh                 ; bit7は既定値の短い表示名の印
     LD B,A
     INC HL
     OR A
@@ -263,11 +260,18 @@ fkey_no:
     XOR A
     RET
 KEY_BOOT_DEFAULTS:
-    DB 088h,"ERROR 56",0,0,0
-    DB 3,"TWO",0,0,0,0,0,0,0,0
-    DB 3,"TRI",0,0,0,0,0,0,0,0
-    DB 5,"DELTA",0,0,0,0,0,0
-    DB 4,"FIVE",0,0,0,0,0,0,0
+    DB 5,"list ",0,0,0,0,0,0
+    DB 4,"run",13,0,0,0,0,0,0,0
+    DB 6,"files",13,0,0,0,0,0
+    DB 5,"load",34,0,0,0,0,0,0
+    DB 4,"cls",13,0,0,0,0,0,0,0
+KEY_BOOT_DISPLAY_END:
+KEY_BOOT_SHIFT:
+    DB 6,"color ",0,0,0,0,0
+    DB 7,"locate ",0,0,0,0
+    DB 7,"screen ",0,0,0,0
+    DB 6,"width ",0,0,0,0,0
+    DB 5,"goto ",0,0,0,0,0,0
 KEY_BOOT_DEFAULTS_END:
 KEY_READ:
     LD A,(MM_IK_COUNT)

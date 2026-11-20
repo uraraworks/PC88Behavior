@@ -154,8 +154,9 @@ STRIDE = 120
 COLS = 80
 BANNER_LINES = [
     b"PC88Behavior Compatible ROM  2026-11-12 (fc61024)",
-    b"(C) 2026 URARA-works",
+    b"Copyright (C) 2026 URARA-works",
     b"Welcome back to the 80s!",
+    None,
     b"Ok",
 ]
 
@@ -169,6 +170,12 @@ def row_attr(row):
 
 ok = True
 for row, expected in enumerate(BANNER_LINES):
+    if expected is None:
+        import re
+        match = re.fullmatch(rb"[0-9]+ bytes available *", row_text(row))
+        if not match:
+            print("NG: 起動時の空き容量行が不正"); ok = False
+        continue
     if row_text(row) != expected.ljust(COLS, b" "):
         print(f"NG: 起動表示の行{row}が期待と異なる"); ok = False
 
@@ -176,7 +183,7 @@ for row, expected in enumerate(BANNER_LINES):
 # ＝40バイト。src/l3_main/screen.asm DEFAULT_ATTRと同じ値をここで
 # 独立に計算する(仕様書の値から計算。実装の定数をそのまま流用しない)。
 EXPECT_ATTR = bytes([0x80, 0x00] * 20)
-for row in (0, 1, 5, 19):
+for row in (0, 1, 5):
     a = row_attr(row)
     if a != EXPECT_ATTR:
         print(f"NG: row{row}の属性域が第14節の既定の並び(0x80,0x00)x20と一致しない: {a.hex()}"); ok = False
@@ -199,8 +206,10 @@ python3 - "$WORK/noboot.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
 lines = [b"PC88Behavior Compatible ROM  2026-11-12 (fc61024)",
-         b"(C) 2026 URARA-works", b"Welcome back to the 80s!", b"Ok"]
+         b"Copyright (C) 2026 URARA-works", b"Welcome back to the 80s!"]
 ok = all(data[i*120:i*120+80] == line.ljust(80, b" ") for i, line in enumerate(lines))
+import re
+ok = ok and bool(re.fullmatch(rb"[0-9]+ bytes available *", data[3*120:3*120+80])) and data[4*120:4*120+80] == b"Ok".ljust(80, b" ")
 print("OK: 起動セクタ無効の表示" if ok else "NG: 起動セクタ無効の表示")
 sys.exit(0 if ok else 1)
 PYEOF
@@ -321,8 +330,8 @@ python3 "$REPO/tools/gen_l3_key_table.py" --check
 
 # -----------------------------------------------------------------------
 say "7. キー直押し（--key-matrix）: 無修飾・CAPS・GRPH・SHIFT・RETURN"
-# 待機後にバナー・Okの表示が終わっている前提で、行4(row0=4)のcol0を見る
-# (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=4,VAR_COL=0になる)。
+# 待機後にバナー・Okの表示が終わっている前提で、行5(row0=5)のcol0を見る
+# (SCREEN_MAIN: banner→NEWLINE→Ok→NEWLINEでVAR_ROW=5,VAR_COL=0になる)。
 check_key() {
   local label="$1"; shift
   local expect_hex="$1"; shift
@@ -336,7 +345,7 @@ import sys
 data = open(sys.argv[1], "rb").read()
 expect = int(sys.argv[2], 16)
 label = sys.argv[3]
-got = data[4*120]
+got = data[5*120]
 if got == expect:
     print(f"OK: {label} の打鍵結果は期待どおり")
 else:
@@ -364,8 +373,8 @@ if [ $? -ne 0 ]; then fail "q88measure(key:return)が失敗"; cat "$WORK/km_retu
 python3 - "$WORK/km_return.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row4 = data[4*120:4*120+2]
-row5 = data[5*120:5*120+2]
+row4 = data[5*120:5*120+2]
+row5 = data[6*120:6*120+2]
 ok = row4 == b"  " and row5 == b"Ok"
 print(("OK" if ok else "NG") + f": RETURN row4長={len(row4)} row5長={len(row5)}（本文非出力）")
 sys.exit(0 if ok else 1)
@@ -383,7 +392,7 @@ check_edit_key() {
   if [ $? -ne 0 ]; then fail "編集キー実行($label)"; return; fi
   python3 - "$dump" "$expected" "$label" <<'PYEOF'
 import sys
-row = open(sys.argv[1], 'rb').read()[4*120:4*120+9]
+row = open(sys.argv[1], 'rb').read()[5*120:5*120+9]
 expected = bytes.fromhex(sys.argv[2])
 ok = row[:len(expected)] == expected
 print(('OK' if ok else 'NG') + ': 編集キー ' + sys.argv[3])
@@ -407,7 +416,7 @@ if [ $? -ne 0 ]; then fail "編集キー実行(ctrl_m)"; fi
 python3 - "$WORK/edit_ctrl_m.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], 'rb').read()
-ok = data[4*120:4*120+2] == b'  ' and data[5*120:5*120+2] == b'Ok'
+ok = data[5*120:5*120+2] == b'  ' and data[6*120:6*120+2] == b'Ok'
 print(('OK' if ok else 'NG') + ': 編集キー ctrl_m')
 sys.exit(not ok)
 PYEOF
@@ -453,7 +462,7 @@ for name, editing, expected in cases:
         sys.exit(1)
     data = Path(dump).read_bytes()
     rows = [data[r*120:r*120+80].rstrip() for r in range(25)]
-    if rows[8] != expected:
+    if rows[9] != expected:
         print('NG: LINE INPUT ' + name, flush=True)
         sys.exit(1)
     print('OK: LINE INPUT ' + name, flush=True)
@@ -470,7 +479,7 @@ if [ $? -ne 0 ]; then fail "q88measure(type)が失敗"; cat "$WORK/type.stderr.t
 python3 - "$WORK/type.vram.bin" "$TYPE_ROM_IOLOG" <<'PYEOF'
 import re, sys
 data = open(sys.argv[1], "rb").read()
-row4 = data[4*120:4*120+2]
+row4 = data[5*120:5*120+2]
 ok = row4 == b"ab"
 print(("OK" if ok else "NG") + f": エコー row4長={len(row4)}（本文非出力）")
 if not ok:
@@ -478,10 +487,10 @@ if not ok:
 pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
 vals = pat.findall(open(sys.argv[2]).read())
 last_pair = vals[-2:]
-if last_pair == ["02", "04"]:
-    print(f"OK: カーソル追従 最後のOUT(50)組={last_pair}（col=2,row=4）")
+if last_pair == ["02", "05"]:
+    print(f"OK: カーソル追従 最後のOUT(50)組={last_pair}（col=2,row=5）")
 else:
-    print(f"NG: カーソル追従 最後のOUT(50)組={last_pair}（期待 ['02','04']）")
+    print(f"NG: カーソル追従 最後のOUT(50)組={last_pair}（期待 ['02','05']）")
     sys.exit(1)
 PYEOF
 [ $? -ne 0 ] && fail "行入力の検査"
@@ -497,7 +506,7 @@ if [ $? -ne 0 ]; then fail "q88measure(ktfault)が失敗"; cat "$WORK/ktfault.st
 python3 - "$WORK/ktfault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-got = data[4*120]
+got = data[5*120]
 if got != 0x71:
     print("OK(検出力): 表の故障注入を検出できた")
     sys.exit(0)
@@ -520,7 +529,7 @@ pat = re.compile(r"OUT\s+0050\s+([0-9A-Fa-f]{2})")
 vals = pat.findall(open(sys.argv[1]).read())
 last_pair = vals[-2:]
 if last_pair != ["02", "04"]:
-    print(f"OK(検出力): カーソル故障注入がかかると最後のOUT(50)組={last_pair}(期待['02','04']と不一致)になり区別できた")
+    print(f"OK(検出力): カーソル故障注入がかかると最後のOUT(50)組={last_pair}(期待['02','05']と不一致)になり区別できた")
     sys.exit(0)
 else:
     print("NG(検出力不足): カーソルを故障注入しても検査8と区別できない"); sys.exit(1)
@@ -642,7 +651,7 @@ if [ $? -ne 0 ]; then fail "q88measure(shiftfault)が失敗"; cat "$WORK/shiftfa
 python3 - "$WORK/shiftfault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-got = data[4*120]
+got = data[5*120]
 if got != 0x51:
     print("OK(検出力): SHIFT表の故障注入を検出できた")
     sys.exit(0)
@@ -666,7 +675,7 @@ if [ $? -ne 0 ]; then fail "q88measure(key:space)が失敗"; cat "$WORK/km_space
 python3 - "$WORK/km_space.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row4 = data[4*120:4*120+3]
+row4 = data[5*120:5*120+3]
 expect = bytes([0x61, 0x20, 0x62])  # A, SPACE(0x20を書く選択), B
 if row4 == expect:
     print("OK: SPACEでカーソルが1桁進む")
@@ -687,7 +696,7 @@ if [ $? -ne 0 ]; then fail "q88measure(spacefault)が失敗"; cat "$WORK/spacefa
 python3 - "$WORK/spacefault.vram.bin" <<'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
-row4 = data[4*120:4*120+3]
+row4 = data[5*120:5*120+3]
 expect_normal = bytes([0x61, 0x20, 0x62])
 if row4 != expect_normal:
     print("OK(検出力): SPACE故障注入を検出できた")

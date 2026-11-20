@@ -163,12 +163,12 @@ fi
 
 # -----------------------------------------------------------------------
 say "3. 直接モードPRINTの書式（通常ビルド、--typeで打鍵）"
-# 打った行は row0=4(バナー3行・最初のOk行の次)、出力行はrow0=5、
-# Okはrow0=6という並びになる(docs/spec/l4-basic.md 第1節の相対+1/+2)。
+# 打った行は row0=5(バナー4行・最初のOk行の次)、出力行はrow0=6、
+# Okはrow0=7という並びになる(docs/spec/l4-basic.md 第1節の相対+1/+2)。
 # STRIDE=120, COLS=80はl3-main.md 第1〜2節。
 STRIDE=120
-ROW_OUTPUT=5
-ROW_OK=6
+ROW_OUTPUT=6
+ROW_OK=7
 
 # 数値の書式(l4-basic.md 第2節): 前置1桁(正/0は空白、負は'-') + 数字 +
 # 後置空白1。文字列(第3節): 前後空白なし。ゾーン(第4節): ','は次の14刻み
@@ -287,7 +287,7 @@ say "3f. 範囲外・0除算(l4-basic.md 第5.6節): 出力2行・Okが相対+3"
 # 文言は第7.1節のマニュアル一覧(Overflow=6, Division by zero=11)。
 # 1行目(空行)の扱いは仕様書に無い判断(interp.asmヘッダコメント参照、
 # 実際の画面表示の文言・中身そのものは未確認、第10節5)。
-ROW_OK_RUNTIME=7
+ROW_OK_RUNTIME=8
 check_runtime_err() {
   local label="$1" typed="$2" expected_msg="$3"
   local dump="$WORK/${label}.vram.bin"
@@ -378,9 +378,9 @@ def row_text(row, n):
     base = row * stride
     return data[base:base + n].decode("ascii", errors="replace")
 
-ROW_ECHO = 4  # 打った行のエコー(l4_basic_selftest.sh冒頭コメント参照)
+ROW_ECHO = 5  # 打った行のエコー(l4_basic_selftest.sh冒頭コメント参照)
 got_echo = row_text(ROW_ECHO, len(expected_echo))
-got_out = row_text(5, len(expected_out))
+got_out = row_text(6, len(expected_out))
 if got_echo == expected_echo and got_out == expected_out:
     print(f"OK: {label} エコーと出力が一致")
 else:
@@ -406,7 +406,7 @@ python3 - "$WORK/l3spacefault.vram.bin" "$STRIDE" << 'PYEOF'
 import sys
 data = open(sys.argv[1], "rb").read()
 stride = int(sys.argv[2])
-got_echo = data[4*stride:4*stride+7].decode("ascii", errors="replace")
+got_echo = data[5*stride:5*stride+7].decode("ascii", errors="replace")
 expect_normal = "print 1"
 if got_echo != expect_normal:
     print("OK: 画面の比較（本文非出力）")

@@ -99,6 +99,14 @@ SCREEN_BANNER:
     LD HL,BANNER_TXT3
     CALL PRINT_STR
     CALL NEWLINE
+    LD HL,(MM_FREE_TOP)
+    LD DE,(MM_HEAP_END)
+    OR A
+    SBC HL,DE
+    CALL PRINT_UDEC
+    LD HL,BANNER_FREE
+    CALL PRINT_STR
+    CALL NEWLINE
 
     LD A,EXTRA_LINES
     OR A
@@ -325,12 +333,71 @@ SCROLL:
 ; ---------------------------------------------------------------------
 ; データ
 ; ---------------------------------------------------------------------
+KEY_CLEAR_ROW:
+    PUSH HL
+    LD B,80
+ky_clear:
+    LD (HL),32
+    INC HL
+    DJNZ ky_clear
+    LD A,(MM_SCR_MODE)
+    AND 1
+    JR Z,ky_attr_default
+    LD A,0E8h
+ky_attr_default:
+    LD C,A
+    LD B,20
+ky_clear_attr:
+    LD (HL),080h
+    INC HL
+    LD (HL),C
+    INC HL
+    DJNZ ky_clear_attr
+    POP DE
+    LD A,(MM_SCR_MODE)
+    BIT 1,A
+    RET NZ
+    BIT 0,A
+    RET NZ                     ; カラーの反転は未確定
+    PUSH DE
+    LD HL,80
+    ADD HL,DE
+    EX DE,HL
+    LD A,(MM_SCR_COLS)
+    CP 80
+    LD A,5
+    JR Z,ky_attr_start
+    LD A,3
+ky_attr_start:
+    LD B,5
+ky_attr_loop:
+    LD (DE),A
+    INC DE
+    LD C,A
+    XOR A
+    LD (DE),A
+    INC DE
+    LD A,C
+    ADD A,12
+    LD (DE),A
+    INC DE
+    LD A,4
+    LD (DE),A
+    INC DE
+    LD A,C
+    ADD A,14
+    DJNZ ky_attr_loop
+    POP DE
+    RET
+
 BANNER_TXT:
     DB "PC88Behavior Compatible ROM  @BUILD_DATE@ (@BUILD_REV@)",0
 BANNER_TXT2:
-    DB "(C) 2026 URARA-works",0
+    DB "Copyright (C) 2026 URARA-works",0
 BANNER_TXT3:
     DB "Welcome back to the 80s!",0
+BANNER_FREE:
+    DB " bytes available",0
 FILLER_TXT:
     DB "----FILLER----",0
 OK_TXT:
