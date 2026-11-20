@@ -113,7 +113,8 @@ class MiniZ80:
                 self.mem[self._imm16()] = self.a
             elif op == 0xF7:  # RST 30h + 状態ページのインライン引数
                 operand = self._imm8()
-                address = 0x7c00 | (operand & 0x3f)
+                # 状態ページは固定入口用RAMとの衝突を避けて移動された。
+                address = m.HDR_PTR | (operand & 0x3f)
                 if operand & 0xc0 == 0x80:
                     self.mem[address] = self.a
                 elif operand & 0xc0 in (0, 0xc0):

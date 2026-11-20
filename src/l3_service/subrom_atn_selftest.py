@@ -135,8 +135,10 @@ class CPU:
                 self.r[7], self.f = a, (self.f & 0xC4) | (a & 0x28) | bit
             elif op == 0xCB:
                 ext = self.byte()
-                assert 0x80 <= ext < 0xC0, (pc, ext)
-                self.put(ext & 7, self.get(ext & 7) & ~(1 << ((ext >> 3) & 7)))
+                assert 0x80 <= ext <= 0xFF, (pc, ext)
+                bit = 1 << ((ext >> 3) & 7)
+                value = self.get(ext & 7)
+                self.put(ext & 7, value | bit if ext >= 0xC0 else value & ~bit)
             elif op in (0xC5, 0xD5, 0xE5, 0xF5):
                 self.push(self.r[7] << 8 | self.f if op == 0xF5 else self.pair((op >> 3) & 6))
             elif op in (0xC1, 0xD1, 0xE1, 0xF1):
@@ -249,7 +251,8 @@ def main():
             cpu.r = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0, af >> 8]
             cpu.f = af & 255
             cpu.mem[0x7000:0x7002] = bytes((0xF7, operand))
-            addr = 0x7C00 | (operand & 63)
+            # 状態ページの移動先で全インライン引数を検査する。
+            addr = sub.HDR_PTR | (operand & 63)
             cpu.mem[addr] = operand ^ 0xA5
             cpu.run(0x7000, 0x7002)
             mode = operand & 0xC0

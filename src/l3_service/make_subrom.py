@@ -1688,8 +1688,14 @@ def build_subrom(break_write_ack=False,
     a.out_imm(0xFF, PH_RECV_START_CLR)  # 第237版: 送出後の要求待ちでRFDを下げる
     # 旧6バイト判別を復元する故障版は、復帰後もその旧経路へ通す。
     # 新しい確定長5の入口で故障を迂回しない。
-    if not (break_dispatch_return or break_fixed_byte_cutoff
-            or restore_request_kind_length6):
+    # 測定介入は起動通信だけを対象とし、LOAD/RUN後の専用受信経路を使わない。
+    # 介入版のみ通常の要求待ちへ戻し、追加命令の窓内容量を確保する。
+    compact_measurement = (fast_no_disk_response_ready or early_response_after is not None
+                           or inject_m6ib_b5)
+    if compact_measurement:
+        a.jp("IDLE_DISPATCH")
+    elif not (break_dispatch_return or break_fixed_byte_cutoff
+              or restore_request_kind_length6):
         a.call("RESET_HDR_RUN")           # HL=REQ_HDR、RUN_LEN=0
         # LOAD/RUNはSEND_BYTEを通らないため、次の要求に備えて受信窓も畳む。
         a.ld_mem_a(WINDOW_RUN_POS)
