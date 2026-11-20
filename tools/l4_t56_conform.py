@@ -86,6 +86,11 @@ def project_t8(data):
         if name == 'default':
             # 既定の割り当ては自作の値を使う（l4-program 5.7.6）。長さと値は比べない。
             writes = [w for w in writes if w[0] != 0xe010]
+        elif name in ('off', 'stop', 'undefined'):
+            # プログラム終了後にF1の割り当てが入力されて実行される腕。公式の既定は実行すると
+            # 誤り56になりE007へ書くが、自作の既定は自作の値（l4-program 5.7.6）でエラーにならない。
+            # 既定の割り当ての実行結果に依存する E007 の書き込みは比べない。
+            writes = [w for w in writes if w[0] != 0xe007]
         out[name] = {'response': rec.get('response'), 'writes': writes}
     return out
 
