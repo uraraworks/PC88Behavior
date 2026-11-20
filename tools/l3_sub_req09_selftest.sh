@@ -60,14 +60,24 @@ original = Path(sub.__file__).read_text()
 site = '    a.cp_n(0x09)\n    a.jr_z("_general_range_send")'
 assert original.count(site) == 1
 fault_path = work / 'fault_sub.py'
-fault_path.write_text(original.replace(site,
+fault_source = original.replace(site,
     '    a.cp_n(0x09)\n    a.jr_nz("_req09_no_fault")\n'
     '    a.inc_de()  # 自己検査の終端+1故障\n'
-    '    a.label("_req09_no_fault")\n    a.jr_z("_general_range_send")'))
+    '    a.label("_req09_no_fault")\n    a.jr_z("_general_range_send")')
+# この検査は起動応答を使わない。故障版だけ通常の復帰経路を通し、
+# 未使用の起動応答フラグ初期化を省いて故障注入と配置を窓内に収める。
+compact_site = '                           or inject_m6ib_b5 or compact_test_build\n'
+assert fault_source.count(compact_site) == 1
+fault_source = fault_source.replace(compact_site, '                           or inject_m6ib_b5\n')
+clear_site = ('        a.ld_mem_a(ROUND0_RESPONSE_PENDING)\n'
+              '        a.ld_mem_a(EXCHANGE3_RESPONSE_PENDING)\n')
+assert fault_source.count(clear_site) == 1
+fault_source = fault_source.replace(clear_site, '')
+fault_path.write_text(fault_source)
 spec = importlib.util.spec_from_file_location('req09_fault_sub', fault_path)
 fault = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fault)
-# 終端故障だけを調べる派生版は復帰経路を短縮して窓内に収める。
+# 終端故障だけを調べる派生版もフェッチ窓内に収める。
 fault_rom, _ = fault.build(compact_test_build=True)
 
 
