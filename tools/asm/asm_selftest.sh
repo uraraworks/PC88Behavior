@@ -53,7 +53,8 @@ FROZEN_SUBROM_COMMIT=97430aa
 FROZEN_SUBROM_DISK_SHA="6723a104a4f47e0aa6398f528ef3b124c11c99ad83e69c050ad984525bcb93ba"
 # sub-rom-entry第5版: 0263/07D6/048F、共通化と固定入口間の空白利用を反映。
 # 第6版（216c2bf）: FDC結果取得と4バイト受信の公開入口を反映。
-EXPECT_SUBROM_DISK_SHA="4a3dd966ead4df572f000590576f613c1bbafe9320e887dc56e59b8200313e29"
+# 第7版の固定入口・作業域変更後の本番バイト列を固定する。
+EXPECT_SUBROM_DISK_SHA="1d4036e7bb665adda571fdf96492d4cba045c8a7532cd067756f27b0ed489859"
 
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then

@@ -63,7 +63,8 @@ candidate_rom, candidate_used = subrom.build(early_response_after=5)
 # (既定側の判定列6バイト、介入側9バイト)ので、差は2から3になった。
 # 固定入口回避・分岐の拡張・共有化前のサイズで、元の介入差3バイトを保つ。
 def logical_size(length):
-    a = assembled(length)
+    # 双方を同じ短縮復帰経路にして介入自体の3バイト差を測る。
+    a = subrom.build_subrom(early_response_after=length, compact_test_build=True)
     return a.logical_code_size
 if logical_size(5) - logical_size(None) != 3:
     raise SystemExit(

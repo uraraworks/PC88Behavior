@@ -304,7 +304,8 @@ import make_subrom as subrom
 default_rom, default_used = subrom.build()
 explicit_default_rom, explicit_default_used = subrom.build(intervene_no_disk_wait=False)
 wait_rom, wait_used = subrom.build(intervene_no_disk_wait=True)
-default_asm = subrom.build_subrom()
+# 介入版は容量確保のため復帰経路を短縮する。同条件で5バイトを比較する。
+default_asm = subrom.build_subrom(compact_test_build=True)
 default_asm.resolve()
 wait_asm = subrom.build_subrom(intervene_no_disk_wait=True)
 wait_asm.resolve()

@@ -623,6 +623,7 @@ class Asm:
     def bit6_e(self): self.db(0xCB, 0x73)
     def res6_e(self): self.db(0xCB, 0xB3)
     def res7_e(self): self.db(0xCB, 0xBB)
+    def set7_e(self): self.db(0xCB, 0xFB)
     def rrca(self): self.db(0x0F)
     def bit7_e(self): self.db(0xCB, 0x7B)
     def res7_l(self): self.db(0xCB, 0xBD)
@@ -780,6 +781,7 @@ _ASM_TEMPLATES = {
     "bit6_e": lambda: "BIT 6,E",
     "res6_e": lambda: "RES 6,E",
     "res7_e": lambda: "RES 7,E",
+    "set7_e": lambda: "SET 7,E",
     "rrca": lambda: "RRCA",
     "ld_de_a": lambda: "LD (DE),A",
     "bit7_e": lambda: "BIT 7,E",
@@ -1422,7 +1424,7 @@ def build_subrom(break_write_ack=False,
     a.or_a()
     a.jr("_state_return")
     a.label("_state_memory")
-    a.db(0xCB, 0xFB)                  # SET 7,E: 状態領域はページ後半
+    a.set7_e()                        # 状態領域はページ後半
     a.pop_af()
     a.ld_a_de()
     a.label("_state_access_done")
@@ -1685,8 +1687,10 @@ def build_subrom(break_write_ack=False,
     # 介入版のみ通常の要求待ちへ戻し、追加命令の窓内容量を確保する。
     # 検査専用の故障注入・POST_BULK強制版も介入版と同じ復帰経路で容量を確保する。
     # 第241版: 応答破壊・WRITE応答抑止の故障版も対象。本番の命令列は変えない。
+    # no_disk反復と入口遅延の介入版も起動側の検査専用なので同じ短縮を使う。
     compact_measurement = (fast_no_disk_response_ready or early_response_after is not None
                            or inject_m6ib_b5 or compact_test_build
+                           or intervene_no_disk_wait or dry_run_sub_entry_delay is not None
                            or force_post_bulk_active or break_response or break_write_ack)
     if compact_measurement:
         a.jp("IDLE_DISPATCH")

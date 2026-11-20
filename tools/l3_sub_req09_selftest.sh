@@ -67,7 +67,8 @@ fault_path.write_text(original.replace(site,
 spec = importlib.util.spec_from_file_location('req09_fault_sub', fault_path)
 fault = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fault)
-fault_rom, _ = fault.build()
+# 終端故障だけを調べる派生版は復帰経路を短縮して窓内に収める。
+fault_rom, _ = fault.build(compact_test_build=True)
 
 
 def run(name, start, end, request=9, broken=False):

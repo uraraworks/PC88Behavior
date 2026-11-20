@@ -183,7 +183,8 @@ FILL_RESPONSE:
     DJNZ FILL_RESPONSE
 '''
     if entry == 0x7d6:
-        prepare += '    LD A,1\n    LD (07C32h),A\n'  # 既存指定とは異なる装置バイトをCから渡す
+        # SEEKが参照する装置バイトを現行の要求ヘッダに置く。
+        prepare += f'    LD A,1\n    LD ({sub.REQ_HDR + 2}),A\n'
     probe = '    ORG 07800h\n' + prepare + '''
     LD A,0A5h
     LD (07F0Bh),A
@@ -426,9 +427,13 @@ MAIN_SUB_TIMEOUT_LIMIT EQU 65535
             image[pos] = 0x3c
     elif mutation == 'seek_register':
         # 正しいSEEKを済ませ、戻りHLだけを壊す独立した故障。
+        # 本番末尾は2バイトしか空かないため、この故障版だけ復帰経路を短縮する。
+        compact_rom, compact_used = sub.build(compact_test_build=True)
+        compact = sub._LAST_ASM
+        image = bytearray(compact_rom)
         wrapper = 0x800 - 5
-        assert used <= wrapper
-        target = a.labels['ENTRY_SEEK']
+        assert compact_used <= wrapper
+        target = compact.labels['ENTRY_SEEK']
         image[wrapper:wrapper+5] = bytes((0xcd, target & 255, target >> 8, 0x24, 0xc9))
         image[0x7d7:0x7d9] = wrapper.to_bytes(2, 'little')
     elif mutation in ('read_skip', 'read_arg', 'read_data'):
