@@ -139,7 +139,7 @@ def run(entry, *, mode='CALL', fault=False, disk2=False, value=0x35, flags=1,
     prepare = ''
     if bulk:
         values = {sub.REQ_HDR+1: 1, sub.REQ_HDR+2: 0, sub.REQ_HDR+4: 2, sub.REQ_HDR+6: 3}
-        values.update({0x7b00+i: v for i,v in enumerate((0x34,0x36,2,0,0x50,1))})
+        values.update({0x7b00+i: v for i,v in enumerate(((sub.REQ_HDR & 255)+4,(sub.REQ_HDR & 255)+6,2,0,0x50,1))})
         prepare = ''.join(f'    LD A,{v}\n    LD ({address}),A\n' for address,v in values.items())
         transfer = '    LD HL,07B00h\n' + transfer
     if entry == 0x263:
