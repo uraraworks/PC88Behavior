@@ -22,23 +22,23 @@ subrom = load("response_ready_subrom", repo / "src/l3_service/make_subrom.py")
 search = load("response_ready_search", repo / "tools/search_error_response_candidate.py")
 
 
-def assembled(fast=False):
-    a = subrom.build_subrom(fast_no_disk_response_ready=fast)
+def assembled(fast=False, compact=False):
+    a = subrom.build_subrom(fast_no_disk_response_ready=fast, compact_test_build=compact)
     a.resolve()
     return a
 
 
 control_rom, control_used = subrom.build()
 fast_rom, fast_used = subrom.build(fast_no_disk_response_ready=True)
-# 2026-09-10: 絶対値(2042/2045)の直書きをやめた。理由はearly_response_rom_selftest.sh
-# と同じ。見たいのは「fast版がcontrol版よりちょうど4バイト大きい」ことと窓内であること。
-# fast版は通常版の末尾経路に SCF (1) と JP (3) を追加する。
-# 固定入口前の詰め物は構成ごとに変わる。命令・表の実使用差を厳密に検査。
-control_padding = assembled(False).layout_padding
-fast_padding = assembled(True).layout_padding
-if (fast_used - fast_padding) - (control_used - control_padding) != 4:
+# fast版は介入用の短縮復帰経路を使うため、通常版との差には
+# 復帰経路の36バイト削減が含まれる。配置前の命令・表で差を検査する。
+control_asm = assembled(False)
+fast_asm = assembled(True)
+compact_asm = assembled(compact=True)
+if (control_asm.logical_code_size - compact_asm.logical_code_size != 36
+        or fast_asm.logical_code_size - compact_asm.logical_code_size != 4):
     raise SystemExit(
-        f"NG: fast版とcontrol版の差が4バイトでない: {control_used}/{fast_used}")
+        f"NG: fast版の命令サイズ差が想定外: {control_used}/{fast_used}")
 if max(control_used, fast_used) > subrom.SUB_ROM_FETCH_WINDOW:
     raise SystemExit(f"NG: フェッチ窓を超えた: {control_used}/{fast_used}")
 changed = tuple(i for i, pair in enumerate(zip(control_rom, fast_rom))
@@ -48,7 +48,7 @@ validated = search.validate_rom_intervention_bytes(
 if changed != validated:
     raise SystemExit("NG: ROM preflight did not return the actual offsets")
 print(f"OK: control/fast ROM size={control_used}/{fast_used}"
-      f"（差4バイト・窓内）and {len(changed)}-byte diff")
+      f"（短縮復帰を含む差・窓内）and {len(changed)}-byte diff")
 
 inflated_default = (bytes(control_rom[:0x0100]) + b"\x00\x00\x00" +
                     bytes(control_rom[0x0100:-3]))

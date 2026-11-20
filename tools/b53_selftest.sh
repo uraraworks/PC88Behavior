@@ -22,7 +22,8 @@ assert source.count(old) == 1
 source = source.replace(old, '    a.label("_general_load_pair_second")\n    a.ld_a_c()')
 ns = dict(m.__dict__)
 exec(compile(source, m.__file__, 'exec'), ns)
-rom, used = ns['build']()
+# 故障注入の追加命令は検査版だけの短縮復帰経路で収める。
+rom, used = ns['build'](compact_test_build=True)
 assert used <= m.SUB_ROM_FETCH_WINDOW
 out = pathlib.Path(sys.argv[1]); out.mkdir()
 (out/'DISK.ROM').write_bytes(rom)

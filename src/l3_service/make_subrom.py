@@ -1167,6 +1167,7 @@ def build_subrom(break_write_ack=False,
                   break_error_response_bit6=False,
                   intervene_no_disk_wait=False,
                   fast_no_disk_response_ready=False,
+                  compact_test_build=False,
                   early_response_after=None,
                   error_response_candidate=None,
                   probe_site=None,
@@ -1690,8 +1691,10 @@ def build_subrom(break_write_ack=False,
     # 新しい確定長5の入口で故障を迂回しない。
     # 測定介入は起動通信だけを対象とし、LOAD/RUN後の専用受信経路を使わない。
     # 介入版のみ通常の要求待ちへ戻し、追加命令の窓内容量を確保する。
+    # 検査専用の故障注入・POST_BULK強制版も介入版と同じ復帰経路で容量を確保する。
     compact_measurement = (fast_no_disk_response_ready or early_response_after is not None
-                           or inject_m6ib_b5)
+                           or inject_m6ib_b5 or compact_test_build
+                           or force_post_bulk_active)
     if compact_measurement:
         a.jp("IDLE_DISPATCH")
     elif not (break_dispatch_return or break_fixed_byte_cutoff
@@ -4394,6 +4397,7 @@ def build(break_write_ack=False,
           break_error_response_bit6=False,
           intervene_no_disk_wait=False,
           fast_no_disk_response_ready=False,
+          compact_test_build=False,
           early_response_after=None,
           error_response_candidate=None,
           probe_site=None,
@@ -4437,6 +4441,7 @@ def build(break_write_ack=False,
                           break_error_response_bit6=break_error_response_bit6,
                           intervene_no_disk_wait=intervene_no_disk_wait,
                           fast_no_disk_response_ready=fast_no_disk_response_ready,
+                          compact_test_build=compact_test_build,
                           early_response_after=early_response_after,
                           error_response_candidate=error_response_candidate,
                           probe_site=probe_site,
