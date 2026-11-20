@@ -169,10 +169,10 @@ RESULT_READY:
         prepare += ''.join(f'    LD A,{v}\n    LD ({0x7b00+i}),A\n'
                            for i, v in enumerate((0x31,0x82,0,0xff,0x55,0xa6)))
     if entry == 0xed and value == 0x12:
-        prepare += '''    LD A,012h
-    LD (07C1Bh),A
+        prepare += f'''    LD A,012h
+    LD ({sub.POST_BULK_ACTIVE}),A
     LD A,051h
-    LD (07C28h),A
+    LD ({sub.READ_END_HI}),A
     LD HL,05000h
     LD B,0
 FILL_RESPONSE:
