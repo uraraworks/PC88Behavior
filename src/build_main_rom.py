@@ -495,6 +495,7 @@ EXT_BANK1_MAIN_ADDR_LABELS = {
     "BANK1_LEX_IDENT_PEEK_ADDR": "LEX_IDENT_PEEK",
     "BANK1_PARSE_INT_ARG_ADDR": "PARSE_INT_ARG",
     "BANK1_READ_CHR_ADDR": "MAIN_SUB_READ_CHR_RETRY",
+    "BANK1_N_COMPLEX_ADDR": "N_COMPLEX_CALL",
     "BANK1_PRINT_CHAR_ADDR": "PRINT_CHAR",
     "BANK1_NEWLINE_ADDR": "NEWLINE",
     "BANK1_ADV_PTR_ADDR": "ADV_PTR",
@@ -3024,6 +3025,9 @@ def build_n_rom(main_rom, main_asm, work, *, enable_l4_selftest=False):
     nsource += (REPO / 'src/n_rom/renum.asm').read_text(encoding='utf-8')
     nsource += merge_source
     nsource += flow_source
+    for name in ("MAIN_SUB_SEND", "MAIN_SUB_SEND_CONT", "MAIN_SUB_RECV", "MAIN_SUB_SEND_LOGICAL_ONCE"):
+        nsource += f"FS_{name} EQU 0x{main_asm.labels.get(name, main_asm.labels['ENTRY_369A']):04X}\n"
+    nsource += (REPO / "src/n_rom/files_sense.asm").read_text(encoding="utf-8") + "\n"
     if enable_l4_selftest:
         # 共通RAM別名のうち、N側ですでに定義したものは重複させない。
         state = (REPO / 'src/l4_basic/state.asm').read_text(encoding='utf-8')

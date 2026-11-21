@@ -287,6 +287,23 @@ _fb_done:
 
 
 
+    ORG 0x63A1
+_files_type_error:
+    LD A,13
+    JR _files_error
+_files_drive_error:
+    LD A,70
+_files_error:
+    LD (B1_ERROR_KIND),A
+    LD A,1
+    LD (B1_ERROR_FLAG),A
+    RET
+_files_sense_media:
+    LD HL,04F00h
+    LD IX,BANK1_N_COMPLEX_ADDR
+    JP BANK1_MAIN_CALL_ADDR
+BANK1_N_COMPLEX_ADDR EQU 0x1787
+
     ORG 0x63E0
 binary1_63e0:
 bl_filename:
@@ -615,23 +632,23 @@ EXT_BANK1_FILES_COMMAND:
     CP ':'
     JR Z,_files_default_drive
     CP '"'
-    JR Z,_files_type_error
+    JP Z,_files_type_error
     ; `$`型の変数・文字列関数は数値式へ渡す前にERR 13へする。
     CALL _b1_call_lex_ident_peek
     CP 3
-    JR Z,_files_type_error
+    JP Z,_files_type_error
     CALL _b1_call_parse_int_arg
     LD A,(B1_ERROR_FLAG)
     OR A
     RET NZ
     LD A,D
     OR A
-    JR NZ,_files_drive_error
+    JP NZ,_files_drive_error
     LD A,E
     CP 1
     JR Z,_files_drive_one
     CP 2
-    JR NZ,_files_drive_error
+    JP NZ,_files_drive_error
     LD A,1
     JR _files_start
 _files_default_drive:
@@ -639,6 +656,8 @@ _files_drive_one:
     XOR A
 _files_start:
     LD (FILES_DRIVE),A
+    CALL _files_sense_media
+    RET NZ
     XOR A
     LD (FILES_PHASE),A
     LD (FILES_READ_OK),A
@@ -692,24 +711,6 @@ _files_cell_loop:
 _files_do_newline:
     CALL _b1_call_newline
     JR _files_dispatch
-
-_files_type_error:
-    LD A,1
-    LD (B1_ERROR_FLAG),A
-    LD A,13
-    LD (B1_ERROR_KIND),A
-    RET
-
-_files_drive_error:
-    LD A,1
-    LD (B1_ERROR_FLAG),A
-    LD A,70
-    LD (B1_ERROR_KIND),A
-    RET
-
-
-
-
 
     ORG 0x67B0
 binary1_67b0:
@@ -939,6 +940,7 @@ BANK1_PROGRAM_STORE_LINE_ADDR EQU 0x1787
 _b1_call_program_store_line:
     LD IX,BANK1_PROGRAM_STORE_LINE_ADDR
     JP BANK1_MAIN_CALL_ADDR
+; 応答1バイトを最後まで受信してから判定する。
 BANK1_READ_CHR_ADDR EQU 0x1787
 _b1_call_read_chr:
     LD IX,BANK1_READ_CHR_ADDR
