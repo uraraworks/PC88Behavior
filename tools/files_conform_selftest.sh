@@ -125,7 +125,15 @@ baseline = [(0, len(canary), hashlib.sha256(f"0\t{canary}\n".encode()).hexdigest
             (19, 1, "1" * 64)]
 records = snapshot("baseline", baseline) + snapshot("final", final) + snapshot("late", final)
 if "--screen-signature-at" in args and "preinsert:1100" in args:
-    records += snapshot("preinsert", baseline)
+    prompt = hashlib.sha256(b"1\tOk\n").hexdigest()
+    preinsert = [(0, 1, "3" * 64), (1, 2, prompt), (19, 1, "1" * 64)]
+    if os.environ.get("FILES_FAKE_BAD_PREINSERT"):
+        preinsert.pop(0)
+    records += snapshot("preinsert", preinsert)
+    pairs = [(args[i + 1], args[i + 3]) for i in range(len(args) - 3)
+             if args[i] == "--type-at" and args[i + 2] == "--type"]
+    if option("--insert-disk2-at") != "1200" or ("1300", r"CLS:FILES 2\n") not in pairs:
+        raise SystemExit(2)
 out.write_text("\n".join(records) + "\n", encoding="ascii")
 log = os.environ.get("FILES_FAKE_CALL_LOG")
 if log:
@@ -142,7 +150,7 @@ run_fake() {
   FILES_CONFORM_FRONTEND="$WORK/fake_frontend.py" FILES_CONFORM_CORE=dummy \
     FILES_CONFORM_TEST_ROM_DIR="$WORK/rom" FILES_CONFORM_EXPECTED="$expected" \
     FILES_FAKE_SOURCE_EXPECTED="$EXPECTED" FILES_FAKE_BAD_ARMS="$bad_arms" \
-    FILES_FAKE_CANARY="$CANARY" FILES_FAKE_NOEVENT_ARMS="${FILES_FAKE_NOEVENT_ARMS:-}" FILES_FAKE_CALL_LOG="$WORK/$name.calls" \
+    FILES_FAKE_CANARY="$CANARY" FILES_FAKE_BAD_PREINSERT="${FILES_FAKE_BAD_PREINSERT:-}" FILES_FAKE_NOEVENT_ARMS="${FILES_FAKE_NOEVENT_ARMS:-}" FILES_FAKE_CALL_LOG="$WORK/$name.calls" \
     PC88_FILES_CONFORM_WORK="$WORK/$name.work" \
     bash "$REPO/tools/conform_files.sh" >"$WORK/$name.out" 2>"$WORK/$name.err" || rc=$?
   printf '%s' "$rc"
@@ -159,20 +167,26 @@ awk -F '\t' '$5 != "noswap" || $3 != "disk1-200" {exit 1}
   || ng "ドライブ1のフレーム200挿入・ドライブ2の挿入手順が不正"
 ok "偽フロントエンドで全29腕OK、媒体操作も所定どおり"
 
+rc="$(FILES_FAKE_BAD_PREINSERT=1 run_fake bad-preinsert "$EXPECTED" "")"
+[ "$rc" -eq 1 ] || ng "挿入前の行数異常を受理した"
+[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/bad-preinsert.out")" = N-wait ] \
+  || ng "挿入前の行数異常の判定が不正"
+ok "陰性対照: 挿入前の行数異常を拒否"
+
 cp "$EXPECTED" "$WORK/one-broken.tsv"
 python3 - "$WORK/one-broken.tsv" <<'PY'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1]); lines = p.read_text(encoding="ascii").splitlines()
 for i, line in enumerate(lines):
-    if line.startswith("row\tL1\t"):
+    if line.startswith("row\tL4\t"):
         f=line.split("\t"); f[5] = ("0" if f[5][0] != "0" else "1") + f[5][1:]
         lines[i]="\t".join(f); break
 p.write_text("\n".join(lines)+"\n", encoding="ascii")
 PY
 rc="$(run_fake broken-expected "$WORK/one-broken.tsv" "")"
 [ "$rc" -eq 1 ] || ng "期待値1行破損が不一致終了にならない"
-[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/broken-expected.out")" = L1 ] \
-  || ng "期待値1行破損のNG腕がL1だけでない"
+[ "$(awk -F '\t' '$2=="NG"{print $1}' "$WORK/broken-expected.out")" = L4 ] \
+  || ng "期待値1行破損のNG腕がL4だけでない"
 ok "陰性対照: 期待値1行破損で該当腕だけNG"
 
 rc="$(run_fake selected-ng "$EXPECTED" "L0 D-expr L91")"

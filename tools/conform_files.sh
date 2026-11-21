@@ -129,7 +129,7 @@ for arm in "${ARMS[@]}"; do
     --type-at 700 --type "$command")
   if [ "$arm" = N-wait ]; then
     qargs+=(--expect-disk2-empty --insert-disk2 "$WORK/base/L1.d88" --insert-disk2-at 1200
-      --screen-signature-at preinsert:1100)
+      --screen-signature-at preinsert:1100 --type-at 1300 --type 'CLS:FILES 2\n')
   else
     qargs+=(--insert-disk2 "$disk2" --insert-disk2-at 0)
   fi

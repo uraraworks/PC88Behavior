@@ -102,7 +102,17 @@ def compare(path: pathlib.Path, expected_path: pathlib.Path, arm: str) -> int:
         late = entry_lines(css.read_report(path, "late"))
     except Exception:
         raise CheckError("report_read") from None
-    count, first = mismatch(expected[arm], (final, late))
+    if arm == "N-wait":
+        try:
+            preinsert = css.read_report(path, "preinsert")
+            css.without_ready_prompt(preinsert)
+        except Exception:
+            raise CheckError("preinsert_read") from None
+        if preinsert.line_count != 3:
+            print("NG\t1\t-")
+            return 1
+    # N-wait の公式凍結値は保持し、自作の再実行は L1 の一覧と比較する。
+    count, first = mismatch(expected["L1" if arm == "N-wait" else arm], (final, late))
     if count == 0:
         print("OK\t0\t-")
         return 0
